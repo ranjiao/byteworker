@@ -60,8 +60,25 @@ byteworker 由**两个物理隔离**的部分组成。
 (作误删/错改的回滚网,**永不配 remote**),与 skill 仓库的 git 互不相干。
 数据目录含**公司机密内容**,绝不外传、绝不纳入 skill 仓库的 git。
 
-**核心原则:raw_data/ 是不可变真相源,knowledge/ 是可变消化产物。** 节点出错永远可回
-对应 raw_data 重新消化,两者通过 id 双向引用。
+### C. 真相源 vs 派生 —— 数据不变量
+
+知识库数据按「丢了能不能恢复」分两层,这是一条**硬不变量**:
+
+**真相源(truth source —— 丢失不可恢复,必须保护):**
+- `raw_data/` —— 不可变、逐字;一切知识的根。
+- `knowledge/` 节点 —— 可变消化产物,承载真正的知识价值;节点出错可回对应 `raw_data`
+  重新消化(LLM digest,非确定性),但 `raw_data` 本身丢了就无源可回。
+- `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
+
+**纯派生(derived —— 可随时丢弃,必须 100% 可重建,不必单独备份):**
+- `INDEX.md` —— 可从全部节点 frontmatter **确定性**全量重建(见 §6)。
+- `dashboard.md` 的派生部分 —— 关注项当前状态、⚠️ 派生项、📅 今日进展,每次刷新重算。
+
+**推论(SKILL.md「重建与恢复」据此实现):**
+- 派生物永远服从真相源 —— 两者不一致时,**以真相源为准、重建派生物**,绝不反向改真相源。
+- 「重建 `INDEX.md`」是一等操作,不是兜底:任何时候怀疑 INDEX 不对 → 直接全量重建。
+- 灾难恢复:数据目录有独立本地 git。误删/错改 → `git restore` / `git checkout` 回滚;
+  仅 `INDEX.md` 损坏/丢失 → 重建即可,无需动 git。
 
 ---
 
@@ -144,7 +161,7 @@ links:                                        # 图的边,双向维护(写 A→B
 | `created`/`updated`/`last_verified` | ✓ | 创建 / 最后修改 / 最后被新输入或人工确认的日期 |
 | `superseded_by` | ✗ | 退役时指向取代它的节点 |
 | `sources` | ✓ | 溯源根,指回 raw_data 或飞书链接 |
-| `links` | ✗ | 关联节点 id,**双向维护**;id 前缀即对端类型 |
+| `links` | ✗ | 关联节点 id,**双向维护**;id 前缀即对端类型;body 中提及的已存在节点 id 自动纳入(auto-link,见 SKILL.md 写入规范) |
 
 > 不再有 `topic` 字段——领域结构由 `area`/`org` 节点 + `links` 承载,topic 治理问题消解。
 
@@ -352,6 +369,9 @@ templates/
    数据目录有自己的**独立本地 git**(回滚用,永不 push),首次使用时由 skill 询问并初始化。
 5. **新增 `reading` 节点类型** — 外部读物(blog/论文/wiki)的思路库,与工作知识同图、
    独立成类(`knowledge/readings/`);新增 `source_type: web`。见 §0、§3、§4.2。
+6. **真相源/派生不变量 + auto-link + 重建一等化** — 显式锁定数据不变量(§1.C);写节点时
+   自动从 body 提及的节点 id 连边(auto-link);「重建 INDEX」提为一等操作并补灾难恢复。
+   源:gbrain 架构借鉴(reading-gbrain-system-of-record / reading-gbrain-retrieval)。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 
