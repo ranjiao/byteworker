@@ -32,12 +32,29 @@
 
 ## 安装
 
-```bash
-git clone <repo-url> byteworker
-ln -s "$PWD/byteworker" ~/.claude/skills/byteworker
+### 方式一:粘贴给 AI 助手自动安装(推荐)
+
+把下面这段**整段复制**,发给 Claude Code(或其他 AI 编码助手),它会自动装好:
+
+```
+帮我安装 byteworker skill:
+1. 用 git 克隆 https://github.com/ranjiao/byteworker 到 ~/proj/byteworker
+2. 建符号链接让 Claude Code 能发现它:
+   ln -sfn ~/proj/byteworker ~/.claude/skills/byteworker
+   (若你不是 Claude Code,把该目录放到你发现 skill / 指令文件的位置)
+3. 确认 ~/.claude/skills/byteworker/SKILL.md 存在,然后告诉我装好了
+说明:这是私有仓库,克隆需对 ranjiao/byteworker 有读取权限(git / gh 已登录即可);
+首次使用 skill 时它会问「知识库数据目录放哪」,按它的提问回答即可——属正常首次配置。
 ```
 
-首次使用时 skill 会询问你的知识库数据目录的绝对路径,并初始化目录结构。
+### 方式二:手动安装
+
+```bash
+git clone https://github.com/ranjiao/byteworker ~/proj/byteworker
+ln -sfn ~/proj/byteworker ~/.claude/skills/byteworker
+```
+
+装好后第一次使用时,skill 会询问你的知识库数据目录(默认目录名 `byteworker_kb`)并初始化目录结构。之后 skill 会每周静默自动从 GitHub 更新。
 
 ## 依赖
 
