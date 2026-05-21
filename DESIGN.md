@@ -84,7 +84,7 @@ byteworker 由**两个物理隔离**的部分组成。
 ---
 raw_id: raw-2026-05-20-q2-roadmap-review
 ingested: 2026-05-20T14:30:00+08:00
-source_type: feishu_doc | feishu_minutes | feishu_meeting | local_md
+source_type: feishu_doc | feishu_minutes | feishu_meeting | feishu_chat | local_md
 source_url: https://<feishu-url>           # 本地 md 则填原路径
 source_title: Q2 路线图评审会
 digest_status: pending | digested | failed
@@ -98,6 +98,11 @@ digest_targets:                            # 本次摄取触达的所有节点 i
 
 <逐字原文 / lark-minutes 纪要+逐字稿 / lark-doc 文档正文,原样粘贴>
 ```
+
+**`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行。frontmatter 不用 `source_url` /
+`source_title`,改用 `source_chat_id`(oc_xxx)、`source_chat_name`(群名)、
+`source_window`(消息时间窗,如 `2026-05-15 .. 2026-05-21`)。`raw_id` 的 slug 取
+群名 + 窗口标识。正文为该窗口的逐字消息(发送人 · 时间 · 内容,原样)。
 
 ---
 
@@ -187,7 +192,7 @@ links:                                        # 图的边,双向维护(写 A→B
 
 **`event`(记录,产生即定型)**
 ```markdown
-## 事件信息        <!-- 时间 / 类型:会议|评审|发布 / 参会人 -->
+## 事件信息        <!-- 时间 / 类型:会议|评审|发布|群聊讨论窗口 / 参会人 -->
 ## 议程与讨论
 ## 结论
 ## 待办事项        <!-- 责任人 + 截止日期 -->
@@ -213,6 +218,10 @@ links:                                        # 图的边,双向维护(写 A→B
 3. **创建或更新实体节点**:会上实质涉及的 person/project/org/area —— 不存在则建,
    已存在则把新信息累积进对应章节(状态/协作历史等)。
 4. **全部互链** `links`,并登记进 raw 的 `digest_targets`。
+
+**群聊摄取的扇出**:同样 1 个 `event`(该群该窗口的讨论快照)+ N 个 `decision` + 实体更新;
+但群聊约 90% 是噪音,digest 必须**强过滤** —— 只取决策/状态变化/关键结论/待办/重要问答
+(见 §4.4),窗口无实质内容则不造节点。窗口若含多个明显无关的大讨论,可拆成多个 `event`。
 
 **实体消解:** 创建实体前先按标题/名字在 INDEX 比对,命中已有节点则更新而非新建;
 有歧义则高亮问用户(避免同一个人产生两个 person 节点)。
