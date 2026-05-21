@@ -71,7 +71,7 @@ byteworker 由**两个物理隔离**的部分组成。
 - `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
 
 **纯派生(derived —— 可随时丢弃,必须 100% 可重建,不必单独备份):**
-- `INDEX.md` —— 可从全部节点 frontmatter **确定性**全量重建(见 §6)。
+- `INDEX.md` —— 可从全部节点的 frontmatter + body 首行 TL;DR **确定性**全量重建(见 §6)。
 - `dashboard.md` 的派生部分 —— 关注项当前状态、⚠️ 派生项、📅 今日进展,每次刷新重算。
 
 **推论(SKILL.md「重建与恢复」据此实现):**
@@ -313,17 +313,18 @@ links:                                        # 图的边,双向维护(写 A→B
 
 ## 6. INDEX.md — 主索引
 
-skill 自动维护,可从全部 frontmatter 全量重建。按 7 类分节,一行一节点:
+skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR 全量重建。
+按 7 类分节,一行一节点:
 
 ```markdown
 # 知识库索引
 
 ## 人员 (person)
-| id | 标题 | status | last_verified |
-|----|------|--------|----------------|
+| id | 标题 | TL;DR | status | last_verified |
+|----|------|-------|--------|----------------|
 
 ## 项目 (project)
-| id | 标题 | status | last_verified |
+| id | 标题 | TL;DR | status | last_verified |
 
 ## 主题领域 (area) / 组织 (org) / 事件 (event) / 决策 (decision) / 读物 (reading)
 | …同上… |
@@ -332,6 +333,10 @@ skill 自动维护,可从全部 frontmatter 全量重建。按 7 类分节,一�
 | raw_id | source_type | 标题 | ingested |
 ```
 
+- **`TL;DR` 列** = 节点 body 首行的一句话摘要(§4.2)。让查询时的语义匹配作用在
+  「标题 + 摘要」而非仅标题上,大幅提升语义召回 —— 这是 byteworker 不引入向量库
+  也能做语义检索的关键:检索器是 Claude 本身,只需把语义面在 INDEX 里铺够。
+  摘要过长则截断到一行。
 - 查询先扫 INDEX 再定向 Read 节点;写入时**增量更新**对应行,不每次全扫。
 - 一致性兜底:某类 `knowledge/<类型>/` 文件数 ≠ INDEX 该节行数 → 触发全量重建。
   (纯内容编辑不改行数,无法靠计数发现 → 故增量更新是主路径。)
@@ -372,6 +377,9 @@ templates/
 6. **真相源/派生不变量 + auto-link + 重建一等化** — 显式锁定数据不变量(§1.C);写节点时
    自动从 body 提及的节点 id 连边(auto-link);「重建 INDEX」提为一等操作并补灾难恢复。
    源:gbrain 架构借鉴(公开设计资料)。
+7. **检索栈:INDEX 路由 + grep 全文 + Claude 语义** — INDEX 增 `TL;DR` 列扩大语义面(§6);
+   `search` 双路召回(扫 INDEX 做语义召回 + `grep` 做全文召回)再图遍历;**不引入向量库/DB**
+   —— 个人库尺度下检索器即 Claude 本身。源:gbrain 混合检索借鉴。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 
