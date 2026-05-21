@@ -43,8 +43,8 @@
    ln -sfn ~/proj/byteworker ~/.claude/skills/byteworker
    (若你不是 Claude Code,把该目录放到你发现 skill / 指令文件的位置)
 3. 确认 ~/.claude/skills/byteworker/SKILL.md 存在,然后告诉我装好了
-说明:这是私有仓库,克隆需对 ranjiao/byteworker 有读取权限(git / gh 已登录即可);
-首次使用 skill 时它会问「知识库数据目录放哪」,按它的提问回答即可——属正常首次配置。
+说明:公开仓库,直接克隆即可;首次使用 skill 时它会问「知识库数据目录放哪」,
+按它的提问回答即可——属正常首次配置。
 ```
 
 ### 方式二:手动安装
