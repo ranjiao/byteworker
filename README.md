@@ -8,7 +8,8 @@
 - **本仓库只含 agent 逻辑** —— `SKILL.md` + `DESIGN.md` + `templates/`,无任何业务数据。
 - **知识库数据**(`knowledge/`、`raw_data/`、`journal/`、`INDEX.md`)存在用户指定的
   独立目录,**绝不进本仓库的 git**;含机密内容,不外传。
-- 数据目录路径在首次使用时指定,记于 `.kbconfig`(已 gitignore)。
+- 数据目录在首次使用时由 skill 询问指定(默认目录名 `byteworker_kb`,路径可配置),
+  记于 `.kbconfig`(已 gitignore);它有自己的独立本地 git(回滚用,永不 push)。
 
 ## 能力
 

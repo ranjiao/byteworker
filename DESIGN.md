@@ -53,7 +53,9 @@ byteworker 由**两个物理隔离**的部分组成。
 | `journal/` | 摄取/更新/扫描事件的**时间线日志** | skill 追加 | 只追加 |
 | `INDEX.md` | 主索引:6 类节点登记表 + 待消化表 | skill 维护,可全量重建 | 高频更新 |
 
-数据目录路径由用户首次使用时指定,记于 skill 仓库的 `.kbconfig`(已 gitignore)。
+数据目录路径由用户首次使用时指定(默认目录名 `byteworker_kb`,路径可配置),
+记于 skill 仓库的 `.kbconfig`(已 gitignore)。数据目录是**它自己的独立本地 git 仓库**
+(作误删/错改的回滚网,**永不配 remote**),与 skill 仓库的 git 互不相干。
 数据目录含**公司机密内容**,绝不外传、绝不纳入 skill 仓库的 git。
 
 **核心原则:raw_data/ 是不可变真相源,knowledge/ 是可变消化产物。** 节点出错永远可回
@@ -294,7 +296,8 @@ templates/
 3. **raw_data 永久保留** — v1 原始输入文件永久保留,不自动删除/归档;
    归档策略见 TODOS.md(P2,规模触发后再做)。
 4. **逻辑与数据严格分离** — skill 仓库只含 agent 逻辑(可进 git/GitHub);所有业务数据
-   (`knowledge/`、`raw_data/`、`journal/`、`INDEX.md`)存在用户指定的独立目录,
-   **绝不进 skill 仓库的 git**。数据目录路径记于 `.kbconfig`(gitignore)。
+   (`knowledge/`、`raw_data/`、`journal/`、`INDEX.md`)存在用户指定的独立目录(默认名
+   `byteworker_kb`),**绝不进 skill 仓库的 git**。数据目录路径记于 `.kbconfig`(gitignore)。
+   数据目录有自己的**独立本地 git**(回滚用,永不 push),首次使用时由 skill 询问并初始化。
 
 **schema 至此完全冻结。**
