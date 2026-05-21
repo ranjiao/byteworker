@@ -41,6 +41,16 @@
 
 也支持自然语言,如「把这个文档存进知识库」「我们关于 X 定过什么」。
 
+## 浏览知识库
+
+知识库节点是 markdown,直接读原始 md 格式不友好。byteworker 自带一个**纯前端、只读**的 viewer:
+
+```bash
+~/byteworker/bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 python3)
+```
+
+它起一个本地静态文件服务器(`python3 -m http.server`,零自定义后端):在一个临时目录里把 skill 自带的 viewer 与你的知识库数据目录挂在一起(只读),用 viewer 页面渲染 —— 左侧按 7 类列出全部节点 + 搜索框,点开渲染 md,frontmatter 与正文里的 `links` / 节点 id 都可点,沿实体图跳转。viewer 代码随 skill 分发、始终在本仓库内,你的数据目录一个字节都不写入;viewer 纯只读,编辑知识库仍走 byteworker skill。
+
 ## 前置依赖
 
 | 层 | 依赖 | 说明 |
@@ -83,7 +93,7 @@ ln -sfn ~/byteworker ~/.claude/skills/byteworker
 
 你的实际知识库数据存在上面指定的独立目录(**不在本仓库**):
 
-- `knowledge/` —— 6 类节点笔记 · `raw_data/` —— 摄取的逐字原文 · `journal/` —— 操作日志
+- `knowledge/` —— 7 类节点笔记 · `raw_data/` —— 摄取的逐字原文 · `journal/` —— 操作日志
 - `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板
 
 该目录含机密内容,仅本地、绝不外传。结构与字段设计见 [`DESIGN.md`](DESIGN.md)。
