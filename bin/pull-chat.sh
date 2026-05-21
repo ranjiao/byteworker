@@ -5,35 +5,44 @@
 # 用法:
 #   bin/pull-chat.sh --query "<群名>"   --start <ISO8601> --end <ISO8601> [--out <file>]
 #   bin/pull-chat.sh --chat-id <oc_xxx> --start <ISO8601> --end <ISO8601> [--out <file>]
+#   bin/pull-chat.sh --query "<群名>"   --since-last [--end <ISO8601>] [--out <file>]
+#
+# --since-last:增量摄取。群聊是持续更新的消息流,同一个群通常反复多次摄取;
+#   该参数让脚本自动「从上次摄取处续拉」—— 读 ../.kbconfig 定位知识库数据目录,
+#   扫 raw_data/ 找该 chat_id 最近一次 feishu_chat 的 source_window 结束时间作 --start,
+#   --end 缺省为当前时刻。该群在 raw_data/ 无历史摄取记录时退出码 4(应改用 --start 首次摄取)。
 #
 # 输出:
 #   - 逐字转写写入 --out(缺省为 /tmp 临时文件);每条格式:
 #       === [时间] 发送人 (msg_type)
 #       <内容>
 #   - stdout 末尾打印摘要(供 agent 解析):
-#       chat_id= / chat_name= / messages= / pages= / window= / transcript=
-# 退出码:0 成功 | 2 群未找到 | 3 匹配到多个群(需改用 --chat-id) | 1 其他错误
+#       chat_id= / chat_name= / messages= / pages= / window= / mode= / transcript=
+# 退出码:0 成功 | 2 群未找到 | 3 匹配到多个群(需改用 --chat-id) | 4 --since-last 无历史窗口 | 1 其他错误
 set -uo pipefail
 
-QUERY=""; CHAT_ID=""; START=""; END=""; OUT=""
-usage() { sed -n '2,18p' "$0"; }
+QUERY=""; CHAT_ID=""; START=""; END=""; OUT=""; SINCE_LAST=""
+SELF_DIR=$(cd "$(dirname "$0")" && pwd)
+KBCONFIG="$SELF_DIR/../.kbconfig"
+usage() { sed -n '2,21p' "$0"; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --query)   QUERY="${2:-}"; shift 2;;
-    --chat-id) CHAT_ID="${2:-}"; shift 2;;
-    --start)   START="${2:-}"; shift 2;;
-    --end)     END="${2:-}"; shift 2;;
-    --out)     OUT="${2:-}"; shift 2;;
-    -h|--help) usage; exit 0;;
+    --query)      QUERY="${2:-}"; shift 2;;
+    --chat-id)    CHAT_ID="${2:-}"; shift 2;;
+    --start)      START="${2:-}"; shift 2;;
+    --end)        END="${2:-}"; shift 2;;
+    --out)        OUT="${2:-}"; shift 2;;
+    --since-last) SINCE_LAST=1; shift;;
+    -h|--help)    usage; exit 0;;
     *) echo "未知参数:$1" >&2; exit 1;;
   esac
 done
 
-if [ -z "$START" ] || [ -z "$END" ]; then
-  echo "错误:--start 与 --end 必填(ISO8601,如 2026-04-21T00:00:00+08:00)" >&2; exit 1
-fi
 if [ -z "$QUERY" ] && [ -z "$CHAT_ID" ]; then
   echo "错误:--query(群名)或 --chat-id(oc_xxx)二选一" >&2; exit 1
+fi
+if [ -z "$SINCE_LAST" ] && { [ -z "$START" ] || [ -z "$END" ]; }; then
+  echo "错误:--start 与 --end 必填(ISO8601,如 2026-04-21T00:00:00+08:00);或用 --since-last 增量摄取" >&2; exit 1
 fi
 command -v lark-cli >/dev/null 2>&1 || { echo "错误:未找到 lark-cli" >&2; exit 1; }
 command -v jq      >/dev/null 2>&1 || { echo "错误:未找到 jq" >&2; exit 1; }
@@ -58,6 +67,33 @@ if [ -z "$CHAT_ID" ]; then
   fi
   CHAT_ID=$(echo "$SRCH"  | jq -r '.data.chats[0].chat_id')
   CHAT_NAME=$(echo "$SRCH" | jq -r '.data.chats[0].name')
+fi
+
+# 1b. --since-last:扫 raw_data/ 推导增量起点
+MODE="explicit"
+if [ -n "$SINCE_LAST" ]; then
+  MODE="since-last"
+  [ -z "$END" ] && END=$(date "+%Y-%m-%dT%H:%M:%S+08:00")
+  if [ -z "$START" ]; then
+    KBDIR=$(head -n1 "$KBCONFIG" 2>/dev/null | tr -d '[:space:]')
+    LAST_END=""
+    if [ -n "$KBDIR" ] && [ -d "$KBDIR/raw_data" ]; then
+      for f in "$KBDIR"/raw_data/*.md; do
+        [ -f "$f" ] || continue
+        grep -Eq "^source_chat_id:[[:space:]]*${CHAT_ID}[[:space:]]*\$" "$f" || continue
+        w=$(grep -m1 '^source_window:' "$f" | sed 's/^source_window:[[:space:]]*//')
+        e=$(printf '%s' "$w" | sed 's/.*\.\.[[:space:]]*//' | tr -d '[:space:]')
+        [ -n "$e" ] || continue
+        printf '%s' "$e" | grep -q 'T' || e="${e}T00:00:00+08:00"
+        if [ -z "$LAST_END" ] || [[ "$e" > "$LAST_END" ]]; then LAST_END="$e"; fi
+      done
+    fi
+    if [ -z "$LAST_END" ]; then
+      echo "错误:--since-last 但该群($CHAT_ID)在 raw_data/ 无历史摄取记录;首次摄取请用 --start 指定起点" >&2
+      exit 4
+    fi
+    START="$LAST_END"
+  fi
 fi
 
 # 输出文件
@@ -96,4 +132,5 @@ echo "chat_name=${CHAT_NAME:-$QUERY}"
 echo "messages=$TOTAL"
 echo "pages=$PAGE"
 echo "window=$START .. $END"
+echo "mode=$MODE"
 echo "transcript=$OUT"
