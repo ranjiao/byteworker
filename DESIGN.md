@@ -71,7 +71,7 @@ byteworker 由**两个物理隔离**的部分组成。
 - `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
 
 **纯派生(derived —— 可随时丢弃,必须 100% 可重建,不必单独备份):**
-- `INDEX.md` —— 可从全部节点的 frontmatter + body 首行 TL;DR **确定性**全量重建(见 §6)。
+- `INDEX.md` —— 可从全部节点的 frontmatter + body 首行 TL;DR、加 `raw_data/` frontmatter **确定性**全量重建(见 §6)。
 - `dashboard.md` 的派生部分 —— 关注项当前状态、⚠️ 派生项、📅 今日进展,每次刷新重算。
 
 **推论(SKILL.md「重建与恢复」据此实现):**
@@ -107,6 +107,7 @@ source_type: feishu_doc | feishu_minutes | feishu_meeting | feishu_chat | web | 
 source_url: https://<feishu-url>           # 本地 md 则填原路径
 source_title: Q2 路线图评审会
 digest_status: pending | digested | failed
+routine: weekly                            # 可选:会定期更新的源(滚动周报/群聊)纳入定期摄取后才有
 digest_targets:                            # 本次摄取触达的所有节点 id
   - event-2026-05-20-q2-review
   - decision-q2-scope
@@ -118,13 +119,21 @@ digest_targets:                            # 本次摄取触达的所有节点 i
 <逐字原文 / lark-minutes 纪要+逐字稿 / lark-doc 文档正文,原样粘贴>
 ```
 
-**`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行。frontmatter 不用 `source_url` /
-`source_title`,改用 `source_chat_id`(oc_xxx)、`source_chat_name`(群名)、
-`source_window`(消息时间窗,如 `2026-05-15 .. 2026-05-21`)。`raw_id` 的 slug 取
-群名 + 窗口标识。正文为该窗口的逐字消息(发送人 · 时间 · 内容,原样)。
+**`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行,**同一群可多次增量摄取**。
+frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)、
+`source_chat_name`(群名)、`source_window`(本次摄取的消息时间窗,**完整 ISO8601 起止**,
+如 `2026-05-15T00:00:00+08:00 .. 2026-05-21T18:00:00+08:00`)。`source_window` 的结束点
+即该群「上次处理到哪」的**高水位** —— `bin/pull-chat.sh --since-last` 扫 `raw_data/` 取该
+`chat_id` 最近一次 `source_window` 的结束时间,据此续拉下一窗口。`raw_id` 的 slug 取群名 +
+窗口标识。正文为该窗口的逐字消息(发送人 · 时间 · 内容,原样)。
 
 **`web` 变体**:外部读物(blog / 论文 / wiki)。`source_url` 填文章链接(本地 PDF 则填路径),
 `source_title` 填文章标题。正文为抓取的文章正文(WebFetch / Read)。
+
+**`routine` 字段(可选)**:若来源是**会定期更新**的源(滚动周会文档、群聊等),经用户确认
+纳入「定期摄取」后,frontmatter 加 `routine: weekly`(cadence,默认 `weekly`);该源后续每个
+raw 都带此标记。INDEX 的「定期摄取清单」由扫描带 `routine` 的 raw 派生(§6),定期摄取例程据此
+逐源增量 re-digest。详见 SKILL「定期摄取」。
 
 ---
 
@@ -260,6 +269,8 @@ links:                                        # 图的边,双向维护(写 A→B
 **群聊摄取的扇出**:同样 1 个 `event`(该群该窗口的讨论快照)+ N 个 `decision` + 实体更新;
 但群聊约 90% 是噪音,digest 必须**强过滤** —— 只取决策/状态变化/关键结论/待办/重要问答
 (见 §4.4),窗口无实质内容则不造节点。窗口若含多个明显无关的大讨论,可拆成多个 `event`。
+**增量语义**:同一群多次增量摄取 = 按窗口产生一串 `event`(各自定型、不回改);实体节点
+(`project`/`person`/`org`/`area`)跨窗口走实体消解、持续累积更新,不新建重复。
 
 **外部读物(`web`)的扇出**:一篇文章 → **1 个 `reading` 节点**(来源/核心观点/可借鉴点),
 不产 event/decision,一般也不动工作实体节点 —— 它与工作的关联靠日后 `links` 长出来。
@@ -313,7 +324,7 @@ links:                                        # 图的边,双向维护(写 A→B
 
 ## 6. INDEX.md — 主索引
 
-skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR 全量重建。
+skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `raw_data/` frontmatter 全量重建。
 按 7 类分节,一行一节点:
 
 ```markdown
@@ -329,10 +340,15 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR 全量�
 ## 主题领域 (area) / 组织 (org) / 事件 (event) / 决策 (decision) / 读物 (reading)
 | …同上… |
 
-## 待消化 (raw digest_status=pending)
-| raw_id | source_type | 标题 | ingested |
+## 定期摄取清单 (routine digest — 会定期更新、需周期性复查的源)
+| 源 | 类型 | cadence | 上次摄取 | 关联节点 |
+
+## 群聊摄取进度 (feishu_chat 增量高水位)
+| 群名 | chat_id | 已摄取至 | 最近 raw_id |
 ```
 
+- **「定期摄取清单」表** = 会定期更新、需周期性复查的源(滚动周会文档、群聊等)。由扫描带 `routine` 标记的 `raw_data/` 文件派生(§3),一源一行,`上次摄取` = 该源最近 raw 的周期/窗口。「定期摄取」例程逐源增量 re-digest(见 SKILL「定期摄取」)。*替代了旧的「待消化」表 —— 后者无机制主动入列、形同虚设;`digest_status: pending/failed` 的中断 raw 改由扫 `raw_data/` 兜底发现。*
+- **「群聊摄取进度」表** = 每个摄取过的群一行,记 `chat_id` 与「已摄取至」(该群最近一次 `source_window` 的结束点 = 增量高水位)。digest 群聊前查此表判断首次 / 增量,摄取后更新对应行;从 `raw_data/` 的 `feishu_chat` raw frontmatter 派生、可重建。**这是 agent「这个群摄过没、摄到哪」的唯一可见入口。**
 - **`TL;DR` 列** = 节点 body 首行的一句话摘要(§4.2)。让查询时的语义匹配作用在
   「标题 + 摘要」而非仅标题上,大幅提升语义召回 —— 这是 byteworker 不引入向量库
   也能做语义检索的关键:检索器是 Claude 本身,只需把语义面在 INDEX 里铺够。
@@ -380,6 +396,13 @@ templates/
 7. **检索栈:INDEX 路由 + grep 全文 + Claude 语义** — INDEX 增 `TL;DR` 列扩大语义面(§6);
    `search` 双路召回(扫 INDEX 做语义召回 + `grep` 做全文召回)再图遍历;**不引入向量库/DB**
    —— 个人库尺度下检索器即 Claude 本身。源:gbrain 混合检索借鉴。
+8. **群聊增量摄取** — 群聊是持续消息流,同一群反复摄取;`feishu_chat` raw 的 `source_window`
+   结束点 = 高水位,在 INDEX「群聊摄取进度」表登记(agent 据此查首次/增量),
+   `bin/pull-chat.sh --since-last` 据此自动续拉下一窗口。每窗口一个 event,实体节点跨窗口
+   累积更新。见 §3、§4.3、§6、SKILL「群聊摄取补充」。
+9. **定期摄取(routine digest)** — 会定期更新的源(滚动周会文档、群聊)经用户确认后,raw 打
+   `routine` 标记;INDEX「定期摄取清单」表由此派生(替代旧「待消化」表)。「定期摄取」例程
+   逐源增量 re-digest,支持手动触发与 skill-use 到期提醒。见 §3、§6、SKILL「定期摄取」。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 
