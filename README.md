@@ -46,7 +46,7 @@
 | 层 | 依赖 | 说明 |
 |----|------|------|
 | **byteworker 自身** | `git`、`jq`、`bash` | macOS:`brew install git jq`;Linux:`apt install git jq` |
-| **飞书生态** | `lark-cli` + `lark-*` skills + 飞书登录 | 摄取飞书内容必需,需自行配好:经 npm/node 装 `lark-cli`、执行 `lark-cli auth login` 登录、并安装 `lark-doc / minutes / vc / im / calendar / contact` 等 skill |
+| **飞书生态** | `lark-cli` + `lark-*` skills + 飞书登录 | 摄取飞书内容必需。安装参见[飞书 CLI 官方安装指南](https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md):装 `lark-cli`、装 `lark-doc / minutes / vc / im / calendar / contact` 等 skill|
 
 装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)。
 
@@ -61,8 +61,9 @@
 1. 用 git 把 https://github.com/ranjiao/byteworker 克隆到 ~/byteworker(没有 git 就先帮我装 git)
 2. 运行 ~/byteworker/bin/check-deps.sh 检查依赖,按结果处理:
    - Tier 1(git/jq/bash)缺失 → 帮我装上(macOS 用 brew、Linux 用 apt)
-   - Tier 2(lark-cli / lark-* skills)缺失 → 不用你代装,直接告诉我:需自己配好飞书
-     lark-cli 环境(装 lark-cli、lark-cli auth login 登录、装 lark-* skills)
+   - Tier 2(lark-cli / lark-* skills)缺失 → 按飞书 CLI 官方安装指南帮我安装:
+     https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md
+     (装 lark-cli、装 lark-* skills)
 3. 建符号链接:ln -sfn ~/byteworker ~/.claude/skills/byteworker
    (若你不是 Claude Code,把该目录放到你发现 skill / 指令文件的位置)
 4. 确认 ~/.claude/skills/byteworker/SKILL.md 存在,然后告诉我装好了
