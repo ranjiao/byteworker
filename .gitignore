@@ -5,8 +5,9 @@ journal/
 INDEX.md
 dashboard.md
 
-# ===== 本地配置(知识库数据目录路径,每台机器不同) =====
+# ===== 本地状态(每台机器不同,不提交) =====
 .kbconfig
+.last-update-check
 
 # ===== 杂项 =====
 .DS_Store

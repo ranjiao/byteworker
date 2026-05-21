@@ -14,3 +14,5 @@
 
 个人飞书工作知识库 skill。摄取飞书文档/会议纪要/md → 消化成实体图笔记 → 对话式查询。
 用法见 `SKILL.md`(或对 skill 说 `help`)。
+
+本 skill 每周静默自动从 GitHub fast-forward 更新(`bin/update-check.sh`,由 SKILL.md「操作前必读」触发)。
