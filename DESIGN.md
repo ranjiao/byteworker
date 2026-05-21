@@ -120,7 +120,7 @@ tags: [roadmap, q2]
 status: current | stale | superseded         # 实体常为 current/stale;记录可 superseded
 created: 2026-05-20
 updated: 2026-05-20
-last_verified: 2026-05-20                     # 新鲜度扫描依据
+last_verified: 2026-05-20                     # 新鲜度判断依据(看板 ⚠️ 段用)
 superseded_by: decision-xxx                   # 仅 status=superseded
 sources:                                      # 溯源:raw_id 或飞书原链接,≥1 条
   - raw-2026-05-20-q2-roadmap-review
@@ -270,7 +270,7 @@ links:                                        # 图的边,双向维护(写 A→B
   | raw-2026-05-20-q2-roadmap-review
 - 15:10 更新 decision-auth-approach ← raw-2026-05-20-auth-doc
   | 冲突:旧"方案A" vs 新"方案B" → 用户裁决"方案B",旧决策标 superseded
-- 16:00 新鲜度扫描:3 条 stale → project-old-x, person-li-si, area-legacy-flow
+- 16:00 看板:记今日进展「与 X 对齐了 mlsys 迁移卡量口径」
 ```
 
 每行含:时刻、动作、输入源、触达节点 id、raw_id、是否冲突。这是审计日志。
