@@ -23,11 +23,10 @@ byteworker 是一个 agent skill —— 一个含 `SKILL.md` 的目录。安装 
 
 你最清楚自己运行在什么 agent 里。据此确定 `SKILLS_DIR`:
 
-| 宿主 agent | skills 目录 |
-|-----------|-------------|
+| 宿主 agent | skills 目录(SKILLS_DIR)|
+|-----------|--------------------------|
 | Claude Code | `~/.claude/skills` |
-| OpenClaw(个人 / 全局)| `~/.openclaw/skills`(或 `~/.agents/skills`)|
-| OpenClaw(workspace 级)| `<workspace>/skills` —— 此处**必须**直接 clone,不能 symlink |
+| OpenClaw | `~/.openclaw/skills` —— **装这里**(本机所有 agent 可见);装好后**务必**再做下面的「OpenClaw 专项」 |
 | 其它 | 该 agent 发现 skill / `SKILL.md` 的目录;不确定就问用户 |
 
 执行 `mkdir -p "$SKILLS_DIR"`。最终安装位置:`TARGET = $SKILLS_DIR/byteworker`。
@@ -80,6 +79,64 @@ git clone https://github.com/ranjiao/byteworker.git "$TARGET"
 - 告诉用户装好了 —— skill 首次使用时会问「知识库数据目录放在哪」。
 - **提醒用户**:知识库数据目录要选一个**持久、私密**的路径,别放进会被回收的
   沙箱临时目录(原因见下)。
+
+---
+
+## OpenClaw 专项:确保对「所有 agent」都生效
+
+OpenClaw 从 6 个来源自动发现 skill,且有 per-agent 的 skill 白名单 —— 装错位置、或撞了
+配置,会出现「装了、却对某些 agent 不可见」。宿主是 OpenClaw 时,**在上面通用步骤之外
+再做这 4 步**。
+
+### a. 装在「所有 agent 可见」的位置
+
+skill 的可见范围由它所在目录决定:
+
+| 位置 | 谁能看到 |
+|------|---------|
+| `<workspace>/skills` · `<workspace>/.agents/skills` | 只有该 workspace 的 agent |
+| `~/.agents/skills` · `~/.openclaw/skills` | 本机**所有** agent |
+
+→ 要对所有 agent 生效,装进 **`~/.openclaw/skills/byteworker`**(本文件默认位置)。
+不要装进任何 `<workspace>` 目录。
+
+### b. 全机去重 —— 同名 skill 只能有一份
+
+OpenClaw 规则是「同名 skill,最高优先级来源胜出」。若 byteworker 同时存在于多个来源
+(装过两次、或半成品残留),你会**静默跑到旧的那一份**,新装的被遮蔽。安装后检查这些
+位置,**只保留 `~/.openclaw/skills/byteworker` 一份**,其余(含悬空 symlink)删掉:
+`~/.agents/skills/byteworker`、各 `<workspace>/skills/byteworker`、`<workspace>/.agents/skills/byteworker`。
+
+### c. 排查 openclaw.json,别让配置盖掉 skill
+
+配置文件:`~/.openclaw/openclaw.json`(JSON5 格式;可被环境变量 `OPENCLAW_CONFIG_PATH`
+或 `--profile` 覆盖 —— 以实际生效的那个为准)。**文件不存在 = 全用默认值,本步跳过。**
+存在则检查两处(**改动前先把你要改什么告诉用户**):
+
+1. **`agents` 的 skill 白名单(最容易踩的坑)**。`agents.defaults.skills` 与
+   `agents.list[].skills` 是**「替换」而非「合并」**的白名单 —— 只要设了某个白名单、其中
+   又没有 `byteworker`,对应 agent 就看不到它(哪怕已正确安装)。处理:
+   - 配置里**既无** `agents.defaults.skills`、**也无**任何 `agents.list[].skills` →
+     skill 不受限,byteworker 对所有 agent 可见,**无需改**。
+   - 设了 `agents.defaults.skills` → 往该数组加 `"byteworker"`。
+   - 每个**显式写了自己 `skills` 数组**的 `agents.list[]` 条目 → 各自都要加 `"byteworker"`
+     (替换语义,不会自动从 defaults 继承)。
+   - 某 agent 是 `skills: []`(刻意锁死)→ **不要**硬塞;告诉用户「该 agent 被锁死、
+     看不到 byteworker」,由用户定夺。
+2. **`skills.entries` 里的 byteworker 残留**。byteworker **不需要任何 `skills.entries`
+   配置** —— 自动发现 + 默认启用即可工作(`skills.entries` 只配置已发现的 skill,不注册
+   skill)。只需排残留:若已存在 `skills.entries.byteworker` 块(或 SKILL.md 用
+   `metadata.openclaw.skillKey` 指定的那个 key),确认它**没有** `enabled: false`、也没有
+   指错的 env/config;若是上次失败安装留下的坏块,**整块删掉**。**不要**新增
+   `skills.entries.byteworker`,除非确有 env / apiKey 要注入。
+
+改 `openclaw.json` 注意:**直接改那个真实文件**,不要把它换成符号链接 —— OpenClaw 的
+原子写会破坏符号链接式 config。它是 JSON5,逗号 / 括号别写坏。
+
+### d. 让改动生效
+
+OpenClaw 默认监视 `SKILL.md` 变更自动刷新。装完、改完配置后,保险起见**重启一次
+OpenClaw 或新开 session**,并确认每个 agent 都能列出 / 调用 byteworker。
 
 ---
 
