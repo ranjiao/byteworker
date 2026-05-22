@@ -46,7 +46,8 @@
 知识库节点是 markdown,直接读原始 md 格式不友好。byteworker 自带一个**纯前端、只读**的 viewer:
 
 ```bash
-~/byteworker/bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 python3)
+# 在 byteworker skill 目录下运行:
+bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 python3)
 ```
 
 它起一个本地静态文件服务器(`python3 -m http.server`,零自定义后端):在一个临时目录里把 skill 自带的 viewer 与你的知识库数据目录挂在一起(只读),用 viewer 页面渲染 —— 左侧按 7 类列出全部节点 + 搜索框,点开渲染 md,frontmatter 与正文里的 `links` / 节点 id 都可点,沿实体图跳转。viewer 代码随 skill 分发、始终在本仓库内,你的数据目录一个字节都不写入;viewer 纯只读,编辑知识库仍走 byteworker skill。
@@ -62,32 +63,27 @@
 
 ## 安装
 
-### 方式一:粘贴给 AI 助手自动安装(推荐)
+### 方式一:让 AI 助手安装(推荐)
 
-整段复制下面这段,发给 Claude Code(或其他 AI 编码助手):
+把下面这句发给你的 AI 编码助手(Claude Code / OpenClaw / 其它):
 
 ```
-帮我安装 byteworker skill:
-1. 用 git 把 https://github.com/ranjiao/byteworker 克隆到 ~/byteworker(没有 git 就先帮我装 git)
-2. 运行 ~/byteworker/bin/check-deps.sh 检查依赖,按结果处理:
-   - Tier 1(git/jq/bash)缺失 → 帮我装上(macOS 用 brew、Linux 用 apt)
-   - Tier 2(lark-cli / lark-* skills)缺失 → 按飞书 CLI 官方安装指南帮我安装:
-     https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md
-     (装 lark-cli、装 lark-* skills)
-3. 建符号链接:ln -sfn ~/byteworker ~/.claude/skills/byteworker
-   (若你不是 Claude Code,把该目录放到你发现 skill / 指令文件的位置)
-4. 确认 ~/.claude/skills/byteworker/SKILL.md 存在,然后告诉我装好了
+按 https://raw.githubusercontent.com/ranjiao/byteworker/master/INSTALL.md 的说明,在我的环境里安装 byteworker skill;若发现之前没装好的残留,一并修复。
 ```
+
+它会取来 [`INSTALL.md`](INSTALL.md) 照做 —— 自动判定宿主 agent、把 skill 装到对的位置、修复历史残留、检查依赖。
 
 ### 方式二:手动安装
 
 ```bash
-git clone https://github.com/ranjiao/byteworker ~/byteworker
-~/byteworker/bin/check-deps.sh          # 自查依赖,按提示补齐缺失项
-ln -sfn ~/byteworker ~/.claude/skills/byteworker
+SKILLS_DIR=~/.claude/skills          # OpenClaw 用 ~/.openclaw/skills
+git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
+"$SKILLS_DIR/byteworker/bin/check-deps.sh"      # 自查依赖,按提示补齐
 ```
 
-首次使用时,skill 会问你「知识库数据目录放在哪」—— 给一个父目录即可(目录名默认 `byteworker_kb`),它会在那里初始化结构。之后每周静默自动从 GitHub 更新。
+把 skill **直接 clone 进 agent 的 skills 目录**(而非 clone 到别处再 symlink)—— 这样最稳,且自动更新依赖的 `git` remote 一步到位。沙箱 / 云环境、多 agent 共用、残留修复等细节见 [`INSTALL.md`](INSTALL.md)。
+
+首次使用时,skill 会问你「知识库数据目录放在哪」—— 给一个**持久、私密**的父目录即可(目录名默认 `byteworker_kb`),它会在那里初始化结构。之后每周静默自动从 GitHub 更新。
 
 ## 知识库数据目录
 
@@ -96,10 +92,11 @@ ln -sfn ~/byteworker ~/.claude/skills/byteworker
 - `knowledge/` —— 7 类节点笔记 · `raw_data/` —— 摄取的逐字原文 · `journal/` —— 操作日志
 - `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板
 
-该目录含机密内容,仅本地、绝不外传。结构与字段设计见 [`DESIGN.md`](DESIGN.md)。
+该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`DESIGN.md`](DESIGN.md)。
 
 ## 文档
 
+- [`INSTALL.md`](INSTALL.md) —— 安装与残留修复说明(可直接交给 AI 助手执行)
 - [`SKILL.md`](SKILL.md) —— skill 行为定义
 - [`DESIGN.md`](DESIGN.md) —— 存储结构与字段设计
 - [`TODOS.md`](TODOS.md) —— 延后的功能

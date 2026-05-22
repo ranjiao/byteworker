@@ -11,7 +11,12 @@ set -uo pipefail
 T1=0; T2=0
 
 have()          { command -v "$1" >/dev/null 2>&1; }
-skill_present() { [ -e "$HOME/.claude/skills/$1" ] || [ -e "$HOME/.agents/skills/$1" ]; }
+skill_present() {
+  for d in "$HOME/.claude/skills" "$HOME/.openclaw/skills" "$HOME/.agents/skills"; do
+    [ -e "$d/$1" ] && return 0
+  done
+  return 1
+}
 mark()          { if [ "$1" = ok ]; then echo "  ✓ $2"; else echo "  ✗ $2 —— 缺失"; fi; }
 
 echo "── Tier 1 · byteworker 自身(必须)──"
