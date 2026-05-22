@@ -1,8 +1,8 @@
 ---
-id: person-<feishu_id>
+id: person-<slug>
 title: <姓名>
 type: person
-feishu_id: <飞书英文 id;= 企业邮箱 @ 前缀,全局唯一;实体消解主键;确实拿不到填 ?>
+feishu_id: <飞书英文 id;= 企业邮箱 @ 前缀,全局唯一;实体消解主键;不参与 id;拿不到先填 ?、日后回填>
 tags: []
 status: current
 created: <YYYY-MM-DD>
@@ -28,7 +28,7 @@ links: []
 
 ## 立场 / 利益 / 动机
 <!-- 跨多次讨论沉淀的立场倾向、核心利益诉求、行为逻辑;由各 event 的「参与方立场分析」累积。
-     须有证据支撑,推断须标【推断】,证据不足写「证据有限」,不臆测。详见 DESIGN.md §4.5。 -->
+     须有证据支撑,推断须标【推断】,证据不足写「证据有限」,不臆测。详见 references/digest-analysis.md。 -->
 
 ## 偏好 / 风格 / 注意点
 <!-- 沟通偏好、工作风格、需要注意的点 -->
