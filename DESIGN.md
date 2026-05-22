@@ -482,7 +482,9 @@ templates/
 数据目录顶层文件,与 `INDEX.md` / `dashboard.md` 并列。**使用者主动维护**的全局工作上下文 ——
 每次 skill 运行都加载,作为 digest / search / brief / dashboard 的「透镜」。
 
-- **性质**:真相源、手维护;skill **绝不自动改写**(同 dashboard 的 📌 段)。不可派生。
+- **性质**:真相源、不可派生。skill 在 digest / search 等流程中**只读、绝不自动改写**;
+  用户明确要求时由 agent 代为增删改(SKILL 的 `context` 子命令)—— 完全通过对话式 agent
+  (OpenClaw 等)使用本 skill 的用户无法直接编辑文件,**必须靠 agent 代维护**。
 - **保持简短**:它是「透镜」不是「档案」—— 只放当前有效的上下文,过期内容使用者自行删除。
   每次运行都加载,过长会吃上下文。
 - **用法**:见 SKILL「操作前必读」—— digest 时影响怎么解读、什么值得消化;search / brief 时
