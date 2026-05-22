@@ -4,6 +4,7 @@ raw_data/
 journal/
 INDEX.md
 dashboard.md
+context.md
 
 # ===== 本地状态(每台机器不同,不提交) =====
 .kbconfig

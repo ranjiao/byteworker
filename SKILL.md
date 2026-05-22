@@ -234,8 +234,8 @@ dashboard  工作看板 —— 看当下该关注什么
 
 help       用法说明
 
-浏览       不是子命令 —— 运行 ~/byteworker/bin/browse.sh 起本地纯前端、只读 viewer,
-           在浏览器里按 7 类浏览/检索全部 md 节点、沿 links 跳转(需 python3)
+浏览       不是子命令 —— 在 byteworker skill 目录下运行 bin/browse.sh 起本地纯前端、
+           只读 viewer,浏览器里按 7 类浏览/检索全部 md 节点、沿 links 跳转(需 python3)
 
 存储:知识库数据目录(用户指定,独立于本 skill,不进 git)——
       knowledge/(节点)· raw_data/(原始输入)· journal/(日志)· INDEX.md · dashboard.md · context.md(全局上下文)
