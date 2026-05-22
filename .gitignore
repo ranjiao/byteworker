@@ -1,10 +1,11 @@
 # ===== 业务数据 —— 绝不进本仓库(逻辑/数据严格分离) =====
+# 三个 .md 用 / 锚定到仓库根 —— 否则裸模式会误伤 templates/context.md 等同名 skill 文件
 knowledge/
 raw_data/
 journal/
-INDEX.md
-dashboard.md
-context.md
+/INDEX.md
+/dashboard.md
+/context.md
 
 # ===== 本地状态(每台机器不同,不提交) =====
 .kbconfig
