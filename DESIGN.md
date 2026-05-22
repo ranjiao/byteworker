@@ -90,6 +90,7 @@ byteworker 由**两个物理隔离**的部分组成。
 - **raw 文件**:`raw_data/<YYYY-MM-DD>-<slug>.md`,`raw_id` = `raw-<YYYY-MM-DD>-<slug>`。
 - **节点文件 / id**:
   - 实体:`knowledge/<类型复数>/<前缀><slug>.md`,如 `person-zhang-san`、`project-q2-roadmap`、`area-rec-system`、`org-data-platform-team`。
+    - **`person` 的 slug 优先取其 `feishu_id`**(飞书英文 id,见 §4.1;本就全局唯一、可消歧同名);`feishu_id` 拿不到再用姓名拼音。
   - 事件含日期:`event-<YYYY-MM-DD>-<slug>`,如 `event-2026-05-20-q2-review`。
   - 决策:`decision-<slug>`;读物:`reading-<slug>`。
 - **journal**:`journal/<YYYY-MM>/<YYYY-MM-DD>.md`。
@@ -173,6 +174,7 @@ links:                                        # 图的边,双向维护(写 A→B
 | `superseded_by` | ✗ | 退役时指向取代它的节点 |
 | `sources` | ✓ | 溯源根,指回 raw_data 或飞书链接 |
 | `links` | ✗ | 关联节点 id,**双向维护**;id 前缀即对端类型;body 中提及的已存在节点 id 自动纳入(auto-link,见 SKILL.md 写入规范) |
+| `feishu_id` | △ | **仅 `person`**:该人飞书英文 id(企业邮箱 `@` 前缀),全局唯一 —— person 实体消解的主键、用于消歧同名;摄取时由 `bin/resolve-users.sh` / lark-contact 解析,确实拿不到则填 `?` |
 
 > 不再有 `topic` 字段——领域结构由 `area`/`org` 节点 + `links` 承载,topic 治理问题消解。
 
@@ -185,7 +187,7 @@ links:                                        # 图的边,双向维护(写 A→B
 > **TL;DR:** <一句话摘要>
 ```
 
-**`person`(实体)**
+**`person`(实体)** —— 在 §4.1 通用 frontmatter 之外额外带 `feishu_id`(飞书英文 id,§4.1)。
 ```markdown
 ## 基本信息        <!-- 角色 / 所属团队 / 对接方式 -->
 ## 负责什么
@@ -279,8 +281,12 @@ links:                                        # 图的边,双向维护(写 A→B
 **外部读物(`web`)的扇出**:一篇文章 → **1 个 `reading` 节点**(来源/核心观点/可借鉴点),
 不产 event/decision,一般也不动工作实体节点 —— 它与工作的关联靠日后 `links` 长出来。
 
-**实体消解:** 创建实体前先按标题/名字在 INDEX 比对,命中已有节点则更新而非新建;
-有歧义则高亮问用户(避免同一个人产生两个 person 节点)。
+**实体消解:** 创建实体前先在 INDEX 比对,命中已有节点则更新而非新建。
+
+- `person`:**优先按 `feishu_id` 比对**(全局唯一)。**同名陷阱** —— 中文名相同但
+  `feishu_id` 不同 = **不同的人**,不要合并,**向用户确认后**各自建节点;`feishu_id`
+  确实拿不到、而 KB 有同名 `person` → 高亮提示「可能歧义,请确认是否同一人」,不擅自合并。
+- `project` / `org` / `area`:按标题 / 名字比对,有歧义则高亮问用户。
 
 **思路与视角沉淀:** 摄取时若有人(使用者/主管/同事)陈述了对某 `project`/`area` 的思路、
 想法、打法或意图,按 §4.6 在该节点「思路与视角」章节追加一条带日期、带作者、带
@@ -437,6 +443,11 @@ templates/
    意图作为第一方输入纳入考量。挂在具体 project/area 上的观点 → 节点新增「思路与视角」章节
    (带日期、带作者、只追加日志,标【主张】/【意图】,§4.6);跨主题的工作底色 → 数据目录顶层
    新增 `context.md`(使用者手维护、每次运行加载为「透镜」,§10)。出处严标、绝不硬化为事实。
+11. **person 飞书 id + digest 重点关注** — `person` 新增 frontmatter 字段 `feishu_id`(飞书英文
+   id = 企业邮箱前缀,全局唯一),作 person 实体消解主键、消歧同名;同名不同 `feishu_id` =
+   不同人,须经用户确认(§2、§4.1、§4.3)。digest 时:结合 `context.md` 重点关注使用者本人 /
+   其项目 / 团队 / 关注的人及其指令;命中重大事故 / 指标剧变等需高亮的内容,显著记录进节点
+   并在 digest 后主动提醒用户(详见 SKILL「digest」)。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 

@@ -7,7 +7,9 @@
 #   bin/resolve-users.sh --ids ou_x,ou_y,...      # 直接给 open_id(CSV)
 #   cat ids.txt | bin/resolve-users.sh            # 从 stdin 读,一行一个 open_id
 #
-# 输出(stdout):每行 "<open_id>\t<姓名>"(解析失败的姓名为 ?);进度/汇总打到 stderr。
+# 输出(stdout):每行 "<open_id>\t<姓名>\t<feishu_id>"
+#   feishu_id = 企业邮箱 @ 前缀(飞书英文 id,全局唯一);解析不到的字段填 ?。
+#   进度/汇总打到 stderr。
 # 退出码:0 成功 | 1 参数/环境错误
 set -uo pipefail
 
@@ -46,10 +48,13 @@ echo "解析 $N 个 open_id ..." >&2
 RESOLVED=0
 while read -r OID; do
   [ -z "$OID" ] && continue
-  NAME=$(lark-cli contact +get-user --user-id "$OID" --user-id-type open_id --as user 2>/dev/null \
-         | jq -r '.data.user.name // ""')
+  U=$(lark-cli contact +get-user --user-id "$OID" --user-id-type open_id --as user 2>/dev/null)
+  NAME=$(printf '%s' "$U" | jq -r '.data.user.name // ""')
+  EMAIL=$(printf '%s' "$U" | jq -r '.data.user.enterprise_email // .data.user.email // ""')
+  FID="${EMAIL%%@*}"                 # 企业邮箱 @ 前缀 = 飞书英文 id
   [ -z "$NAME" ] && NAME="?"
-  printf '%s\t%s\n' "$OID" "$NAME"
+  [ -z "$FID" ] && FID="?"
+  printf '%s\t%s\t%s\n' "$OID" "$NAME" "$FID"
   [ "$NAME" != "?" ] && RESOLVED=$((RESOLVED + 1))
 done < "$CLEAN"
 echo "resolved=$RESOLVED/$N" >&2
