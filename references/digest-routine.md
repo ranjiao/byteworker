@@ -11,5 +11,5 @@
      - 群聊:`bin/pull-chat.sh --query "<群名>" --since-last`;有新消息则按 `references/digest-chat.md` digest 新窗口,否则跳过。
      - 各源增量 digest 走标准扇出:新 `event` + 实体消解**更新**已有 `project`/`person` 等节点(摄取深度沿用首次,不再重问)。
   2. **汇报**:逐源说明有无增量、digest 了哪个新周期 / 窗口、触达哪些节点。
-  3. journal 追加一行「定期摄取」运行记录(供「到期」判断)。
+  3. journal 追加一行「定期摄取」运行记录(审计用);并把当天日期(`YYYY-MM-DD`)原子写入数据目录的 `.last-routine-digest` —— 到期提醒据此判断(见 `SKILL.md`「操作前必读」)。**即便本次各源都无增量也要写** —— 「复查过」与「有新增」是两回事。
 - **到期提醒**:见 `SKILL.md`「操作前必读」—— 清单非空且距上次运行 ≥7 天时,skill 被使用时顺带提醒。byteworker 是 skill、不能自行定时,「到期提醒」是其可移植的 routine 实现。
