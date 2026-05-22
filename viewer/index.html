@@ -712,6 +712,21 @@ a { color: inherit; text-decoration: none; }
 .sx-stance-party .sx-stance-list { gap: 5px; }
 .sx-stance-party .sx-stance-item { background: transparent; padding: 0; }
 
+/* perspective — first-party 思路与视角 */
+.sx-persps { display: flex; flex-direction: column; gap: 8px; }
+.sx-persp {
+  padding: 9px 12px; border-radius: 8px;
+  background: var(--bg-chip); border-left: 3px solid var(--c-person);
+}
+.sx-persp-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 5px; }
+.sx-persp-who { font-size: 12.5px; font-weight: 600; }
+.sx-persp-date { font-family: var(--font-mono); font-size: 11px; color: var(--ink-4); }
+.sx-persp-text { font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+.sx-stance-chip.claim  { color: oklch(0.48 0.15 300); background: color-mix(in oklch, oklch(0.62 0.16 300) 16%, transparent); }
+.sx-stance-chip.intent { color: oklch(0.46 0.13 160); background: color-mix(in oklch, oklch(0.60 0.14 160) 16%, transparent); }
+[data-theme="dark"] .sx-stance-chip.claim  { color: oklch(0.85 0.12 300); background: color-mix(in oklch, oklch(0.62 0.16 300) 28%, transparent); }
+[data-theme="dark"] .sx-stance-chip.intent { color: oklch(0.85 0.11 160); background: color-mix(in oklch, oklch(0.60 0.14 160) 28%, transparent); }
+
 /* todos */
 .sx-todos { list-style: none; margin: 0; padding: 0; }
 .sx-todo {
@@ -991,6 +1006,10 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1l2 3 3 .5L9.5 7l.5 3L7 8.5 4 10l.5-3L2 4.5 5 4z"/></svg>
         <span>工作看板</span>
       </button>
+      <button class="side-shortcut" id="sc-context">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 7s2-4 5.5-4 5.5 4 5.5 4-2 4-5.5 4S1.5 7 1.5 7z"/><circle cx="7" cy="7" r="1.6"/></svg>
+        <span>全局上下文</span>
+      </button>
     </div>
     <div class="side-scroll" id="side-scroll"></div>
     <div class="side-footer" id="side-footer">
@@ -1132,6 +1151,7 @@ const D = {
   btnCopy: $('btn-copy'),
   scIndex: $('sc-index'),
   scDash: $('sc-dash'),
+  scContext: $('sc-context'),
   sideScroll: $('side-scroll'),
   sideFilter: $('side-filter'),
   sideFilterWrap: $('side-filter-wrap'),
@@ -1370,10 +1390,9 @@ function renderCurrent() {
     D.railScroll.innerHTML = '<div class="empty-rail">' + esc(e.label) + ' · 文档视图,无图谱上下文。</div>';
     D.railGraphCount.textContent = '—';
     highlightSidebar(null);
-    if (e.label === '主索引 INDEX') D.scIndex.classList.add('on');
-    else D.scIndex.classList.remove('on');
-    if (e.label === '工作看板') D.scDash.classList.add('on');
-    else D.scDash.classList.remove('on');
+    D.scIndex.classList.toggle('on', e.label === '主索引 INDEX');
+    D.scDash.classList.toggle('on', e.label === '工作看板');
+    D.scContext.classList.toggle('on', e.label === '全局上下文');
   }
 }
 
@@ -2038,6 +2057,7 @@ function sxSlug(s) { return String(s).replace(/[^\w一-龥]+/g, '-').toLowerCase
 
 function detectSectionKind(title) {
   const t = title || '';
+  if (/思路与视角|视角与思路|观点与思路/.test(t)) return 'perspective';
   if (/基本信息|事件信息|来源/.test(t)) return 'info';
   if (/对接方式/.test(t)) return 'info';
   if (/协作历史|关键进展|关键交互/.test(t)) return 'timeline';
@@ -2343,11 +2363,36 @@ function sxGeneric(kind, iconName, title, lines) {
     `<li><span class="sx-bullet-dot"></span><span>${sxInline(t)}</span></li>`).join('') + '</ul>');
 }
 
+// 思路与视角 —— 第一方观点:【主张|意图】作者 · 日期 —— 内容
+function sxPerspective(title, lines) {
+  const items = sxBullets(lines);
+  if (!items.length) return sxShell('perspective', 'eye', title, sxProse(lines));
+  const tagCls = { '主张': 'claim', '意图': 'intent', '观察': 'obs', '推断': 'inf' };
+  const rows = items.map(raw => {
+    let tag = '', rest = raw;
+    const tm = raw.match(/^【(主张|意图|观察|推断)】\s*([\s\S]*)$/);
+    if (tm) { tag = tm[1]; rest = tm[2]; }
+    let author = '', date = '', text = rest;
+    // [author ·] date —— text  (author optional: 无作者默认库主人)
+    const hm = rest.match(/^(?:(.+?)\s*·\s*)?(\d{4}-\d{2}-\d{2})\s*(?:——|—)?\s*([\s\S]*)$/);
+    if (hm) { author = (hm[1] || '').trim(); date = hm[2]; text = hm[3].trim() || rest; }
+    return { tag, author, date, text };
+  });
+  return sxShell('perspective', 'eye', title, '<div class="sx-persps">' + rows.map(r => {
+    const head = [];
+    if (r.tag) head.push(`<span class="sx-stance-chip ${tagCls[r.tag] || 'claim'}">${esc(r.tag)}</span>`);
+    if (r.author) head.push('<span class="sx-persp-who">' + maybeNodeLink(r.author) + '</span>');
+    if (r.date) head.push(`<span class="sx-persp-date">${esc(r.date)} · ${esc(relTime(r.date))}</span>`);
+    return `<div class="sx-persp">${head.length ? `<div class="sx-persp-head">${head.join('')}</div>` : ''}<div class="sx-persp-text">${sxInline(r.text)}</div></div>`;
+  }).join('') + '</div>');
+}
+
 function renderSection(title, lines) {
   switch (detectSectionKind(title)) {
     case 'info': return sxInfo(title, lines);
     case 'timeline': return sxTimeline(title, lines);
     case 'stance': return sxStance(title, lines);
+    case 'perspective': return sxPerspective(title, lines);
     case 'todos': return sxTodos(title, lines);
     case 'noderefs': return sxNoderefs(title, lines);
     case 'agenda': return sxAgenda(title, lines);
@@ -2419,6 +2464,7 @@ D.btnCopy.addEventListener('click', () => {
 });
 D.scIndex.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'INDEX.md', label: '主索引 INDEX' }));
 D.scDash.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'dashboard.md', label: '工作看板' }));
+D.scContext.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'context.md', label: '全局上下文' }));
 document.querySelectorAll('.rail-tab').forEach(el => {
   el.addEventListener('click', () => {
     state.rail = el.dataset.rail;
