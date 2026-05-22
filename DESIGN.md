@@ -89,8 +89,8 @@ byteworker 由**两个物理隔离**的部分组成。
 - **slug**:取标题核心关键词 → 英文/拼音 kebab-case,≤40 字符;碰撞追加 `-2`/`-3`。
 - **raw 文件**:`raw_data/<YYYY-MM-DD>-<slug>.md`,`raw_id` = `raw-<YYYY-MM-DD>-<slug>`。
 - **节点文件 / id**:
-  - 实体:`knowledge/<类型复数>/<前缀><slug>.md`,如 `person-zhang-san`、`project-q2-roadmap`、`area-rec-system`、`org-data-platform-team`。
-    - **`person` 的 slug 优先取其 `feishu_id`**(飞书英文 id,见 §4.1;本就全局唯一、可消歧同名);`feishu_id` 拿不到再用姓名拼音。
+  - 实体:`knowledge/<类型复数>/<前缀><slug>.md`,如 `project-q2-roadmap`、`area-rec-system`、`org-data-platform-team`。
+    - **`person` 的 slug = 其 `feishu_id`**(飞书英文 id,见 §4.1):节点 id `person-<feishu_id>`、文件名 `person-<feishu_id>.md` —— 全局唯一、可消歧同名,且便于使用者按飞书邮箱 id 直接检索到对应的人。`feishu_id` 确实拿不到(填 `?`)时,临时以姓名拼音 kebab-case 作 slug;待解析到 `feishu_id` 后**重命名节点**(id + 文件名 + 全库引用该 id 的 `links` / 正文 一并改写,再重建 INDEX)。
   - 事件含日期:`event-<YYYY-MM-DD>-<slug>`,如 `event-2026-05-20-q2-review`。
   - 决策:`decision-<slug>`;读物:`reading-<slug>`。
 - **journal**:`journal/<YYYY-MM>/<YYYY-MM-DD>.md`。
