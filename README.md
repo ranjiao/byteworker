@@ -83,7 +83,7 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 
 把 skill **直接 clone 进 agent 的 skills 目录**(而非 clone 到别处再 symlink)—— 这样最稳,且自动更新依赖的 `git` remote 一步到位。沙箱 / 云环境、多 agent 共用、残留修复等细节见 [`INSTALL.md`](INSTALL.md)。
 
-首次使用时,skill 会问你「知识库数据目录放在哪」—— 给一个**持久、私密**的父目录即可(目录名默认 `byteworker_kb`),它会在那里初始化结构。之后每周静默自动从 GitHub 更新。
+首次使用时,skill 会先问你要不要过一遍 **上手引导**(亲手走一遍 建库 → 摄取 → 查询,1-2 分钟,可跳过);无论走不走引导,都会让你指定一个**持久、私密**的知识库数据目录(默认名 `byteworker_kb`)。之后每周静默自动从 GitHub 更新。
 
 ## 知识库数据目录
 
@@ -97,6 +97,7 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 ## 文档
 
 - [`INSTALL.md`](INSTALL.md) —— 安装与残留修复说明(可直接交给 AI 助手执行)
+- [`TUTORIAL.md`](TUTORIAL.md) —— 首次使用的上手引导剧本
 - [`SKILL.md`](SKILL.md) —— skill 行为定义
 - [`DESIGN.md`](DESIGN.md) —— 存储结构与字段设计
 - [`TODOS.md`](TODOS.md) —— 延后的功能
