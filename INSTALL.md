@@ -173,8 +173,11 @@ OpenClaw 或新开 session**,并确认每个 agent 都能列出 / 调用 bytewor
 ## 人工安装
 
 ```bash
-# 1. 确定宿主 agent 的 skills 目录(见上表)
-SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"  # Claude Code 用 ~/.claude/skills;OpenClaw 用 ~/.openclaw/skills
+# 1. 按你实际用的 agent 设 SKILLS_DIR(见上表)——
+#      Claude Code: ~/.claude/skills
+#      Codex:       ${CODEX_HOME:-$HOME/.codex}/skills
+#      OpenClaw:    ~/.openclaw/skills
+SKILLS_DIR=~/.claude/skills
 mkdir -p "$SKILLS_DIR"
 
 # 2. 直接 clone 进去
@@ -188,14 +191,33 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 
 ## 多个 agent 共用一份代码
 
-只想维护一份代码、供多个 agent 使用:把仓库 clone 到固定位置(如 `~/byteworker`),
-再 symlink 进各 agent 的 skills 目录:
+只想维护一份代码、供多个 agent 使用:**任选一个位置作为"源"clone 一次**,其它 agent
+的 skills 目录用 symlink 指过去。源放哪都可以(独立目录如 `~/byteworker`、或你最常用的
+那个 agent 的 skills 目录都行)—— 关键是只 `git clone` 一次,其余都是 symlink。
+
+示例:以独立目录 `~/byteworker` 作源,链接给三家 agent。**只跑你实际用的那些 agent 对应的行**:
 
 ```bash
+# 1. clone 一次到固定位置(源)
 git clone https://github.com/ranjiao/byteworker.git ~/byteworker
+
+# 2. 把它链接进各 agent 的 skills 目录(用哪个就跑哪行)
+ln -sfn ~/byteworker ~/.claude/skills/byteworker
 ln -sfn ~/byteworker "${CODEX_HOME:-$HOME/.codex}/skills/byteworker"
+ln -sfn ~/byteworker ~/.openclaw/skills/byteworker
 ```
 
-注意:符号链接只在 agent 的**全局 / 托管** skills 目录可靠
-(如 `${CODEX_HOME:-$HOME/.codex}/skills`、`~/.claude/skills`、`~/.openclaw/skills`)。OpenClaw 的 **workspace 级** skills
-目录会拒绝指向目录之外的符号链接 —— 那里请直接 `git clone`。
+也可以把源就放在某个 agent 的 skills 目录(例如已经 clone 在 `~/.claude/skills/byteworker`),
+再把其它两家的 symlink 指过去 —— 方向不重要,**只要全机只有一份真实 clone**即可:
+
+```bash
+ln -sfn ~/.claude/skills/byteworker "${CODEX_HOME:-$HOME/.codex}/skills/byteworker"
+ln -sfn ~/.claude/skills/byteworker ~/.openclaw/skills/byteworker
+```
+
+**注意**:
+- 符号链接只在 agent 的**全局 / 托管** skills 目录可靠(`~/.claude/skills`、
+  `${CODEX_HOME:-$HOME/.codex}/skills`、`~/.openclaw/skills`)。OpenClaw 的 **workspace 级**
+  skills 目录会拒绝指向目录之外的符号链接 —— 那里请直接 `git clone`,不要 symlink。
+- 共用一份后,**自动更新只在源那份生效**(`bin/update-check.sh` 在源目录跑 `git pull`,
+  symlink 那几家直接看到更新)。所以源目录要是合法 clone(有 `.git` 与 `origin` remote)。
