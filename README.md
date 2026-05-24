@@ -79,7 +79,9 @@ bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 pyth
 ### 方式二:手动安装
 
 ```bash
-SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"  # Claude Code 用 ~/.claude/skills;OpenClaw 用 ~/.openclaw/skills
+# 按你实际用的 agent 改 SKILLS_DIR ——
+#   Claude Code: ~/.claude/skills    Codex: ${CODEX_HOME:-$HOME/.codex}/skills    OpenClaw: ~/.openclaw/skills
+SKILLS_DIR=~/.claude/skills
 git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"      # 自查依赖,按提示补齐
 ```
