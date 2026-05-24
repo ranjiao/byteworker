@@ -1,0 +1,4 @@
+interface:
+  display_name: "Byteworker"
+  short_description: "把飞书文档会议群聊沉淀为可查询可更新可回溯的个人工作知识库"
+  default_prompt: "Use $byteworker to digest this Feishu document into my personal work knowledge base."

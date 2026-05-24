@@ -25,6 +25,7 @@ byteworker 是一个 agent skill —— 一个含 `SKILL.md` 的目录。安装 
 
 | 宿主 agent | skills 目录(SKILLS_DIR)|
 |-----------|--------------------------|
+| Codex | `${CODEX_HOME:-$HOME/.codex}/skills` |
 | Claude Code | `~/.claude/skills` |
 | OpenClaw | `~/.openclaw/skills` —— **装这里**(本机所有 agent 可见);装好后**务必**再做下面的「OpenClaw 专项」 |
 | 其它 | 该 agent 发现 skill / `SKILL.md` 的目录;不确定就问用户 |
@@ -79,6 +80,17 @@ git clone https://github.com/ranjiao/byteworker.git "$TARGET"
 - 告诉用户装好了 —— skill 首次使用时会问「知识库数据目录放在哪」。
 - **提醒用户**:知识库数据目录要选一个**持久、私密**的路径,别放进会被回收的
   沙箱临时目录(原因见下)。
+
+---
+
+## Codex 专项:确保被自动发现
+
+宿主是 Codex 时,按上表装进 `${CODEX_HOME:-$HOME/.codex}/skills/byteworker` 即可被自动发现。
+本仓库的 Codex 兼容入口是 `SKILL.md`:
+
+- `SKILL.md` frontmatter 只保留 `name` 与 `description`,这是 Codex 的触发依据。
+- `agents/openai.yaml` 是 Codex 推荐的 UI 元数据;缺失不影响执行,但装好后会让 skill 列表展示更友好。
+- 不需要额外修改 Codex 配置。安装或更新后,新开一个 Codex 会话即可加载最新 skill。
 
 ---
 
@@ -142,7 +154,7 @@ OpenClaw 或新开 session**,并确认每个 agent 都能列出 / 调用 bytewor
 
 ## 沙箱 / 云环境注意事项
 
-越来越多平台在托管沙箱 / 云虚拟机里跑 agent(如 OpenClaw 的 Docker / SSH 沙箱)。
+越来越多平台在托管沙箱 / 云虚拟机里跑 agent(如 Codex 托管环境、OpenClaw 的 Docker / SSH 沙箱)。
 这类环境有几个坑,安装前要心里有数:
 
 1. **默认无外网**。沙箱常默认禁止出网 —— `git clone`、`npm install`(装 lark-cli)都会失败。
@@ -162,7 +174,7 @@ OpenClaw 或新开 session**,并确认每个 agent 都能列出 / 调用 bytewor
 
 ```bash
 # 1. 确定宿主 agent 的 skills 目录(见上表)
-SKILLS_DIR=~/.claude/skills          # OpenClaw 用 ~/.openclaw/skills
+SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"  # Claude Code 用 ~/.claude/skills;OpenClaw 用 ~/.openclaw/skills
 mkdir -p "$SKILLS_DIR"
 
 # 2. 直接 clone 进去
@@ -181,9 +193,9 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 
 ```bash
 git clone https://github.com/ranjiao/byteworker.git ~/byteworker
-ln -sfn ~/byteworker ~/.claude/skills/byteworker
+ln -sfn ~/byteworker "${CODEX_HOME:-$HOME/.codex}/skills/byteworker"
 ```
 
 注意:符号链接只在 agent 的**全局 / 托管** skills 目录可靠
-(如 `~/.claude/skills`、`~/.openclaw/skills`)。OpenClaw 的 **workspace 级** skills
+(如 `${CODEX_HOME:-$HOME/.codex}/skills`、`~/.claude/skills`、`~/.openclaw/skills`)。OpenClaw 的 **workspace 级** skills
 目录会拒绝指向目录之外的符号链接 —— 那里请直接 `git clone`。

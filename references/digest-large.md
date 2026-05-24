@@ -7,9 +7,9 @@
 - **判定**:输入大(长文档、滚动周报、大群聊窗口,或规模预估显示要读大量正文)→ 委派子 agent;短文档 / `reading` 文章 / 小群聊窗口 → 主 agent inline 做,不必委派(子 agent 有开销与交互往返成本)。
 - **主 agent 自己留做的**(轻量 + 需与用户交互,不放进子 agent):
   1. 抓原文(`docs +fetch` 等的大输出会落 /tmp 文件,不占上下文)、扫标题结构;
-  2. 规模预估,需要时用 `AskUserQuestion` **与用户确认摄取深度**;
+  2. 规模预估,需要时**与用户确认摄取深度**;
   3. 滚动文档 / 群聊**首次是否纳入定期摄取**的询问。
-- **委派给子 agent 的**(重量、无需用户交互):用 `Agent` 工具起一个子 agent(`general-purpose`,具备 Bash/Read/Write/Edit 等工具)。任务 prompt 必须**自足**(子 agent 无本对话记忆)—— 写明:来源 URL/路径与 `source_type`、**已确认的摄取深度**、知识库数据目录绝对路径,并要求它**先读** byteworker `SKILL.md`(digest 一节)+ 对应来源的 `references/digest-*.md` + `DESIGN.md`,再按规范执行:读全文 → 冲突检测 → 扇出写节点 → 更新 INDEX/journal → git 提交回滚点。子 agent 最后**只返回摘要**:新建 / 更新了哪些节点、raw_id、有无冲突、commit hash。
+- **委派给子 agent 的**(重量、无需用户交互):若宿主支持子 agent / 多代理工具,起一个具备 shell、文件读取、文件编辑能力的子 agent。任务 prompt 必须**自足**(子 agent 无本对话记忆)—— 写明:来源 URL/路径与 `source_type`、**已确认的摄取深度**、知识库数据目录绝对路径,并要求它**先读** byteworker `SKILL.md`(digest 一节)+ 对应来源的 `references/digest-*.md` + `DESIGN.md`,再按规范执行:读全文 → 冲突检测 → 扇出写节点 → 更新 INDEX/journal → git 提交回滚点。子 agent 最后**只返回摘要**:新建 / 更新了哪些节点、raw_id、有无冲突、commit hash。若宿主不支持子 agent,在主对话中分批处理,并继续遵守规模预估与冲突交还规则。
 - **防递归**:子 agent 收到的任务本身就是「执行 digest」,它**直接 inline 执行,不再起下一层子 agent**。
 - **冲突交还**:子 agent 撞到**需用户裁决的冲突**,不静默处理 —— 把冲突原样写进返回摘要,交主 agent 找用户裁决后再续。
 - **主 agent 收尾**:把子 agent 摘要转告用户;**trust-but-verify** —— 扫一眼 `git log` / INDEX 节点数,确认子 agent 确实写入,再汇报。

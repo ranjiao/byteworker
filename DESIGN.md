@@ -132,7 +132,7 @@ frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)
 窗口标识。正文为该窗口的逐字消息(发送人 · 时间 · 内容,原样)。
 
 **`web` 变体**:外部读物(blog / 论文 / wiki)。`source_url` 填文章链接(本地 PDF 则填路径),
-`source_title` 填文章标题。正文为抓取的文章正文(WebFetch / Read)。
+`source_title` 填文章标题。正文为宿主 agent 抓取/读取到的文章正文。
 
 **`routine` 字段(可选)**:若来源是**会定期更新**的源(滚动周会文档、群聊等),经用户确认
 纳入「定期摄取」后,frontmatter 加 `routine: weekly`(cadence,默认 `weekly`);该源后续每个
@@ -352,10 +352,10 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 - **「群聊摄取进度」表** = 每个摄取过的群一行,记 `chat_id` 与「已摄取至」(该群最近一次 `source_window` 的结束点 = 增量高水位)。digest 群聊前查此表判断首次 / 增量,摄取后更新对应行;从 `raw_data/` 的 `feishu_chat` raw frontmatter 派生、可重建。**这是 agent「这个群摄过没、摄到哪」的唯一可见入口。**
 - **`TL;DR` 列** = 节点 body 首行的一句话摘要(§4.2)。让查询时的语义匹配作用在
   「标题 + 摘要」而非仅标题上,大幅提升语义召回 —— 这是 byteworker 不引入向量库
-  也能做语义检索的关键:检索器是 Claude 本身,只需把语义面在 INDEX 里铺够。
+  也能做语义检索的关键:检索器是当前 agent/模型本身,只需把语义面在 INDEX 里铺够。
   摘要过长则截断到一行。
 - **人员表的 `feishu_id` 列** —— 支持按飞书邮箱英文 id 直接检索到对应的人(node id 已与 `feishu_id` 解耦,见 §2;此列补回「按 id 找人」的便利)。
-- 查询先扫 INDEX 再定向 Read 节点;写入时**增量更新**对应行,不每次全扫。
+- 查询先扫 INDEX 再定向读取节点;写入时**增量更新**对应行,不每次全扫。
 - 一致性兜底:某类 `knowledge/<类型>/` 文件数 ≠ INDEX 该节行数 → 触发全量重建。
   (纯内容编辑不改行数,无法靠计数发现 → 故增量更新是主路径。)
 - 单类节点行数 > 200 → skill 必须提示该类按子目录分片(TODOS)。
@@ -396,9 +396,9 @@ templates/
 6. **真相源/派生不变量 + auto-link + 重建一等化** — 显式锁定数据不变量(§1.C);写节点时
    自动从 body 提及的节点 id 连边(auto-link);「重建 INDEX」提为一等操作并补灾难恢复。
    源:gbrain 架构借鉴(reading-gbrain-system-of-record / reading-gbrain-retrieval)。
-7. **检索栈:INDEX 路由 + grep 全文 + Claude 语义** — INDEX 增 `TL;DR` 列扩大语义面(§6);
+7. **检索栈:INDEX 路由 + grep 全文 + agent 语义** — INDEX 增 `TL;DR` 列扩大语义面(§6);
    `search` 双路召回(扫 INDEX 做语义召回 + `grep` 做全文召回)再图遍历;**不引入向量库/DB**
-   —— 个人库尺度下检索器即 Claude 本身。源:gbrain 混合检索借鉴(reading-gbrain-retrieval)。
+   —— 个人库尺度下检索器即当前 agent/模型本身。源:gbrain 混合检索借鉴(reading-gbrain-retrieval)。
 8. **群聊增量摄取** — 群聊是持续消息流,同一群反复摄取;`feishu_chat` raw 的 `source_window`
    结束点 = 高水位,在 INDEX「群聊摄取进度」表登记(agent 据此查首次/增量),
    `bin/pull-chat.sh --since-last` 据此自动续拉下一窗口。每窗口一个 event,实体节点跨窗口
@@ -470,7 +470,7 @@ templates/
 
 - **性质**:真相源、不可派生。skill 在 digest / search 等流程中**只读、绝不自动改写**;
   用户明确要求时由 agent 代为增删改(SKILL 的 `context` 子命令)—— 完全通过对话式 agent
-  (OpenClaw 等)使用本 skill 的用户无法直接编辑文件,**必须靠 agent 代维护**。
+  (Codex、OpenClaw 等)使用本 skill 的用户无法直接编辑文件,**必须靠 agent 代维护**。
 - **保持简短**:它是「透镜」不是「档案」—— 只放当前有效的上下文,过期内容使用者自行删除。
   每次运行都加载,过长会吃上下文。
 - **用法**:见 SKILL「操作前必读」—— digest 时影响怎么解读、什么值得消化;search / brief 时

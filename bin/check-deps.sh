@@ -12,7 +12,7 @@ T1=0; T2=0
 
 have()          { command -v "$1" >/dev/null 2>&1; }
 skill_present() {
-  for d in "$HOME/.claude/skills" "$HOME/.openclaw/skills" "$HOME/.agents/skills"; do
+  for d in "${CODEX_HOME:-$HOME/.codex}/skills" "$HOME/.claude/skills" "$HOME/.openclaw/skills" "$HOME/.agents/skills"; do
     [ -e "$d/$1" ] && return 0
   done
   return 1
