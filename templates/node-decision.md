@@ -36,4 +36,4 @@ links: []
 <!-- project / event / person links -->
 
 ## 历史
-<!-- 被新决策取代时,旧内容移入此处,标来源 + 日期;同时 frontmatter 设 superseded_by 与 status: superseded -->
+<!-- 被新决策取代时,旧内容移入此处,标来源 + 日期;同时 frontmatter 设 superseded_by 与 status: superseded;按事件发生时间倒序 -->
