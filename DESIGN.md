@@ -100,6 +100,28 @@ byteworker 由**两个物理隔离**的部分组成。
 - **reports**:`reports/daily/<YYYY-MM-DD>.md`;`reports/weekly/<YYYY>-W<WW>.md`(ISO 周)。
 - 单类节点 > 200 时再分子目录(TODOS)。
 
+### 2.1 时间格式规范
+
+知识库里所有**结构化时间**统一使用下面几种格式。原始正文(raw body)必须逐字保留,不因本规范改写;但 raw frontmatter、knowledge 节点、INDEX、journal、reports、dashboard 等由 skill 生成的内容必须规范化。
+
+| 场景 | 格式 | 示例 | 说明 |
+|------|------|------|------|
+| 日期 | `YYYY-MM-DD` | `2026-05-21` | 默认格式;节点 frontmatter 的 `created` / `updated` / `last_verified`、正文条目日期、`.last-routine-digest` 均用它 |
+| 带本地时间 | `YYYY-MM-DD HH:MM` | `2026-05-21 19:00` | 面向人读的正文 / journal / report 生成时间;默认 Asia/Shanghai,不写秒 |
+| 完整时间戳 | `YYYY-MM-DDTHH:MM:SS+08:00` | `2026-05-21T19:00:41+08:00` | 机器边界字段,如 `raw_data.ingested`、`source_window`、群聊高水位;必须带时区 |
+| 时间范围(人读) | `<start> .. <end>` | `2026-05-21 19:00 .. 20:31` | 同日范围可省略结束日期;跨日写完整日期 |
+| 时间范围(机器) | `<ISO8601> .. <ISO8601>` | `2026-05-21T00:00:00+08:00 .. 2026-05-25T00:07:30+08:00` | `source_window` 等可续拉字段 |
+| ISO 周 | `YYYY-Www` | `2026-W21` | 周报文件名、周报标题 |
+| 月 | `YYYY-MM` | `2026-05` | journal 子目录名 |
+
+规范化规则:
+- 禁止在 skill 生成内容中写 `YYYYMMDD`、`M.D`、`5-21`、`05/21` 等裸格式;输入里出现这类周期时,消化后统一转成 `YYYY-MM-DD`。例如 `20260520` → `2026-05-20`,`5-21` 在已知年份为 2026 时 → `2026-05-21`。
+- `digest_period` 若表示日期周期,统一写 `YYYY-MM-DD`;若表示 ISO 周,写 `YYYY-Www`;确实不是日期(如版本号 / 阶段名)才保留原样并在正文说明。
+- `INDEX.md` 的 `last_verified`、定期摄取清单「上次摄取」、群聊摄取进度「已摄取至」必须使用上表格式:日期源用 `YYYY-MM-DD`,群聊高水位用完整时间戳。
+- 节点 body 中带时间的条目开头优先使用 `- YYYY-MM-DD ...`;若需要具体时间,写 `- YYYY-MM-DD HH:MM ...`。`思路与视角` 固定为 `- 【主张|意图】<作者> · YYYY-MM-DD —— <内容>`。
+- journal 行以 `- HH:MM ...` 开头,文件路径已提供日期;若引用外部事件发生时间,正文里仍写完整 `YYYY-MM-DD` 或 `YYYY-MM-DD HH:MM`。
+- 报告顶部 `生成时间` 用 `YYYY-MM-DD HH:MM`;`范围` 用人读时间范围。
+
 ---
 
 ## 3. raw_data/ — 原始输入
@@ -174,7 +196,7 @@ links:                                        # 图的边,双向维护(写 A→B
 | `type` | ✓ | 7 类之一,决定子目录与 body 结构 |
 | `tags` | ✓ | 自由二级标签,承载角色特异性(数据集名、渠道、技术栈…);优先复用已有 tag |
 | `status` | ✓ | `current` / `stale` 疑似过期 / `superseded` 已被取代 |
-| `created`/`updated`/`last_verified` | ✓ | 创建 / 最后修改 / 最后被新输入或人工确认的日期 |
+| `created`/`updated`/`last_verified` | ✓ | 创建 / 最后修改 / 最后被新输入或人工确认的日期,格式固定为 `YYYY-MM-DD` |
 | `superseded_by` | ✗ | 退役时指向取代它的节点 |
 | `sources` | ✓ | 溯源根,指回 raw_data 或飞书链接 |
 | `links` | ✗ | 关联节点 id,**双向维护**;id 前缀即对端类型;body 中提及的已存在节点 id 自动纳入(auto-link,见 SKILL.md 写入规范) |
@@ -354,8 +376,8 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 | 群名 | chat_id | 已摄取至 | 最近 raw_id |
 ```
 
-- **「定期摄取清单」表** = 会定期更新、需周期性复查的源(滚动周会文档、群聊等)。由扫描带 `routine` 标记的 `raw_data/` 文件派生(§3),一源一行,`上次摄取` = 该源最近 raw 的周期/窗口。「定期摄取」例程逐源增量 re-digest(见 SKILL「定期摄取」)。*替代了旧的「待消化」表 —— 后者无机制主动入列、形同虚设;`digest_status: pending/failed` 的中断 raw 改由扫 `raw_data/` 兜底发现。*
-- **「群聊摄取进度」表** = 每个摄取过的群一行,记 `chat_id` 与「已摄取至」(该群最近一次 `source_window` 的结束点 = 增量高水位)。digest 群聊前查此表判断首次 / 增量,摄取后更新对应行;从 `raw_data/` 的 `feishu_chat` raw frontmatter 派生、可重建。**这是 agent「这个群摄过没、摄到哪」的唯一可见入口。**
+- **「定期摄取清单」表** = 会定期更新、需周期性复查的源(滚动周会文档、群聊等)。由扫描带 `routine` 标记的 `raw_data/` 文件派生(§3),一源一行,`上次摄取` = 该源最近 raw 的规范化周期 / 窗口:日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`,群聊窗口用完整高水位时间戳。「定期摄取」例程逐源增量 re-digest(见 SKILL「定期摄取」)。*替代了旧的「待消化」表 —— 后者无机制主动入列、形同虚设;`digest_status: pending/failed` 的中断 raw 改由扫 `raw_data/` 兜底发现。*
+- **「群聊摄取进度」表** = 每个摄取过的群一行,记 `chat_id` 与「已摄取至」(该群最近一次 `source_window` 的结束点 = 增量高水位,格式固定为完整 ISO8601,如 `2026-05-25T00:07:30+08:00`)。digest 群聊前查此表判断首次 / 增量,摄取后更新对应行;从 `raw_data/` 的 `feishu_chat` raw frontmatter 派生、可重建。**这是 agent「这个群摄过没、摄到哪」的唯一可见入口。**
 - **`TL;DR` 列** = 节点 body 首行的一句话摘要(§4.2)。让查询时的语义匹配作用在
   「标题 + 摘要」而非仅标题上,大幅提升语义召回 —— 这是 byteworker 不引入向量库
   也能做语义检索的关键:检索器是当前 agent/模型本身,只需把语义面在 INDEX 里铺够。

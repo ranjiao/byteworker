@@ -4,6 +4,8 @@
 > 范围:<YYYY-MM-DD> .. <YYYY-MM-DD>
 > 来源:<主要节点 / raw / journal / daily 报告摘要>
 
+<!-- 时间格式:正文条目统一使用 YYYY-MM-DD 或 YYYY-MM-DD HH:MM;不要写 20260520 / 5-21 / 裸 ISO 时间戳。 -->
+
 ## 本周重点
 - 暂无
 

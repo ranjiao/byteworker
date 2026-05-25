@@ -15,7 +15,7 @@
    - `weekly`:默认当前 ISO 周(周一 00:00 到当前时刻);若用户说"上周",取上一 ISO 周完整范围;若给 `YYYY-Www`,取对应 ISO 周。
 3. **召回事实源**
    - 读范围内 `journal/` 行。
-   - 扫范围内新增/更新的 `raw_data/` frontmatter:按 `ingested`、`source_window`、`digest_period` 判断归属。
+   - 扫范围内新增/更新的 `raw_data/` frontmatter:按 `ingested`、`source_window`、`digest_period` 判断归属。先按 DESIGN.md §2.1 规范化时间:`ingested` / `source_window` 用完整 ISO8601,日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`。
    - 扫范围内新建/更新的 `knowledge/` 节点:优先读取 `event` / `decision`,再读取被它们 links 指向的 `project` / `person` / `org` / `area`。
    - 对用户本人、团队、直属主管方向、`dashboard.md` 长期关注项做一跳图遍历补充。
 4. **筛选重要性**
@@ -27,7 +27,7 @@
    - `daily` 复制 `templates/report-daily.md` 的结构,写到 `reports/daily/<YYYY-MM-DD>.md`。
    - `weekly` 复制 `templates/report-weekly.md` 的结构,写到 `reports/weekly/<YYYY>-W<WW>.md`。
    - 报告是可覆盖快照:同一日期 / 周再次生成时可以覆盖原文件,但要保留用户已手动补充的 `## 手动补充 / 备注` 章节内容。
-   - 条目按**事件发生时间倒序**排列;无法判断发生时间的条目放末尾并标"时间不明"。
+   - 条目按**事件发生时间倒序**排列;无法判断发生时间的条目放末尾并标"时间不明"。报告正文时间统一用 `YYYY-MM-DD` 或 `YYYY-MM-DD HH:MM`,不要输出 `20260520` / `5-21` / 裸 ISO 时间戳。
    - 每个事实性条目带来源:节点 id、raw_id、或报告引用的 journal 日期。不要写无来源结论。
    - 无命中章节写"暂无",不要编造。
    - 日报和周报最重要的章节是「本日重点 / 本周重点」,一定确保最重要的进展、重要人物观点、重要决策都明确录入,同时保证整体篇幅尽可能精简。
