@@ -24,6 +24,14 @@ dashboard  工作看板 —— 看当下该关注什么
   /byteworker dashboard / 长期关注X / 提醒我关注Y
   → 长期关注项(自动拉最新状态)+ 需关注事项 + 今日进展
 
+daily      日报 —— 自动跑定期摄取,总结当天重要事项
+  /byteworker daily / /byteworker daily 2026-05-25
+  → 复查定期来源 → 消化新增 → 生成 reports/daily/<YYYY-MM-DD>.md
+
+weekly     周报 —— 自动跑定期摄取,总结本周重要事项
+  /byteworker weekly / /byteworker weekly 上周
+  → 复查定期来源 → 消化新增 → 生成 reports/weekly/<YYYY>-W<WW>.md
+
 context    全局上下文 —— 对话式维护你的工作上下文(供 agent 当「透镜」)
   /byteworker context 我的当前重点改成X / 主管说… / 看一下我的 context
   → 增删改 context.md 的 我的当前重点 / 主管方向 / 当前约束 / 背景信息
@@ -38,6 +46,7 @@ help       用法说明
            环境起不了 web 服务,browse.sh 不适用 —— 那种情况用对话查询 search 即可)
 
 存储:知识库数据目录(用户指定,独立于本 skill,不进 git)——
-      knowledge/(节点)· raw_data/(原始输入)· journal/(日志)· INDEX.md · dashboard.md · context.md(全局上下文)
+      knowledge/(节点)· raw_data/(原始输入)· journal/(日志)· reports/(日报/周报)
+      · INDEX.md · dashboard.md · context.md(全局上下文)
 文档:DESIGN.md(存储 schema)· TODOS.md(延后功能)
 安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git
