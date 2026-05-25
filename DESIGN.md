@@ -23,10 +23,10 @@
 |------|---------|------|
 | 事件 `event` | `event-` | 一次会议/评审/发布的 digest 快照,定型;链接到人/项目/组织 |
 | 决策 `decision` | `decision-` | 一个决策及理由/相关方/影响;可被新决策 supersede;链接到项目/事件/人 |
-| 读物 `reading` | `reading-` | 外部 blog/论文/wiki 的 digest:核心观点 + 可借鉴点;弱相关于工作,供未来检索引用 |
+| 读物 / 资料卡 `reading` | `reading-` | 外部 blog/论文/wiki,以及内部路线思考/方法论/调研/技术白皮书的 digest:核心观点 + 方法框架 + 可借鉴点 |
 
 **图的边:** event 链接它涉及的 person/project/org;decision 链接相关 project/event 与决策人;
-project 链接成员 person、所属 area、所属 org;reading 在未来工作引用到它时再链到 project/area。
+project 链接成员 person、所属 area、所属 org;reading 作为资料入口链接它支撑或影响的 project/area/decision/event。
 查询「关于张三我都知道什么」= person-zhang-san 节点 + 所有链回他的 event/decision/project。
 
 ---
@@ -257,21 +257,23 @@ links:                                        # 图的边,双向维护(写 A→B
 ## 历史             <!-- 带时间条目按事件发生时间倒序 -->
 ```
 
-**`reading`(记录,外部读物 / 思路)**
+**`reading`(记录,读物 / 资料卡 / 思路)**
 ```markdown
-## 来源            <!-- 链接 / 作者 / 发布日期 / 类型:blog|论文|wiki -->
-## 核心观点         <!-- 逐条提炼文章的关键观点 -->
+## 来源            <!-- 链接 / 作者 / 发布日期 / 类型:blog|论文|wiki|内部路线思考|方法论|调研|技术白皮书|复盘 -->
+## 核心观点         <!-- 逐条提炼资料的关键观点、论点、方法、证据 -->
 ## 可借鉴点         <!-- 对工作的潜在启发(「思路」角度);无则留空 -->
-## 相关节点         <!-- links;未来某工作用到这个思路时再连过来 -->
+## 相关节点         <!-- links;内部资料通常连到影响的 project/area/decision/event -->
 ```
-> 外部读物弱相关于工作:摄取时**一篇文章一个 `reading` 节点**,不走 event/decision 扇出。
-> `reading` 低维护(观点不会像项目状态那样过期),`status` 基本恒为 `current`。
+> `reading` 是资料本身的 digest:外部读物通常弱相关于工作,默认**一篇文章一个 `reading` 节点**,
+> 不走 event/decision 扇出;内部路线思考 / 方法论 / 调研 / 技术白皮书则以 `reading`
+> 作为主记录,同时可按内容扇出明确 decision、更新相关 project/area/person/org。
+> `reading` 低维护(观点不会像项目状态那样过期),`status` 基本恒为 `current`,不进看板陈旧告警。
 
 ### 4.3 一次摄取的产出(digest 扇出)
 
 一次摄取(raw)按下面的**形状**扇出成多个节点 —— 这是实体图的生长方式:
-1. **必产 1 个记录节点**:会议 / 群聊窗口 → `event`;外部读物 → `reading`。
-2. **抽取 N 个 `decision`**:输入中每个明确决策抽成独立节点(`reading` 不走此步)。
+1. **必产 1 个记录节点**:会议 / 群聊窗口 → `event`;外部读物、内部路线思考 / 方法论 / 调研 / 技术白皮书 → `reading`。
+2. **抽取 N 个 `decision`**:输入中每个明确决策抽成独立节点。外部读物默认不走此步;内部资料型 `reading` 若包含明确生效的选择 / 原则 / 边界,可以抽 `decision`。
 3. **创建或更新实体节点**:输入实质涉及的 person/project/org/area —— 不存在则建,已存在则
    走**实体消解**更新(建前在 INDEX 比对;`person` 优先按 `feishu_id`,见 §4.1)。
 4. **全部互链** `links`(双向),并登记进 raw 的 `digest_targets`。
@@ -282,7 +284,7 @@ links:                                        # 图的边,双向维护(写 A→B
 
 ### 4.4 什么该进知识库
 
-**该存:** 决策与理由、项目/事项状态、常青参考知识、会议结论与待办、协作关系、外部读物的观点。
+**该存:** 决策与理由、项目/事项状态、常青参考知识、会议结论与待办、协作关系、外部读物与内部资料的观点 / 方法框架 / 可借鉴点。
 **不该存:** 一周后即失效且无留存价值的琐碎、纯寒暄。
 边界不清则 agent 高亮问用户,不静默丢弃也不硬塞。
 
@@ -397,8 +399,9 @@ templates/
    (`knowledge/`、`raw_data/`、`journal/`、`INDEX.md`)存在用户指定的独立目录(默认名
    `byteworker_kb`),**绝不进 skill 仓库的 git**。数据目录路径记于 `.kbconfig`(gitignore)。
    数据目录有自己的**独立本地 git**(回滚用,永不 push),首次使用时由 skill 询问并初始化。
-5. **新增 `reading` 节点类型** — 外部读物(blog/论文/wiki)的思路库,与工作知识同图、
-   独立成类(`knowledge/readings/`);新增 `source_type: web`。见 §0、§3、§4.2。
+5. **新增并扩展 `reading` 节点类型** — 外部读物(blog/论文/wiki)与内部路线思考 / 方法论 /
+   调研 / 技术白皮书的资料卡,与工作知识同图、独立成类(`knowledge/readings/`);
+   外部来源新增 `source_type: web`,内部资料仍使用 `source_type: feishu_doc`。见 §0、§3、§4.2。
 6. **真相源/派生不变量 + auto-link + 重建一等化** — 显式锁定数据不变量(§1.C);写节点时
    自动从 body 提及的节点 id 连边(auto-link);「重建 INDEX」提为一等操作并补灾难恢复。
    源:gbrain 架构借鉴(reading-gbrain-system-of-record / reading-gbrain-retrieval)。
