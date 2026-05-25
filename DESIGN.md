@@ -39,7 +39,7 @@ byteworker 由**两个物理隔离**的部分组成。
 
 | 文件/目录 | 存什么 |
 |-----------|--------|
-| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/help) |
+| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/daily/weekly/help) |
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
@@ -52,6 +52,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `raw_data/` | 摄取的**逐字原文** + 溯源元数据,一次摄取一文件 | skill 写入,**永不改写** | 只增不改 |
 | `knowledge/{people,projects,areas,orgs,events,decisions,readings}/` | 7 类节点笔记,按类型分子目录(固定 7 个,不漂移) | skill 写入/更新 | 实体可更新;记录定型 |
 | `journal/` | 摄取/更新/扫描事件的**时间线日志** | skill 追加 | 只追加 |
+| `reports/daily/`, `reports/weekly/` | 日报 / 周报归档快照,由 `daily` / `weekly` 生成 | skill 写入,用户可手改 | 可覆盖同周期 |
 | `INDEX.md` | 主索引:7 类节点登记表 + 待消化表 | skill 维护,可全量重建 | 高频更新 |
 | `dashboard.md` | 工作看板 —— 实时视图(长期关注 / 需关注 / 今日进展) | skill 维护/渲染 | 高频刷新 |
 | `context.md` | 全局工作上下文 —— 使用者主动维护的「透镜」(当前重点 / 主管方向 / 约束 / 背景) | 用户手维护 | 手维护 |
@@ -70,6 +71,7 @@ byteworker 由**两个物理隔离**的部分组成。
 - `raw_data/` —— 不可变、逐字;一切知识的根。
 - `knowledge/` 节点 —— 可变消化产物,承载真正的知识价值;节点出错可回对应 `raw_data`
   重新消化(LLM digest,非确定性),但 `raw_data` 本身丢了就无源可回。
+- `reports/` —— 日报 / 周报是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
 - `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
 - `context.md` —— 使用者主动维护的全局工作上下文;手维护、不可派生,只此一处保存。
 
@@ -95,6 +97,7 @@ byteworker 由**两个物理隔离**的部分组成。
   - 事件含日期:`event-<YYYY-MM-DD>-<slug>`,如 `event-2026-05-20-q2-review`。
   - 决策:`decision-<slug>`;读物:`reading-<slug>`。
 - **journal**:`journal/<YYYY-MM>/<YYYY-MM-DD>.md`。
+- **reports**:`reports/daily/<YYYY-MM-DD>.md`;`reports/weekly/<YYYY>-W<WW>.md`(ISO 周)。
 - 单类节点 > 200 时再分子目录(TODOS)。
 
 ---
@@ -238,6 +241,7 @@ links:                                        # 图的边,双向维护(写 A→B
 ## 议程与讨论
 ## 结论
 ## 参与方立场分析   <!-- 各关键参与方的立场/动机/对决策态度;须基于证据,标【观察】/【推断】,见 §4.5 -->
+## 重点事项        <!-- 和用户本人相关、重点关注项目、重要人物观点，以及其他在context.md里面要求关注的重点事项 -->
 ## 待办事项        <!-- 责任人 + 截止日期 -->
 ## 衍生与关联       <!-- 产生/更新的 decision、涉及的 project/person/org -->
 ```
@@ -375,6 +379,8 @@ templates/
   node-decision.md     /
   node-reading.md
   context.md             context.md 文件骨架(全局上下文,§10;首次使用整份复制为初始 context.md)
+  report-daily.md        日报骨架(daily 输出到 reports/daily/)
+  report-weekly.md       周报骨架(weekly 输出到 reports/weekly/)
 ```
 无法判定 type 时,实体类倾向 `area`、记录类倾向 `event`,并在 journal 标注。
 
@@ -423,6 +429,9 @@ templates/
 13. **定期摄取到期判断改用状态文件** — 「到期提醒」不再扫 journal 散文找上次运行日期,
    改读数据目录的 `.last-routine-digest`(§1.B)。定期摄取例程每次运行后写当天日期 ——
    **空手而归也写**(「复查过」≠「有新增」);journal 行降为纯审计。见 §1.B、SKILL.md。
+14. **日报 / 周报归档快照** — 新增 `reports/daily/` 与 `reports/weekly/`。`daily` / `weekly`
+   每次先跑定期摄取,再从 journal / raw / nodes 召回事实生成报告;报告不进入 INDEX,但每条事实
+   必须能回溯到节点 / raw / journal。同周期再次生成可覆盖,但保留用户手动备注。见 §11、SKILL.md。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 
@@ -483,3 +492,25 @@ templates/
 章节 `我的当前重点` / `主管方向` / `当前约束` / `背景信息`,每条带日期(`- <YYYY-MM-DD> —— <一句话>`)。
 首次使用、或数据目录缺 `context.md` 时,由 skill **整份复制**该模板初始化 —— 统一模板,避免各用户
 写出五花八门的格式。各章节无内容则留空;`<!-- 指引 -->` 注释保留(持续引导用户、不渲染)。
+
+## 11. reports/ — 日报 / 周报归档快照
+
+报告文件不是知识节点,不进入 `INDEX.md`,但属于用户可手改的真相源快照。它们用于归档某天 /
+某周的工作总结,回答"这段时间发生了什么重要事,与我和团队有什么关系,后续该看什么"。
+
+目录与命名:
+
+```text
+reports/
+  daily/
+    2026-05-25.md
+  weekly/
+    2026-W22.md
+```
+
+- **生成来源**:范围内 `journal/`、`raw_data/` frontmatter、`knowledge/` 节点及其 links。
+- **模板**:skill 目录 `templates/report-daily.md`、`templates/report-weekly.md`。
+- **覆盖规则**:同一日期 / 周再次生成可覆盖报告正文;若旧报告有 `## 手动补充 / 备注`,必须保留该章节内容。
+- **排序**:章节内带时间条目按事件发生时间倒序;时间不明放末尾并标注。
+- **溯源**:每个事实性条目带节点 id、raw_id 或 journal 日期;无来源不写事实结论。
+- **git**:报告写入后按写入规范在知识库数据目录本地 git 创建回滚点,永不 push。

@@ -37,6 +37,8 @@
 | `/byteworker update <节点/新进展>` | **更新** —— 某条知识有新进展 |
 | `/byteworker brief` | **会前简报** —— 读飞书日历,为每个会议拉相关上下文 |
 | `/byteworker dashboard` | **工作看板** —— 长期关注 / 需关注 / 今日进展 |
+| `/byteworker daily` | **日报** —— 自动跑定期摄取,总结当天重要事项 |
+| `/byteworker weekly` | **周报** —— 自动跑定期摄取,总结本周重要事项 |
 | `/byteworker context <增删改>` | **全局上下文** —— 对话式维护你的工作上下文(个人工作倾向、需要告诉模型的零散信息等) |
 | `/byteworker help` | **帮助** |
 
@@ -95,6 +97,7 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 你的实际知识库数据存在上面指定的独立目录(**不在本仓库**):
 
 - `knowledge/` —— 7 类节点笔记 · `raw_data/` —— 摄取的逐字原文 · `journal/` —— 操作日志
+- `reports/` —— 日报 / 周报归档快照
 - `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板
 
 该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`DESIGN.md`](DESIGN.md)。
