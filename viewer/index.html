@@ -640,6 +640,8 @@ a { color: inherit; text-decoration: none; }
 }
 .gear-btn:hover { border-color: var(--line-strong); color: var(--ink); background: var(--bg-elev); }
 .gear-btn svg { width: 14px; height: 14px; }
+.reload-btn.spinning svg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ======================================================================
    STRUCTURED BODY — sections rendered by kind, not flat markdown.
@@ -982,6 +984,9 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l4 4-4 4"/></svg>
       </button>
     </div>
+    <button class="tbtn reload-btn" id="btn-reload" title="重新载入知识库 (⌘R)" aria-label="重新载入知识库">
+      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 7a4 4 0 1 1-1-2.8M11 2v3H8"/></svg>
+    </button>
   </div>
 
   <!-- Sidebar -->
@@ -1149,6 +1154,9 @@ const state = {
   paletteQ: '',
   paletteSel: 0,
   paletteComposing: false,
+  reloadToken: '',
+  reloading: false,
+  scanRun: 0,
 };
 
 // load persisted display settings
@@ -1172,6 +1180,7 @@ const D = {
   brandSub: $('brand-sub'),
   btnBack: $('btn-back'),
   btnFwd: $('btn-fwd'),
+  btnReload: $('btn-reload'),
   btnSearch: $('btn-search'),
   btnSettings: $('btn-settings'),
   btnCopy: $('btn-copy'),
@@ -1202,6 +1211,11 @@ function esc(s) {
 function nodeDir(id) {
   const pfx = id.split('-')[0];
   return DIR[pfx] || null;
+}
+
+function kbUrl(path) {
+  if (!state.reloadToken) return path;
+  return path + (path.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(state.reloadToken);
 }
 
 function relTime(date) {
@@ -1286,7 +1300,7 @@ async function fetchNode(id) {
   const dir = nodeDir(id);
   if (!dir) throw new Error('未知 id: ' + id);
   state.inflight[id] = (async () => {
-    const r = await fetch(KB + 'knowledge/' + dir + '/' + id + '.md');
+    const r = await fetch(kbUrl(KB + 'knowledge/' + dir + '/' + id + '.md'), { cache: 'no-store' });
     if (!r.ok) throw new Error('找不到: knowledge/' + dir + '/' + id + '.md');
     const text = await r.text();
     const { fm, body } = parseFM(text);
@@ -1309,8 +1323,10 @@ async function fetchNode(id) {
 
 // ---- background scan to build links/backlinks index --------
 async function scanAll() {
+  const run = ++state.scanRun;
   state.scanProgress.total = state.nodes.length;
   state.scanProgress.done = 0;
+  state.scanDone = false;
   updateScanStatus();
   // fetch with concurrency cap
   const CONCURRENCY = 6;
@@ -1322,6 +1338,7 @@ async function scanAll() {
         const n = queue.shift();
         try { await fetchNode(n.id); }
         catch (e) { /* missing files are tolerated */ }
+        if (run !== state.scanRun) return;
         state.scanProgress.done++;
         if (state.scanProgress.done % 3 === 0 || state.scanProgress.done === state.scanProgress.total) {
           updateScanStatus();
@@ -1330,6 +1347,7 @@ async function scanAll() {
     })());
   }
   await Promise.all(workers);
+  if (run !== state.scanRun) return;
   // build forward/backlinks from cache
   state.forwardLinks = {};
   state.backlinks = {};
@@ -1693,7 +1711,7 @@ function linkifyIds(root) {
 async function renderReaderRaw(path, label) {
   D.readerBody.innerHTML = `<div class="reader-inner"><div style="color:var(--ink-4);font-size:13px">加载中…</div></div>`;
   try {
-    const r = await fetch(path);
+    const r = await fetch(kbUrl(path), { cache: 'no-store' });
     if (!r.ok) throw new Error('找不到: ' + path);
     const text = await r.text();
     const html = md.render(text);
@@ -1730,7 +1748,7 @@ function isoWeekKey(d) {
 
 async function latestReportFromListing(kind) {
   const dir = `${KB}reports/${kind}/`;
-  const r = await fetch(dir);
+  const r = await fetch(kbUrl(dir), { cache: 'no-store' });
   if (!r.ok) return null;
   const html = await r.text();
   const names = [...html.matchAll(/href="([^"]+\.md)"/g)]
@@ -1759,7 +1777,7 @@ async function firstExistingReport(kind) {
       d.setDate(today.getDate() - i);
       const key = dateKey(d);
       const path = `${KB}reports/daily/${key}.md`;
-      const r = await fetch(path);
+      const r = await fetch(kbUrl(path), { cache: 'no-store' });
       if (r.ok) return { path, label: `日报 ${key}` };
     }
     throw new Error('最近 60 天没有找到日报。');
@@ -1772,7 +1790,7 @@ async function firstExistingReport(kind) {
     if (seen.has(key)) continue;
     seen.add(key);
     const path = `${KB}reports/weekly/${key}.md`;
-    const r = await fetch(path);
+    const r = await fetch(kbUrl(path), { cache: 'no-store' });
     if (r.ok) return { path, label: `周报 ${key}` };
   }
   throw new Error('最近 52 周没有找到周报。');
@@ -2592,6 +2610,7 @@ D.sideFilter.addEventListener('keydown', (e) => {
 });
 D.btnBack.addEventListener('click', navBack);
 D.btnFwd.addEventListener('click', navFwd);
+D.btnReload.addEventListener('click', reloadKb);
 D.btnSearch.addEventListener('click', openPalette);
 D.btnSettings.addEventListener('click', openSettings);
 D.btnCopy.addEventListener('click', () => {
@@ -2619,6 +2638,7 @@ document.addEventListener('keydown', (e) => {
   const tag = (e.target.tagName || '').toLowerCase();
   const inField = tag === 'input' || tag === 'textarea';
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); state.paletteOpen ? closePalette() : openPalette(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'r') { e.preventDefault(); reloadKb(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === ',') { e.preventDefault(); state.settingsOpen ? closeSettings() : openSettings(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); setSetting('theme', state.settings.theme === 'dark' ? 'light' : 'dark'); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === '[') { e.preventDefault(); navBack(); return; }
@@ -2647,26 +2667,75 @@ window.addEventListener('hashchange', () => {
 });
 
 // ---- boot ----------------------------------------------
+function clearKbCaches() {
+  state.nodeFull = {};
+  state.inflight = {};
+  state.forwardLinks = {};
+  state.backlinks = {};
+  state.scanDone = false;
+  state.scanProgress = { done: 0, total: 0 };
+  state.scanRun++;
+}
+
+function applyIndex(text) {
+  state.nodes = parseIndex(text);
+  state.byId = {};
+  state.byType = {};
+  for (const n of state.nodes) state.byId[n.id] = n;
+  for (const t of TYPE_ORDER) state.byType[t] = state.nodes.filter(n => n.type === t);
+  D.brandSub.textContent = `${state.nodes.length} 个节点 · 只读`;
+}
+
+async function loadIndex() {
+  const r = await fetch(kbUrl(KB + 'INDEX.md'), { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.text();
+}
+
+function renderDisconnected(error) {
+  D.readerBody.innerHTML = `<div class="err">
+      <strong>读不到 INDEX.md。</strong><br>
+      请用 <code>~/byteworker/bin/browse.sh</code> 启动 —— 它起一个本地静态服务器,把 viewer 挂在 /app、把知识库数据挂在 /kb。<br>
+      <span style="color:var(--ink-4)">原始错误:${esc(error.message)}</span>
+    </div>`;
+  D.scanStatus.textContent = '未连接';
+}
+
+async function reloadKb() {
+  if (state.reloading) return;
+  state.reloading = true;
+  state.reloadToken = String(Date.now());
+  D.btnReload.disabled = true;
+  D.btnReload.classList.add('spinning');
+  D.brandSub.textContent = '重新载入…';
+  const cur = currentEntry();
+  try {
+    clearKbCaches();
+    applyIndex(await loadIndex());
+    state.recentIds = state.recentIds.filter(id => state.byId[id]);
+    renderSidebar();
+    updateScanStatus();
+    if (cur) renderCurrent();
+    scanAll().catch(e => console.warn('scan failed', e));
+  } catch (e) {
+    renderDisconnected(e);
+  } finally {
+    state.reloading = false;
+    D.btnReload.disabled = false;
+    D.btnReload.classList.remove('spinning');
+  }
+}
+
 async function boot() {
   applySettings();
   let text;
   try {
-    const r = await fetch(KB + 'INDEX.md');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    text = await r.text();
+    text = await loadIndex();
   } catch (e) {
-    D.readerBody.innerHTML = `<div class="err">
-      <strong>读不到 INDEX.md。</strong><br>
-      请用 <code>~/byteworker/bin/browse.sh</code> 启动 —— 它起一个本地静态服务器,把 viewer 挂在 /app、把知识库数据挂在 /kb。<br>
-      <span style="color:var(--ink-4)">原始错误:${esc(e.message)}</span>
-    </div>`;
-    D.scanStatus.textContent = '未连接';
+    renderDisconnected(e);
     return;
   }
-  state.nodes = parseIndex(text);
-  for (const n of state.nodes) state.byId[n.id] = n;
-  for (const t of TYPE_ORDER) state.byType[t] = state.nodes.filter(n => n.type === t);
-  D.brandSub.textContent = `${state.nodes.length} 个节点 · 只读`;
+  applyIndex(text);
   renderSidebar();
 
   // initial route: hash or first node
