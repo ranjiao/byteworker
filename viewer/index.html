@@ -247,14 +247,20 @@ a { color: inherit; text-decoration: none; }
 .type-group.pinned .type-group-h .label { color: var(--ink-2); }
 
 .side-shortcuts { padding: 0 6px 4px; display: flex; flex-direction: column; gap: 1px; }
+.report-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
 .side-shortcut {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 10px; border-radius: 6px; font-size: 12.5px;
   color: var(--ink-2); cursor: pointer; width: 100%; text-align: left;
 }
+.side-shortcut.mini {
+  justify-content: center; gap: 4px; padding: 5px 4px; font-size: 11.5px;
+  white-space: nowrap; overflow: hidden;
+}
 .side-shortcut:hover { background: var(--bg-hover); color: var(--ink); }
 .side-shortcut.on { background: var(--accent-tint); color: var(--accent); font-weight: 500; }
 .side-shortcut svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--ink-4); }
+.side-shortcut.mini svg { width: 12px; height: 12px; }
 .side-shortcut.on svg { color: var(--accent); }
 
 .side-scroll { flex: 1; overflow-y: auto; padding: 4px 0 24px; }
@@ -1002,10 +1008,20 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h4a2 2 0 0 1 2 2v8a1.5 1.5 0 0 0-1.5-1.5H2V3zM12 3H8a2 2 0 0 0-2 2v8a1.5 1.5 0 0 1 1.5-1.5H12V3z"/></svg>
         <span>主索引 INDEX</span>
       </button>
-      <button class="side-shortcut" id="sc-dash">
-        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1l2 3 3 .5L9.5 7l.5 3L7 8.5 4 10l.5-3L2 4.5 5 4z"/></svg>
-        <span>工作看板</span>
-      </button>
+      <div class="report-shortcuts">
+        <button class="side-shortcut mini" id="sc-dash" title="工作看板">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1l2 3 3 .5L9.5 7l.5 3L7 8.5 4 10l.5-3L2 4.5 5 4z"/></svg>
+          <span>工作看板</span>
+        </button>
+        <button class="side-shortcut mini" id="sc-daily" title="最近日报">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="10" height="9.5" rx="1.5"/><path d="M4.5 1.5v2M9.5 1.5v2M2 5h10M4.5 7.5h1.2M4.5 9.5h3"/></svg>
+          <span>日报</span>
+        </button>
+        <button class="side-shortcut mini" id="sc-weekly" title="最近周报">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="10" height="9.5" rx="1.5"/><path d="M4.5 1.5v2M9.5 1.5v2M2 5h10M4 7.5h6M4 9.5h6"/></svg>
+          <span>周报</span>
+        </button>
+      </div>
       <button class="side-shortcut" id="sc-context">
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 7s2-4 5.5-4 5.5 4 5.5 4-2 4-5.5 4S1.5 7 1.5 7z"/><circle cx="7" cy="7" r="1.6"/></svg>
         <span>全局上下文</span>
@@ -1084,7 +1100,7 @@ const TYPE_LABEL = {
   person:'人员', project:'项目', area:'主题领域', org:'组织',
   event:'事件', decision:'决策', reading:'读物'
 };
-const ID_RE = /\b(?:person|project|area|org|event|decision|reading)-[a-z0-9]+(?:-[a-z0-9]+)*\b/g;
+const ID_RE = /\b(?:person|project|area|org|event|decision|reading)-[a-z0-9]+(?:[.-][a-z0-9]+)*\b/g;
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const md = window.markdownit({ html: false, linkify: true, typographer: false });
@@ -1123,6 +1139,7 @@ const state = {
   paletteOpen: false,
   paletteQ: '',
   paletteSel: 0,
+  paletteComposing: false,
 };
 
 // load persisted display settings
@@ -1151,6 +1168,8 @@ const D = {
   btnCopy: $('btn-copy'),
   scIndex: $('sc-index'),
   scDash: $('sc-dash'),
+  scDaily: $('sc-daily'),
+  scWeekly: $('sc-weekly'),
   scContext: $('sc-context'),
   sideScroll: $('side-scroll'),
   sideFilter: $('side-filter'),
@@ -1385,6 +1404,11 @@ function renderCurrent() {
     renderReaderNode(e.id);
     renderRail(e.id);
     highlightSidebar(e.id);
+    D.scIndex.classList.remove('on');
+    D.scDash.classList.remove('on');
+    D.scDaily.classList.remove('on');
+    D.scWeekly.classList.remove('on');
+    D.scContext.classList.remove('on');
   } else {
     renderReaderRaw(e.path, e.label);
     D.railScroll.innerHTML = '<div class="empty-rail">' + esc(e.label) + ' · 文档视图,无图谱上下文。</div>';
@@ -1392,6 +1416,8 @@ function renderCurrent() {
     highlightSidebar(null);
     D.scIndex.classList.toggle('on', e.label === '主索引 INDEX');
     D.scDash.classList.toggle('on', e.label === '工作看板');
+    D.scDaily.classList.toggle('on', e.label.startsWith('日报'));
+    D.scWeekly.classList.toggle('on', e.label.startsWith('周报'));
     D.scContext.classList.toggle('on', e.label === '全局上下文');
   }
 }
@@ -1675,6 +1701,83 @@ async function renderReaderRaw(path, label) {
   }
 }
 
+function dateKey(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function isoWeekKey(d) {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = x.getUTCDay() || 7;
+  x.setUTCDate(x.getUTCDate() + 4 - day);
+  const y = x.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(y, 0, 1));
+  const week = Math.ceil((((x - yearStart) / 86400000) + 1) / 7);
+  return `${y}-W${String(week).padStart(2, '0')}`;
+}
+
+async function latestReportFromListing(kind) {
+  const dir = `${KB}reports/${kind}/`;
+  const r = await fetch(dir);
+  if (!r.ok) return null;
+  const html = await r.text();
+  const names = [...html.matchAll(/href="([^"]+\.md)"/g)]
+    .map(m => decodeURIComponent(m[1]).replace(/^.*\//, ''))
+    .filter(name => kind === 'daily'
+      ? /^\d{4}-\d{2}-\d{2}\.md$/.test(name)
+      : /^\d{4}-W\d{2}\.md$/.test(name))
+    .sort()
+    .reverse();
+  if (!names.length) return null;
+  const key = names[0].replace(/\.md$/, '');
+  return {
+    path: `${dir}${names[0]}`,
+    label: `${kind === 'daily' ? '日报' : '周报'} ${key}`
+  };
+}
+
+async function firstExistingReport(kind) {
+  const listed = await latestReportFromListing(kind);
+  if (listed) return listed;
+
+  const today = new Date();
+  if (kind === 'daily') {
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = dateKey(d);
+      const path = `${KB}reports/daily/${key}.md`;
+      const r = await fetch(path);
+      if (r.ok) return { path, label: `日报 ${key}` };
+    }
+    throw new Error('最近 60 天没有找到日报。');
+  }
+  const seen = new Set();
+  for (let i = 0; i < 370; i += 7) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const key = isoWeekKey(d);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const path = `${KB}reports/weekly/${key}.md`;
+    const r = await fetch(path);
+    if (r.ok) return { path, label: `周报 ${key}` };
+  }
+  throw new Error('最近 52 周没有找到周报。');
+}
+
+async function openLatestReport(kind) {
+  const label = kind === 'daily' ? '日报' : '周报';
+  D.readerBody.innerHTML = `<div class="reader-inner"><div style="color:var(--ink-4);font-size:13px">查找最近${label}…</div></div>`;
+  try {
+    navOpen({ kind: 'raw', ...(await firstExistingReport(kind)) });
+  } catch (e) {
+    D.readerBody.innerHTML = `<div class="err"><strong>读取失败。</strong><br>${esc(e.message)}</div>`;
+  }
+}
+
 // ---- rail render -----------------------------------------
 function renderRail(id) {
   const tab = state.rail;
@@ -1890,12 +1993,22 @@ function openPalette() {
   state.paletteOpen = true;
   state.paletteQ = '';
   state.paletteSel = 0;
+  state.paletteComposing = false;
   renderPalette();
-  setTimeout(() => document.getElementById('palette-input')?.focus(), 30);
+  setTimeout(() => focusPaletteInput(0), 30);
 }
 function closePalette() {
   state.paletteOpen = false;
+  state.paletteComposing = false;
   D.palettePortal.innerHTML = '';
+}
+
+function focusPaletteInput(pos = state.paletteQ.length) {
+  const input = document.getElementById('palette-input');
+  if (!input) return;
+  input.focus({ preventScroll: true });
+  const caret = Math.min(pos, input.value.length);
+  try { input.setSelectionRange(caret, caret); } catch (e) {}
 }
 
 function paletteResults() {
@@ -1944,17 +2057,31 @@ function renderPalette() {
   bg.addEventListener('mousedown', (e) => {
     if (e.target === bg) closePalette();
   });
-  input.addEventListener('input', (e) => {
+  input.addEventListener('compositionstart', () => {
+    state.paletteComposing = true;
+  });
+  input.addEventListener('compositionend', (e) => {
+    state.paletteComposing = false;
+    const caret = e.target.selectionStart ?? e.target.value.length;
     state.paletteQ = e.target.value;
     state.paletteSel = 0;
     renderPalette();
-    document.getElementById('palette-input')?.focus();
+    focusPaletteInput(caret);
+  });
+  input.addEventListener('input', (e) => {
+    if (state.paletteComposing || e.isComposing) return;
+    const caret = e.target.selectionStart ?? e.target.value.length;
+    state.paletteQ = e.target.value;
+    state.paletteSel = 0;
+    renderPalette();
+    focusPaletteInput(caret);
   });
   input.addEventListener('keydown', (e) => {
+    if (state.paletteComposing || e.isComposing) return;
     const r = paletteResults();
     if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); state.paletteSel = Math.min(state.paletteSel + 1, r.length - 1); renderPalette(); document.getElementById('palette-input')?.focus(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); state.paletteSel = Math.max(state.paletteSel - 1, 0); renderPalette(); document.getElementById('palette-input')?.focus(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); state.paletteSel = Math.min(state.paletteSel + 1, r.length - 1); renderPalette(); focusPaletteInput(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); state.paletteSel = Math.max(state.paletteSel - 1, 0); renderPalette(); focusPaletteInput(); }
     else if (e.key === 'Enter' && r[state.paletteSel]) { e.preventDefault(); navOpen({ kind: 'node', id: r[state.paletteSel].id }); closePalette(); }
   });
   document.querySelectorAll('.palette-row').forEach(el => {
@@ -2464,6 +2591,8 @@ D.btnCopy.addEventListener('click', () => {
 });
 D.scIndex.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'INDEX.md', label: '主索引 INDEX' }));
 D.scDash.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'dashboard.md', label: '工作看板' }));
+D.scDaily.addEventListener('click', () => openLatestReport('daily'));
+D.scWeekly.addEventListener('click', () => openLatestReport('weekly'));
 D.scContext.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'context.md', label: '全局上下文' }));
 document.querySelectorAll('.rail-tab').forEach(el => {
   el.addEventListener('click', () => {
