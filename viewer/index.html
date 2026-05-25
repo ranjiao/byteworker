@@ -1098,7 +1098,16 @@ const KB = '../kb/';
 const TYPE_ORDER = ['person','project','area','org','event','decision','reading'];
 const TYPE_LABEL = {
   person:'人员', project:'项目', area:'主题领域', org:'组织',
-  event:'事件', decision:'决策', reading:'读物'
+  event:'事件', decision:'决策', reading:'资料卡'
+};
+const TYPE_HELP = {
+  person: '持续更新的协作对象。',
+  project: '有生命周期的专项、产品或技术建设。',
+  area: '常青参考知识、规范、how-to 与踩坑。',
+  org: '团队、供应商或组织单元。',
+  event: '会议、评审、发布或群聊窗口的定型快照。',
+  decision: '已生效或可被取代的选择、原则与边界。',
+  reading: '外部读物或内部路线思考、方法论、调研、白皮书的资料入口。'
 };
 const ID_RE = /\b(?:person|project|area|org|event|decision|reading)-[a-z0-9]+(?:[.-][a-z0-9]+)*\b/g;
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -1209,6 +1218,7 @@ function relTime(date) {
 
 function isStale(n) {
   if (!n) return false;
+  if (n.type === 'reading') return false;
   if (n.status === 'stale') return true;
   if (n.status === 'current' && n.last_verified) {
     const d = Math.floor((Date.parse(TODAY) - Date.parse(n.last_verified)) / 86400000);
@@ -1607,7 +1617,7 @@ async function renderReaderNode(id) {
   }
   const fm = full.fm || {};
   const status = fm.status || n.status || 'current';
-  const effectiveStatus = isStale({ status, last_verified: fm.last_verified || n.last_verified }) ? 'stale' : status;
+  const effectiveStatus = isStale({ type: n.type, status, last_verified: fm.last_verified || n.last_verified }) ? 'stale' : status;
   const statusLabel = { current: '现行', stale: '陈旧', superseded: '已取代' }[effectiveStatus] || effectiveStatus;
   const tags = Array.isArray(fm.tags) ? fm.tags : [];
   const html = `<div class="reader-inner">
@@ -1945,6 +1955,7 @@ function renderRailMeta(id) {
   const rows = [];
   rows.push(['id', `<span style="font-family:var(--font-mono)">${esc(n.id)}</span>`]);
   rows.push(['type', `<span class="tchip ${n.type}">${TYPE_LABEL[n.type]}</span>`]);
+  if (TYPE_HELP[n.type]) rows.push(['note', esc(TYPE_HELP[n.type])]);
   rows.push(['status', stale ? `<span class="status stale">陈旧</span>` :
     `<span class="status ${n.status || 'current'}">${({current:'现行',stale:'陈旧',superseded:'已取代'})[n.status || 'current']}</span>`]);
   if (fm.created) rows.push(['created', `<span style="font-family:var(--font-mono)">${esc(fm.created)}</span>`]);
