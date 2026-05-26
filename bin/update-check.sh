@@ -11,6 +11,10 @@
 #   有输出 = 已更新,或自动更新不可用、需用户处理(SKILL.md 把该行转告用户);
 #   无输出 = 未到检查周期 / 已是最新 / 检查被安全跳过(离线等)。
 # 始终 exit 0,绝不打断调用方。
+#
+# 协议适配:本仓库是 public repo,HTTPS 拉取无需认证。
+# 若当前 origin 是 SSH(git@github.com) 但环境无 SSH key,
+# 会自动 fallback 到 HTTPS,并把 origin URL 持久切到 HTTPS(方便后续)。
 set -uo pipefail
 
 REPO_URL="https://github.com/ranjiao/byteworker.git"
@@ -38,19 +42,63 @@ if ! git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 0
 fi
 
-# 自愈:缺 origin remote 则补上(skill 仓库本就应跟踪该 GitHub 公共仓库)。
-# 注意:本脚本只动 skill 仓库($DIR),绝不触碰知识库数据目录的 git。
-if ! git -C "$DIR" remote get-url origin >/dev/null 2>&1; then
-  git -C "$DIR" remote add origin "$REPO_URL" 2>/dev/null \
-    && echo "byteworker:已自动补上缺失的 git remote(origin),自动更新恢复。"
-fi
-git -C "$DIR" remote get-url origin >/dev/null 2>&1 || exit 0
-
-BR=$(git -C "$DIR" symbolic-ref --short HEAD 2>/dev/null) || exit 0
+BR=$(git -C "$DIR" symbolic-ref --short HEAD 2>/dev/null) || \
+   BR=$(git -C "$DIR" rev-parse --abbrev-ref HEAD 2>/dev/null) || \
+   BR="master"
 BEFORE=$(git -C "$DIR" rev-parse HEAD 2>/dev/null) || exit 0
-# fast-forward-only:本地有改动/已分叉时会安全失败,不会冲突、不会覆盖。
-# 显式带 origin + 分支名 —— 即便 remote 是刚补上的、没有 upstream 跟踪也能拉。
-git -C "$DIR" pull --ff-only --quiet origin "$BR" 2>/dev/null || exit 0
+
+# ── fetch 阶段:尝试连通 GitHub ──
+FETCH_OK=0
+
+# 1) 先尝试用当前 origin fetch
+if git -C "$DIR" remote get-url origin >/dev/null 2>&1; then
+  if git -C "$DIR" fetch --quiet origin "$BR" 2>/dev/null; then
+    FETCH_OK=1
+  fi
+fi
+
+# 2) 如果失败,尝试用 HTTPS URL 直接 fetch(public repo 无需认证)
+#    这是给「origin 是 SSH 但无 SSH key」或「origin 缺失」的用户兜底
+if [ "$FETCH_OK" -eq 0 ]; then
+  if git -C "$DIR" fetch --quiet "$REPO_URL" "$BR" 2>/dev/null; then
+    FETCH_OK=1
+    # HTTPS 可用,把 origin 持久切到 HTTPS(方便后续更新)
+    if git -C "$DIR" remote get-url origin >/dev/null 2>&1; then
+      git -C "$DIR" remote set-url origin "$REPO_URL" 2>/dev/null || true
+    else
+      git -C "$DIR" remote add origin "$REPO_URL" 2>/dev/null || true
+      echo "byteworker:已自动补上缺失的 git remote(origin),自动更新恢复。"
+    fi
+  fi
+fi
+
+# 3) 都失败了 → 网络/代理问题,给用户一句提示(不再完全静默)
+if [ "$FETCH_OK" -eq 0 ]; then
+  echo "byteworker:无法连接 GitHub,自动更新跳过(检查网络或代理设置)。"
+  exit 0
+fi
+
+# ── merge 阶段:fast-forward 安全更新 ──
+REMOTE_REF="origin/$BR"
+
+# 检查远程分支是否存在
+if ! git -C "$DIR" rev-parse --verify "$REMOTE_REF" >/dev/null 2>&1; then
+  # 如果上面用的是直接 URL fetch,origin/$BR 可能不存在,用 FETCH_HEAD
+  REMOTE_REF="FETCH_HEAD"
+fi
+
+# 检查是否能 fast-forward(本地有改动/分叉时拒绝覆盖)
+if ! git -C "$DIR" merge-base --is-ancestor HEAD "$REMOTE_REF" 2>/dev/null; then
+  echo "byteworker:本地有改动或版本已分叉,无法自动 fast-forward 更新。如需手动处理,到 $DIR 执行 git status 查看。"
+  exit 0
+fi
+
+# 执行 ff merge
+if ! git -C "$DIR" merge --ff-only "$REMOTE_REF" --quiet 2>/dev/null; then
+  echo "byteworker:自动更新合并失败,跳过。"
+  exit 0
+fi
+
 AFTER=$(git -C "$DIR" rev-parse HEAD 2>/dev/null) || exit 0
 
 if [ "$BEFORE" != "$AFTER" ]; then
