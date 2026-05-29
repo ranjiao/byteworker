@@ -27,7 +27,7 @@
 
 **图的边:** event 链接它涉及的 person/project/org;decision 链接相关 project/event 与决策人;
 project 链接成员 person、所属 area、所属 org;reading 作为资料入口链接它支撑或影响的 project/area/decision/event。
-查询「关于张三我都知道什么」= person-zhang-san 节点 + 所有链回他的 event/decision/project。
+查询「关于某人我都知道什么」= 对应 person 节点 + 所有链回该人的 event/decision/project。
 
 ---
 
@@ -93,7 +93,7 @@ byteworker 由**两个物理隔离**的部分组成。
 - **raw 文件**:`raw_data/<YYYY-MM-DD>-<slug>.md`,`raw_id` = `raw-<YYYY-MM-DD>-<slug>`。
 - **节点文件 / id**:
   - 实体:`knowledge/<类型复数>/<前缀><slug>.md`,如 `project-q2-roadmap`、`area-rec-system`、`org-data-platform-team`。
-    - `person` 与其它实体同规则:slug 取姓名核心关键词(英文 / 拼音 kebab-case),id `person-<slug>`、文件名同名。**id 一经生成永不改**(仅同名碰撞才追 `-2`/`-3`)。同名 / 同人消歧不靠 id,靠 frontmatter 的 `feishu_id` 字段(见 §4.1、§4.3);`feishu_id` 建节点时拿不到就先填 `?`,日后解析到了**回填该字段**即可 —— 纯字段编辑,不动 id、不改名、不级联。
+    - `person` 与其它实体同规则:slug 取姓名核心关键词(英文 / 拼音 kebab-case),id `person-<slug>`、文件名同名。**id 一经生成永不改**(仅同名碰撞才追 `-2`/`-3`)。同名 / 同人消歧不靠 id,靠 frontmatter 的 `feishu_id` 字段(见 §4.1、§4.3);**新建 person 前必须解析出 `feishu_id`**,解析不到就暂不建 person。历史遗留 `feishu_id: ?` 日后解析到了**回填该字段**即可 —— 纯字段编辑,不动 id、不改名、不级联。
   - 事件含日期:`event-<YYYY-MM-DD>-<slug>`,如 `event-2026-05-20-q2-review`。
   - 决策:`decision-<slug>`;读物:`reading-<slug>`。
 - **journal**:`journal/<YYYY-MM>/<YYYY-MM-DD>.md`。
@@ -154,7 +154,7 @@ frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)
 如 `2026-05-15T00:00:00+08:00 .. 2026-05-21T18:00:00+08:00`)。`source_window` 的结束点
 即该群「上次处理到哪」的**高水位** —— `bin/pull-chat.sh --since-last` 扫 `raw_data/` 取该
 `chat_id` 最近一次 `source_window` 的结束时间,据此续拉下一窗口。`raw_id` 的 slug 取群名 +
-窗口标识。正文为该窗口的逐字消息(发送人 · 时间 · 内容,原样)。
+窗口标识。正文为该窗口的逐字消息(发送人 + open_id · 时间 · 内容,原样)。
 
 **`web` 变体**:外部读物(blog / 论文 / wiki)。`source_url` 填文章链接(本地 PDF 则填路径),
 `source_title` 填文章标题。正文为宿主 agent 抓取/读取到的文章正文。
@@ -200,7 +200,7 @@ links:                                        # 图的边,双向维护(写 A→B
 | `superseded_by` | ✗ | 退役时指向取代它的节点 |
 | `sources` | ✓ | 溯源根,指回 raw_data 或飞书链接 |
 | `links` | ✗ | 关联节点 id,**双向维护**;id 前缀即对端类型;body 中提及的已存在节点 id 自动纳入(auto-link,见 SKILL.md 写入规范) |
-| `feishu_id` | △ | **仅 `person`**:该人飞书英文 id(企业邮箱 `@` 前缀),全局唯一 —— person 实体消解的主键、用于消歧同名。**只是一个字段,不参与 id / slug**(id 规则见 §2)。摄取时由 `bin/resolve-users.sh` / lark-contact 解析,确实拿不到先填 `?`、日后解析到再回填 |
+| `feishu_id` | △ | **仅 `person`**:该人飞书英文 id(企业邮箱 `@` 前缀),全局唯一 —— person 实体消解的主键、用于消歧同名。**只是一个字段,不参与 id / slug**(id 规则见 §2)。新建 person 前必须由 `bin/resolve-users.sh` / lark-contact 解析;解析不到就先不建 person,只在事件正文保留姓名 / open_id 并报告待解析。历史遗留的 `?` 允许后续回填,但不得再新增 |
 
 > 不再有 `topic` 字段——领域结构由 `area`/`org` 节点 + `links` 承载,topic 治理问题消解。
 

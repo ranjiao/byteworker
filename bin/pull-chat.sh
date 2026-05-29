@@ -14,7 +14,7 @@
 #
 # 输出:
 #   - 逐字转写写入 --out(缺省为 /tmp 临时文件);每条格式:
-#       === [时间] 发送人 (msg_type)
+#       === [时间] 发送人 [open_id] (msg_type)
 #       <内容>
 #   - stdout 末尾打印摘要(供 agent 解析):
 #       chat_id= / chat_name= / messages= / pages= / truncated= / window= / mode= / transcript=
@@ -120,7 +120,15 @@ while :; do
   fi
   N=$(jq '.data.messages | length' "$TMP")
   TOTAL=$((TOTAL + N))
-  jq -r '.data.messages[] | "=== [" + .create_time + "] " + (.sender.name // "系统") + " (" + .msg_type + ")\n" + (.content // "")' "$TMP" >> "$OUT"
+  jq -r '
+    def sender_open_id: (.sender.id // .sender.open_id // .sender.sender_id.open_id // "");
+    .data.messages[]
+    | "=== [" + .create_time + "] "
+      + (.sender.name // "系统")
+      + (if sender_open_id != "" then " [" + sender_open_id + "]" else "" end)
+      + " (" + .msg_type + ")\n"
+      + (.content // "")
+  ' "$TMP" >> "$OUT"
   HAS=$(jq -r '.data.has_more' "$TMP")
   TOKEN=$(jq -r '.data.page_token // ""' "$TMP")
   [ "$HAS" = "true" ] || break
