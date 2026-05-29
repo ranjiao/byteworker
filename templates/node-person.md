@@ -2,7 +2,7 @@
 id: person-<slug>
 title: <姓名>
 type: person
-feishu_id: <飞书英文 id;= 企业邮箱 @ 前缀,全局唯一;实体消解主键;不参与 id;拿不到先填 ?、日后回填>
+feishu_id: <飞书英文 id;= 企业邮箱 @ 前缀,全局唯一;实体消解主键;不参与 id;新建前必须解析出来>
 tags: []
 status: current
 created: <YYYY-MM-DD>

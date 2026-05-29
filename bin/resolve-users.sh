@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # byteworker · resolve-users.sh
-# 把飞书 open_id 批量反查成姓名,供文档摄取(feishu_doc)解析 @ 提及使用。
+# 把飞书 open_id 批量反查成姓名,供文档 / 群聊摄取解析人物使用。
 #
 # 用法:
-#   bin/resolve-users.sh --from-doc <file>        # 从文件里 grep 出所有 ou_ 开头的 open_id 再解析
+#   bin/resolve-users.sh --from-doc <file>        # 从文档 raw / 群聊 transcript 里 grep 出所有 ou_ 开头的 open_id 再解析
 #   bin/resolve-users.sh --ids ou_x,ou_y,...      # 直接给 open_id(CSV)
 #   cat ids.txt | bin/resolve-users.sh            # 从 stdin 读,一行一个 open_id
 #
@@ -48,9 +48,14 @@ echo "解析 $N 个 open_id ..." >&2
 RESOLVED=0
 while read -r OID; do
   [ -z "$OID" ] && continue
-  U=$(lark-cli contact +get-user --user-id "$OID" --user-id-type open_id --as user 2>/dev/null)
-  NAME=$(printf '%s' "$U" | jq -r '.data.user.name // ""')
-  EMAIL=$(printf '%s' "$U" | jq -r '.data.user.enterprise_email // .data.user.email // ""')
+  U=$(lark-cli contact +search-user --user-ids "$OID" --as user 2>/dev/null)
+  NAME=$(printf '%s' "$U" | jq -r '.data.users[0].localized_name // .data.users[0].name // ""')
+  EMAIL=$(printf '%s' "$U" | jq -r '.data.users[0].enterprise_email // .data.users[0].email // ""')
+  if [ -z "$NAME" ] && [ -z "$EMAIL" ]; then
+    U=$(lark-cli contact +get-user --user-id "$OID" --user-id-type open_id --as user 2>/dev/null)
+    NAME=$(printf '%s' "$U" | jq -r '.data.user.name // ""')
+    EMAIL=$(printf '%s' "$U" | jq -r '.data.user.enterprise_email // .data.user.email // ""')
+  fi
   FID="${EMAIL%%@*}"                 # 企业邮箱 @ 前缀 = 飞书英文 id
   [ -z "$NAME" ] && NAME="?"
   [ -z "$FID" ] && FID="?"
