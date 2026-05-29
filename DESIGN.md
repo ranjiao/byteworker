@@ -91,6 +91,8 @@ byteworker 由**两个物理隔离**的部分组成。
 
 - **slug**:取标题核心关键词 → 英文/拼音 kebab-case,≤40 字符;碰撞追加 `-2`/`-3`。
 - **raw 文件**:`raw_data/<YYYY-MM-DD>-<slug>.md`,`raw_id` = `raw-<YYYY-MM-DD>-<slug>`。
+  若目标文件或 `raw_id` 已存在,**不得覆盖**;追加 `-2`/`-3`,或在 slug 中加入规范化周期 / revision / hash
+  短后缀,直到文件名与 `raw_id` 唯一。
 - **节点文件 / id**:
   - 实体:`knowledge/<类型复数>/<前缀><slug>.md`,如 `project-q2-roadmap`、`area-rec-system`、`org-data-platform-team`。
     - `person` 与其它实体同规则:slug 取姓名核心关键词(英文 / 拼音 kebab-case),id `person-<slug>`、文件名同名。**id 一经生成永不改**(仅同名碰撞才追 `-2`/`-3`)。同名 / 同人消歧不靠 id,靠 frontmatter 的 `feishu_id` 字段(见 §4.1、§4.3);**新建 person 前必须解析出 `feishu_id`**,解析不到就暂不建 person。历史遗留 `feishu_id: ?` 日后解析到了**回填该字段**即可 —— 纯字段编辑,不动 id、不改名、不级联。
@@ -133,6 +135,11 @@ byteworker 由**两个物理隔离**的部分组成。
 raw_id: raw-2026-05-20-q2-roadmap-review
 ingested: 2026-05-20T14:30:00+08:00
 source_type: feishu_doc | feishu_minutes | feishu_meeting | feishu_chat | web | local_md
+source_uid: doxcnxxx / wiki_token / minute_token / URL / 本地绝对路径
+source_revision: "12"                       # 可选:飞书文档 revision_id / 外部 etag / git commit 等来源版本
+digest_period: 2026-05-20                   # 可选:滚动文档的周期;日期 / ISO 周需规范化
+content_hash: sha256:<hex>                  # 本次实际摄取正文的 hash
+digest_key: feishu_doc:doxcnxxx:2026-05-20:sha256:<hex>
 source_url: https://<feishu-url>           # 本地 md 则填原路径
 source_title: Q2 路线图评审会
 digest_status: pending | digested | failed
@@ -147,6 +154,22 @@ digest_targets:                            # 本次摄取触达的所有节点 i
 
 <逐字原文 / lark-minutes 纪要+逐字稿 / lark-doc 文档正文,原样粘贴>
 ```
+
+**幂等键与重复摄取**:
+- `source_uid` 是规范化来源主键:飞书文档优先用 `document_id` / wiki token,妙记用 minute token,
+  群聊用 `source_chat_id`,外部网页用规范化 URL,本地文件用绝对路径。
+- `source_revision` 记录来源版本:飞书文档用 `revision_id`;无明确版本时可为空,以 `content_hash`
+  判重。
+- `content_hash` 取**本次实际摄取正文**的 SHA-256。滚动周会只 hash 被选中的周期正文,不是整篇文档;
+  会议簇按合并后的实际 raw 正文 hash。
+- `digest_key` 由 `source_type + source_uid + digest_period/source_window + content_hash` 组成,用于
+  判断完全重复摄取。普通非滚动文档可省略 `digest_period`;群聊使用 `source_window`。
+- 完全相同 `digest_key` 已存在且 `digest_status: digested` → 本次 digest 必须 no-op,只向用户说明
+  已摄取过,不得重复写 raw / 节点 / journal。
+- 同一 `source_uid + digest_period/source_window` 但 `content_hash` 不同 → 视为同源新版本,新写一个
+  raw(唯一 `raw_id`,不覆盖旧 raw),并按 digest 流程更新已有主记录与实体节点。
+- 同源同内容但历史 raw 缺少 `digest_key` 字段时,用 `source_uid/source_url + digest_period +
+  content_hash` 近似比对;命中则按已摄取处理,可只补运维 frontmatter 字段,不得改 raw 正文。
 
 **`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行,**同一群可多次增量摄取**。
 frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)、
@@ -457,6 +480,9 @@ templates/
 14. **日报 / 周报归档快照** — 新增 `reports/daily/` 与 `reports/weekly/`。`daily` / `weekly`
    每次先跑定期摄取,再从 journal / raw / nodes 召回事实生成报告;报告不进入 INDEX,但每条事实
    必须能回溯到节点 / raw / journal。同周期再次生成可覆盖,但保留用户手动备注。见 §11、SKILL.md。
+15. **digest 幂等与 raw 不覆盖** — raw frontmatter 增加 `source_uid` / `source_revision` /
+   `content_hash` / `digest_key` 等运维字段;重复摄取同一来源同一正文必须 no-op,同源新版本写
+   新 raw 并更新已有主记录节点;任何情况下都不得覆盖旧 raw 正文。见 §2、§3、references/digest-core.md。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 

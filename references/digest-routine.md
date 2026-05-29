@@ -7,7 +7,10 @@
 - **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。同意 → 给该来源的 raw frontmatter 加 `routine: weekly`(这是允许的 raw frontmatter 运维元数据更新;raw 正文仍不改)。此后该源每个 raw 都带 `routine`。INDEX「定期摄取清单」表即由带 `routine` 的 raw 派生(DESIGN.md §6),无需手工维护。
 - **运行**(触发:不带来源的 `digest` / 用户说"跑定期摄取""检查周报更新" / 操作前必读「到期提醒」后用户确认):
   1. 读 INDEX「定期摄取清单」,逐源处理 ——
-     - 滚动周会文档:重新 `lark-doc +fetch`,把顶层最新周期按 DESIGN.md §2.1 规范化后,与该源最近 raw 的规范化 `digest_period` 比对;有新周期则按 `references/digest-doc.md` 的「滚动周会文档」规则 digest 新周期,否则跳过。
+     - 滚动周会文档:重新 `lark-doc +fetch`,把顶层最新周期按 DESIGN.md §2.1 规范化后,
+       对该周期正文计算 `content_hash`;与该源最近 raw 的规范化 `digest_period` + `content_hash`
+       比对。有新周期或同周期 hash 变化,则按 `references/digest-doc.md` 的「滚动周会文档」规则
+       digest;周期与 hash 都相同则跳过(no-op)。
      - 群聊:`bin/pull-chat.sh --query "<群名>" --since-last`;有新消息则按 `references/digest-chat.md` digest 新窗口,否则跳过。
      - 各源增量 digest 走标准扇出:新 `event` + 实体消解**更新**已有 `project`/`person` 等节点(摄取深度沿用首次,不再重问)。
   2. **汇报**:逐源说明有无增量、digest 了哪个新周期 / 窗口、触达哪些节点。

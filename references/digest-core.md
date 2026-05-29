@@ -20,10 +20,29 @@
    - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
    - `local_md` → 直接读取本地文件。
    失败按 `references/error-handling.md` 中止。
-3. **落原文** —— 写 `raw_data/<YYYY-MM-DD>-<slug>.md`:逐字原文 + frontmatter(`digest_status: pending`)。**raw 正文一旦写入永不改写**;digest 完成 / 失败 / 纳入 routine 时,只允许更新 frontmatter 的运维字段。
-4. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名在 INDEX 找可能涉及的已有节点,读取候选,语义比对是否与新输入矛盾。**有冲突 → 高亮矛盾点,等用户裁决,不静默覆盖。**
-5. **digest 扇出**(DESIGN.md §4.3):
+3. **幂等检查** —— 在写 raw 前,先为本次实际摄取正文计算 `source_uid` / `source_revision`
+   / `digest_period` 或 `source_window` / `content_hash` / `digest_key`(字段含义见 DESIGN.md §3),
+   并扫描 `raw_data/`:
+   - 完全相同 `digest_key` 已存在且 `digest_status: digested` → **no-op**:不写 raw、不改节点、
+     不追加 journal;向用户说明"该来源同一版本已摄取过",并列出已有 `raw_id` / `digest_targets`。
+   - 同一 `source_uid + digest_period/source_window` 但 `content_hash` 不同 → 视为同源新版本:
+     继续流程,但后续必须更新已有主记录节点,不得另起重复 `reading` / `event` / `decision`。
+   - 历史 raw 缺少 `digest_key` 时,用 `source_uid/source_url + digest_period/source_window +
+     content_hash` 近似比对;若正文 hash 相同,也按已摄取处理。必要时只补 raw frontmatter 的
+     运维字段,不得改 raw 正文。
+4. **落原文** —— 写 `raw_data/<YYYY-MM-DD>-<slug>.md`:逐字原文 + frontmatter(`digest_status:
+   pending`)。**raw 正文一旦写入永不改写**;digest 完成 / 失败 / 纳入 routine 时,只允许更新
+   frontmatter 的运维字段。若目标文件或 `raw_id` 已存在,必须追加 `-2`/`-3` 或 revision/hash
+   后缀生成唯一文件名,**绝不覆盖旧 raw**。
+5. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名、
+   已有 raw 的 `digest_targets`、同源历史主记录节点在 INDEX 找可能涉及的已有节点,读取候选,
+   语义比对是否与新输入矛盾。**有冲突 → 高亮矛盾点,等用户裁决,不静默覆盖。**
+6. **digest 扇出**(DESIGN.md §4.3):
    - 必产 1 个主记录节点(会议、群聊窗口 → `event`;外部读物、内部路线思考/方法论/调研/白皮书 → `reading`)。**会议簇**(同一场会的日历 + 投屏文档 + 妙记)仍只产 1 个 `event`,不按物件拆 —— 见 `references/digest-meeting.md`。
+   - **同源主记录去重**:若同一 `source_uid + digest_period/source_window` 已有主记录节点(可从
+     历史 raw `digest_targets`、节点 `sources` 或标题/链接召回),更新该节点,不要新建重复
+     `reading` / `event`。`decision` 也按同一事实/同一来源去重;新版本改变原决策时,走
+     supersede / 冲突裁决,不并排制造两个同义决策。
    - **资料型 `reading` 扇出规则**:若 `reading` 是外部读物,默认只产 `reading`,一般不抽 `decision`、不更新实体;若是内部路线思考 / 方法论 / 调研 / 白皮书,则 `reading` 是"这篇资料本身"的主记录,同时可按内容抽取明确决策、更新相关 `project`/`area`/`person`/`org`。不要把整篇资料硬塞进某个 `project` 或 `event`;项目节点只摘项目相关事实,决策节点只摘真正生效的决定。
    - 抽取 N 个 `decision`:输入中每个明确决策一节点。
    - 创建或更新涉及的实体节点(`person`/`project`/`org`/`area`)。
@@ -32,8 +51,8 @@
    - **思路与视角沉淀**(细则 `references/digest-analysis.md`):摄取时若有人(使用者/主管/同事)陈述了对某 `project`/`area` 的思路、想法、打法或意图 → 在该节点「思路与视角」章节追加一条带日期、带作者、带【主张】/【意图】标记的条目(按事件发生时间倒序)。第一方陈述用【主张】/【意图】,从发言推断仍用【推断】;**绝不把主观意图当成客观结论**。跨主题、不挂某个项目的工作底色不进节点,留给使用者维护 `context.md`。
    - **结合 `context.md` 重点关注**(操作前必读已把 `context.md` 当透镜加载):凡文档涉及 `context.md` 里记录的**使用者本人、其项目 / 团队、其关注的人(如直属领导)及这些人的指令 / 表态** —— 重点抽取、确保进入相应节点,不淡化、不漏。
    - **重点高亮**:文档若提到**重大事故、指标重大变化、或其它需要 highlight 的内容** → 在对应节点**显著记录**(如 `event` 的「结论」、`project` 的「关键进展 / 问题 / 风险」),并在汇报时**单独、突出**地提醒用户。
-6. **写入** —— 每个节点按 `templates/node-<type>.md` 骨架生成,遵守 `references/write-rules.md`。
-7. **汇报** —— 告诉用户:新建了哪些节点、更新了哪些、是否有冲突待裁决。若命中「重点高亮」内容(重大事故 / 指标剧变 / 涉及你或你关注的人的重要指令等)→ 单独、显眼地提醒。
+7. **写入** —— 每个节点按 `templates/node-<type>.md` 骨架生成,遵守 `references/write-rules.md`。
+8. **汇报** —— 告诉用户:新建了哪些节点、更新了哪些、是否有冲突待裁决、是否因幂等检查跳过或合并了重复来源。若命中「重点高亮」内容(重大事故 / 指标剧变 / 涉及你或你关注的人的重要指令等)→ 单独、显眼地提醒。
 
 ## 规模预估
 
