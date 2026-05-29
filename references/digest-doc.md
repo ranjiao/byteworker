@@ -11,4 +11,4 @@
 - **嵌入电子表格 / 多维表格**:文档里的 `<sheet>` / bitable 只返回占位 token,**关键数据在表格内**。需要这些数据时用 `lark-sheets` / `lark-base` 下钻取数;不下钻则在「关联文档与会议」登记该表并标注"数据在表格内"。
 - **引用的子文档**:文档里 `<cite type=doc>` 引用的其他文档 → **登记进项目节点的「关联文档与会议」**;**不自动递归摄取**(会爆炸),而是把这些子文档列给用户,由用户决定是否进一步摄取。
 
-> `feishu_minutes`(妙记)/ `feishu_meeting`(会议)用 `lark-minutes` / `lark-vc` 取产物,无额外细则 —— 扇出与写入按 `SKILL.md`「digest」主干。
+> `feishu_minutes`(妙记)/ `feishu_meeting`(会议)用 `lark-vc` / `lark-minutes` 取产物:会议号 / 日程优先 `lark-vc` 定位会议与 minute token,妙记 URL 可直接取妙记产物。扇出与写入按 `SKILL.md`「digest」主干。

@@ -6,9 +6,9 @@
 
 - **时间窗 —— 默认增量**:摄取前先查 `INDEX.md` 的「群聊摄取进度」表(每个已摄取群一行:群名 / `chat_id` / 已摄取至高水位),据此判断:
   - **表中已有该群** → 此前摄取过,**默认增量**:`bin/pull-chat.sh --query "<群名>" --since-last` —— 脚本从该群上次窗口结束点续拉到现在。
-  - **表中无该群** → 首次摄取:用户给了范围用之;否则默认最近 7 天**并与用户确认** —— `--start <ISO8601> --end <ISO8601>`。
+  - **表中无该群** → 首次摄取:用户给了范围用之;否则默认最近 7 天直接执行 —— `--start <ISO8601> --end <ISO8601>`。只有用户要求先确认、时间窗明显超过 7 天、或预计消息量很大时才先问摄取范围。
   - 用户**显式给了**时间范围 → 永远以用户给的为准(覆盖增量)。
-- **拉取**:运行 `bin/pull-chat.sh`(参数见上;已知 chat_id 用 `--chat-id <oc_xxx>`)。脚本自动定位群、分页拉全、把逐字转写写到文件,stdout 打印 `chat_id` / `window` / `mode` / `messages` / `transcript`。**不要手写分页循环、不要手算上次窗口。** 脚本报"匹配到多个群"→ 改 `--chat-id`;报"无历史摄取记录"(退出码 4)→ 其实是首次,改用 `--start`/`--end`。
+- **拉取**:运行 `bin/pull-chat.sh`(参数见上;已知 chat_id 用 `--chat-id <oc_xxx>`)。脚本自动定位群、分页拉全、把逐字转写写到文件,stdout 打印 `chat_id` / `window` / `mode` / `messages` / `pages` / `truncated` / `transcript`。**不要手写分页循环、不要手算上次窗口。** 脚本报"匹配到多个群"→ 改 `--chat-id`;报"无历史摄取记录"(退出码 4)→ 其实是首次,改用 `--start`/`--end`;报截断(退出码 5 或 `truncated=1`)→ 缩小时间窗后重拉,不要把不完整窗口入库。
 - **落原文**:raw_data 用 `feishu_chat` 变体 frontmatter(`source_chat_id` / `source_chat_name` / `source_window`,见 DESIGN.md §3)。**`source_window` 必须写本次窗口的完整 ISO8601 起止** —— 它是下次 `--since-last` 的续拉点,务必准确。每窗口一个独立 raw,只增不改。
 - **登记进度**:摄取后,在 `INDEX.md`「群聊摄取进度」表写 / 更新该群一行(群名 + `chat_id` + 已摄取至=本窗口结束点 + 最近 raw_id)—— 这是下次「查表判断首次 / 增量」的依据。
 - **纳入定期摄取(可选)**:首次摄取某群后,可询问用户是否纳入「定期摄取」—— 纳入后例程会周期性自动 `--since-last` 复查该群(见 `references/digest-routine.md`)。

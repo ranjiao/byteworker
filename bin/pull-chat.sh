@@ -17,8 +17,8 @@
 #       === [时间] 发送人 (msg_type)
 #       <内容>
 #   - stdout 末尾打印摘要(供 agent 解析):
-#       chat_id= / chat_name= / messages= / pages= / window= / mode= / transcript=
-# 退出码:0 成功 | 2 群未找到 | 3 匹配到多个群(需改用 --chat-id) | 4 --since-last 无历史窗口 | 1 其他错误
+#       chat_id= / chat_name= / messages= / pages= / truncated= / window= / mode= / transcript=
+# 退出码:0 成功 | 2 群未找到 | 3 匹配到多个群(需改用 --chat-id) | 4 --since-last 无历史窗口 | 5 拉取被页数上限截断 | 1 其他错误
 set -uo pipefail
 
 QUERY=""; CHAT_ID=""; START=""; END=""; OUT=""; SINCE_LAST=""
@@ -103,7 +103,8 @@ if [ -z "$OUT" ]; then OUT=$(mktemp /tmp/byteworker-chat-XXXXXX); fi
 # 2. 分页拉取消息(stdout/stderr 分离,避免污染 JSON)
 TMP=$(mktemp); TMPERR=$(mktemp)
 trap 'rm -f "$TMP" "$TMPERR"' EXIT
-TOKEN=""; PAGE=0; TOTAL=0
+TOKEN=""; PAGE=0; TOTAL=0; TRUNCATED=0
+MAX_PAGES="${BYTEWORKER_CHAT_MAX_PAGES:-60}"
 while :; do
   PAGE=$((PAGE+1))
   if [ -z "$TOKEN" ]; then
@@ -123,7 +124,11 @@ while :; do
   HAS=$(jq -r '.data.has_more' "$TMP")
   TOKEN=$(jq -r '.data.page_token // ""' "$TMP")
   [ "$HAS" = "true" ] || break
-  if [ "$PAGE" -ge 60 ]; then echo "警告:达 60 页上限,停止(可能未拉全)" >&2; break; fi
+  if [ "$PAGE" -ge "$MAX_PAGES" ]; then
+    echo "错误:达 ${MAX_PAGES} 页上限,本次窗口可能未拉全;请缩小 --start/--end 后重试" >&2
+    TRUNCATED=1
+    break
+  fi
 done
 
 # 3. 摘要(供 agent 解析)
@@ -131,6 +136,8 @@ echo "chat_id=$CHAT_ID"
 echo "chat_name=${CHAT_NAME:-$QUERY}"
 echo "messages=$TOTAL"
 echo "pages=$PAGE"
+echo "truncated=$TRUNCATED"
 echo "window=$START .. $END"
 echo "mode=$MODE"
 echo "transcript=$OUT"
+[ "$TRUNCATED" -eq 1 ] && exit 5
