@@ -14,7 +14,8 @@
 #
 # 协议适配:本仓库是 public repo,HTTPS 拉取无需认证。
 # 若当前 origin 是 SSH(git@github.com) 但环境无 SSH key,
-# 会自动 fallback 到 HTTPS,并把 origin URL 持久切到 HTTPS(方便后续)。
+# 会 fallback 到 HTTPS 临时拉取;默认不改写 origin。
+# 如确需脚本补/改 remote,设置 BYTEWORKER_AUTO_UPDATE_MUTATE_ORIGIN=1。
 set -uo pipefail
 
 REPO_URL="https://github.com/ranjiao/byteworker.git"
@@ -49,6 +50,7 @@ BEFORE=$(git -C "$DIR" rev-parse HEAD 2>/dev/null) || exit 0
 
 # ── fetch 阶段:尝试连通 GitHub ──
 FETCH_OK=0
+USED_FETCH_HEAD=0
 
 # 1) 先尝试用当前 origin fetch
 if git -C "$DIR" remote get-url origin >/dev/null 2>&1; then
@@ -62,12 +64,15 @@ fi
 if [ "$FETCH_OK" -eq 0 ]; then
   if git -C "$DIR" fetch --quiet "$REPO_URL" "$BR" 2>/dev/null; then
     FETCH_OK=1
-    # HTTPS 可用,把 origin 持久切到 HTTPS(方便后续更新)
-    if git -C "$DIR" remote get-url origin >/dev/null 2>&1; then
-      git -C "$DIR" remote set-url origin "$REPO_URL" 2>/dev/null || true
-    else
-      git -C "$DIR" remote add origin "$REPO_URL" 2>/dev/null || true
-      echo "byteworker:已自动补上缺失的 git remote(origin),自动更新恢复。"
+    USED_FETCH_HEAD=1
+    # 默认不改写 shared/dev checkout 的 origin;需要时显式打开。
+    if [ "${BYTEWORKER_AUTO_UPDATE_MUTATE_ORIGIN:-0}" = "1" ]; then
+      if git -C "$DIR" remote get-url origin >/dev/null 2>&1; then
+        git -C "$DIR" remote set-url origin "$REPO_URL" 2>/dev/null || true
+      else
+        git -C "$DIR" remote add origin "$REPO_URL" 2>/dev/null || true
+        echo "byteworker:已自动补上缺失的 git remote(origin),自动更新恢复。"
+      fi
     fi
   fi
 fi
@@ -82,7 +87,7 @@ fi
 REMOTE_REF="origin/$BR"
 
 # 检查远程分支是否存在
-if ! git -C "$DIR" rev-parse --verify "$REMOTE_REF" >/dev/null 2>&1; then
+if [ "$USED_FETCH_HEAD" -eq 1 ] || ! git -C "$DIR" rev-parse --verify "$REMOTE_REF" >/dev/null 2>&1; then
   # 如果上面用的是直接 URL fetch,origin/$BR 可能不存在,用 FETCH_HEAD
   REMOTE_REF="FETCH_HEAD"
 fi

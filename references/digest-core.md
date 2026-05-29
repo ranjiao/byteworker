@@ -14,13 +14,13 @@
 1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` / `feishu_chat` / `web` / `local_md`。**若输入是一整场会议**(日历会议链接 / 日程,或同属一场会的投屏文档 + 妙记多个 URL)→ 这是「会议簇」,整体摄取成一个 event,见下方场景细则。
 2. **摄取原文**:
    - `feishu_doc` → 用 `lark-doc +fetch --api-version v2` 读取文档正文。**摄取前必读** `references/digest-doc.md`。
-   - `feishu_minutes` → 用 `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿。
-   - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物。
+   - `feishu_minutes` → 优先用 `lark-vc` / `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿;若只有会议号/日程,先用 `lark-vc` 定位会议产物和 minute token。
+   - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物;拿到 minute token 后再取妙记正文 / AI 产物。
    - `feishu_chat` → 运行 `bin/pull-chat.sh` 拉取群聊(底层调 lark-im,自动定位群 + 分页拉全 + 输出逐字转写)。**摄取前必读** `references/digest-chat.md`。
    - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
    - `local_md` → 直接读取本地文件。
    失败按 `references/error-handling.md` 中止。
-3. **落原文** —— 写 `raw_data/<YYYY-MM-DD>-<slug>.md`:逐字原文 + frontmatter(`digest_status: pending`)。**raw_data 一旦写入永不改写。**
+3. **落原文** —— 写 `raw_data/<YYYY-MM-DD>-<slug>.md`:逐字原文 + frontmatter(`digest_status: pending`)。**raw 正文一旦写入永不改写**;digest 完成 / 失败 / 纳入 routine 时,只允许更新 frontmatter 的运维字段。
 4. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名在 INDEX 找可能涉及的已有节点,读取候选,语义比对是否与新输入矛盾。**有冲突 → 高亮矛盾点,等用户裁决,不静默覆盖。**
 5. **digest 扇出**(DESIGN.md §4.3):
    - 必产 1 个主记录节点(会议、群聊窗口 → `event`;外部读物、内部路线思考/方法论/调研/白皮书 → `reading`)。**会议簇**(同一场会的日历 + 投屏文档 + 妙记)仍只产 1 个 `event`,不按物件拆 —— 见 `references/digest-meeting.md`。

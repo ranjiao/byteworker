@@ -3,6 +3,7 @@
 knowledge/
 raw_data/
 journal/
+reports/
 /INDEX.md
 /dashboard.md
 /context.md
@@ -15,3 +16,4 @@ journal/
 # ===== 杂项 =====
 .DS_Store
 *.tmp
+.tmp/

@@ -8,10 +8,10 @@
 - 节点文件按 `templates/node-<type>.md` 骨架;生成时**删除** `<!-- 指引 -->` 注释。
 - **原子写入**:先写 `<file>.tmp` → 校验 frontmatter 完整 → move 覆盖,避免半成品。
 - **双向 links**:写 A→B 链接,必同时在 B 的 `links` 写回 A。
-- **自动连边(auto-link)**:写节点 body 时扫描正文,凡出现其它节点 id(形如 `person-xxx`、`project-xxx` 等 7 类前缀)且该 id 在 INDEX 中确实存在的,自动并入本节点 `links` 并双向写回 —— 不依赖 digest 时主动想起,避免漏连。
+- **自动连边(auto-link)**:写节点 body 时扫描正文,凡出现其它节点 id(形如 `person-xxx`、`project-xxx` 等 7 类前缀)且该 id 在 INDEX 中确实存在的,自动并入本节点 `links` 并双向写回 —— 不依赖 digest 时主动想起,避免漏连。批量修复时运行 `bin/repair-links.sh --autolink`。
 - **INDEX 增量更新**:写/改节点后更新 `INDEX.md` 对应行,不每次全扫。若发现某类 `knowledge/<type>/` 文件数 ≠ INDEX 该节行数 → 全量重建(见 `references/maintenance.md`)。
 - **journal**:每次摄取/更新/看板/日报/周报写操作后,向 `journal/<YYYY-MM>/<YYYY-MM-DD>.md` 追加一行 —— 时刻、动作、触达节点 id、raw_id、报告路径、是否冲突。
-- **回滚点**:每次写操作完成后,在知识库数据目录执行 `git add -A && git commit`(该目录自身的本地 git,**永不 push**),使每一步可回滚。
+- **回滚点**:每次写操作完成后,在知识库数据目录只暂存本次实际改动的路径(例如 `git add raw_data/<file> knowledge/projects/<file> INDEX.md journal/<date>.md`),再 `git commit`(该目录自身的本地 git,**永不 push**),使每一步可回滚。不要用 `git add -A` 把无关手改一起卷入。
 - **命名 / 字段**:严格按 DESIGN.md §2(命名)与 §4.1(字段)。
 - 单类节点 > 200 条 → 提示用户该类按子目录分片(暂不自动做)。
 
