@@ -140,4 +140,7 @@ echo "truncated=$TRUNCATED"
 echo "window=$START .. $END"
 echo "mode=$MODE"
 echo "transcript=$OUT"
-[ "$TRUNCATED" -eq 1 ] && exit 5
+if [ "$TRUNCATED" -eq 1 ]; then
+  exit 5
+fi
+exit 0
