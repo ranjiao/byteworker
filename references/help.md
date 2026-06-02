@@ -32,6 +32,10 @@ weekly     周报 —— 自动跑定期摄取,总结本周重要事项
   /byteworker weekly / /byteworker weekly 上周
   → 复查定期来源 → 消化新增 → 生成 reports/weekly/<YYYY>-W<WW>.md
 
+inbox      IM摘要 —— 扫描飞书 IM 高信号消息,生成当天 / 指定窗口摘要
+  /byteworker inbox / /byteworker inbox 昨天 / /byteworker inbox 2026-06-01
+  → 本地筛选降噪 → 精判高信号 threads → 生成 reports/im/<YYYY-MM-DD>.md
+
 context    全局上下文 —— 对话式维护你的工作上下文(供 agent 当「透镜」)
   /byteworker context 我的当前重点改成X / 主管说… / 看一下我的 context
   → 增删改 context.md 的 我的当前重点 / 主管方向 / 当前约束 / 背景信息

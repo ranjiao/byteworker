@@ -1,10 +1,10 @@
-# byteworker · IM Inbox 摘要草案
+# byteworker · IM Inbox 摘要
 
-> 用于用户要求「看最近一天 IM 里最重要的事」「从聊天里生成今日重点」「日报包含 IM」时。目标是**发现重要事项**,不是全量归档聊天。
+> 用于 `/byteworker inbox`,或用户要求「看最近一天 IM 里最重要的事」「从聊天里生成今日重点」「日报包含 IM」时。目标是**发现重要事项**,不是全量归档聊天。
 
 ## 1. 触发与边界
 
-- **触发**:用户明确说「最近一天聊天 / IM / 消息 / inbox / 飞书聊天里最重要的事」,或 `daily` 请求里明确要求包含 IM。
+- **触发**:子命令 `/byteworker inbox`;或用户明确说「最近一天聊天 / IM / 消息 / inbox / 飞书聊天里最重要的事」;或 `daily` 请求里明确要求包含 IM。
 - **默认不启用**:普通 `daily` / `weekly` 仍只跑定期摄取清单。IM 全量扫描可能量大、噪音高、权限不稳定,不能默默加入所有报告。
 - **默认产物**:把最终精判后的 IM 摘要保存到知识库数据目录 `reports/im/`;不把全量聊天原文写入 `raw_data/`。只有某个 thread 被判定为应沉淀进知识库时,再按现有 `feishu_chat` 窗口规则抓取该 thread 所在小窗口并 digest。
 - **本地处理**:所有临时 transcript / candidate JSON 写 `/tmp`;长期保存的只有 `reports/im/` 摘要,或被提升的标准 raw/event。业务数据不进 skill 仓库。
@@ -18,6 +18,7 @@
 ### 必须调用 `bin/im-inbox-summary.sh`
 
 - 用户明确要求「分析最近一天 / 今天 IM 里最重要的事」「最近一天聊天重点」「飞书消息里有什么需要关注」。
+- 用户调用 `/byteworker inbox`,包括 `/byteworker inbox`、`/byteworker inbox 昨天`、`/byteworker inbox 2026-06-01` 等。
 - 用户要求 `daily` / 日报「包含 IM / 聊天 / 消息 / inbox」。
 - 用户要求从飞书 IM 里发现当天重要事项、待办、风险、决策,且没有指定某一个小群聊窗口作为常规 `digest chat`。
 - 用户已经补充关键词 / 更新 `context.md`,并要求重新看今天或最近一天 IM。
@@ -31,8 +32,16 @@
 
 ### 推荐调用方式
 
+`/byteworker inbox` 不带参数时默认扫描今天:
+
 ```bash
 bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
+```
+
+`/byteworker inbox 昨天` 或 `/byteworker inbox <YYYY-MM-DD>` 使用自然日窗口:
+
+```bash
+bin/im-inbox-summary.sh --start "<YYYY-MM-DD>T00:00:00+08:00" --end "<YYYY-MM-DD>T23:59:59+08:00" --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
 ```
 
 若用户说「最近一天」而不是「今天」:
@@ -106,6 +115,9 @@ lark-cli --version
 先确认本次是否属于「必须调用脚本」场景。若是,按用户表达选择窗口:
 
 - 「今天 / 日报包含 IM」→ `--today`。
+- `/byteworker inbox` 不带参数 → `--today`。
+- `/byteworker inbox 昨天` → 上一自然日 `--start <date>T00:00:00+08:00 --end <date>T23:59:59+08:00`。
+- `/byteworker inbox <YYYY-MM-DD>` → 指定自然日 `--start <date>T00:00:00+08:00 --end <date>T23:59:59+08:00`。
 - 「最近一天 / 过去 24 小时」→ `--last-hours 24`。
 - 用户给了明确起止时间 → `--start <ISO8601> --end <ISO8601>`。
 

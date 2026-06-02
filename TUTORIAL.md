@@ -65,6 +65,8 @@
 2. 如果团队是定期周会，视频会议录屏+周报文档的模式，最佳实践是可以把周会加入定期摄取
 3. 解释daily, weekly命令工作逻辑，并且提示可以重点提取context.md中指令的重点人物观点、重点项目进展，并按照预设模板生成日报、周报
 4. 解释 IM Inbox Summary 的使用边界:
+   - 可以用 `/byteworker inbox` 直接触发;例如 `/byteworker inbox` 扫今天,
+     `/byteworker inbox 昨天` 扫上一自然日,`/byteworker inbox 2026-06-01` 扫指定日期。
    - 它适合用户明确说「分析昨天 / 今天飞书 IM 里的重要消息」「最近一天聊天里有什么要关注」
      或「日报包含 IM」时使用;普通 daily / weekly 默认不扫描全量 IM。
    - 它会先用 `context.md` 里的重点项目、人物、组织、群名、指标和风险词做本地筛选与降噪,
@@ -78,7 +80,7 @@
 1. 三句话总结闭环:**摄取**(digest)把资料消化进库 → 知识沉淀成**实体图**持续生长
    → 随时**查询**(search)一句话问出来、带出处。
 2. 列一下还能做什么:`update` 更新某条知识 · `brief` 会前简报 · `dashboard` 工作看板 ·
-   `daily` 日报 · `weekly` 周报 · `help` 帮助;还能在 skill 目录运行 `bin/browse.sh`
+   `daily` 日报 · `weekly` 周报 · `inbox` IM摘要 · `help` 帮助;还能在 skill 目录运行 `bin/browse.sh`
    在浏览器里可视化浏览整个知识库。
 3. 告诉用户:引导结束,可以正常用了 —— 直接发飞书 URL 或用自然语言即可。
    想再看一遍引导,说「跑一下上手引导」。
