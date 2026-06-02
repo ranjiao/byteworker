@@ -48,7 +48,7 @@ help       用法说明
            环境起不了 web 服务,browse.sh 不适用 —— 那种情况用对话查询 search 即可)
 
 存储:知识库数据目录(用户指定,独立于本 skill,不进 git)——
-      knowledge/(节点)· raw_data/(原始输入)· journal/(日志)· reports/(日报/周报)
+      knowledge/(节点)· raw_data/(原始输入)· journal/(日志)· reports/(日报/周报/IM摘要)
       · INDEX.md · dashboard.md · context.md(全局上下文)
 文档:DESIGN.md(存储 schema)· TODOS.md(延后功能)
 安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git
