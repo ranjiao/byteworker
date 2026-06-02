@@ -1,8 +1,7 @@
 # templates/ — 骨架模板
 
 byteworker 用到的骨架。`node-*.md` 是 7 类知识节点的骨架,digest 时 agent 按对应模板生成
-节点笔记;`context.md` 是数据目录顶层「全局工作上下文」文件的骨架;`report-*.md` 是日报 /
-周报的输出骨架。
+节点笔记;`context.md` 是数据目录顶层「全局工作上下文」文件的骨架;`report-*.md` 是报告输出骨架。
 
 ## 节点模板
 
@@ -40,6 +39,7 @@ schema 以 `DESIGN.md` 为唯一真相源。
 |------|------|----------|
 | `report-daily.md` | `/byteworker daily` 日报 | `reports/daily/<YYYY-MM-DD>.md` |
 | `report-weekly.md` | `/byteworker weekly` 周报 | `reports/weekly/<YYYY>-W<WW>.md` |
+| `report-im.md` | IM Inbox 摘要 | `reports/im/<YYYY-MM-DD>.md` 或 `reports/im/<start>__<end>.md` |
 
 报告模板只定义结构,不含业务数据。生成报告时复制结构到知识库数据目录,填入从节点 / raw /
-journal 召回的事实,并保留 `## 手动补充 / 备注` 供用户自行改写。
+journal 或 IM Inbox 候选 threads 精判得到的事实,并保留 `## 手动补充 / 备注` 供用户自行改写。

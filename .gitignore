@@ -12,6 +12,8 @@ reports/
 # ===== 本地状态(每台机器不同,不提交) =====
 .kbconfig
 .last-update-check
+.im-inbox-summary-first-run-shown
+.im-inbox-summary-last-run.json
 
 # ===== 杂项 =====
 .DS_Store
