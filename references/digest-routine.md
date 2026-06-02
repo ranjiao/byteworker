@@ -6,6 +6,7 @@
 
 - **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。同意 → 给该来源的 raw frontmatter 加 `routine: weekly`(这是允许的 raw frontmatter 运维元数据更新;raw 正文仍不改)。此后该源每个 raw 都带 `routine`。INDEX「定期摄取清单」表即由带 `routine` 的 raw 派生(DESIGN.md §6),无需手工维护。
 - **运行**(触发:不带来源的 `digest` / 用户说"跑定期摄取""检查周报更新" / 操作前必读「到期提醒」后用户确认):
+  - 开始时先告知用户本次会复查 INDEX「定期摄取清单」里的多少个来源;逐源处理时用短状态说明当前来源、是否在拉取 / 比对 / digest / 跳过。来源较多或单源处理超过约 30-60 秒时,按 `SKILL.md`「长流程状态输出」发 heartbeat,不要等全部来源处理完才第一次汇报。
   1. 读 INDEX「定期摄取清单」,逐源处理 ——
      - 滚动周会文档:重新 `lark-doc +fetch`,把顶层最新周期按 DESIGN.md §2.1 规范化后,
        对该周期正文计算 `content_hash`;与该源最近 raw 的规范化 `digest_period` + `content_hash`
