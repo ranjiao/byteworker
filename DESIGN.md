@@ -39,7 +39,7 @@ byteworker 由**两个物理隔离**的部分组成。
 
 | 文件/目录 | 存什么 |
 |-----------|--------|
-| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/daily/weekly/help) |
+| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/daily/weekly/inbox/help) |
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
@@ -52,7 +52,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `raw_data/` | 摄取的**逐字原文** + 溯源元数据,一次摄取一文件 | skill 写入;正文永不改写,运维 frontmatter 可更新 | 正文只增不改 |
 | `knowledge/{people,projects,areas,orgs,events,decisions,readings}/` | 7 类节点笔记,按类型分子目录(固定 7 个,不漂移) | skill 写入/更新 | 实体可更新;记录定型 |
 | `journal/` | 摄取/更新/扫描事件的**时间线日志** | skill 追加 | 只追加 |
-| `reports/daily/`, `reports/weekly/`, `reports/im/` | 日报 / 周报 / IM Inbox 摘要归档快照,由 `daily` / `weekly` / IM Inbox 流程生成 | skill 写入,用户可手改 | 可覆盖同周期 |
+| `reports/daily/`, `reports/weekly/`, `reports/im/` | 日报 / 周报 / IM Inbox 摘要归档快照,由 `daily` / `weekly` / `inbox` 流程生成 | skill 写入,用户可手改 | 可覆盖同周期 |
 | `INDEX.md` | 主索引:7 类节点登记表 + 定期摄取清单 + 群聊高水位 | skill 维护,可全量重建 | 高频更新 |
 | `dashboard.md` | 工作看板 —— 实时视图(长期关注 / 需关注 / 今日进展) | skill 维护/渲染 | 高频刷新 |
 | `context.md` | 全局工作上下文 —— 使用者主动维护的「透镜」(当前重点 / 主管方向 / 约束 / 背景) | 用户手维护 | 手维护 |
@@ -428,7 +428,7 @@ templates/
   context.md             context.md 文件骨架(全局上下文,§10;首次使用整份复制为初始 context.md)
   report-daily.md        日报骨架(daily 输出到 reports/daily/)
   report-weekly.md       周报骨架(weekly 输出到 reports/weekly/)
-  report-im.md           IM Inbox 摘要骨架(输出到 reports/im/)
+  report-im.md           /byteworker inbox 的 IM Inbox 摘要骨架(输出到 reports/im/)
 ```
 无法判定 type 时,实体类倾向 `area`、记录类倾向 `event`,并在 journal 标注。
 
@@ -479,7 +479,7 @@ templates/
    改读数据目录的 `.last-routine-digest`(§1.B)。定期摄取例程每次运行后写当天日期 ——
    **空手而归也写**(「复查过」≠「有新增」);journal 行降为纯审计。见 §1.B、SKILL.md。
 14. **报告归档快照** — 新增 `reports/daily/`、`reports/weekly/` 与 `reports/im/`。`daily` / `weekly`
-   每次先跑定期摄取,再从 journal / raw / nodes 召回事实生成报告;IM Inbox 从脚本候选 threads
+   每次先跑定期摄取,再从 journal / raw / nodes 召回事实生成报告;`inbox` 从脚本候选 threads
    精判后生成摘要。报告不进入 INDEX,但每条事实必须能回溯到节点 / raw / journal 或 chat/message
    来源。同周期 / 同窗口再次生成可覆盖,但保留用户手动备注。见 §11、SKILL.md。
 15. **digest 幂等与 raw 不覆盖** — raw frontmatter 增加 `source_uid` / `source_revision` /
