@@ -130,7 +130,7 @@ a { color: inherit; text-decoration: none; }
 .app {
   display: grid;
   grid-template-rows: 42px 1fr;
-  grid-template-columns: 244px 1fr 320px;
+  grid-template-columns: var(--sidebar-w, 244px) minmax(0, 1fr) 320px;
   height: 100vh;
   overflow: hidden;
 }
@@ -197,6 +197,31 @@ a { color: inherit; text-decoration: none; }
   backdrop-filter: blur(20px);
   border-right: 1px solid var(--line);
   display: flex; flex-direction: column; overflow: hidden;
+  position: relative;
+}
+.sidebar-resizer {
+  position: absolute;
+  top: 0; right: -4px; bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 12;
+}
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 3px;
+  width: 2px;
+  background: var(--divider);
+  transition: background var(--duration-fast);
+}
+.sidebar-resizer:hover::after,
+body.sidebar-resizing .sidebar-resizer::after {
+  background: var(--accent);
+}
+body.sidebar-resizing,
+body.sidebar-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .side-search {
   margin: 10px 12px 6px;
@@ -235,6 +260,32 @@ a { color: inherit; text-decoration: none; }
 }
 .side-filter.has-q .clear { display: inline-flex; }
 .side-filter .clear:hover { background: var(--line-strong); color: var(--ink); }
+
+.side-sort {
+  margin: 0 12px 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+}
+.side-sort button {
+  height: 24px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  white-space: nowrap;
+}
+.side-sort button:hover { color: var(--ink); background: var(--bg-hover); }
+.side-sort button.on {
+  color: var(--accent);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+.side-sort svg { width: 11px; height: 11px; flex-shrink: 0; }
 
 /* group: showing N of M with reveal */
 .type-group-more {
@@ -299,6 +350,25 @@ a { color: inherit; text-decoration: none; }
   border-left-color: var(--accent); font-weight: 500;
 }
 .entity-row .title { flex: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.entity-row .updated {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--bg-chip);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ink-4);
+  flex-shrink: 0;
+}
+.entity-row:hover .updated { background: color-mix(in srgb, var(--ink-4) 12%, transparent); color: var(--ink-3); }
+.entity-row.on .updated {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 76%, var(--ink-4));
+}
 .entity-row .badge {
   font-family: var(--font-mono); font-size: 9.5px; padding: 1px 4px;
   border-radius: 3px; background: var(--bg-chip); color: var(--ink-4);
@@ -966,7 +1036,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="app" id="app">
   <!-- Title bar -->
   <div class="titlebar">
     <div class="title-brand">
@@ -1009,6 +1079,16 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
         <svg width="8" height="8" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l8 8M11 3l-8 8"/></svg>
       </button>
     </div>
+    <div class="side-sort" id="side-sort" aria-label="侧栏排序">
+      <button data-sort="updated" title="按最后更新时间倒序">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v10M3.5 8.5 7 12l3.5-3.5M3 3h8"/></svg>
+        <span>最近更新</span>
+      </button>
+      <button data-sort="name" title="按名称排序">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h6M4 7h4M4 11h6M2.5 3h.01M2.5 7h.01M2.5 11h.01"/></svg>
+        <span>名称</span>
+      </button>
+    </div>
     <div class="side-shortcuts">
       <button class="side-shortcut" id="sc-index">
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h4a2 2 0 0 1 2 2v8a1.5 1.5 0 0 0-1.5-1.5H2V3zM12 3H8a2 2 0 0 0-2 2v8a1.5 1.5 0 0 1 1.5-1.5H12V3z"/></svg>
@@ -1038,6 +1118,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
       <span class="dot" id="scan-dot"></span>
       <span id="scan-status">就绪</span>
     </div>
+    <div class="sidebar-resizer" id="sidebar-resizer" title="拖动调整侧栏宽度" aria-hidden="true"></div>
   </aside>
 
   <!-- Reader -->
@@ -1123,7 +1204,7 @@ const md = window.markdownit({ html: false, linkify: true, typographer: false })
 // ---- state ----------------------------------------------------
 const state = {
   // index data (loaded from INDEX.md)
-  // each entry: { id, title, tldr, status, type, last_verified }
+  // each entry: { id, title, tldr, status, type, last_verified, updated?, created? }
   nodes: [],
   byId: {},
   byType: {},
@@ -1147,6 +1228,7 @@ const state = {
   expandedGroups: Object.fromEntries(TYPE_ORDER.map(t => [t, false])), // "+N more" toggled
   recentOpen: true,
   sideFilterQ: '',
+  sideSort: 'updated',
   recentIds: [], // most-recently-opened, deduped, capped 8
   rail: 'graph',
   settings: { theme: 'light', density: 'normal', width: 'normal' },
@@ -1155,6 +1237,8 @@ const state = {
   paletteQ: '',
   paletteSel: 0,
   paletteComposing: false,
+  sidebarWidth: 244,
+  sidebarResizing: false,
   reloadToken: '',
   reloading: false,
   scanRun: 0,
@@ -1164,6 +1248,14 @@ const state = {
 try {
   const stored = JSON.parse(localStorage.getItem('bw.viewer.settings') || '{}');
   state.settings = Object.assign(state.settings, stored);
+} catch (e) { /* defaults */ }
+try {
+  const storedSort = localStorage.getItem('bw.viewer.sideSort');
+  if (storedSort === 'name' || storedSort === 'updated') state.sideSort = storedSort;
+} catch (e) { /* defaults */ }
+try {
+  const storedWidth = Number(localStorage.getItem('bw.viewer.sidebarWidth'));
+  if (Number.isFinite(storedWidth)) state.sidebarWidth = storedWidth;
 } catch (e) { /* defaults */ }
 
 // apply theme / density / width as data-* attrs on <html>
@@ -1175,9 +1267,19 @@ function applySettings() {
 }
 applySettings();
 
+function clampSidebarWidth(width) {
+  return Math.max(220, Math.min(520, Math.round(width)));
+}
+
+function applySidebarWidth() {
+  document.documentElement.style.setProperty('--sidebar-w', clampSidebarWidth(state.sidebarWidth) + 'px');
+}
+applySidebarWidth();
+
 // ---- dom refs ------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const D = {
+  app: $('app'),
   brandSub: $('brand-sub'),
   btnBack: $('btn-back'),
   btnFwd: $('btn-fwd'),
@@ -1194,6 +1296,8 @@ const D = {
   sideFilter: $('side-filter'),
   sideFilterWrap: $('side-filter-wrap'),
   sideFilterClear: $('side-filter-clear'),
+  sideSort: $('side-sort'),
+  sidebarResizer: $('sidebar-resizer'),
   scanDot: $('scan-dot'),
   scanStatus: $('scan-status'),
   crumbs: $('crumbs'),
@@ -1229,6 +1333,38 @@ function relTime(date) {
   if (d < 30) return `${Math.floor(d / 7)} 周前`;
   if (d < 365) return `${Math.floor(d / 30)} 个月前`;
   return `${Math.floor(d / 365)} 年前`;
+}
+
+function parseDateValue(value) {
+  if (!value) return NaN;
+  const s = String(value).trim().replace(/^["']|["']$/g, '');
+  let m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+  m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+  const parsed = Date.parse(s.replace(/^(\d{4}-\d{2}-\d{2})\s+/, '$1T'));
+  return Number.isNaN(parsed) ? NaN : parsed;
+}
+
+function updatedValue(n) {
+  return n?.updated || n?.last_verified || n?.created || '';
+}
+
+function updatedSortKey(n) {
+  const t = parseDateValue(updatedValue(n));
+  return Number.isNaN(t) ? -Infinity : t;
+}
+
+function updatedLabel(n) {
+  const t = updatedSortKey(n);
+  if (!Number.isFinite(t)) return '—';
+  const minutes = Math.floor(Math.max(0, Date.now() - t) / 60000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  return days > 7 ? '超过7天' : `${Math.max(1, days)}天`;
 }
 
 function isStale(n) {
@@ -1367,6 +1503,7 @@ async function scanAll() {
   }
   state.scanDone = true;
   updateScanStatus();
+  renderSidebar();
   // re-render rail if currently viewing a node
   const cur = currentEntry();
   if (cur?.kind === 'node') renderRail(cur.id);
@@ -1454,11 +1591,27 @@ function renderCurrent() {
 // ---- sidebar render ---------------------------------------
 const SIDEBAR_TYPE_DEFAULT_CAP = 15; // truncate long types until expanded
 
-function sortByRecency(rows) {
+function compareByName(a, b) {
+  const name = (a.title || a.id || '').localeCompare(b.title || b.id || '', 'zh-Hans-CN', {
+    numeric: true,
+    sensitivity: 'base'
+  });
+  return name || (a.id || '').localeCompare(b.id || '', 'en', { numeric: true });
+}
+
+function sortSidebarRows(rows) {
   return rows.slice().sort((a, b) => {
-    const av = a.last_verified || a.updated || a.created || '';
-    const bv = b.last_verified || b.updated || b.created || '';
-    return bv.localeCompare(av);
+    if (state.sideSort === 'name') return compareByName(a, b);
+    const dt = updatedSortKey(b) - updatedSortKey(a);
+    return dt || compareByName(a, b);
+  });
+}
+
+function updateSortControls() {
+  D.sideSort?.querySelectorAll('[data-sort]').forEach(el => {
+    const on = el.dataset.sort === state.sideSort;
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
 }
 
@@ -1467,9 +1620,15 @@ function matchesFilter(n, q) {
   return (n.id + ' ' + (n.title || '') + ' ' + (n.tldr || '')).toLowerCase().includes(q);
 }
 
+function rowTooltip(n) {
+  const title = n.title || n.id || '';
+  return n.tldr ? `${title}\n${n.tldr}` : title;
+}
+
 function renderSidebar() {
   const q = state.sideFilterQ.trim().toLowerCase();
   D.sideFilterWrap.classList.toggle('has-q', q.length > 0);
+  updateSortControls();
 
   // "Recently viewed" group (only when not filtering, and ≥2 recents)
   let recentHTML = '';
@@ -1477,9 +1636,10 @@ function renderSidebar() {
     const items = state.recentIds.map(id => {
       const n = state.byId[id];
       if (!n) return '';
-      return `<button class="entity-row" data-id="${esc(n.id)}" title="${esc(n.tldr)}">
+      return `<button class="entity-row" data-id="${esc(n.id)}" title="${esc(rowTooltip(n))}" aria-label="${esc(n.title)}">
         <span class="tdot ${n.type}" style="margin-right:2px"></span>
-        <span class="title">${esc(n.title)}</span>
+        <span class="title" title="${esc(n.title)}">${esc(n.title)}</span>
+        <span class="updated" title="最近更新: ${esc(updatedValue(n) || '未知')}">${esc(updatedLabel(n))}</span>
       </button>`;
     }).join('');
     recentHTML = `<div class="type-group pinned ${state.recentOpen ? 'open' : ''}">
@@ -1502,7 +1662,7 @@ function renderSidebar() {
     // when filtering, force-open and skip cap (filtered results are small enough)
     const open = q ? true : state.openGroups[t];
     const expanded = state.expandedGroups[t];
-    const sorted = sortByRecency(filtered);
+    const sorted = sortSidebarRows(filtered);
     const cap = q ? sorted.length : (expanded ? sorted.length : SIDEBAR_TYPE_DEFAULT_CAP);
     const shown = sorted.slice(0, cap);
     const hidden = sorted.length - shown.length;
@@ -1513,8 +1673,9 @@ function renderSidebar() {
       let badge = '';
       if (stale) badge = '<span class="badge">陈旧</span>';
       else if (ssed) badge = '<span class="badge">取代</span>';
-      return `<button class="entity-row${stale ? ' stale' : ''}" data-id="${esc(n.id)}" title="${esc(n.tldr)}">
-        <span class="title">${esc(n.title)}</span>${badge}
+      return `<button class="entity-row${stale ? ' stale' : ''}" data-id="${esc(n.id)}" title="${esc(rowTooltip(n))}" aria-label="${esc(n.title)}">
+        <span class="title" title="${esc(n.title)}">${esc(n.title)}</span>${badge}
+        <span class="updated" title="最近更新: ${esc(updatedValue(n) || '未知')}">${esc(updatedLabel(n))}</span>
       </button>`;
     }).join('');
 
@@ -1635,6 +1796,7 @@ async function renderReaderNode(id) {
     return;
   }
   const fm = full.fm || {};
+  renderSidebar();
   const status = fm.status || n.status || 'current';
   const effectiveStatus = isStale({ type: n.type, status, last_verified: fm.last_verified || n.last_verified }) ? 'stale' : status;
   const statusLabel = { current: '现行', stale: '陈旧', superseded: '已取代' }[effectiveStatus] || effectiveStatus;
@@ -2609,6 +2771,33 @@ D.sideFilter.addEventListener('keydown', (e) => {
     }
   }
 });
+D.sideSort?.querySelectorAll('[data-sort]').forEach(el => {
+  el.addEventListener('click', () => {
+    const next = el.dataset.sort;
+    if (next !== 'name' && next !== 'updated') return;
+    state.sideSort = next;
+    try { localStorage.setItem('bw.viewer.sideSort', next); } catch (e) {}
+    renderSidebar();
+  });
+});
+D.sidebarResizer?.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  state.sidebarResizing = true;
+  document.body.classList.add('sidebar-resizing');
+  D.sidebarResizer.setPointerCapture?.(e.pointerId);
+});
+window.addEventListener('pointermove', (e) => {
+  if (!state.sidebarResizing) return;
+  const left = D.app?.getBoundingClientRect().left || 0;
+  state.sidebarWidth = clampSidebarWidth(e.clientX - left);
+  applySidebarWidth();
+});
+window.addEventListener('pointerup', () => {
+  if (!state.sidebarResizing) return;
+  state.sidebarResizing = false;
+  document.body.classList.remove('sidebar-resizing');
+  try { localStorage.setItem('bw.viewer.sidebarWidth', String(clampSidebarWidth(state.sidebarWidth))); } catch (e) {}
+});
 D.btnBack.addEventListener('click', navBack);
 D.btnFwd.addEventListener('click', navFwd);
 D.btnReload.addEventListener('click', reloadKb);
@@ -2696,7 +2885,7 @@ async function loadIndex() {
 function renderDisconnected(error) {
   D.readerBody.innerHTML = `<div class="err">
       <strong>读不到 INDEX.md。</strong><br>
-      请用 <code>~/byteworker/bin/browse.sh</code> 启动 —— 它起一个本地静态服务器,把 viewer 挂在 /app、把知识库数据挂在 /kb。<br>
+      请在 skill 仓库运行 <code>bin/browse.sh</code>,然后打开它打印的 <code>http://localhost:端口/app/index.html</code>。不要直接打开当前这个 <code>file://</code> 页面 —— viewer 需要本地静态服务器把 viewer 挂在 <code>/app</code>、把知识库数据挂在 <code>/kb</code>。<br>
       <span style="color:var(--ink-4)">原始错误:${esc(error.message)}</span>
     </div>`;
   D.scanStatus.textContent = '未连接';
