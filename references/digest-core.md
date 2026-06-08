@@ -16,8 +16,8 @@
 1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` / `feishu_chat` / `web` / `local_md`。**若输入是一整场会议**(日历会议链接 / 日程,或同属一场会的投屏文档 + 妙记多个 URL)→ 这是「会议簇」,整体摄取成一个 event,见下方场景细则。
 2. **摄取原文**:
    - `feishu_doc` → 用 `lark-doc +fetch --api-version v2` 读取文档正文。**摄取前必读** `references/digest-doc.md`。
-   - `feishu_minutes` → 优先用 `lark-vc` / `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿;若只有会议号/日程,先用 `lark-vc` 定位会议产物和 minute token。
-   - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物;拿到 minute token 后再取妙记正文 / AI 产物。
+   - `feishu_minutes` → 优先用 `lark-vc` / `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿;若只有会议号/日程,先用 `lark-vc` 定位会议产物和 minute token。若能从妙记元数据、会议名/时间、日历日程、纪要正文中的文档引用找到对应会议文档,把这些链接记为 `related_source_urls` 并写入 event「事件信息」。
+   - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物;拿到 minute token 后再取妙记正文 / AI 产物。同步 best-effort 查找该会议的日历链接和会议文档链接,找到则写入 raw / event,找不到不臆造。
    - `feishu_chat` → 运行 `bin/pull-chat.sh` 拉取群聊(底层调 lark-im,自动定位群 + 分页拉全 + 输出逐字转写)。**摄取前必读** `references/digest-chat.md`。
    - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
    - `local_md` → 直接读取本地文件。
@@ -33,7 +33,8 @@
      content_hash` 近似比对;若正文 hash 相同,也按已摄取处理。必要时只补 raw frontmatter 的
      运维字段,不得改 raw 正文。
 4. **落原文** —— 写 `raw_data/<YYYY-MM-DD>-<slug>.md`:逐字原文 + frontmatter(`digest_status:
-   pending`)。**raw 正文一旦写入永不改写**;digest 完成 / 失败 / 纳入 routine 时,只允许更新
+   pending`)。frontmatter 必须尽量写 `source_url`(用户可打开的原始链接);会议 / 资料簇若发现
+   其它同源物件,写 `related_source_urls`。**raw 正文一旦写入永不改写**;digest 完成 / 失败 / 纳入 routine 时,只允许更新
    frontmatter 的运维字段。若目标文件或 `raw_id` 已存在,必须追加 `-2`/`-3` 或 revision/hash
    后缀生成唯一文件名,**绝不覆盖旧 raw**。
 5. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名、
@@ -45,6 +46,9 @@
      历史 raw `digest_targets`、节点 `sources` 或标题/链接召回),更新该节点,不要新建重复
      `reading` / `event`。`decision` 也按同一事实/同一来源去重;新版本改变原决策时,走
      supersede / 冲突裁决,不并排制造两个同义决策。
+   - **主记录来源链接**:`event` / `reading` 正文必须附上原始来源链接,不能只放 raw_id。`event`
+     写在「事件信息」,包括原始文档 / 妙记 / 日历日程 / 已找到的会议文档;`reading` 写在「来源」。
+     若是会议但没找到对应会议文档,可写“会议文档:未找到”或不写该项,不得编造链接。
    - **资料型 `reading` 扇出规则**:若 `reading` 是外部读物,默认只产 `reading`,一般不抽 `decision`、不更新实体;若是内部路线思考 / 方法论 / 调研 / 白皮书,则 `reading` 是"这篇资料本身"的主记录,同时可按内容抽取明确决策、更新相关 `project`/`area`/`person`/`org`。不要把整篇资料硬塞进某个 `project` 或 `event`;项目节点只摘项目相关事实,决策节点只摘真正生效的决定。
    - 抽取 N 个 `decision`:输入中每个明确决策一节点。
    - 创建或更新涉及的实体节点(`person`/`project`/`org`/`area`)。

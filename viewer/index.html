@@ -315,6 +315,34 @@ body.sidebar-resizing * {
 .side-shortcut.mini svg { width: 12px; height: 12px; }
 .side-shortcut.on svg { color: var(--accent); }
 
+.report-nav {
+  border-top: 1px solid var(--divider);
+  padding: 4px 6px 6px; flex-shrink: 0;
+  max-height: 36vh; display: flex; flex-direction: column;
+}
+.report-nav-h {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 6px 4px; font-size: 11px; color: var(--ink-2); font-weight: 600;
+}
+.report-nav-h .label { flex: 1; }
+.report-nav-h .count { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); }
+.report-nav-list { overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.report-nav-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 5px;
+  font-size: 12px; color: var(--ink-2); cursor: pointer;
+  width: 100%; text-align: left; border-left: 2px solid transparent;
+}
+.report-nav-item:hover { background: var(--bg-hover); color: var(--ink); }
+.report-nav-item.on {
+  background: var(--accent-tint); color: var(--accent);
+  border-left-color: var(--accent); font-weight: 500;
+}
+.report-nav-item .rk { flex: 1; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+.report-nav-item .rrel { font-size: 10px; color: var(--ink-4); flex-shrink: 0; }
+.report-nav-item.on .rrel { color: color-mix(in srgb, var(--accent) 70%, var(--ink-4)); }
+.report-nav-empty { padding: 4px 8px; font-size: 11px; color: var(--ink-4); }
+
 .side-scroll { flex: 1; overflow-y: auto; padding: 4px 0 24px; }
 
 .type-group { border-top: 1px solid var(--divider); padding: 2px 0; }
@@ -590,6 +618,28 @@ body.sidebar-resizing * {
   text-align: left;
 }
 .rail-card:hover { border-color: var(--line-strong); background: var(--bg-hover); }
+.rail-card.source-card {
+  width: 100%;
+  color: inherit;
+}
+.rail-card.source-card.static {
+  cursor: default;
+}
+.rail-card.source-card.static:hover {
+  border-color: var(--line);
+  background: var(--bg-elev);
+}
+.rail-card.source-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.rail-card-action {
+  margin-left: auto;
+  color: var(--ink-4);
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+.rail-card.source-card:hover .rail-card-action { color: var(--accent); }
 .rail-card-top { display: flex; align-items: center; gap: 6px; }
 .rail-card-title { font-size: 12px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rail-card-tldr {
@@ -1113,6 +1163,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
         <span>全局上下文</span>
       </button>
     </div>
+    <div class="report-nav" id="report-nav" hidden></div>
     <div class="side-scroll" id="side-scroll"></div>
     <div class="side-footer" id="side-footer">
       <span class="dot" id="scan-dot"></span>
@@ -1212,6 +1263,8 @@ const state = {
   // per-node full content & frontmatter cache; populated lazily + by scan
   nodeFull: {},          // id -> { fm, body, html, links: [] }
   inflight: {},          // id -> Promise (dedupe fetches)
+  rawById: {},           // raw_id -> raw_data relative filename
+  rawIndexPromise: null,
 
   // links/backlinks indices, populated by background scan
   forwardLinks: {},      // id -> Set of ids (from frontmatter `links`)
@@ -1292,6 +1345,7 @@ const D = {
   scDaily: $('sc-daily'),
   scWeekly: $('sc-weekly'),
   scContext: $('sc-context'),
+  reportNav: $('report-nav'),
   sideScroll: $('side-scroll'),
   sideFilter: $('side-filter'),
   sideFilterWrap: $('side-filter-wrap'),
@@ -1321,6 +1375,68 @@ function nodeDir(id) {
 function kbUrl(path) {
   if (!state.reloadToken) return path;
   return path + (path.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(state.reloadToken);
+}
+
+function isRawSource(source) {
+  return /^raw-\d{4}-\d{2}-\d{2}/.test(String(source || '').trim());
+}
+
+function isUrlSource(source) {
+  return /^https?:\/\//i.test(String(source || '').trim());
+}
+
+function rawIdFromFilename(filename) {
+  return 'raw-' + String(filename || '').replace(/\.md$/i, '');
+}
+
+async function ensureRawIndex() {
+  if (Object.keys(state.rawById).length) return state.rawById;
+  if (state.rawIndexPromise) return state.rawIndexPromise;
+  state.rawIndexPromise = (async () => {
+    const r = await fetch(kbUrl(KB + 'raw_data/'), { cache: 'no-store' });
+    if (!r.ok) throw new Error('无法列出 raw_data/');
+    const html = await r.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const map = {};
+    doc.querySelectorAll('a[href$=".md"]').forEach(a => {
+      const href = decodeURIComponent(a.getAttribute('href') || '').split(/[?#]/)[0];
+      const file = href.split('/').pop();
+      if (!file || file.startsWith('.')) return;
+      map[rawIdFromFilename(file)] = file;
+    });
+    state.rawById = map;
+    return map;
+  })().catch(e => {
+    console.warn('raw_data index failed', e);
+    state.rawIndexPromise = null;
+    return state.rawById;
+  });
+  return state.rawIndexPromise;
+}
+
+async function rawPathForSource(source) {
+  const s = String(source || '').trim();
+  if (!s) return '';
+  if (/^\.\.\/kb\/raw_data\/.+\.md$/i.test(s)) return s;
+  if (/^kb\/raw_data\/.+\.md$/i.test(s)) return '../' + s;
+  if (/^raw_data\/.+\.md$/i.test(s)) return KB + s;
+  if (!isRawSource(s)) return '';
+  const map = await ensureRawIndex();
+  const file = map[s] || (s.replace(/^raw-/, '') + '.md');
+  return KB + 'raw_data/' + file;
+}
+
+async function openSource(source) {
+  const s = String(source || '').trim();
+  if (!s) return;
+  if (isUrlSource(s)) {
+    window.open(s, '_blank', 'noopener');
+    return;
+  }
+  const path = await rawPathForSource(s);
+  if (path) {
+    navOpen({ kind: 'raw', path, label: s });
+  }
 }
 
 function relTime(date) {
@@ -1570,6 +1686,7 @@ function renderCurrent() {
     renderReaderNode(e.id);
     renderRail(e.id);
     highlightSidebar(e.id);
+    renderReportNav(null);
     D.scIndex.classList.remove('on');
     D.scDash.classList.remove('on');
     D.scDaily.classList.remove('on');
@@ -1577,6 +1694,7 @@ function renderCurrent() {
     D.scContext.classList.remove('on');
   } else {
     renderReaderRaw(e.path, e.label);
+    renderReportNav(e);
     D.railScroll.innerHTML = '<div class="empty-rail">' + esc(e.label) + ' · 文档视图,无图谱上下文。</div>';
     D.railGraphCount.textContent = '—';
     highlightSidebar(null);
@@ -1969,6 +2087,95 @@ async function openLatestReport(kind) {
   }
 }
 
+// ---- report cross-navigation (sidebar links between time periods) ----
+async function listAllReports(kind) {
+  const dir = `${KB}reports/${kind}/`;
+  const re = kind === 'daily' ? /^\d{4}-\d{2}-\d{2}\.md$/ : /^\d{4}-W\d{2}\.md$/;
+  const label = kind === 'daily' ? '日报' : '周报';
+  const make = key => ({ path: `${dir}${key}.md`, key, label: `${label} ${key}` });
+  // Fast path: parse the directory listing the static server returns.
+  try {
+    const r = await fetch(kbUrl(dir), { cache: 'no-store' });
+    if (r.ok) {
+      const html = await r.text();
+      const keys = [...new Set([...html.matchAll(/href="([^"]+\.md)"/g)]
+        .map(m => decodeURIComponent(m[1]).replace(/^.*\//, ''))
+        .filter(name => re.test(name))
+        .map(name => name.replace(/\.md$/, '')))]
+        .sort().reverse();
+      if (keys.length) return keys.map(make);
+    }
+  } catch (e) { /* no directory listing — fall through to probing */ }
+  // Fallback: probe recent dates/weeks in parallel.
+  const today = new Date();
+  const keys = [];
+  if (kind === 'daily') {
+    for (let i = 0; i < 90; i++) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      keys.push(dateKey(d));
+    }
+  } else {
+    const seen = new Set();
+    for (let i = 0; i < 370; i += 7) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      const key = isoWeekKey(d);
+      if (!seen.has(key)) { seen.add(key); keys.push(key); }
+    }
+  }
+  const hits = await Promise.all(keys.map(async key => {
+    const rep = make(key);
+    const rr = await fetch(kbUrl(rep.path), { cache: 'no-store' }).catch(() => null);
+    return rr && rr.ok ? rep : null;
+  }));
+  return hits.filter(Boolean);
+}
+
+const _reportListCache = new Map();
+function getReportList(kind) {
+  const ck = `${kind}:${state.reloadToken || ''}`;
+  if (!_reportListCache.has(ck)) _reportListCache.set(ck, listAllReports(kind));
+  return _reportListCache.get(ck);
+}
+
+let _reportNavToken = 0;
+function reportKindFromEntry(entry) {
+  if (!entry || entry.kind !== 'raw' || !entry.label) return null;
+  if (entry.label.startsWith('日报')) return 'daily';
+  if (entry.label.startsWith('周报')) return 'weekly';
+  return null;
+}
+
+async function renderReportNav(entry) {
+  const kind = reportKindFromEntry(entry);
+  if (!kind) { D.reportNav.hidden = true; D.reportNav.innerHTML = ''; return; }
+  const curKey = (entry.path.match(/([^/]+)\.md$/) || [])[1] || '';
+  const heading = kind === 'daily' ? '其他日报' : '其他周报';
+  const token = ++_reportNavToken;
+  D.reportNav.hidden = false;
+  D.reportNav.innerHTML = `<div class="report-nav-h"><span class="label">${heading}</span><span class="count">…</span></div>`;
+  let reports = await getReportList(kind);
+  if (token !== _reportNavToken) return; // a newer navigation superseded this render
+  // Make sure the currently-open report is in the list even if listing missed it.
+  if (curKey && !reports.some(r => r.key === curKey)) {
+    reports = [entry, ...reports].map(r => ({ key: r.key || curKey, path: r.path, label: r.label }))
+      .sort((a, b) => (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
+  }
+  const items = reports.map(rep => {
+    const on = rep.key === curKey;
+    const rel = kind === 'daily' ? relTime(rep.key) : '';
+    return `<button class="report-nav-item${on ? ' on' : ''}" data-path="${esc(rep.path)}" data-label="${esc(rep.label)}" title="${esc(rep.label)}">
+      <span class="rk">${esc(rep.key)}</span>${rel ? `<span class="rrel">${esc(rel)}</span>` : ''}
+    </button>`;
+  }).join('');
+  const body = items
+    ? `<div class="report-nav-list">${items}</div>`
+    : `<div class="report-nav-empty">没有找到其他${kind === 'daily' ? '日报' : '周报'}。</div>`;
+  D.reportNav.innerHTML = `<div class="report-nav-h"><span class="label">${heading}</span><span class="count">${reports.length}</span></div>${body}`;
+  D.reportNav.querySelectorAll('.report-nav-item').forEach(el => {
+    el.addEventListener('click', () => navOpen({ kind: 'raw', path: el.dataset.path, label: el.dataset.label }));
+  });
+}
+
 // ---- rail render -----------------------------------------
 function renderRail(id) {
   const tab = state.rail;
@@ -2165,19 +2372,31 @@ function renderRailSource(id) {
   let html = `<div class="rail-h">原始来源</div>`;
   if (sources.length) {
     html += sources.map(s => {
-      const isRaw = /^raw-\d{4}-\d{2}-\d{2}/.test(s);
-      return `<div class="rail-card" style="cursor:default;margin-bottom:6px">
+      const isRaw = isRawSource(s);
+      const isUrl = isUrlSource(s);
+      const canOpen = isRaw || isUrl || /^raw_data\/.+\.md$/i.test(String(s || ''));
+      const detail = isRaw
+        ? '点击在主阅读区打开 raw_data 逐字原文。'
+        : (isUrl ? '点击在新标签打开原始链接。' : '非 raw_id / URL 来源,仅展示。');
+      const action = isRaw ? '打开原文' : (isUrl ? '打开链接' : '');
+      const tag = canOpen ? 'button' : 'div';
+      const attrs = canOpen ? `type="button" data-source="${esc(s)}" title="${esc(detail)}"` : '';
+      return `<${tag} class="rail-card source-card${canOpen ? '' : ' static'}" ${attrs} style="margin-bottom:6px">
         <div class="rail-card-top">
           <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h4a2 2 0 0 1 2 2v8a1.5 1.5 0 0 0-1.5-1.5H2V3zM12 3H8a2 2 0 0 0-2 2v8a1.5 1.5 0 0 1 1.5-1.5H12V3z"/></svg>
           <span class="rail-card-title" style="font-family:var(--font-mono);font-size:11.5px">${esc(s)}</span>
+          ${action ? `<span class="rail-card-action">${action}</span>` : ''}
         </div>
-        <div class="rail-card-tldr">${isRaw ? '逐字原文存于 raw_data/' + esc(s.replace(/^raw-/, '')) + '.md(viewer 只读,无法直读 raw_data)。' : '飞书原链接或外部 URL。'}</div>
-      </div>`;
+        <div class="rail-card-tldr">${esc(detail)}</div>
+      </${tag}>`;
     }).join('');
   } else {
     html += `<div class="empty-rail">此节点未登记 sources。所有节点应至少 1 条 sources(raw_id 或飞书原链接);任何答案都能回原文核对。</div>`;
   }
   D.railScroll.innerHTML = html;
+  D.railScroll.querySelectorAll('.source-card[data-source]').forEach(el => {
+    el.addEventListener('click', () => openSource(el.dataset.source));
+  });
 }
 
 // ---- command palette -------------------------------------
@@ -2860,6 +3079,8 @@ window.addEventListener('hashchange', () => {
 function clearKbCaches() {
   state.nodeFull = {};
   state.inflight = {};
+  state.rawById = {};
+  state.rawIndexPromise = null;
   state.forwardLinks = {};
   state.backlinks = {};
   state.scanDone = false;
