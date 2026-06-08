@@ -140,7 +140,7 @@ source_revision: "12"                       # 可选:飞书文档 revision_id / 
 digest_period: 2026-05-20                   # 可选:滚动文档的周期;日期 / ISO 周需规范化
 content_hash: sha256:<hex>                  # 本次实际摄取正文的 hash
 digest_key: feishu_doc:doxcnxxx:2026-05-20:sha256:<hex>
-source_url: https://<feishu-url>           # 本地 md 则填原路径
+source_url: https://<feishu-url>           # 用户可打开的原始链接;本地 md 则填原路径
 source_title: Q2 路线图评审会
 digest_status: pending | digested | failed
 routine: weekly                            # 可选:会定期更新的源(滚动周报/群聊)纳入定期摄取后才有
@@ -148,6 +148,9 @@ digest_targets:                            # 本次摄取触达的所有节点 i
   - event-2026-05-20-q2-review
   - decision-q2-scope
   - project-q2-roadmap
+related_source_urls:                       # 可选:同一会议簇 / 资料簇中已确认相关的其它原始链接
+  - https://<meeting-doc-url>
+  - https://<minutes-url>
 ---
 
 # Q2 路线图评审会
@@ -160,6 +163,10 @@ digest_targets:                            # 本次摄取触达的所有节点 i
   群聊用 `source_chat_id`,外部网页用规范化 URL,本地文件用绝对路径。
 - `source_revision` 记录来源版本:飞书文档用 `revision_id`;无明确版本时可为空,以 `content_hash`
   判重。
+- `source_url` 是**用户可点击回原始资料的链接**。飞书文档 / 妙记 / 日历会议 / 外部网页必须尽量
+  保留;可以去掉无意义的 `from=` 等跟踪 query,但不得丢失能打开该资源的主链接。本地文件填绝对路径。
+- `related_source_urls` 只放已确认与本次 raw 同属一场会议 / 一组资料的其它原始链接,例如会议妙记
+  对应的投屏文档、日历日程链接,或会议文档对应的妙记。找不到就不写,不得臆造。
 - `content_hash` 取**本次实际摄取正文**的 SHA-256。滚动周会只 hash 被选中的周期正文,不是整篇文档;
   会议簇按合并后的实际 raw 正文 hash。
 - `digest_key` 由 `source_type + source_uid + digest_period/source_window + content_hash` 组成,用于
@@ -236,6 +243,14 @@ links:                                        # 图的边,双向维护(写 A→B
 > **TL;DR:** <一句话摘要>
 ```
 
+**主记录来源链接要求**:`event` / `reading` 这类由 digest 直接生成的主记录,正文里必须给出
+用户可点击的原始来源链接,不能只在 frontmatter `sources` 里放 `raw_id`。优先写在:
+- `event` 的「事件信息」:列出原始文档 / 妙记 / 日历日程 / 会议文档链接;会议文档未找到时只写
+  “会议文档:未找到”或省略,不得臆造。
+- `reading` 的「来源」:列出原文链接、作者、发布日期、类型。
+实体节点(`project`/`org`/`person`/`area`)被本次 digest 更新时,若有「关联文档与会议」等来源章节,
+也应追加标题 + 日期 / 周期 + 节点 id / raw_id + 原始链接,按事件发生时间倒序去重。
+
 **`person`(实体)** —— 在 §4.1 通用 frontmatter 之外额外带 `feishu_id`(飞书英文 id,§4.1)。
 ```markdown
 ## 基本信息        <!-- 角色 / 所属团队 / 对接方式 -->
@@ -283,6 +298,7 @@ links:                                        # 图的边,双向维护(写 A→B
 **`event`(记录,产生即定型)**
 ```markdown
 ## 事件信息        <!-- 时间 / 类型:会议|评审|发布|群聊讨论窗口 / 参会人 -->
+                   <!-- 来源链接:原始文档 / 妙记 / 日历日程 / 会议文档 URL;若会议文档找不到,不要编造 -->
 ## 议程与讨论
 ## 结论
 ## 参与方立场分析   <!-- 各关键参与方的立场/动机/对决策态度;须基于证据,标【观察】/【推断】,见 §4.5 -->
