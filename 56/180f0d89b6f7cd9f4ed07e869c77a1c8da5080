@@ -1,0 +1,40 @@
+.gitignore
+  h_47d65d87779bed 23-25
+SKILL.md
+  s_b2907a596bbc80::t_493dbf0b3b7a2a 80-81
+references/commands.md
+  s_b2907a596bbc80::t_4c2c7893fc8cbd 27
+references/digest-core.md
+  s_b2907a596bbc80::t_d4c699f9887d71 14,35-42,47,50,67-68
+references/digest-dependencies.md
+  s_b2907a596bbc80::t_ccf711c01de32a 1-60
+references/digest-doc.md
+  s_b2907a596bbc80::t_7badaa1f5a4859 25-33
+references/digest-large.md
+  s_b2907a596bbc80::t_a4ff7f98ef3e17 10-13,15-17
+references/digest-meeting.md
+  s_b2907a596bbc80::t_49be7bff2f9a5d 21-24,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "56180f0d89b6f7cd9f4ed07e869c77a1c8da5080",
+  "prompts": {},
+  "humans": {
+    "h_47d65d87779bed": {
+      "author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_b2907a596bbc80": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5f14-5a58-72c3-952c-62ce2c90acd9",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
