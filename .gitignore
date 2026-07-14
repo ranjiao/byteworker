@@ -20,3 +20,6 @@ reports/
 *.tmp
 .tmp/
 .gstack/
+
+.lark-auth*
+.tmp*

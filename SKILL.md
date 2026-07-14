@@ -77,7 +77,8 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 **触发**:子命令 `digest`;或自然语言 —— 用户给出飞书文档/妙记 URL、会议、群、外部文章或本地 md,说"存入知识库""消化这个""记一下"等。
 
-完整主流程已拆到 `references/digest-core.md`。执行 digest 前必须先读它;再按来源类型加读对应细则:
+完整主流程已拆到 `references/digest-core.md`。执行 digest 前必须先读它和
+`references/digest-dependencies.md`(识别重要依赖、必要时向用户确认扩展范围);再按来源类型加读对应细则:
 
 - `feishu_doc` → `references/digest-doc.md`
 - `feishu_chat` → `references/digest-chat.md`

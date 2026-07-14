@@ -24,7 +24,7 @@
 
 1. 定位目标节点(查 INDEX)。
 2. 若用户带来新输入 → 先按 `digest` 流程摄取为 raw。
-3. 冲突检测(同 `digest` 第 4 步)。
+3. 冲突检测(同 `references/digest-core.md`「冲突检测」)。
 4. **合并** —— 多源不一致时,以更晚的来源为准;旧值移入节点的「历史」章节并标注来源 + 日期,**不静默丢弃**。决策被取代 → 旧 `decision` 设 `status: superseded` 与 `superseded_by`。
 5. 刷新 `updated` 与 `last_verified`;更新 INDEX、追加 journal。
 
