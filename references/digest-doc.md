@@ -22,9 +22,14 @@
   - 同一 `document_id` 的内部资料型文档重复 digest 时,默认更新已有 `reading` 主记录;只有用户
     明确要求把不同版本作为独立资料归档,才新建带版本后缀的 `reading`。
 - **人员 @ 提及解析**:`lark-doc` 返回的 `<cite type="user">` 是裸 `open_id`。digest 前运行 `bin/resolve-users.sh --from-doc <原文文件>`(或 `--ids ou_x,ou_y`)拿到 `open_id → 姓名 → feishu_id`(飞书英文 id = 企业邮箱前缀)映射,再建 / 更新 `person` 节点 —— `feishu_id` 写进 person frontmatter 字段(person 的 id 是稳定 slug、不随 `feishu_id` 变,见 DESIGN.md §2)。**不要手写解析逻辑。新建 person 必须有解析出的 `feishu_id`;解析不到则先不建 person,在 event / project 正文保留姓名或 open_id 并向用户报告待解析。**
-- **同名消歧**:person 实体消解**按 `feishu_id` 比对**(全局唯一);**中文名相同但 `feishu_id` 不同 = 不同的人 → 不合并、向用户确认后各自建节点**;解析失败时先不建 person,向用户报告待解析人物(详见 `SKILL.md` digest 第 5 步「实体消解」)。
-- **嵌入电子表格 / 多维表格**:文档里的 `<sheet>` / bitable 只返回占位 token,**关键数据在表格内**。需要这些数据时用 `lark-sheets` / `lark-base` 下钻取数;不下钻则在「关联文档与会议」登记该表并标注"数据在表格内"。
-- **引用的子文档**:文档里 `<cite type=doc>` 引用的其他文档 → **登记进项目节点的「关联文档与会议」**,
-  写标题 + 日期 / 周期 + 原始链接;**不自动递归摄取**(会爆炸),而是把这些子文档列给用户,由用户决定是否进一步摄取。
+- **同名消歧**:person 实体消解**按 `feishu_id` 比对**(全局唯一);**中文名相同但 `feishu_id` 不同 = 不同的人 → 不合并、向用户确认后各自建节点**;解析失败时先不建 person,向用户报告待解析人物(详见 `references/digest-core.md`「digest 扇出」的实体消解规则)。
+- **嵌入电子表格 / 多维表格**:文档里的 `<sheet>` / bitable 只返回占位 token,**关键数据在表格内**。
+  先按 `references/digest-dependencies.md` 判断表内数据是否是当前结论 / 决策 / 风险成立所必需的
+  重要依赖;是 → 向用户询问是否把该表加入本次 digest,同意后才用 `lark-sheets` / `lark-base`
+  下钻取数;否或用户暂缓 → 在「关联文档与会议」登记该表并标注「数据在表格内,本次未摄取」。
+- **引用的子文档 / 历史会议**:`<cite type=doc>`、正文链接或具名引用默认只登记进项目节点的
+  「关联文档与会议」(标题 + 日期 / 周期 + 原始链接),**不自动递归摄取**。只有按
+  `references/digest-dependencies.md` 判定为重要依赖时才列给用户并询问是否扩展本次 digest;
+  普通背景引用 / 延伸阅读无需逐条打断用户。
 
 > `feishu_minutes`(妙记)/ `feishu_meeting`(会议)用 `lark-vc` / `lark-minutes` 取产物:会议号 / 日程优先 `lark-vc` 定位会议与 minute token,妙记 URL 可直接取妙记产物。扇出与写入按 `SKILL.md`「digest」主干。
