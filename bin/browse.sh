@@ -3,7 +3,7 @@
 # 起一个本地静态服务器,用 skill 自带的 viewer 浏览知识库的全部 md 节点。
 #
 # 用法:
-#   bin/browse.sh [port]      # port 缺省 8765
+#   bin/browse.sh [port]      # port 缺省 8765;被占用时自动换到其他可用端口
 #
 # 做什么:
 #   1. 读 ../.kbconfig 定位知识库数据目录;
@@ -22,12 +22,52 @@ SKILL_DIR=$(cd "$SELF_DIR/.." && pwd)
 KBCONFIG="$SKILL_DIR/.kbconfig"
 PORT="${1:-8765}"
 
+case "$PORT" in
+  ''|*[!0-9]*)
+    echo "错误:端口必须是 1-65535 之间的整数:$PORT" >&2
+    exit 1
+    ;;
+esac
+if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+  echo "错误:端口必须是 1-65535 之间的整数:$PORT" >&2
+  exit 1
+fi
+
 [ -f "$KBCONFIG" ] || { echo "错误:未找到 .kbconfig(byteworker 尚未首次配置)" >&2; exit 1; }
 KBDIR=$(head -n1 "$KBCONFIG" | tr -d '[:space:]')
 [ -n "$KBDIR" ] && [ -d "$KBDIR" ] || { echo "错误:知识库数据目录不存在:$KBDIR" >&2; exit 1; }
 [ -f "$KBDIR/INDEX.md" ] || { echo "错误:$KBDIR 下没有 INDEX.md,似乎不是知识库数据目录" >&2; exit 1; }
 [ -d "$SKILL_DIR/viewer" ] || { echo "错误:未找到 $SKILL_DIR/viewer(skill 不完整)" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "错误:未找到 python3" >&2; exit 1; }
+
+# 从请求端口开始寻找可绑定的端口;到 65535 后从 1024 继续查找。
+# 用 Python 探测以避免依赖 lsof / nc(不同系统的参数并不一致)。
+REQUESTED_PORT="$PORT"
+PORT=$(python3 - "$REQUESTED_PORT" <<'PY'
+import socket
+import sys
+
+requested = int(sys.argv[1])
+candidates = range(requested, 65536)
+if requested > 1024:
+    candidates = (*candidates, *range(1024, requested))
+
+for port in candidates:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            continue
+    print(port)
+    break
+else:
+    raise SystemExit("没有找到可用的本地端口")
+PY
+)
+
+if [ "$PORT" != "$REQUESTED_PORT" ]; then
+  echo "端口 $REQUESTED_PORT 已被占用,自动改用 $PORT"
+fi
 
 # 临时服务根:只含两个符号链接,退出时自动清理 —— 不在数据目录里留任何东西
 SERVE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/byteworker-viewer.XXXXXX")
