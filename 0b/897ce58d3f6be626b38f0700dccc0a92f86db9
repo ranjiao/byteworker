@@ -1,0 +1,21 @@
+bin/browse.sh
+  s_91aa142bf1670f::t_9f5f539deea0c6 6,25-35,43-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0b897ce58d3f6be626b38f0700dccc0a92f86db9",
+  "prompts": {},
+  "sessions": {
+    "s_91aa142bf1670f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5fd4-af95-7f71-8397-b33f6b8717a5",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
