@@ -1,7 +1,7 @@
 # byteworker · 写入规范
 
 > 由 `SKILL.md` 路由到这里。凡要写 `raw_data/`、`knowledge/`、`reports/`、`dashboard.md`、
-> `INDEX.md`、`journal/` 或 `context.md`,动手前必须遵守本文件。
+> `INDEX.md`、`journal/`、`context.md` 或 `todo.md`,动手前必须遵守本文件。
 
 ## 通用规则
 
@@ -15,12 +15,13 @@
 - **INDEX 增量更新**:写/改节点后更新 `INDEX.md` 对应行,不每次全扫。若发现某类 `knowledge/<type>/` 文件数 ≠ INDEX 该节行数 → 全量重建(见 `references/maintenance.md`)。
 - **journal**:每次摄取/更新/看板/报告写操作后,向 `journal/<YYYY-MM>/<YYYY-MM-DD>.md` 追加一行 —— 时刻、动作、触达节点 id、raw_id、报告路径、是否冲突。
 - **回滚点**:每次写操作完成后,在知识库数据目录只暂存本次实际改动的路径(例如 `git add raw_data/<file> knowledge/projects/<file> INDEX.md journal/<date>.md`),再 `git commit`(该目录自身的本地 git,**永不 push**),使每一步可回滚。不要用 `git add -A` 把无关手改一起卷入。
+- **Todo 写入**:`todo.md` 由 `bin/todo.py` 原子维护;用户确认前的 digest 候选不得写入。新增 / 完成 / 延期 / 取消 / 真正发出提醒后,只暂存 `todo.md` 与本次 journal 路径创建本地回滚点。todo id 是内部键,用户侧按自然语言标题和当前对话消解。
 - **命名 / 字段**:严格按 DESIGN.md §2(命名)与 §4.1(字段)。
 - 单类节点 > 200 条 → 提示用户该类按子目录分片(暂不自动做)。
 
 ## 时间格式
 
-严格按 DESIGN.md §2.1。写入任何 raw frontmatter、knowledge 节点、INDEX、journal、dashboard、reports 前,先把可结构化时间规范化:
+严格按 DESIGN.md §2.1。写入任何 raw frontmatter、knowledge 节点、INDEX、journal、dashboard、reports、todo 前,先把可结构化时间规范化:
 
 - 日期写 `YYYY-MM-DD`。
 - 人读时间写 `YYYY-MM-DD HH:MM`。

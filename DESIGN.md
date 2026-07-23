@@ -55,7 +55,8 @@ byteworker 由**两个物理隔离**的部分组成。
 | `reports/daily/`, `reports/weekly/`, `reports/im/` | 日报 / 周报 / IM Inbox 摘要归档快照,由 `daily` / `weekly` / `inbox` 流程生成 | skill 写入,用户可手改 | 可覆盖同周期 |
 | `INDEX.md` | 主索引:7 类节点登记表 + 定期摄取清单 + 群聊高水位 | skill 维护,可全量重建 | 高频更新 |
 | `dashboard.md` | 工作看板 —— 实时视图(长期关注 / 需关注 / 今日进展) | skill 维护/渲染 | 高频刷新 |
-| `context.md` | 全局工作上下文 —— 使用者主动维护的「透镜」(当前重点 / 主管方向 / 约束 / 背景) | 用户手维护 | 手维护 |
+| `context.md` | 格式化全局工作上下文 —— 身份 / 职责 / 重点 / 约束 / 提醒偏好 / 背景 | 用户通过 agent 维护 | 手维护 |
+| `todo.md` | 用户确认过的行动项、截止 / 提醒时间与完成状态 | 用户通过 agent 维护 | 高频更新 |
 | `.last-routine-digest` | 上次「定期摄取」例程运行日期(一行 `YYYY-MM-DD`)—— 到期提醒据此判断 | skill 写入 | 每次定期摄取覆盖 |
 
 数据目录路径由用户首次使用时指定(默认目录名 `byteworker_kb`,路径可配置),
@@ -74,6 +75,7 @@ byteworker 由**两个物理隔离**的部分组成。
 - `reports/` —— 日报 / 周报 / IM Inbox 摘要是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
 - `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
 - `context.md` —— 使用者主动维护的全局工作上下文;手维护、不可派生,只此一处保存。
+- `todo.md` —— 用户确认后的行动状态;来源节点无法重建“完成 / 延期 / 取消”,只此一处保存。
 
 **纯派生(derived —— 可随时丢弃,必须 100% 可重建,不必单独备份):**
 - `INDEX.md` —— 可从全部节点的 frontmatter + body 首行 TL;DR、加 `raw_data/` frontmatter **确定性**全量重建(见 §6)。
@@ -442,6 +444,7 @@ templates/
   node-decision.md     /
   node-reading.md
   context.md             context.md 文件骨架(全局上下文,§10;首次使用整份复制为初始 context.md)
+  todo.md                todo.md 文件骨架(用户行动状态,§11;首次使用 Todo 时整份复制)
   report-daily.md        日报骨架(daily 输出到 reports/daily/)
   report-weekly.md       周报骨架(weekly 输出到 reports/weekly/)
   report-im.md           /byteworker inbox 的 IM Inbox 摘要骨架(输出到 reports/im/)
@@ -497,10 +500,14 @@ templates/
 14. **报告归档快照** — 新增 `reports/daily/`、`reports/weekly/` 与 `reports/im/`。`daily` / `weekly`
    每次先跑定期摄取,再从 journal / raw / nodes 召回事实生成报告;`inbox` 从脚本候选 threads
    精判后生成摘要。报告不进入 INDEX,但每条事实必须能回溯到节点 / raw / journal 或 chat/message
-   来源。同周期 / 同窗口再次生成可覆盖,但保留用户手动备注。见 §11、SKILL.md。
+   来源。同周期 / 同窗口再次生成可覆盖,但保留用户手动备注。见 §12、SKILL.md。
 15. **digest 幂等与 raw 不覆盖** — raw frontmatter 增加 `source_uid` / `source_revision` /
    `content_hash` / `digest_key` 等运维字段;重复摄取同一来源同一正文必须 no-op,同源新版本写
    新 raw 并更新已有主记录节点;任何情况下都不得覆盖旧 raw 正文。见 §2、§3、references/digest-core.md。
+16. **本地 Todo + 自然语言优先** — 数据目录顶层 `todo.md` 是用户确认后行动状态的唯一真相源;
+   event / report 的待办只保留来源事实,不承担完成状态。digest 只产候选、必须经用户确认后入 Todo;
+   用户日常以“明天提醒我”“刚才那个做完了”等自然语言操作,id 仅供内部关联。每次 skill 运行
+   拉取式检查到期 / 临期项;无对话时不承诺后台推送,也不调用 `lark-task`。见 §11、references/todo.md。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 
@@ -543,26 +550,73 @@ templates/
 
 ## 10. context.md — 全局工作上下文
 
-数据目录顶层文件,与 `INDEX.md` / `dashboard.md` 并列。**使用者主动维护**的全局工作上下文 ——
-每次 skill 运行都加载,作为 digest / search / brief / dashboard 的「透镜」。
+数据目录顶层文件,与 `INDEX.md` / `dashboard.md` / `todo.md` 并列。**使用者通过对话维护**的
+格式化全局工作上下文 —— 每次 skill 运行都加载,作为 digest / search / brief / dashboard / todo
+的「透镜」。
 
 - **性质**:真相源、不可派生。skill 在 digest / search 等流程中**只读、绝不自动改写**;
   用户明确要求时由 agent 代为增删改(SKILL 的 `context` 子命令)—— 完全通过对话式 agent
   (Codex、OpenClaw 等)使用本 skill 的用户无法直接编辑文件,**必须靠 agent 代维护**。
 - **保持简短**:它是「透镜」不是「档案」—— 只放当前有效的上下文,过期内容使用者自行删除。
   每次运行都加载,过长会吃上下文。
-- **用法**:见 SKILL「操作前必读」—— digest 时影响怎么解读、什么值得消化;search / brief 时
-  在客观答案旁带出使用者视角与主管方向,并在客观信息与陈述意图冲突时主动提示。
-  内容呈现给用户时标为「你的视角 / 主管方向」,**非事实**。
+- **用法**:身份表用于本人识别;职责 / 重点用于 digest 相关性与 Todo 候选判断;时区 / 默认时间
+  用于自然语言提醒解析;search / brief 在客观答案旁带出使用者视角,并在事实与陈述意图冲突时提示。
+- **陈述性质分开**:“我的身份 / 我的职责范围”是用户提供的信息;“我的当前重点 / 主管方向”
+  等主观内容呈现时标为“你的视角 / 用户陈述”,不把意图硬化为客观事实。
 - **与「思路与视角」章节的分工**:`context.md` 是**跨主题**的工作底色;节点的「思路与视角」
   章节(§4.6)是**挂在具体 project/area 上**的观点。
 
-**结构由模板锁定** —— 骨架见 skill 目录的 [`templates/context.md`](templates/context.md):固定四个
-章节 `我的当前重点` / `主管方向` / `当前约束` / `背景信息`,每条带日期(`- <YYYY-MM-DD> —— <一句话>`)。
+**结构由模板锁定** —— 骨架见 skill 目录的 [`templates/context.md`](templates/context.md):固定七个
+章节 `我的身份` / `我的职责范围` / `我的当前重点` / `主管方向` / `当前约束` /
+`交互与提醒偏好` / `背景信息`。身份使用固定表格(姓名、别名、`feishu_id`、person 节点、时区);
+其它章节使用简短条目,变更型信息优先带日期(`- <YYYY-MM-DD> —— <一句话>`)。
 首次使用、或数据目录缺 `context.md` 时,由 skill **整份复制**该模板初始化 —— 统一模板,避免各用户
 写出五花八门的格式。各章节无内容则留空;`<!-- 指引 -->` 注释保留(持续引导用户、不渲染)。
 
-## 11. reports/ — 归档报告快照
+## 11. todo.md — 用户行动与提醒
+
+数据目录顶层文件。它不是知识节点、不进入 `INDEX.md`,是用户确认后行动状态的唯一真相源。
+event / report 中的“待办”记录来源当时说了什么;`todo.md` 记录用户后来是否确认、完成、延期或取消。
+
+固定结构：
+
+```markdown
+# TODO
+## Active
+### [ ] T-20260723-001 · 提交周报
+- kind: task
+- status: open
+- created_at: 2026-07-23T10:30:00+08:00
+- updated_at: 2026-07-23T10:30:00+08:00
+- due_at: 2026-07-24T18:00:00+08:00
+- remind_at: 2026-07-24T09:00:00+08:00
+- time_expression: 明天
+- snoozed_until:
+- source: direct:user
+- links: project-example
+- reason:
+- last_reminded_at:
+- note:
+
+## Completed
+```
+
+- **内部 id**:`T-<YYYYMMDD>-<三位序号>`,创建后不变。只供去重、关联、脚本更新;用户侧不要求输入。
+- **kind**:`task` / `follow_up` / `watch`;**status**:`open` / `waiting` / `done` / `cancelled`。
+- **时间**:`due_at` = 截止,`remind_at` = 何时提醒,`snoozed_until` = 暂停提醒到何时;
+  均用带时区 ISO8601。`time_expression` 保留用户原相对时间短语,回显时同时给出绝对时间。
+- **来源**:直接输入写 `direct:user`;digest 确认项写 event / raw / report id 或 URL。`links` 可连
+  project / person 等知识节点,但 Todo 不加入节点双向 links,避免把操作状态混进知识图谱。
+- **写入**:`bin/todo.py` 负责解析受支持的相对时间、校验状态、原子重写和确定性检查;
+  agent 负责从自然语言提取标题、区分截止 / 提醒语义、在多个相似项间做语义消解。
+- **提醒**:每次 skill 运行检查到点提醒、逾期、24 小时内临期(窗口可由 context 配置);无命中静默。
+  `last_reminded_at` 用于限频。它是拉取式能力,不代表后台 scheduler。
+- **确认闸门**:用户直接说“记个待办 / 提醒我”即授权写入;digest 自动分析只产候选,用户明确选择后才写。
+- **完成历史**:done / cancelled 移到 `Completed`,仍留在同一个文件中供追溯。
+
+完整交互与时间规则见 `references/todo.md`;骨架见 `templates/todo.md`。
+
+## 12. reports/ — 归档报告快照
 
 报告文件不是知识节点,不进入 `INDEX.md`,但属于用户可手改的真相源快照。它们用于归档某天 /
 某周或某个 IM 扫描窗口的工作总结,回答"这段时间发生了什么重要事,与我和团队有什么关系,

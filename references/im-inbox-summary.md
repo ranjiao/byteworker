@@ -195,6 +195,8 @@ bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.jso
 - 只保存最终精判后的摘要;不要把脚本 candidate JSON 全量写入知识库。candidate JSON 默认留在 `/tmp`。
 - 报告是可覆盖快照:同一窗口再次生成可以覆盖原文件,但要保留用户已手动补充的 `## 手动补充 / 备注` 章节内容。
 - 每条事实性摘要包括时间、群 / 会话、为什么重要、待办 / 风险、来源窗口或 message_ids。
+- 结合 `context.md` 的“我的身份 / 我的职责范围”对“待办 / 需要跟进”做 Todo 候选判定;
+  报告照常保存来源事实,汇报时按 `references/todo.md` 一次性询问哪些加入 `todo.md`,未经确认不写。
 - 汇总采集统计:扫描会话数、原始消息数、候选 thread 数、LLM 精判数、是否截断。
 - 向当天 journal 追加一行,说明生成了哪个 IM 报告、参考了哪些主要 chat / thread、是否截断;在知识库数据目录本地 git 精确暂存本次报告与 journal 后创建回滚点。
 

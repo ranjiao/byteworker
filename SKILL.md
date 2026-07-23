@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、会议妙记、会议、群聊、外部 blog/论文/wiki、本地 md 摄取(digest)并消化成结构化实体图笔记(人员/项目/主题领域/组织/事件/决策/读物),支持对话式查询(search)、更新(update)、会前简报(brief)、工作看板(dashboard)、日报(daily)、周报(weekly)、IM Inbox 摘要(inbox)、对话式维护全局工作上下文(context)。当用户要把飞书文档/妙记 URL/会议/群聊/外部文章/本地 md 存入知识库、消化某份资料或某个群的讨论、查询"关于X我知道什么"或"我们关于Y定过什么"、查项目进度、更新某条知识、要会前简报/日报/周报、分析最近飞书 IM 重要消息、查看工作看板、或想了解这个 skill 怎么用(help)时使用;支持 /byteworker digest/search/update/brief/dashboard/daily/weekly/inbox/context/help 子命令。
+description: 个人飞书工作知识库。把飞书文档、会议妙记、会议、群聊、外部 blog/论文/wiki、本地 md 摄取(digest)并消化成结构化实体图笔记(人员/项目/主题领域/组织/事件/决策/读物),支持对话式查询(search)、更新(update)、会前简报(brief)、工作看板(dashboard)、自然语言待办与提醒(todo)、日报(daily)、周报(weekly)、IM Inbox 摘要(inbox)、对话式维护全局工作上下文(context)。当用户要把资料存入知识库、查询或更新工作知识、要会前简报/日报/周报、分析飞书 IM、查看工作看板,或说“记个待办”“明天/后天/下周六提醒我”“刚才那个做完了”“延期/取消提醒”“看看还有什么没做”时使用;支持 /byteworker digest/search/update/brief/dashboard/todo/daily/weekly/inbox/context/help 子命令,但 todo 日常以自然语言为主。
 ---
 
 # byteworker 个人知识库
@@ -19,6 +19,7 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 | `update` | 更新 | 某条知识有新进展 | `/byteworker update Y项目有进展` |
 | `brief` | 会前简报 | 开会前拉相关上下文 | `/byteworker brief` |
 | `dashboard` | 工作看板 | 看当下该关注什么 | `/byteworker dashboard` |
+| `todo` | 待办提醒 | 用自然语言增加、完成、延期、取消或查看待办 | `明天下午三点提醒我提交周报` |
 | `daily` | 日报 | 自动跑定期摄取,总结当天重要事项并生成日报 | `/byteworker daily` |
 | `weekly` | 周报 | 自动跑定期摄取,总结本周重要事项并生成周报 | `/byteworker weekly` |
 | `inbox` | IM摘要 | 扫描飞书 IM 高信号消息并生成摘要 | `/byteworker inbox 昨天` |
@@ -44,12 +45,14 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
     - **跳过** → 走「常规首次设置」。
   - **常规首次设置**:**主动询问用户**知识库数据目录放在哪里 —— 让用户给一个父目录,目录名默认 `byteworker_kb`(用户可改);拼出绝对路径后写入 `.kbconfig`。
 - 用户之后想再看引导(说「跑一下上手引导」「重看教程」等)→ 读 `TUTORIAL.md` 重走一遍(`.kbconfig` 已存在则跳过其中的建库步骤)。
-- 若该数据目录不存在或为空:按 DESIGN.md §1.B 初始化 —— 创建 `knowledge/` 的 7 个子目录、`raw_data/`、`journal/`、`reports/daily/`、`reports/weekly/`、`reports/im/`、空 `INDEX.md`、`context.md`(**整份复制** skill 目录的 `templates/context.md`,统一格式),并对该数据目录执行 `git init`(**仅本地、永不配 remote**,作误删/错改的回滚网)。
-- **下文所有 `knowledge/`、`raw_data/`、`journal/`、`reports/`、`INDEX.md`、`dashboard.md`、`context.md` 路径,一律指知识库数据目录下的对应路径;`templates/` 与 `DESIGN.md` 在本 skill 目录下。**
+- 若该数据目录不存在或为空:按 DESIGN.md §1.B 初始化 —— 创建 `knowledge/` 的 7 个子目录、`raw_data/`、`journal/`、`reports/daily/`、`reports/weekly/`、`reports/im/`、空 `INDEX.md`,并把 skill 目录的 `templates/context.md` / `templates/todo.md` 整份复制为数据目录的 `context.md` / `todo.md`;再对该数据目录执行 `git init`(**仅本地、永不配 remote**,作误删/错改的回滚网)。
+- **下文所有 `knowledge/`、`raw_data/`、`journal/`、`reports/`、`INDEX.md`、`dashboard.md`、`context.md`、`todo.md` 路径,一律指知识库数据目录下的对应路径;`templates/` 与 `DESIGN.md` 在本 skill 目录下。**
 
 **定期摄取到期提醒**:本次操作若会读 `INDEX.md`,顺带看「定期摄取清单」—— 若清单非空、且数据目录的 `.last-routine-digest`(记上次「定期摄取」运行日期;文件不存在 = 从未运行)距今 ≥7 天 → 用一句话提醒用户「定期摄取清单有 N 项可能该查更新了,需要就说『跑定期摄取』」。**只提醒,不打断当前请求、不自动跑。**
 
-**全局上下文(每次必读)**:读知识库数据目录下的 `context.md` —— 使用者主动维护的全局工作上下文(当前重点 / 主管方向 / 约束 / 背景,见 DESIGN.md §10)。把它作为本次 digest / search / brief / dashboard 的**「透镜」**:digest 时影响怎么解读、什么值得消化;search / brief 时在客观答案旁带出使用者视角与主管方向,并在**客观信息与某条陈述意图冲突时主动提示**。`context.md` 的内容呈现给用户时一律标为「你的视角 / 主管方向」,**非事实**;它是真相源 —— **本流程(操作前必读 / digest / search 等)中只读、绝不改写**;用户要增删改它走子命令 `context`(对话式 agent 用户由 agent 代维护,见「context」一节)。`context.md` 不存在 → 用 skill 目录的 `templates/context.md` 初始化一个(整份复制、静默;统一模板避免格式漂移),本次视为空继续。
+**全局上下文(每次必读)**:读知识库数据目录下的 `context.md` —— 固定包含使用者身份、职责范围、当前重点、主管方向、当前约束、交互与提醒偏好、背景信息(见 DESIGN.md §10)。把它作为本次 digest / search / brief / dashboard / todo 的**「透镜」**:身份表用于本人识别,职责 / 重点用于相关性判断,时区 / 默认时间用于 Todo 自然语言解析。身份 / 职责是**用户提供的信息**;当前重点 / 主管方向等主观内容呈现时标为「你的视角 / 用户陈述」,不硬化为客观事实。`context.md` 是真相源 —— **本流程(操作前必读 / digest / search 等)中只读、绝不擅自改写**;用户要增删改走子命令 `context`。文件不存在 → 整份复制 `templates/context.md` 初始化;姓名 / 别名 / feishu_id 仍是“待补充”且本次任务需要识别本人时,合并成一次简短询问,不在无关操作中反复打断。
+
+**Todo 状态检查(每次必做)**:完成上面的 `context.md` 读取后,按 `references/todo.md` 运行 `python3 bin/todo.py <知识库目录> init --template templates/todo.md` 与 `check`。没有到期 / 临期事项则静默;有则在当前回答开头提醒,真正展示后调用 `mark-reminded` 限频。检查不等于后台推送:只能保证每次 byteworker 被宿主加载并运行时执行,不能保证未加载本 skill 的无关对话或无对话时主动提醒。
 
 **长流程状态输出**:digest / 跑定期摄取 / daily / weekly / IM Inbox / 大输入摄取等可能耗时较久的多步操作,必须给用户阶段性状态,避免长时间沉默。规则:
 - 开始长流程时先发一句说明本次会做哪几步,例如「我先拉取原文,再做幂等检查和节点写入」。
@@ -102,6 +105,15 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 写操作遵守 `references/write-rules.md`。
 
+## todo — 自然语言待办与提醒
+
+**触发**:子命令 `todo`;或自然语言 —— “记个待办”“提醒我”“明天 / 后天 / 下周六要做 X”
+“刚才那个做完了”“把 X 延期到下周二”“取消刚刚的提醒”“我还有什么没做”。
+
+完整流程见 `references/todo.md`。用户侧以自然语言为主;todo id 只在 agent 内部调用脚本时使用,
+不要要求用户记忆或输入。时间由 agent 提取任务标题 / 提醒 / 截止语义后交给 `bin/todo.py`
+结合 `context.md` 解析,写入后回显绝对时间供用户纠正。
+
 ## daily — 日报
 
 **触发**:子命令 `daily`;或自然语言 —— "生成今天日报""今天工作总结""更新日报"。
@@ -137,7 +149,7 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 - **写入前必读**:`references/write-rules.md` —— 原子写入、双向 links、auto-link、INDEX、journal、本地 git 回滚点、时间格式、时间倒序。
 - **维护 / 恢复按需读**:`references/maintenance.md` —— 运行 `bin/rebuild-index.sh` 重建 INDEX、运行 `bin/repair-links.sh --autolink` 修复双链 / 正文提及连边、灾难恢复。
 
-核心不变量:知识库数据目录是唯一业务数据位置;`raw_data/` + `knowledge/` + `reports/` + `dashboard.md` 手动项是真相源,`INDEX.md` 和 dashboard 派生段可重建。
+核心不变量:知识库数据目录是唯一业务数据位置;`raw_data/` + `knowledge/` + `reports/` + `todo.md` + `context.md` + `dashboard.md` 手动项是真相源,`INDEX.md` 和 dashboard 派生段可重建。
 
 ## 错误处理
 

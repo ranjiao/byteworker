@@ -21,8 +21,13 @@ brief      会前简报 —— 开会前拉相关上下文
   → 读飞书日历 → 每个会议生成相关知识简报
 
 dashboard  工作看板 —— 看当下该关注什么
-  /byteworker dashboard / 长期关注X / 提醒我关注Y
+  /byteworker dashboard / 长期关注X / 看板提醒Y
   → 长期关注项(自动拉最新状态)+ 需关注事项 + 今日进展
+
+todo       待办提醒 —— 直接说自然语言,不用记命令或编号
+  "明天下午三点提醒我提交周报" / "后天关注评测结果"
+  "刚才那个做完了" / "把评测结果那个延期到下周六" / "我还有什么没做?"
+  → 自动解析相对时间 → 写 todo.md → 每次使用 byteworker 时检查到期 / 临期事项
 
 daily      日报 —— 自动跑定期摄取,总结当天重要事项
   /byteworker daily / /byteworker daily 2026-05-25
@@ -37,8 +42,8 @@ inbox      IM摘要 —— 扫描飞书 IM 高信号消息,生成当天 / 指定
   → 本地筛选降噪 → 精判高信号 threads → 生成 reports/im/<YYYY-MM-DD>.md
 
 context    全局上下文 —— 对话式维护你的工作上下文(供 agent 当「透镜」)
-  /byteworker context 我的当前重点改成X / 主管说… / 看一下我的 context
-  → 增删改 context.md 的 我的当前重点 / 主管方向 / 当前约束 / 背景信息
+  "我的名字是X,飞书id是Y" / "我的当前重点改成X" / "默认提醒时间改成10点"
+  → 维护 context.md 的身份 / 职责 / 重点 / 主管方向 / 约束 / 提醒偏好 / 背景
 
 help       用法说明
 
@@ -53,6 +58,6 @@ help       用法说明
 
 存储:知识库数据目录(用户指定,独立于本 skill,不进 git)——
       knowledge/(节点)· raw_data/(原始输入)· journal/(日志)· reports/(日报/周报/IM摘要)
-      · INDEX.md · dashboard.md · context.md(全局上下文)
+      · INDEX.md · dashboard.md · context.md(全局上下文)· todo.md(确认后的个人待办)
 文档:DESIGN.md(存储 schema)· TODOS.md(延后功能)
-安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git
+安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git;Todo 仅本地,不创建飞书任务

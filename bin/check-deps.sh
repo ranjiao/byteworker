@@ -23,6 +23,12 @@ echo "── Tier 1 · byteworker 自身(必须)──"
 for c in git jq bash; do
   if have "$c"; then mark ok "$c"; else mark no "$c"; T1=1; fi
 done
+if have python3 && python3 -c 'import zoneinfo' >/dev/null 2>&1; then
+  mark ok "python3 (>= 3.9)"
+else
+  mark no "python3 (>= 3.9)"
+  T1=1
+fi
 
 echo
 echo "── Tier 2 · 飞书生态(摄取飞书内容必须)──"
@@ -34,7 +40,7 @@ done
 echo
 if [ "$T1" -ne 0 ]; then
   echo "结论:✗ Tier 1 有缺失 —— 必须先装再继续。"
-  echo "  macOS: brew install git jq   |   Linux: sudo apt install git jq"
+  echo "  macOS: brew install git jq python   |   Linux: sudo apt install git jq python3"
   exit 1
 elif [ "$T2" -ne 0 ]; then
   echo "结论:Tier 1 就绪;✗ Tier 2 有缺失 —— byteworker 可先装,但摄取飞书内容前需补齐:"
