@@ -299,7 +299,7 @@ body.sidebar-resizing * {
 .type-group.pinned .type-group-h .label { color: var(--ink-2); }
 
 .side-shortcuts { padding: 0 6px 4px; display: flex; flex-direction: column; gap: 1px; }
-.report-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
+.report-shortcuts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; }
 .side-shortcut {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 10px; border-radius: 6px; font-size: 12.5px;
@@ -1157,6 +1157,10 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
           <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="10" height="9.5" rx="1.5"/><path d="M4.5 1.5v2M9.5 1.5v2M2 5h10M4 7.5h6M4 9.5h6"/></svg>
           <span>周报</span>
         </button>
+        <button class="side-shortcut mini" id="sc-todo" title="个人待办">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="10" height="10" rx="1.5"/><path d="m4.2 7 1.5 1.5 4-4"/></svg>
+          <span>待办</span>
+        </button>
       </div>
       <button class="side-shortcut" id="sc-context">
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 7s2-4 5.5-4 5.5 4 5.5 4-2 4-5.5 4S1.5 7 1.5 7z"/><circle cx="7" cy="7" r="1.6"/></svg>
@@ -1344,6 +1348,7 @@ const D = {
   scDash: $('sc-dash'),
   scDaily: $('sc-daily'),
   scWeekly: $('sc-weekly'),
+  scTodo: $('sc-todo'),
   scContext: $('sc-context'),
   reportNav: $('report-nav'),
   sideScroll: $('side-scroll'),
@@ -3032,6 +3037,7 @@ D.scIndex.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'IND
 D.scDash.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'dashboard.md', label: '工作看板' }));
 D.scDaily.addEventListener('click', () => openLatestReport('daily'));
 D.scWeekly.addEventListener('click', () => openLatestReport('weekly'));
+D.scTodo.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'todo.md', label: '个人待办' }));
 D.scContext.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'context.md', label: '全局上下文' }));
 document.querySelectorAll('.rail-tab').forEach(el => {
   el.addEventListener('click', () => {

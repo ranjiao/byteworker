@@ -26,6 +26,10 @@
 **5. 看板是实时视图**
 工作看板每次查看都重新渲染(项目状态实时拉取、陈旧项实时扫描),永远不会过时。
 
+**6. 待办用自然语言**
+直接说“明天下午三点提醒我提交周报”“刚才那个做完了”。byteworker 把相对时间规范化后写入
+本地 `todo.md`,每次被调用时检查到期 / 临期事项；内部编号只做关联,不要求用户输入。
+
 ## 用法
 
 安装后,用子命令或直接自然语言:
@@ -37,12 +41,13 @@
 | `/byteworker update <节点/新进展>` | **更新** —— 某条知识有新进展 |
 | `/byteworker brief` | **会前简报** —— 读飞书日历,为每个会议拉相关上下文 |
 | `/byteworker dashboard` | **工作看板** —— 长期关注 / 需关注 / 今日进展 |
+| 自然语言:“明天下午三点提醒我 X” | **待办提醒** —— 增加 / 完成 / 延期 / 取消 / 查看个人待办 |
 | `/byteworker daily` | **日报** —— 自动跑定期摄取,总结当天重要事项 |
 | `/byteworker weekly` | **周报** —— 自动跑定期摄取,总结本周重要事项 |
 | `/byteworker context <增删改>` | **全局上下文** —— 对话式维护你的工作上下文(个人工作倾向、需要告诉模型的零散信息等) |
 | `/byteworker help` | **帮助** |
 
-也支持自然语言,如「把这个文档存进知识库」「我们关于 X 定过什么」。
+也支持自然语言,如「把这个文档存进知识库」「我们关于 X 定过什么」「后天提醒我跟进评测」。
 
 ## 浏览知识库
 
@@ -61,7 +66,7 @@ bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 pyth
 
 | 层 | 依赖 | 说明 |
 |----|------|------|
-| **byteworker 自身** | `git`、`jq`、`bash` | macOS:`brew install git jq`;Linux:`apt install git jq` |
+| **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.9` | Python 用于确定性维护 Todo / 索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
 | **飞书生态** | `lark-cli` + `lark-*` skills + 飞书登录 | 摄取飞书内容必需。安装参见[飞书 CLI 官方安装指南](https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md):装 `lark-cli`、装 `lark-doc / minutes / vc / im / calendar / contact` 等 skill|
 
 装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)。
@@ -98,7 +103,7 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 
 - `knowledge/` —— 7 类节点笔记 · `raw_data/` —— 摄取的逐字原文 · `journal/` —— 操作日志
 - `reports/` —— 日报 / 周报归档快照
-- `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板
+- `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板 · `context.md` —— 格式化用户上下文 · `todo.md` —— 本地个人待办
 
 该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`DESIGN.md`](DESIGN.md)。
 

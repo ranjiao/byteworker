@@ -69,7 +69,7 @@ git clone https://github.com/ranjiao/byteworker.git "$TARGET"
 ```
 
 按退出码处理:
-- **Tier 1**(`git` / `jq` / `bash`)缺失 → 帮用户装上(macOS `brew`,Linux `apt`)。
+- **Tier 1**(`git` / `jq` / `bash` / `python3 >= 3.9`)缺失 → 帮用户装上(macOS `brew`,Linux `apt`)。
 - **Tier 2**(`lark-cli` + `lark-*` skills)缺失 → 摄取飞书内容才需要,可稍后补。
   按[飞书 CLI 官方安装指南](https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md)
   装 `lark-cli` 与 `lark-doc / minutes / vc / im / calendar / contact` 等 skill,并 `lark-cli auth login` 登录飞书。
