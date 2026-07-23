@@ -1,0 +1,61 @@
+.gitignore
+  s_91c187162e6ef6::t_0dbedf65f0d709 10,21-22,28
+DESIGN.md
+  s_91c187162e6ef6::t_39d39ec111b53c 58-59,78,447,503,507-510,553-555,562-565,569-572,576-619
+INSTALL.md
+  s_91c187162e6ef6::t_9eeb61d4aa25ca 72
+README.md
+  s_91c187162e6ef6::t_536338e1e1358a 29-32,44,50,69,106
+SKILL.md
+  s_91c187162e6ef6::t_c2f029b157bf96 3,22,48-49,53-55,108-116,152
+TUTORIAL.md
+  s_91c187162e6ef6::t_7de293ae9c03e5 32-35,37-38,64,66-71,87
+agents/openai.yaml
+  s_91c187162e6ef6::t_8b72954f5632db 3
+bin/check-deps.sh
+  s_91c187162e6ef6::t_9bcef622b51e44 26-31,43
+bin/todo.py
+  s_91c187162e6ef6::t_1c258b0666bdc7 1-559
+references/commands.md
+  s_91c187162e6ef6::t_f7e3cc04940745 43,51,58,78-81
+references/digest-core.md
+  s_91c187162e6ef6::t_fe556ba9206567 67,69
+references/help.md
+  s_91c187162e6ef6::t_0f5530bc4e1bb5 24,27-31,45-46,61,63
+references/im-inbox-summary.md
+  s_91c187162e6ef6::t_b0fc86cf51ba4c 198-199
+references/periodic-report.md
+  s_91c187162e6ef6::t_c29802c2043e11 64,76,84
+references/todo.md
+  s_91c187162e6ef6::t_9dcc2d9db4fe11 1-100
+references/write-rules.md
+  s_91c187162e6ef6::t_46ec3f29a32044 4,18,24
+templates/README.md
+  s_91c187162e6ef6::t_d63cf364952696 4,31,36-40
+templates/context.md
+  s_91c187162e6ef6::t_e4c386c0ac61d0 3,6-7,9-10,13-26,39-46
+templates/todo.md
+  s_91c187162e6ef6::t_206c1f15906553 1-28
+tests/test_todo.py
+  s_91c187162e6ef6::t_c20a70409a3301 1-117
+viewer/index.html
+  s_91c187162e6ef6::t_aa77642d1cf284 302,1160-1163,1351,3040
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2e45ae08c15203dce1e0ee66ea1d2c7e21b76e4f",
+  "prompts": {},
+  "sessions": {
+    "s_91c187162e6ef6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8caf-f10f-7292-bd44-baaf24c10721",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
