@@ -1,0 +1,39 @@
+SKILL.md
+  s_71ff566c94f4ce::t_9d0e75c4e97cea 92-93,96,104-107
+bin/digest-txn.py
+  s_71ff566c94f4ce::t_a7db10fae9575e 1-150
+references/digest-chat.md
+  s_71ff566c94f4ce::t_7458a0e82cdd5c 14-16
+references/digest-core.md
+  s_71ff566c94f4ce::t_bad7c573379189 27-32,38-41,49-54,79-85,97
+references/digest-doc.md
+  s_71ff566c94f4ce::t_7c7babfa852887 11-14,20-22,26-28
+references/digest-large.md
+  s_71ff566c94f4ce::t_5d324c61de0203 13
+references/error-handling.md
+  s_71ff566c94f4ce::t_b95765f2fa5d42 16-21
+templates/README.md
+  s_71ff566c94f4ce::t_76dd39b0db6921 4-5,37-43
+templates/digest-plan-v1.json
+  s_71ff566c94f4ce::t_1a1dfcb9bfb2ab 1-66
+tests/test_digest_transaction_contract.py
+  s_71ff566c94f4ce::t_c8bef60899d5ff 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d01ec76aececa3258f4191bd3ca6b1904f1a69e4",
+  "prompts": {},
+  "sessions": {
+    "s_71ff566c94f4ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa19d-4566-7d30-886e-b96f3deb76e9",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
