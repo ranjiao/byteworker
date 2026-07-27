@@ -4,18 +4,24 @@
 
 飞书文档(尤其调研 / 规划类)常是「枢纽文档」,摄取规则:
 
+- **正文与评论必须双路读取**:先读 `references/digest-comments.md`。正文用
+  `lark-doc +fetch --api-version v2 --detail with-ids`;评论用
+  `python3 bin/pull_doc_comments.py --url "<URL>"`,固定拉取全部评论(含已解决)、完整回复链与
+  relation 锚点。正文 fetch 成功不代表评论已读取;评论状态必须在 raw frontmatter 明示。
 - **文档来源标识与幂等键**:`lark-doc +fetch --api-version v2` 返回的 `document_id` 和
   `revision_id` 必须写入 raw frontmatter:`source_uid=<document_id>`、`source_revision=<revision_id>`。
   同一文档 URL 可能带不同 query 参数,不得用完整 URL 作为唯一判重依据;URL 只保留在
   `source_url` 便于回溯。`source_url` 必须是用户可打开的原始文档链接;后续生成的 `event` /
   `reading` 主记录正文也必须在「事件信息」或「来源」写出该链接,不能只引用 `raw_id`。
-  正文落 raw 前对**本次实际摄取正文**计算 `content_hash` 并组成
-  `digest_key`(见 DESIGN.md §3 / `references/digest-core.md` 幂等检查)。完全相同 key 已存在时
+  正文落 raw 前计算 `body_hash`,评论快照计算 `comment_hash`,再对**本次实际摄取的正文 +
+  评论 payload**计算 `content_hash` 并组成 `digest_key`
+  (见 DESIGN.md §3 / `references/digest-core.md` 幂等检查)。完全相同 key 已存在时
   直接 no-op;同一 `document_id` 但 hash 变化时,按同源新版本更新已有主记录节点。
 - **滚动周会 / 周报文档(默认只取最近周期)**:有的文档是「一篇持续追加」的滚动周会 / 周报 —— 每个周期是一个顶层标题块(通常为日期,如 `# 20260520`,**新周期排在最前**),整篇累积数周乃至数月、可能很大。digest 这类文档**默认只摄取最近一个周期**(最靠前的日期块),跳过「模版 / template」之类占位块。`raw_data` 只落该周期内容(非整篇),frontmatter 标注周期标识(`digest_period`)。`digest_period` 若是日期,必须按 DESIGN.md §2.1 规范化为 `YYYY-MM-DD`(如 `20260520` → `2026-05-20`,`5-21` 在当前年份语境下 → `2026-05-21`);raw 正文标题仍逐字保留。摄取后告诉用户「取了哪个规范化周期、文档里还有哪些更早周期」;用户要更早某期或全部,再单独 digest。识别特征:顶层标题是一串连续日期、各周期结构雷同。首次摄取此类文档后,**询问用户是否纳入「定期摄取」**(见 `references/digest-routine.md`)。
-  - 滚动文档的 `digest_key` 必须按 `document_id + digest_period + content_hash` 判重,不是整篇
-    文档的最新 revision。若最新周期不变但文档其它旧周期被编辑,默认 no-op;若最新周期 hash
-    变化,作为该周期的新版本 digest,更新同一个事件 / 周报主记录。
+  - 滚动文档的 `digest_key` 必须按
+    `document_id + digest_period + body_hash + comment_hash` 判重,不是整篇文档的最新
+    revision。若最新周期正文不变但相关评论 / 回复变化,仍是评论增量;若只有其它旧周期正文被
+    编辑且最新周期正文与评论都不变,默认 no-op。新版本更新同一个事件 / 周报主记录。
   - 如果用户明确要求 digest 更早某期,该期的 `digest_period` 使用对应规范化日期 / ISO 周,
     可与同文档其它周期并存,但每个周期仍按 `document_id + digest_period + content_hash` 幂等。
 - **内部资料型文档 → `reading` 主记录**:若文档不是会议纪要/周报/项目状态,而是路线思考、方法论、调研、技术白皮书、方案复盘、原则阐释等"认知资产",主产 1 个 `reading` 节点(资料卡),并加读 `references/digest-reading.md`。`reading` 记录这篇资料本身的核心观点、方法框架、适用边界和可借鉴点;同时可按内容扇出明确 `decision`、更新相关 `project`/`area`/`person`/`org`。不要把整篇资料硬塞进某个项目或事件节点,项目只摘项目相关事实,事件只用于真实会议/评审/发布/讨论窗口。

@@ -50,7 +50,7 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 **定期摄取到期提醒**:本次操作若会读 `INDEX.md`,顺带看「定期摄取清单」—— 若清单非空、且数据目录的 `.last-routine-digest`(记上次「定期摄取」运行日期;文件不存在 = 从未运行)距今 ≥7 天 → 用一句话提醒用户「定期摄取清单有 N 项可能该查更新了,需要就说『跑定期摄取』」。**只提醒,不打断当前请求、不自动跑。**
 
-**全局上下文(每次必读)**:读知识库数据目录下的 `context.md` —— 固定包含使用者身份、职责范围、当前重点、主管方向、当前约束、交互与提醒偏好、背景信息(见 DESIGN.md §10)。把它作为本次 digest / search / brief / dashboard / todo 的**「透镜」**:身份表用于本人识别,职责 / 重点用于相关性判断,时区 / 默认时间用于 Todo 自然语言解析。身份 / 职责是**用户提供的信息**;当前重点 / 主管方向等主观内容呈现时标为「你的视角 / 用户陈述」,不硬化为客观事实。`context.md` 是真相源 —— **本流程(操作前必读 / digest / search 等)中只读、绝不擅自改写**;用户要增删改走子命令 `context`。文件不存在 → 整份复制 `templates/context.md` 初始化;姓名 / 别名 / feishu_id 仍是“待补充”且本次任务需要识别本人时,合并成一次简短询问,不在无关操作中反复打断。
+**全局上下文(每次必读)**:读知识库数据目录下的 `context.md` —— 固定包含使用者身份、职责范围、当前重点、主管方向、当前约束、交互与提醒偏好、背景信息(见 DESIGN.md §10)。把它作为本次 digest / search / brief / dashboard / todo 的**「透镜」**:身份表用于本人识别,职责 / 重点用于相关性判断,时区 / 默认时间用于 Todo 自然语言解析。digest 飞书文档评论时,`context.md` 中明确的直属上司 / 汇报对象和用户点名“特别关注其观点”的人员是 P0 必看,使用者本人及明确的上级链路 / 主管方向负责人是 P1 高关注;这只提高抽取与提醒优先级,不提高其观点本身的事实置信度。身份 / 职责是**用户提供的信息**;当前重点 / 主管方向等主观内容呈现时标为「你的视角 / 用户陈述」,不硬化为客观事实。`context.md` 是真相源 —— **本流程(操作前必读 / digest / search 等)中只读、绝不擅自改写**;用户要增删改走子命令 `context`。文件不存在 → 整份复制 `templates/context.md` 初始化;姓名 / 别名 / feishu_id 仍是“待补充”且本次任务需要识别本人时,合并成一次简短询问,不在无关操作中反复打断。
 
 **知识库检索回答引用(每次必做)**:凡用户可见回答中的事实来自 `knowledge/`、`raw_data/`、
 `reports/`、`journal/` 或 `dashboard.md` 派生内容,必须读取并执行
@@ -91,7 +91,8 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 完整主流程已拆到 `references/digest-core.md`。执行 digest 前必须先读它和
 `references/digest-dependencies.md`(识别重要依赖、必要时向用户确认扩展范围);再按来源类型加读对应细则:
 
-- `feishu_doc` → `references/digest-doc.md`
+- `feishu_doc` → `references/digest-doc.md`(正文 + 全部评论 / 回复;该文件继续路由
+  `references/digest-comments.md`)
 - `feishu_chat` → `references/digest-chat.md`
 - `web` / 内部资料型文档 → `references/digest-reading.md`
 - 会议簇(日历 / 投屏文档 / 妙记同属一场会) → `references/digest-meeting.md`
