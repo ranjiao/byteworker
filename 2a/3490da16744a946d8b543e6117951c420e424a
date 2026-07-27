@@ -1,0 +1,43 @@
+DESIGN.md
+  s_71ff566c94f4ce::t_95394d4b5be06c 143-149,165-166,180-187,189-191,535-539
+SKILL.md
+  s_71ff566c94f4ce::t_5a19d4b4399dee 53,94-95
+bin/pull_doc_comments.py
+  s_71ff566c94f4ce::t_7df9a6c8643f92 1-250
+references/citations.md
+  s_71ff566c94f4ce::t_aec035aeda3972 34-47,68-69,80-81
+references/digest-analysis.md
+  s_71ff566c94f4ce::t_0d97b343f32920 19-21
+references/digest-comments.md
+  s_71ff566c94f4ce::t_16a50cc3e62b5b 1-82
+references/digest-core.md
+  s_71ff566c94f4ce::t_57666733b7c0ca 18-20,27-30,33-34,71-74
+references/digest-doc.md
+  s_71ff566c94f4ce::t_2904e85dd025bb 7-10,16-18,21-24
+references/digest-routine.md
+  s_71ff566c94f4ce::t_0af656a3adb05e 11-16
+references/error-handling.md
+  s_71ff566c94f4ce::t_ebd3f43c8e7ef3 11-12
+tests/test_citation_contract.py
+  s_71ff566c94f4ce::t_29d21d70aced7f 43-57
+tests/test_pull_doc_comments.py
+  s_71ff566c94f4ce::t_10930fed968d43 1-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2a3490da16744a946d8b543e6117951c420e424a",
+  "prompts": {},
+  "sessions": {
+    "s_71ff566c94f4ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa19d-4566-7d30-886e-b96f3deb76e9",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
