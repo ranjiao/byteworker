@@ -87,7 +87,14 @@
       "op": "update",
       "path": "knowledge/projects/project-<slug>.md",
       "candidate": "<temporary_complete_candidate_path>",
-      "base_sha256": "sha256:<hash_of_existing_file_read_by_agent>"
+      "base_sha256": "sha256:<hash_of_existing_file_read_by_agent>",
+      "primary_source": "raw-<YYYY-MM-DD>-<slug>",
+      "evidence": [
+        {
+          "id": "E1",
+          "anchor_id": "doc:block:<block_id>"
+        }
+      ]
     }
   ],
   "journal": {

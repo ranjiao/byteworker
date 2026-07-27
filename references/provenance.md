@@ -31,8 +31,8 @@ quote 只保存定位所需的短片段,不是 raw 的替代品。只有原系�
    一份主要文档 / 会议时才填。
 2. 候选正文的关键事实句尾写 `[E1]` 等。事实包括:指标与数字、日期 / 排期、当前状态、
    决策、风险、负责人、待办、明确指令、评论 / 发言观点。
-3. plan 的 `provenance.anchors` 放本次 raw anchors;node `evidence` 逐条给
-   `id + anchor_id`,跨历史 raw 时再给 `raw_id`。
+3. plan 的 `provenance` 不可省略，`anchors` 放本次 raw anchors；每个 node 必须显式给
+   `evidence` 数组，新节点至少一条。evidence 逐条给 `id + anchor_id`,跨 raw 时再给 `raw_id`。
 4. 不手写节点 `primary_source_url` 和末尾 `## 证据`;事务会校验 marker 集合完全一致并生成。
 
 一个节点 body 有 `[E1]` 却没有映射,或映射有 `E2` 但正文没使用,validate 必须失败。

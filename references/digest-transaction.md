@@ -20,8 +20,10 @@
 - 规范化 JSON component、计算逐组件 hash 与组合 `content_hash`。
 - 扫描历史 raw，返回 `new_source` / `new_version` / `noop` / `resume_failed`。
 - 校验 raw id/path、节点 id/type/path、`sources`、本次新增/删除的双向 links。
-- 校验 `primary_source`、正文 `[E]` 与 evidence 映射,并物化 provenance sidecar 和节点证据表。
+- 强制每个标准 digest 提供 provenance；校验 `primary_source`、正文 `[E]` 与 evidence 映射,
+  并物化 provenance sidecar 和节点证据表。
 - 用 `base_sha256` 阻止覆盖 Agent 读取之后发生的并发修改。
+- update 默认禁止丢失既有来源、证据标记和正文语义；确需删除时必须给对应 removal 对象和理由。
 - 写锁、原子替换、失败回滚、INDEX 全量重建、journal、精确暂存和本地 commit。
 - 输出 receipt；没有 `status=committed` 和 commit hash，不得向用户声称已落库。
 
@@ -29,8 +31,10 @@
 
 ## 临时 manifest
 
-使用 `templates/digest-plan-v1.json` 作结构参考，复制到系统临时目录后填写。manifest 与候选节点
-可能包含公司机密，**不得**写进 skill 仓库。
+单来源使用 `templates/digest-plan-v1.json`；两个以上必须原子落库、或一个节点同时综合多份
+原文时使用 `templates/digest-batch-plan-v1.json`。复制到系统临时目录后填写。manifest、
+候选节点以及所有 `source.components[].path` 可能包含公司机密，**不得**位于 skill 仓库。
+换言之，任何含业务数据的临时产物都不得写进 skill 仓库。
 
 `source.components` 是本次实际摄取 payload，按原始资料中的顺序排列：
 
@@ -44,9 +48,18 @@
 `kind=comments`；`comments_status=unavailable` 时不得伪造空评论 component。包含白板时必须
 声明 `whiteboards_status=complete|partial`。
 
-plan 顶层 `provenance` 包含本次 raw 的 `enrichment` 与 `anchors`;每个 node operation 可包含
-`primary_source` 和 `evidence[]`。`evidence[].id` 必须与候选正文的 `[E<n>]` 一一对应,
+plan 顶层 `provenance` 包含本次 raw 的 `enrichment` 与 `anchors`;每个 node operation 必须
+显式包含 `evidence[]`，主记录还必须包含 `primary_source`。新节点至少一条 evidence。
+`evidence[].id` 必须与候选正文的 `[E<n>]` 一一对应,
 `raw_id` 省略时默认本次 raw,`anchor_id` 必须能在本次或既有 sidecar 中解析。
+
+### 批量 plan
+
+`digest-batch-plan/v1` 顶层使用 `inputs[] + nodes[]`。每个 input 都有独立
+`source/raw/provenance`;每个 node 用 `source_raw_ids` 声明实际依赖的本批 raw，多来源 evidence
+必须显式写 `raw_id`。batch 采用一个短时锁、一次 INDEX 重建、一条 journal 和一个 commit；
+任一输入已是 `noop/resume_failed` 时整批拒绝，Agent 重新排除已完成项后再规划，不做隐式部分提交。
+`preflight` 仍按每个 source 单独运行；确认都需摄取后再组 batch plan，随后执行 `validate/execute`。
 
 ## 三段命令
 
@@ -119,7 +132,11 @@ remote 也中止,避免机密数据目录进入可推送状态；脚本自身没
 - Agent生成完整候选 Markdown，不使用 `replace_once` 一类脆弱文本替换 DSL。
 - `create` 的目标 id/path 必须不存在；`update` 必须提供当前文件的 `base_sha256`。
 - 每个候选节点 `sources` 必须包含本次 `raw_id`。
-- 主记录节点必须设置 `primary_source`;关键事实正文必须写 `[E<n>]`,并提供完整 evidence 映射。
+- 所有节点必须显式设置 `evidence`;新节点至少一条。主记录节点必须设置 `primary_source`;
+  关键事实正文必须写 `[E<n>]`,并提供完整 evidence 映射。
+- update 必须保留已有 `sources`、`[E<n>]` 与实质正文。确有纠错/合并需要时，分别设置
+  `source_removal` / `evidence_removal` / `content_removal` 为
+  `{"allow": true, "reason": "..."}`；理由会留在临时 plan，不写入业务节点。
 - Agent 不在候选中手写 `primary_source_url` 或 `## 证据`;事务从 raw / anchor 确定性生成。
 - 新节点必须包含模板要求的 status/created/updated/last_verified。
 - raw 的 `digest_targets` 由事务脚本根据 plan.nodes 自动生成，Agent不得另写一套。

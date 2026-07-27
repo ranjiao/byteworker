@@ -1,4 +1,7 @@
+import json
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
 
@@ -40,6 +43,45 @@ class DigestTransactionContractTests(unittest.TestCase):
         write_rules = self.read("references/write-rules.md")
         self.assertIn("写进 skill 仓库", transaction)
         self.assertIn("禁止为单篇业务资料", write_rules)
+
+    def test_cli_rejects_component_inside_skill_repo(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "source.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "source": {
+                            "type": "local_md",
+                            "uid": "test",
+                            "components": [
+                                {
+                                    "name": "body",
+                                    "kind": "body",
+                                    "path": str(ROOT / "templates/node-area.md"),
+                                    "mode": "verbatim",
+                                }
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [
+                    "python3",
+                    str(ROOT / "bin/digest-txn.py"),
+                    "preflight",
+                    "--kb",
+                    directory,
+                    "--source",
+                    str(manifest),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        self.assertEqual(2, completed.returncode)
+        self.assertIn("source component", completed.stdout)
 
 
 if __name__ == "__main__":

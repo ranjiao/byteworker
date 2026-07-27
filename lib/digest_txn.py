@@ -44,6 +44,7 @@ from provenance import (
 
 
 PLAN_SCHEMA = "digest-plan/v1"
+BATCH_PLAN_SCHEMA = "digest-batch-plan/v1"
 PAYLOAD_SCHEMA = "byteworker-payload-v1"
 SHA_PREFIX = "sha256:"
 ALLOWED_SOURCE_TYPES = {
@@ -78,6 +79,7 @@ PROTECTED_RAW_FIELDS = {
     "digest_targets",
 }
 COMPONENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+EVIDENCE_MARKER_RE = re.compile(r"\[(E[1-9][0-9]*)\]")
 
 
 class DigestTxnError(RuntimeError):
@@ -110,6 +112,16 @@ class ValidationResult:
     provenance_path: Optional[Path]
     provenance_anchors: List[Dict[str, Any]]
     provenance_content: str
+
+
+@dataclass
+class BatchValidationResult:
+    plan: Dict[str, Any]
+    source_path: Path
+    inputs: List[ValidationResult]
+    nodes: List[Dict[str, Any]]
+    node_ids: List[str]
+    warnings: List[str]
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -509,11 +521,86 @@ def _scan_nodes(kb: Path) -> Dict[str, Dict[str, Any]]:
     return nodes
 
 
+def _removal_reason(node: Dict[str, Any], field: str) -> str:
+    value = node.get(field)
+    if value is None:
+        return ""
+    if not isinstance(value, dict) or value.get("allow") is not True:
+        raise DigestTxnError(f"node.{field} 必须是 {{allow: true, reason: ...}}")
+    reason = str(value.get("reason", "")).strip()
+    if not reason:
+        raise DigestTxnError(f"node.{field}.reason 不能为空")
+    return reason
+
+
+def _body_facts(body: str) -> List[str]:
+    """Extract conservative, human-authored lines for update deletion checks."""
+    body = re.split(r"(?m)^## 证据\s*$", body, maxsplit=1)[0]
+    body = re.sub(r"(?s)<!--.*?-->", "", body)
+    facts: List[str] = []
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if (
+            not line
+            or line.startswith("# ")
+            or line.startswith("> **TL;DR:**")
+            or line.startswith("<!--")
+            or line.endswith("-->")
+        ):
+            continue
+        normalized = re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", line)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        if len(normalized) >= 8:
+            facts.append(normalized)
+    return facts
+
+
+def _validate_update_preserves_semantics(
+    node: Dict[str, Any],
+    node_id: str,
+    target: Path,
+    candidate_frontmatter: Dict[str, Any],
+    candidate_body: str,
+) -> None:
+    removal_reasons = {
+        field: _removal_reason(node, field)
+        for field in ("source_removal", "evidence_removal", "content_removal")
+        if field in node
+    }
+    old_frontmatter, old_body = parse_file(str(target))
+    old_sources = set(_list_value(old_frontmatter.get("sources")))
+    new_sources = set(_list_value(candidate_frontmatter.get("sources")))
+    removed_sources = sorted(old_sources - new_sources)
+    if removed_sources and not removal_reasons.get("source_removal"):
+        raise DigestTxnError(
+            f"更新会删除节点 {node_id} 的来源 {removed_sources}; "
+            "如确需删除，设置 source_removal.allow=true 并填写 reason"
+        )
+
+    old_markers = set(EVIDENCE_MARKER_RE.findall(old_body))
+    new_markers = set(EVIDENCE_MARKER_RE.findall(candidate_body))
+    removed_markers = sorted(old_markers - new_markers)
+    if removed_markers and not removal_reasons.get("evidence_removal"):
+        raise DigestTxnError(
+            f"更新会删除节点 {node_id} 的证据标记 {removed_markers}; "
+            "如确需删除，设置 evidence_removal.allow=true 并填写 reason"
+        )
+
+    new_text = "\n".join(_body_facts(candidate_body))
+    removed_facts = [fact for fact in _body_facts(old_body) if fact not in new_text]
+    if removed_facts and not removal_reasons.get("content_removal"):
+        preview = removed_facts[:3]
+        raise DigestTxnError(
+            f"更新可能删除节点 {node_id} 的既有语义 {preview}; "
+            "如属有意修订，设置 content_removal.allow=true 并填写 reason"
+        )
+
+
 def _validate_node_candidate(
     kb: Path,
     node: Dict[str, Any],
     manifest_path: Path,
-    raw_id: str,
+    required_raw_ids: Sequence[str],
     existing_nodes: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
     op = str(node.get("op", "")).strip()
@@ -537,8 +624,12 @@ def _validate_node_candidate(
     for field in ("title", "sources", "links"):
         if field not in fm:
             raise DigestTxnError(f"候选节点 {node_id} 缺少 frontmatter.{field}")
-    if raw_id not in _list_value(fm.get("sources")):
-        raise DigestTxnError(f"候选节点 {node_id} 的 sources 未包含 {raw_id}")
+    sources = set(_list_value(fm.get("sources")))
+    missing_raw_ids = sorted(set(required_raw_ids) - sources)
+    if missing_raw_ids:
+        raise DigestTxnError(
+            f"候选节点 {node_id} 的 sources 未包含 {missing_raw_ids}"
+        )
     if not body.strip():
         raise DigestTxnError(f"候选节点正文为空: {node_id}")
 
@@ -565,6 +656,7 @@ def _validate_node_candidate(
             raise DigestTxnError(
                 f"节点基线已变化: {node_id}: expected={base_sha256}, actual={actual}"
             )
+        _validate_update_preserves_semantics(node, node_id, target, fm, body)
 
     return {
         "op": op,
@@ -656,17 +748,8 @@ def _materialize_provenance(
     now: datetime,
 ) -> None:
     provenance_config = result.plan.get("provenance")
-    if provenance_config is not None and not isinstance(provenance_config, dict):
-        raise DigestTxnError("plan.provenance 必须是对象")
-    enabled = provenance_config is not None or any(
-        item.get("primary_source") or item.get("evidence") is not None
-        for item in node_configs
-    )
-    if not enabled:
-        result.provenance_path = None
-        result.provenance_anchors = []
-        result.provenance_content = ""
-        return
+    if not isinstance(provenance_config, dict):
+        raise DigestTxnError("plan.provenance 必须是对象，标准 digest 不允许省略来源链")
 
     current_record = _planned_raw_record(result, now)
     current_frontmatter = current_record["frontmatter"]
@@ -736,57 +819,54 @@ def _materialize_provenance(
                     if warning not in result.warnings:
                         result.warnings.append(warning)
 
-            evidence_config = config.get("evidence")
-            if evidence_config is None:
-                resolved_evidence: List[Dict[str, Any]] = []
-                should_materialize = bool(primary_source)
-            else:
-                if not isinstance(evidence_config, list):
+            if "evidence" not in config:
+                raise DigestTxnError(f"节点 {node['id']} 必须显式设置 evidence 数组")
+            evidence_config = config["evidence"]
+            if not isinstance(evidence_config, list):
+                raise DigestTxnError(f"节点 {node['id']}.evidence 必须是数组")
+            if node["op"] == "create" and not evidence_config:
+                raise DigestTxnError(f"新节点 {node['id']} 至少需要一条 evidence")
+            resolved_evidence = []
+            should_materialize = True
+            for item in evidence_config:
+                if not isinstance(item, dict):
                     raise DigestTxnError(
-                        f"节点 {node['id']}.evidence 必须是数组"
+                        f"节点 {node['id']} evidence 项必须是对象"
                     )
-                resolved_evidence = []
-                should_materialize = True
-                for item in evidence_config:
-                    if not isinstance(item, dict):
-                        raise DigestTxnError(
-                            f"节点 {node['id']} evidence 项必须是对象"
-                        )
-                    raw_id = str(item.get("raw_id") or result.raw_id).strip()
-                    anchor_id = str(item.get("anchor_id", "")).strip()
-                    if raw_id == result.raw_id:
-                        anchor = current_anchor_index.get(anchor_id)
-                    else:
-                        existing = existing_provenance.get(raw_id)
-                        anchor = (
-                            anchor_index(existing).get(anchor_id)
-                            if existing
-                            else None
-                        )
-                        if not anchor and anchor_id == "source" and raw_id in raw_records:
-                            anchor = source_anchor(
-                                raw_id,
-                                raw_records[raw_id]["frontmatter"],
-                            )
-                    if not anchor:
-                        raise DigestTxnError(
-                            f"节点 {node['id']} 找不到 evidence anchor: "
-                            f"{raw_id}#{anchor_id}"
-                        )
-                    resolved_evidence.append(
-                        {
-                            "id": str(item.get("id", "")).strip(),
-                            "raw_id": raw_id,
-                            "anchor_id": anchor_id,
-                            "anchor": anchor,
-                        }
+                raw_id = str(item.get("raw_id") or result.raw_id).strip()
+                anchor_id = str(item.get("anchor_id", "")).strip()
+                if raw_id == result.raw_id:
+                    anchor = current_anchor_index.get(anchor_id)
+                else:
+                    existing = existing_provenance.get(raw_id)
+                    anchor = (
+                        anchor_index(existing).get(anchor_id)
+                        if existing
+                        else None
                     )
+                    if not anchor and anchor_id == "source" and raw_id in raw_records:
+                        anchor = source_anchor(
+                            raw_id,
+                            raw_records[raw_id]["frontmatter"],
+                        )
+                if not anchor:
+                    raise DigestTxnError(
+                        f"节点 {node['id']} 找不到 evidence anchor: "
+                        f"{raw_id}#{anchor_id}"
+                    )
+                resolved_evidence.append(
+                    {
+                        "id": str(item.get("id", "")).strip(),
+                        "raw_id": raw_id,
+                        "anchor_id": anchor_id,
+                        "anchor": anchor,
+                    }
+                )
             node["evidence"] = resolved_evidence
             node["primary_source"] = primary_source
             node["primary_source_url"] = primary_source_url
             if (
-                provenance_config is not None
-                and str(node["frontmatter"].get("type", ""))
+                str(node["frontmatter"].get("type", ""))
                 in {"event", "decision", "reading"}
                 and not primary_source
             ):
@@ -853,7 +933,7 @@ def validate_plan(kb: Path, manifest_path: Path) -> ValidationResult:
         raise DigestTxnError("plan.nodes 必须是非空数组")
     existing_nodes = _scan_nodes(kb)
     nodes = [
-        _validate_node_candidate(kb, item, manifest_path, raw_id, existing_nodes)
+        _validate_node_candidate(kb, item, manifest_path, [raw_id], existing_nodes)
         for item in node_configs
     ]
     node_ids = [item["id"] for item in nodes]
@@ -895,6 +975,316 @@ def validate_plan(kb: Path, manifest_path: Path) -> ValidationResult:
         node_configs,
         datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
+    return result
+
+
+def _materialize_batch_provenance(
+    kb: Path,
+    result: BatchValidationResult,
+    now: datetime,
+) -> None:
+    try:
+        raw_records = scan_raws(kb)
+        existing_provenance = scan_provenance(kb)
+        current_anchor_indexes: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+        for item in result.inputs:
+            provenance_config = item.plan.get("provenance")
+            if not isinstance(provenance_config, dict):
+                raise DigestTxnError(
+                    f"批量输入 {item.raw_id} 的 provenance 必须是对象"
+                )
+            current_record = _planned_raw_record(item, now)
+            raw_records[item.raw_id] = current_record
+            configured_anchors = provenance_config.get("anchors", [])
+            if not isinstance(configured_anchors, list):
+                raise DigestTxnError(
+                    f"批量输入 {item.raw_id}.provenance.anchors 必须是数组"
+                )
+            anchors = [
+                normalize_anchor(
+                    item.raw_id,
+                    anchor,
+                    default_source_url=str(
+                        current_record["frontmatter"].get("source_url", "")
+                    ),
+                )
+                for anchor in configured_anchors
+            ]
+            if not any(anchor["anchor_id"] == "source" for anchor in anchors):
+                anchors.insert(
+                    0, source_anchor(item.raw_id, current_record["frontmatter"])
+                )
+            current_index = {anchor["anchor_id"]: anchor for anchor in anchors}
+            if len(current_index) != len(anchors):
+                raise DigestTxnError(
+                    f"批量输入 {item.raw_id} 的 provenance anchor_id 重复"
+                )
+            document = build_provenance_document(
+                item.raw_id,
+                current_record["relative_path"],
+                current_record["frontmatter"],
+                anchors,
+                item.payload["content_hash"],
+                now.isoformat(timespec="seconds"),
+                str(provenance_config.get("enrichment", "ingested")),
+            )
+            item.provenance_path = provenance_path(kb, item.raw_id)
+            item.provenance_anchors = document["anchors"]
+            item.provenance_content = render_provenance(document)
+            current_anchor_indexes[item.raw_id] = current_index
+
+        for node, config in zip(result.nodes, result.plan["nodes"]):
+            source_raw_ids = [str(value) for value in config["source_raw_ids"]]
+            primary_source = str(
+                config.get("primary_source")
+                or node["frontmatter"].get("primary_source")
+                or ""
+            ).strip()
+            if (
+                str(node["frontmatter"].get("type", ""))
+                in {"event", "decision", "reading"}
+                and not primary_source
+            ):
+                raise DigestTxnError(
+                    f"主记录节点 {node['id']} 必须设置 primary_source"
+                )
+            if primary_source and primary_source not in raw_records:
+                raise DigestTxnError(
+                    f"节点 {node['id']} 的 primary_source 不存在: {primary_source}"
+                )
+            primary_source_url = ""
+            if primary_source:
+                primary_source_url = str(
+                    raw_records[primary_source]["frontmatter"].get("source_url")
+                    or raw_records[primary_source]["frontmatter"].get("recording_url")
+                    or ""
+                ).strip()
+                supplied_url = str(config.get("primary_source_url", "")).strip()
+                if supplied_url and supplied_url != primary_source_url:
+                    raise DigestTxnError(
+                        f"节点 {node['id']} 的 primary_source_url 与 raw 不一致"
+                    )
+                if not primary_source_url:
+                    result.warnings.append(
+                        f"节点 {node['id']} 的主要来源没有可打开 URL"
+                    )
+
+            if "evidence" not in config or not isinstance(config["evidence"], list):
+                raise DigestTxnError(f"节点 {node['id']} 必须显式设置 evidence 数组")
+            if node["op"] == "create" and not config["evidence"]:
+                raise DigestTxnError(f"新节点 {node['id']} 至少需要一条 evidence")
+            resolved_evidence: List[Dict[str, Any]] = []
+            for evidence in config["evidence"]:
+                if not isinstance(evidence, dict):
+                    raise DigestTxnError(
+                        f"节点 {node['id']} evidence 项必须是对象"
+                    )
+                default_raw_id = source_raw_ids[0] if len(source_raw_ids) == 1 else ""
+                raw_id = str(evidence.get("raw_id") or default_raw_id).strip()
+                if not raw_id:
+                    raise DigestTxnError(
+                        f"节点 {node['id']} 来自多个输入，evidence.raw_id 不能为空"
+                    )
+                if raw_id not in set(
+                    _list_value(node["frontmatter"].get("sources"))
+                ):
+                    raise DigestTxnError(
+                        f"节点 {node['id']} 的 evidence.raw_id 不在候选 sources 中: {raw_id}"
+                    )
+                anchor_id = str(evidence.get("anchor_id", "")).strip()
+                current_index = current_anchor_indexes.get(raw_id)
+                if current_index is not None:
+                    anchor = current_index.get(anchor_id)
+                else:
+                    existing = existing_provenance.get(raw_id)
+                    anchor = anchor_index(existing).get(anchor_id) if existing else None
+                    if not anchor and anchor_id == "source" and raw_id in raw_records:
+                        anchor = source_anchor(
+                            raw_id, raw_records[raw_id]["frontmatter"]
+                        )
+                if not anchor:
+                    raise DigestTxnError(
+                        f"节点 {node['id']} 找不到 evidence anchor: {raw_id}#{anchor_id}"
+                    )
+                resolved_evidence.append(
+                    {
+                        "id": str(evidence.get("id", "")).strip(),
+                        "raw_id": raw_id,
+                        "anchor_id": anchor_id,
+                        "anchor": anchor,
+                    }
+                )
+            node["evidence"] = resolved_evidence
+            node["primary_source"] = primary_source
+            node["primary_source_url"] = primary_source_url
+            materialized = materialize_node_provenance(
+                node["content"],
+                node["relative_path"],
+                primary_source,
+                primary_source_url,
+                resolved_evidence,
+                raw_records,
+            )
+            frontmatter, body = parse_frontmatter(materialized)
+            if not body.strip():
+                raise DigestTxnError(
+                    f"节点 provenance 物化后正文为空: {node['id']}"
+                )
+            node["content"] = materialized
+            node["frontmatter"] = frontmatter
+    except ProvenanceError as exc:
+        raise DigestTxnError(str(exc)) from exc
+
+
+def validate_batch_plan(kb: Path, manifest_path: Path) -> BatchValidationResult:
+    kb = kb.resolve()
+    manifest_path = manifest_path.resolve()
+    plan = load_manifest(manifest_path)
+    if plan.get("schema_version") != BATCH_PLAN_SCHEMA:
+        raise DigestTxnError(
+            f"不支持的 schema_version: {plan.get('schema_version')!r}; "
+            f"需要 {BATCH_PLAN_SCHEMA}"
+        )
+    input_configs = plan.get("inputs")
+    if not isinstance(input_configs, list) or len(input_configs) < 2:
+        raise DigestTxnError("batch plan.inputs 至少需要两个输入")
+
+    existing_raw_ids: Dict[str, Path] = {}
+    for path in (kb / "raw_data").glob("*.md"):
+        frontmatter, _ = parse_file(str(path))
+        old_id = str(frontmatter.get("raw_id", "")).strip()
+        if old_id:
+            existing_raw_ids[old_id] = path
+
+    inputs: List[ValidationResult] = []
+    raw_ids_seen: set[str] = set()
+    raw_paths_seen: set[Path] = set()
+    for index, config in enumerate(input_configs):
+        if not isinstance(config, dict):
+            raise DigestTxnError(f"batch inputs[{index}] 必须是对象")
+        source = config.get("source")
+        raw = config.get("raw")
+        provenance_config = config.get("provenance")
+        if not isinstance(source, dict) or not isinstance(raw, dict):
+            raise DigestTxnError(
+                f"batch inputs[{index}] 必须包含 source/raw 对象"
+            )
+        if not isinstance(provenance_config, dict):
+            raise DigestTxnError(
+                f"batch inputs[{index}].provenance 必须是对象"
+            )
+        payload = compute_payload(source, manifest_path)
+        flight = preflight(kb, source, manifest_path)
+        if flight["state"] in {"noop", "resume_failed"}:
+            raise DigestTxnError(
+                f"批量输入 {index} 状态为 {flight['state']}；"
+                "请先从 batch 中移除已完成项或处理失败 raw 后重新规划"
+            )
+        raw_id = str(raw.get("raw_id", "")).strip()
+        if not raw_id.startswith("raw-"):
+            raise DigestTxnError(f"batch inputs[{index}].raw_id 必须以 raw- 开头")
+        raw_path = _safe_relative_path(kb, str(raw.get("path", "")), ("raw_data",))
+        if raw_path.suffix != ".md" or raw_path.parent != kb / "raw_data":
+            raise DigestTxnError("batch 第一版仅允许 raw_data/<name>.md")
+        if raw_id in existing_raw_ids or raw_id in raw_ids_seen:
+            raise DigestTxnError(f"raw_id 已存在或在 batch 中重复: {raw_id}")
+        if raw_path.exists() or raw_path in raw_paths_seen:
+            raise DigestTxnError(
+                f"raw 目标路径已存在或在 batch 中重复: {raw_path.relative_to(kb)}"
+            )
+        raw_ids_seen.add(raw_id)
+        raw_paths_seen.add(raw_path)
+        synthetic_plan = {
+            "schema_version": PLAN_SCHEMA,
+            "source": source,
+            "raw": raw,
+            "provenance": provenance_config,
+            "nodes": [],
+        }
+        inputs.append(
+            ValidationResult(
+                plan=synthetic_plan,
+                source_path=manifest_path,
+                payload=payload,
+                preflight=flight,
+                raw_id=raw_id,
+                raw_path=raw_path,
+                nodes=[],
+                node_ids=[],
+                warnings=[],
+                provenance_path=None,
+                provenance_anchors=[],
+                provenance_content="",
+            )
+        )
+
+    node_configs = plan.get("nodes")
+    if not isinstance(node_configs, list) or not node_configs:
+        raise DigestTxnError("batch plan.nodes 必须是非空数组")
+    existing_nodes = _scan_nodes(kb)
+    nodes: List[Dict[str, Any]] = []
+    for config in node_configs:
+        if not isinstance(config, dict):
+            raise DigestTxnError("batch plan.nodes 项必须是对象")
+        source_raw_ids = config.get("source_raw_ids")
+        if not isinstance(source_raw_ids, list) or not source_raw_ids:
+            raise DigestTxnError("batch node.source_raw_ids 必须是非空数组")
+        normalized = [str(value).strip() for value in source_raw_ids]
+        if len(normalized) != len(set(normalized)):
+            raise DigestTxnError("batch node.source_raw_ids 包含重复 raw_id")
+        unknown = sorted(set(normalized) - raw_ids_seen)
+        if unknown:
+            raise DigestTxnError(
+                f"batch node.source_raw_ids 引用了 batch 外 raw: {unknown}"
+            )
+        config["source_raw_ids"] = normalized
+        nodes.append(
+            _validate_node_candidate(
+                kb, config, manifest_path, normalized, existing_nodes
+            )
+        )
+    node_ids = [node["id"] for node in nodes]
+    if len(node_ids) != len(set(node_ids)):
+        raise DigestTxnError("batch plan.nodes 包含重复节点 id")
+    paths = [node["path"] for node in nodes]
+    if len(paths) != len(set(paths)):
+        raise DigestTxnError("batch plan.nodes 包含重复目标路径")
+    for item in inputs:
+        item.node_ids = [
+            node["id"]
+            for node, config in zip(nodes, node_configs)
+            if item.raw_id in config["source_raw_ids"]
+        ]
+        item.nodes = [
+            node
+            for node, config in zip(nodes, node_configs)
+            if item.raw_id in config["source_raw_ids"]
+        ]
+        if not item.node_ids:
+            raise DigestTxnError(
+                f"批量输入 {item.raw_id} 没有任何 digest target"
+            )
+
+    journal = plan.get("journal")
+    commit = plan.get("commit")
+    if not isinstance(journal, dict) or not str(journal.get("summary", "")).strip():
+        raise DigestTxnError("batch plan.journal.summary 不能为空")
+    if not isinstance(commit, dict) or not str(commit.get("message", "")).strip():
+        raise DigestTxnError("batch plan.commit.message 不能为空")
+    result = BatchValidationResult(
+        plan=plan,
+        source_path=manifest_path,
+        inputs=inputs,
+        nodes=nodes,
+        node_ids=node_ids,
+        warnings=_validate_scoped_links(existing_nodes, nodes),
+    )
+    validation_time = datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
+    for item in inputs:
+        render_raw(item, validation_time)
+    _materialize_batch_provenance(kb, result, validation_time)
+    result.warnings = sorted(set(result.warnings))
     return result
 
 
@@ -1098,6 +1488,24 @@ def _journal_content(
     text += (
         f"- {now:%H:%M} digest {summary} | nodes={touched} | "
         f"raw_id={result.raw_id} | conflict=no\n"
+    )
+    return text.encode("utf-8")
+
+
+def _batch_journal_content(
+    existing: Optional[bytes],
+    result: BatchValidationResult,
+    now: datetime,
+) -> bytes:
+    text = existing.decode("utf-8") if existing is not None else f"# {now:%Y-%m-%d}\n"
+    if text and not text.endswith("\n"):
+        text += "\n"
+    summary = str(result.plan["journal"]["summary"]).strip().replace("\n", " ")
+    raw_ids = ",".join(item.raw_id for item in result.inputs)
+    touched = ", ".join(result.node_ids)
+    text += (
+        f"- {now:%H:%M} digest-batch {summary} | nodes={touched} | "
+        f"raw_ids={raw_ids} | conflict=no\n"
     )
     return text.encode("utf-8")
 
@@ -1314,6 +1722,182 @@ def execute_plan(
     }
 
 
+def execute_batch_plan(
+    kb: Path,
+    manifest_path: Path,
+    skill_root: Path,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    kb = kb.resolve()
+    skill_root = skill_root.resolve()
+    manifest_path = manifest_path.resolve()
+    if not (kb / ".git").is_dir():
+        raise DigestTxnError("知识库数据目录不是本地 Git 仓库，无法创建 digest 回滚点")
+    result = validate_batch_plan(kb, manifest_path)
+    if now is None:
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    journal_path = _journal_path(kb, now)
+    index_path = kb / "INDEX.md"
+
+    def transaction_paths(value: BatchValidationResult) -> List[Path]:
+        ordered = (
+            [item.raw_path for item in value.inputs]
+            + [
+                item.provenance_path
+                for item in value.inputs
+                if item.provenance_path is not None
+            ]
+            + [node["path"] for node in value.nodes]
+            + [journal_path, index_path]
+        )
+        return list(dict.fromkeys(ordered))
+
+    target_paths = transaction_paths(result)
+    relative_paths = [str(path.relative_to(kb)) for path in target_paths]
+    lock_path = kb / ".git" / "byteworker-digest.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        remotes = _git(kb, ["remote"]).stdout.splitlines()
+        if remotes:
+            raise DigestTxnError(
+                "知识库 Git 配置了 remote，违反本地机密库约束: "
+                + ", ".join(remotes)
+            )
+        staged = _git(kb, ["diff", "--cached", "--name-only"]).stdout.splitlines()
+        if staged:
+            raise DigestTxnError(
+                "知识库已有暂存变更，拒绝混入 digest commit: " + ", ".join(staged)
+            )
+        dirty = _dirty_paths(kb)
+        overlap = sorted(dirty & set(relative_paths))
+        if overlap:
+            raise DigestTxnError(
+                "本次目标文件已有未提交变更，需先处理后再执行: "
+                + ", ".join(overlap)
+            )
+
+        # Optimistic baselines are checked again only after the short write lock.
+        result = validate_batch_plan(kb, manifest_path)
+        _materialize_batch_provenance(kb, result, now)
+        target_paths = transaction_paths(result)
+        relative_paths = [str(path.relative_to(kb)) for path in target_paths]
+        snapshots = {
+            path: path.read_bytes() if path.exists() else None for path in target_paths
+        }
+        git_index_path = kb / ".git" / "index"
+        git_index_snapshot = (
+            git_index_path.read_bytes() if git_index_path.exists() else None
+        )
+        staged_by_txn = False
+        try:
+            for item in result.inputs:
+                _atomic_write(item.raw_path, render_raw(item, now).encode("utf-8"))
+                if item.provenance_path is not None:
+                    _atomic_write(
+                        item.provenance_path,
+                        item.provenance_content.encode("utf-8"),
+                    )
+            for node in result.nodes:
+                _atomic_write(node["path"], node["content"].encode("utf-8"))
+            _atomic_write(
+                journal_path,
+                _batch_journal_content(snapshots[journal_path], result, now),
+            )
+            _rebuild_index(skill_root, kb)
+            for node in result.nodes:
+                if sha256_bytes(node["path"].read_bytes()) != sha256_bytes(
+                    node["content"].encode("utf-8")
+                ):
+                    raise DigestTxnError(f"节点写入后 hash 不一致: {node['id']}")
+                frontmatter, _ = parse_file(str(node["path"]))
+                if str(frontmatter.get("id", "")) != node["id"]:
+                    raise DigestTxnError(f"节点写入后 id 不一致: {node['id']}")
+            for item in result.inputs:
+                frontmatter, _ = parse_file(str(item.raw_path))
+                if str(frontmatter.get("content_hash", "")) != item.payload["content_hash"]:
+                    raise DigestTxnError(
+                        f"raw 写入后的 content_hash 不一致: {item.raw_id}"
+                    )
+                if set(_list_value(frontmatter.get("digest_targets"))) != set(
+                    item.node_ids
+                ):
+                    raise DigestTxnError(
+                        f"raw 写入后的 digest_targets 不一致: {item.raw_id}"
+                    )
+                if item.provenance_path is not None:
+                    document = json.loads(
+                        item.provenance_path.read_text(encoding="utf-8")
+                    )
+                    if document.get("raw_id") != item.raw_id:
+                        raise DigestTxnError(
+                            f"provenance 写入后的 raw_id 不一致: {item.raw_id}"
+                        )
+
+            diff_check = _git(
+                kb, ["diff", "--check", "--", *relative_paths], check=False
+            )
+            if diff_check.returncode != 0:
+                raise DigestTxnError(
+                    "git diff --check 失败: "
+                    + (diff_check.stdout.strip() or diff_check.stderr.strip())
+                )
+            _git(kb, ["add", "--", *relative_paths])
+            staged_by_txn = True
+            staged_after = set(
+                _git(kb, ["diff", "--cached", "--name-only"]).stdout.splitlines()
+            )
+            unexpected = staged_after - set(relative_paths)
+            if unexpected:
+                raise DigestTxnError(
+                    "暂存区出现事务外文件: " + ", ".join(sorted(unexpected))
+                )
+            if not staged_after:
+                raise DigestTxnError("事务没有产生可提交变更")
+            _git(kb, ["commit", "-m", str(result.plan["commit"]["message"]).strip()])
+            commit_hash = _git(kb, ["rev-parse", "HEAD"]).stdout.strip()
+        except Exception:
+            if staged_by_txn:
+                if git_index_snapshot is None:
+                    try:
+                        git_index_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                else:
+                    _atomic_write(git_index_path, git_index_snapshot)
+            _restore_files(snapshots)
+            raise
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    return {
+        "status": "committed",
+        "batch_size": len(result.inputs),
+        "raws": [
+            {
+                "raw_id": item.raw_id,
+                "raw_path": str(item.raw_path.relative_to(kb)),
+                "source_state": item.preflight["state"],
+                "digest_key": item.preflight["digest_key"],
+                "digest_targets": item.node_ids,
+                "provenance": (
+                    str(item.provenance_path.relative_to(kb))
+                    if item.provenance_path is not None
+                    else ""
+                ),
+            }
+            for item in result.inputs
+        ],
+        "created": [node["id"] for node in result.nodes if node["op"] == "create"],
+        "updated": [node["id"] for node in result.nodes if node["op"] == "update"],
+        "index_rebuilt": True,
+        "journal": str(journal_path.relative_to(kb)),
+        "commit": commit_hash,
+        "evidence_count": sum(len(node.get("evidence", [])) for node in result.nodes),
+        "warnings": sorted(set(result.warnings)),
+    }
+
+
 def validation_report(result: ValidationResult) -> Dict[str, Any]:
     return {
         "status": "valid",
@@ -1338,5 +1922,39 @@ def validation_report(result: ValidationResult) -> Dict[str, Any]:
             if result.provenance_path is not None
             else ""
         ),
+        "warnings": result.warnings,
+    }
+
+
+def batch_validation_report(result: BatchValidationResult) -> Dict[str, Any]:
+    return {
+        "status": "valid",
+        "batch_size": len(result.inputs),
+        "raws": [
+            {
+                "raw_id": item.raw_id,
+                "raw_path": str(item.raw_path),
+                "source_state": item.preflight["state"],
+                "digest_key": item.preflight["digest_key"],
+                "content_hash": item.payload["content_hash"],
+                "digest_targets": item.node_ids,
+                "provenance": (
+                    str(item.provenance_path)
+                    if item.provenance_path is not None
+                    else ""
+                ),
+            }
+            for item in result.inputs
+        ],
+        "nodes": [
+            {
+                "op": node["op"],
+                "id": node["id"],
+                "path": node["relative_path"],
+                "primary_source": node.get("primary_source", ""),
+                "evidence_count": len(node.get("evidence", [])),
+            }
+            for node in result.nodes
+        ],
         "warnings": result.warnings,
     }

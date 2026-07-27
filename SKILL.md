@@ -107,13 +107,17 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 裁决、实体取舍和节点正文仍由 Agent负责。候选节点的关键知识库事实必须逐条带 `[E1]` 等标记,
 并在 manifest 中映射到 `raw_id + anchor_id`;主记录必须声明 `primary_source`,事务负责生成
 `primary_source_url` 和 `## 证据`。不得为单篇业务资料在 skill 仓库生成硬编码写入脚本。
+两个以上来源需要原子落库或共同更新一个节点时，使用 `digest-batch-plan/v1`；它仍只持一个短时
+写锁并产生一个 commit。所有业务 component、manifest 和候选文件都必须位于系统临时目录或
+知识库目录，事务 CLI 会拒绝 skill 仓库内路径。
 其它写入遵守 `references/write-rules.md`;失败处理见 `references/error-handling.md`。
 
 ## search / update / brief / dashboard / context
 
 这些子命令的完整流程已拆到 `references/commands.md`。执行前按需读取对应小节:
 
-- `search`:查询知识库。必须双路召回(语义扫 INDEX + 全文 grep),并沿 `links` 做图遍历;按
+- `search`:查询知识库。先用 `bin/kb-query.py search` 做有覆盖回执的字面/全文召回和一跳图扩展,
+  再由 Agent 语义补召回；节点有 `[E]` 时用 `bin/kb-query.py evidence` 精确解析出处。按
   `references/citations.md` 给每条知识库事实附原始出处、收录时间与置信度。
 - `update`:定位目标节点,必要时先 digest 新输入为 raw,再做冲突检测与合并。
 - `brief`:读取日程,按会议主题/参会人查知识库并生成会前上下文。

@@ -1,7 +1,8 @@
 # templates/ — 骨架模板
 
 byteworker 用到的骨架。`node-*.md` 是 7 类知识节点的骨架,digest 时 agent 按对应模板生成
-节点笔记;`digest-plan-v1.json` 是确定性 digest 事务的临时 manifest 结构参考;
+节点笔记;`digest-plan-v1.json` / `digest-batch-plan-v1.json` 是单来源 / 多来源确定性 digest
+事务的临时 manifest 结构参考;
 `context.md` / `todo.md` 是数据目录顶层用户状态文件的骨架;`report-*.md` 是报告输出骨架。
 
 ## 节点模板
@@ -36,7 +37,8 @@ schema 以 `DESIGN.md` 为唯一真相源。
 
 ## digest plan 模板
 
-`digest-plan-v1.json` 只作为字段参考。使用时复制到**系统临时目录**并填写 source components、
+两个模板都只作为字段参考。单来源用 `digest-plan-v1.json`;多来源必须同成同败或共同更新节点时
+用 `digest-batch-plan-v1.json`。使用时复制到**系统临时目录**并填写 source components、
 raw 目标、provenance anchors、完整候选节点、逐事实 evidence 映射、journal 摘要和 commit message，再按
 `references/digest-transaction.md` 调用 `bin/digest-txn.py`。填过业务内容的 plan 和候选节点
 不得留在 templates 或 skill 仓库。
