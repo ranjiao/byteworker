@@ -5,6 +5,10 @@
 
 ## 通用规则
 
+- **标准 digest 统一走事务工具**:按 `references/digest-transaction.md` 生成临时 plan 与完整候选
+  节点,运行 `bin/digest-txn.py validate / execute`。禁止为单篇业务资料在 skill 仓库写硬编码
+  落库脚本;禁止绕过事务工具手算 digest hash、手拼 raw 或声称未收到 receipt 的写入已完成。
+  `update`、Todo、报告等非标准 digest 写入仍按本文件对应规则执行。
 - 节点文件按 `templates/node-<type>.md` 骨架;生成时**删除** `<!-- 指引 -->` 注释。
 - **原子写入**:先写 `<file>.tmp` → 校验 frontmatter 完整 → move 覆盖,避免半成品。
 - **双向 links**:写 A→B 链接,必同时在 B 的 `links` 写回 A。
@@ -12,9 +16,12 @@
   `raw_id`、同一个 URL、同一个节点 id 不重复追加。若同源新版本产生新的 `raw_id`,可以追加新
   `raw_id`,但不要重复追加旧来源。
 - **自动连边(auto-link)**:写节点 body 时扫描正文,凡出现其它节点 id(形如 `person-xxx`、`project-xxx` 等 7 类前缀)且该 id 在 INDEX 中确实存在的,自动并入本节点 `links` 并双向写回 —— 不依赖 digest 时主动想起,避免漏连。批量修复时运行 `bin/repair-links.sh --autolink`。
-- **INDEX 增量更新**:写/改节点后更新 `INDEX.md` 对应行,不每次全扫。若发现某类 `knowledge/<type>/` 文件数 ≠ INDEX 该节行数 → 全量重建(见 `references/maintenance.md`)。
+- **INDEX 更新**:普通非事务写入增量更新 `INDEX.md` 对应行;若发现某类
+  `knowledge/<type>/` 文件数 ≠ INDEX 该节行数 → 全量重建(见
+  `references/maintenance.md`)。标准 digest 事务为避免候选行、routine 与 chat 高水位漂移,
+  在同一事务内调用现有确定性脚本全量重建。
 - **journal**:每次摄取/更新/看板/报告写操作后,向 `journal/<YYYY-MM>/<YYYY-MM-DD>.md` 追加一行 —— 时刻、动作、触达节点 id、raw_id、报告路径、是否冲突。
-- **回滚点**:每次写操作完成后,在知识库数据目录只暂存本次实际改动的路径(例如 `git add raw_data/<file> knowledge/projects/<file> INDEX.md journal/<date>.md`),再 `git commit`(该目录自身的本地 git,**永不 push**),使每一步可回滚。不要用 `git add -A` 把无关手改一起卷入。
+- **回滚点**:每次写操作完成后,在知识库数据目录只暂存本次实际改动的路径(例如 `git add raw_data/<file> knowledge/projects/<file> INDEX.md journal/<date>.md`),再 `git commit`(该目录自身的本地 git,**永不 push**),使每一步可回滚。不要用 `git add -A` 把无关手改一起卷入。标准 digest 由事务工具执行这一规则:已有 staged 变更或目标路径已有未提交改动时中止,无关未暂存改动不进入 commit。
 - **Todo 写入**:`todo.md` 由 `bin/todo.py` 原子维护;用户确认前的 digest 候选不得写入。新增 / 完成 / 延期 / 取消 / 真正发出提醒后,只暂存 `todo.md` 与本次 journal 路径创建本地回滚点。todo id 是内部键,用户侧按自然语言标题和当前对话消解。
 - **命名 / 字段**:严格按 DESIGN.md §2(命名)与 §4.1(字段)。
 - 单类节点 > 200 条 → 提示用户该类按子目录分片(暂不自动做)。

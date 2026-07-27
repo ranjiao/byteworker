@@ -30,8 +30,9 @@
   不同,保留原始 relation 后再匹配,不要假定只有一种固定字段。引用时记录 `comment_id` /
   `reply_id` 与能确认的 block id;若只有 `quote` 可做弱文本匹配,必须标“按引用片段推定位置”。
 - 全文评论(`is_whole=true`)没有局部 block,按全文意见处理,不得臆造锚点。
-- relation 指向嵌入 sheet / bitable / whiteboard 时,先记录 `parent_type` / `parent_token`;
-  只有它是当前结论的重要依赖且用户同意扩展范围时才下钻对应子资源。
+- relation 指向嵌入 sheet / bitable / whiteboard 时,先记录 `parent_type` / `parent_token`。
+  当前正文内嵌 whiteboard 已按 `references/digest-whiteboard.md` 默认摄取,直接用 token 对齐;
+  外部 whiteboard、sheet / bitable 仍只有在它是重要依赖且用户同意扩展范围时才下钻。
 - 滚动文档默认消化最新周期时,纳入以下评论:
   - relation block 命中该周期正文;
   - 全文评论或无可靠锚点评论,但评论 / 回复发生在本次增量窗口内;
@@ -71,12 +72,13 @@ P0 / P1 是**抽取与提醒优先级**,不是可信度加权:
 
 ## 评论独立幂等
 
-- 飞书正文使用 `body_hash`,评论使用 `comment_hash`;组合后的 `content_hash` 对
-  `body_hash + comment_hash + 实际纳入 raw 的 payload` 计算。
+- 飞书正文使用 `body_hash`,评论使用 `comment_hash`;评论 component 与正文/白板等 component
+  由 `bin/digest-txn.py` 按 `byteworker-payload-v1` 计算组合 `content_hash`。
 - 新式 `feishu_doc` digest key:
-  `feishu_doc:<document_id>:<digest_period?>:<body_hash>:<comment_hash>`。
+  `feishu_doc:<document_id>:<digest_period-or-->:<content_hash>`；`body_hash` /
+  `comment_hash` / `whiteboard_hash` 作为可诊断的独立 component hash 保留。
 - 正文相同、`comment_hash` 改变 → **评论增量**,写新 raw 并更新同一个主记录 / 实体节点;
   不能因 `revision_id` 或 `body_hash` 未变而 no-op。
-- 正文与评论 hash 都相同 → no-op。
+- 正文、评论及其它实际 payload component hash 都相同 → no-op。
 - 历史 raw 没有 `comments_status` / `comment_hash` 只说明“当时未记录是否检查评论”。
   第一次按新规则复查时必须实际抓评论,不能把旧 raw 当作已有空评论快照。

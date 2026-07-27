@@ -24,18 +24,21 @@
    - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
    - `local_md` → 直接读取本地文件。
    失败按 `references/error-handling.md` 中止。
-3. **幂等检查** —— 在写 raw 前,先为本次实际摄取内容计算 `source_uid` / `source_revision`
-   / `digest_period` 或 `source_window` / `content_hash` / `digest_key`(字段含义见 DESIGN.md §3)。
-   飞书文档还必须分别计算正文 `body_hash` 与评论 `comment_hash`;评论变化不依赖正文 revision,
-   不能因正文未变而跳过评论复查。然后扫描 `raw_data/`:
+3. **幂等检查** —— 把本次实际摄取的正文、评论、白板等原始 component 路径写进系统临时目录的
+   source manifest,运行 `bin/digest-txn.py preflight`(完整格式与命令见
+   `references/digest-transaction.md`)。脚本计算 `source_uid` / `source_revision` /
+   `digest_period` 或 `source_window` / 逐组件 hash / `content_hash` / `digest_key`;Agent不得
+   手算或覆盖这些值。飞书文档评论变化不依赖正文 revision,白板变化也属于 payload 变化,不能因
+   正文未变而跳过。根据返回状态处理:
    - 完全相同 `digest_key` 已存在且 `digest_status: digested` → **no-op**:不写 raw、不改节点、
      不追加 journal;向用户说明"该来源同一版本已摄取过",并列出已有 `raw_id` / `digest_targets`。
    - 同一 `source_uid + digest_period/source_window` 但 `content_hash` 不同(含飞书文档
      `comment_hash` 单独变化)→ 视为同源新版本:
      继续流程,但后续必须更新已有主记录节点,不得另起重复 `reading` / `event` / `decision`。
-   - 历史 raw 缺少 `digest_key` 时,用 `source_uid/source_url + digest_period/source_window +
-     content_hash` 近似比对;若正文 hash 相同,也按已摄取处理。必要时只补 raw frontmatter 的
-     运维字段,不得改 raw 正文。
+   - 历史 raw 缺少 `digest_key` / `payload_schema` 时,脚本用
+     `source_uid/source_url + digest_period/source_window + content_hash` 以及可比的
+     `body_hash` / `comment_hash` / `whiteboard_hash` 做兼容判重。必要时只补 raw
+     frontmatter 的运维字段,不得改 raw 正文。
 4. **重要依赖判断(条件式用户闸门)** —— 默认范围仍只有用户当前指定的对象。扫描当前正文中的
    文档引用、历史会议、附件 / 嵌入表格、前置方案 / 决策 / 数据源等候选,按
    `references/digest-dependencies.md` 判断它是否是「缺失会实质影响本次 digest 正确性或完整性」
@@ -43,13 +46,12 @@
    建议范围合并成一次询问,由用户选择是否增加本次 digest 内容。未经同意不扩展;用户拒绝或暂缓时,
    当前对象照常 digest,但把受影响结论标为「依赖未摄取 / 待核实」。同场会议簇的组成物件仍按
    `references/digest-meeting.md` 的整体确认处理,不重复询问。
-5. **落原文** —— 写 `raw_data/<YYYY-MM-DD>-<slug>.md`:逐字原文 + frontmatter(`digest_status:
-   pending`)。必须写准确的 `ingested` 与 `source_type`;有名称的来源必须写 `source_title`
-   (群聊写 `source_chat_name`)。飞书文档、妙记 / 录屏、日历会议、网页等可打开来源必须写
-   `source_url`,不能因为节点里已有链接就省略;确实无法取得链接时写入前向用户说明该缺口,
-   不得臆造。会议 / 资料簇若发现其它同源物件,写 `related_source_urls`。**raw 正文一旦写入永不改写**;digest 完成 / 失败 / 纳入 routine 时,只允许更新
-   frontmatter 的运维字段。若目标文件或 `raw_id` 已存在,必须追加 `-2`/`-3` 或 revision/hash
-   后缀生成唯一文件名,**绝不覆盖旧 raw**。
+5. **准备 raw 计划** —— 决定唯一 `raw_id` 与 `raw_data/<YYYY-MM-DD>-<slug>.md`,把准确的
+   `source_type` / `source_title` / `source_url` / 周期、未摄取依赖与原始 component 写入
+   digest plan；此时不手工拼 raw。飞书文档、妙记 / 录屏、日历会议、网页等可打开来源必须保留
+   用户可打开的 `source_url`。事务脚本会逐字拼入正文、canonical 评论/白板,自动写
+   `ingested`、hash、`digest_key`、`digest_targets` 与 `digest_status: digested`。目标文件或
+   `raw_id` 已存在时必须改用 `-2`/revision/hash 后缀,**绝不覆盖旧 raw**。
 6. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名、
    已有 raw 的 `digest_targets`、同源历史主记录节点在 INDEX 找可能涉及的已有节点,读取候选,
    语义比对是否与新输入矛盾。**有冲突 → 高亮矛盾点,等用户裁决,不静默覆盖。**
@@ -74,8 +76,13 @@
      优先级与证据语义见 `references/digest-comments.md`;职位高只提高关注度,不自动提高事实置信度。
    - **重点高亮**:文档若提到**重大事故、指标重大变化、或其它需要 highlight 的内容** → 在对应节点**显著记录**(如 `event` 的「结论」、`project` 的「关键进展 / 问题 / 风险」),并在汇报时**单独、突出**地提醒用户。
    - **Todo 候选识别**(细则 `references/todo.md`):结合 `context.md` 的“我的身份 / 我的职责范围 / 当前重点”,识别明确 @本人 / 指派给本人,或职责范围内需要用户关注的行动、DDL、风险、待确认项。明确分配给别人、已完成 / 取消、一般广播不列候选;模型推导只能标“推断”。来源待办照常写进 event / report,但**未经用户确认不得写 `todo.md`**。
-8. **写入** —— 每个节点按 `templates/node-<type>.md` 骨架生成,遵守 `references/write-rules.md`。
-9. **汇报** —— 告诉用户:新建了哪些节点、更新了哪些、是否有冲突待裁决、是否因幂等检查跳过或合并了重复来源;若发现重要依赖,还要说明哪些已随本次摄取、哪些未摄取及其影响。若命中「重点高亮」内容(重大事故 / 指标剧变 / 涉及你或你关注的人的重要指令等)→ 单独、显眼地提醒。若有 Todo 候选,末尾一次性列最多 5 项“事项 / 与你相关的依据 / 时间 / 来源”,询问哪些加入;用户回复序号 / 全部后再写 `todo.md`。最终汇报前不要让用户等到最后才第一次看到进展。
+8. **写入事务** —— Agent按 `templates/node-<type>.md` 生成每个节点的**完整候选文件**;更新节点
+   时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。依次运行
+   `bin/digest-txn.py validate` 与 `execute`:它会校验候选,原子写 raw/节点,重建 INDEX,追加
+   journal,精确暂存本次路径并在知识库本地 git 创建 commit。只有 receipt
+   `status=committed` 才算完成;`status=noop` 不得重复写。详见
+   `references/digest-transaction.md` 与 `references/write-rules.md`。
+9. **汇报** —— 以事务 receipt 为准告诉用户 commit、raw_id、新建/更新节点、warning、是否因幂等检查跳过或合并了重复来源;不得仅凭 Agent已生成候选就声称落库。若发现重要依赖,还要说明哪些已随本次摄取、哪些未摄取及其影响。若命中「重点高亮」内容(重大事故 / 指标剧变 / 涉及你或你关注的人的重要指令等)→ 单独、显眼地提醒。若有 Todo 候选,末尾一次性列最多 5 项“事项 / 与你相关的依据 / 时间 / 来源”,询问哪些加入;用户回复序号 / 全部后再写 `todo.md`。最终汇报前不要让用户等到最后才第一次看到进展。
 
 ## 规模预估
 
@@ -87,6 +94,7 @@
 |------|------|
 | 摄取群聊(`feishu_chat`) | `references/digest-chat.md` |
 | 摄取飞书文档(`feishu_doc`) | `references/digest-doc.md` |
+| 飞书文档含内嵌白板 | 加读 `references/digest-whiteboard.md` |
 | 摄取外部读物(`web`) / 内部资料型文档(`feishu_doc`) | `references/digest-reading.md` |
 | 摄取一场会议(日历会议 / 投屏文档 + 妙记 同属一场会) | `references/digest-meeting.md` |
 | 产出 `event` 立场分析 / 给 `project`·`area` 写「思路与视角」 | `references/digest-analysis.md` |

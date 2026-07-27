@@ -11,7 +11,9 @@
 - **拉取**:运行 `bin/pull-chat.sh`(参数见上;已知 chat_id 用 `--chat-id <oc_xxx>`)。脚本自动定位群、分页拉全、把逐字转写写到文件,stdout 打印 `chat_id` / `window` / `mode` / `messages` / `pages` / `truncated` / `transcript`。转写每条消息必须保留发送人 open_id,格式如 `<姓名> [ou_xxx]`,供后续解析人。**不要手写分页循环、不要手算上次窗口。** 脚本报"匹配到多个群"→ 改 `--chat-id`;报"无历史摄取记录"(退出码 4)→ 其实是首次,改用 `--start`/`--end`;报截断(退出码 5 或 `truncated=1`)→ 缩小时间窗后重拉,不要把不完整窗口入库。
 - **人员解析(必须)**:群聊 digest 前,对 transcript 运行 `bin/resolve-users.sh --from-doc <transcript>`。新建 / 更新 `person` 节点时必须使用解析出的 `feishu_id`;不要仅凭中文名新建 `feishu_id: ?` 的 person。若某个发言人解析失败,事件正文可保留其姓名和 open_id,但不要新建 person 节点;在汇报里列为「待解析人物」,等用户补充或权限恢复后再建。
 - **落原文**:raw_data 用 `feishu_chat` 变体 frontmatter(`source_chat_id` / `source_chat_name` / `source_window`,见 DESIGN.md §3)。**`source_window` 必须写本次窗口的完整 ISO8601 起止** —— 它是下次 `--since-last` 的续拉点,务必准确。每窗口一个独立 raw,只增不改。
-- **登记进度**:摄取后,在 `INDEX.md`「群聊摄取进度」表写 / 更新该群一行(群名 + `chat_id` + 已摄取至=本窗口结束点 + 最近 raw_id)—— 这是下次「查表判断首次 / 增量」的依据。
+- **登记进度**:raw frontmatter 准确写 `source_chat_id` / `source_chat_name` / `source_window`;
+  `digest-txn execute` 重建 INDEX 后会据此派生「群聊摄取进度」行(群名 + `chat_id` + 已摄取至
+  =本窗口结束点 + 最近 raw_id)—— 这是下次「查表判断首次 / 增量」的依据,不要手工另维护一份。
 - **纳入定期摄取(可选)**:首次摄取某群后,可询问用户是否纳入「定期摄取」—— 纳入后例程会周期性自动 `--since-last` 复查该群(见 `references/digest-routine.md`)。
 - **强过滤**:群聊约 90% 是噪音。digest 只抽取 **决策、状态变化、关键结论、待办、重要问答**;丢弃寒暄、表情、刷屏、无信息量消息。窗口内无新消息 / 无可入库内容 → 明确告诉用户"自上次摄取以来无新内容",**不硬造节点**。
 - **扇出(增量语义)**:每个窗口 → **一个新的 `event`**(该群该窗口的讨论快照,产生即定型、不回改旧 event)+ N 个 `decision`;窗口涉及的 `project`/`person`/`org`/`area` 走**实体消解 → 更新已有节点**,不新建重复。即:同一个群反复摄取 = 一串按窗口排列的 event + 实体节点持续累积更新。窗口若含多个明显无关的大讨论,可拆成多个 `event`。

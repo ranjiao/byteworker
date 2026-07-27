@@ -9,13 +9,15 @@
   - 开始时先告知用户本次会复查 INDEX「定期摄取清单」里的多少个来源;逐源处理时用短状态说明当前来源、是否在拉取 / 比对 / digest / 跳过。来源较多或单源处理超过约 30-60 秒时,按 `SKILL.md`「长流程状态输出」发 heartbeat,不要等全部来源处理完才第一次汇报。
   1. 读 INDEX「定期摄取清单」,逐源处理 ——
      - 滚动周会文档:重新 `lark-doc +fetch --api-version v2 --detail with-ids`,并按
-       `references/digest-comments.md` **独立复查评论**(含已解决和完整回复)。把顶层最新周期按
-       DESIGN.md §2.1 规范化后,分别计算该周期 `body_hash` 与完整评论快照 `comment_hash`;与该源
-       最近 raw 的规范化 `digest_period + body_hash + comment_hash` 比对。有新周期、同周期
-       正文变化或评论 / 回复变化,都按 `references/digest-doc.md` 更新同一个主记录;两种 hash
-       都相同才跳过(no-op)。不能只看 `revision_id` 或正文 hash。
+       `references/digest-comments.md` **独立复查评论**(含已解决和完整回复),正文有白板时按
+       `references/digest-whiteboard.md` 复查。把顶层最新周期按 DESIGN.md §2.1 规范化后,将本
+       周期正文、评论、白板等 component 交给 `digest-txn preflight`,与最近 raw 做兼容幂等
+       比对。有新周期或任一实际 payload component 变化,都按 `references/digest-doc.md` 更新
+       同一个主记录;`state=noop` 才跳过。`body_hash` / `comment_hash` /
+       `whiteboard_hash` 会作为诊断字段保留,但不能只看 `revision_id` 或正文 hash。
      - 群聊:`bin/pull-chat.sh --query "<群名>" --since-last`;有新消息则按 `references/digest-chat.md` digest 新窗口,否则跳过。
-     - 各源增量 digest 走标准扇出:新 `event` + 实体消解**更新**已有 `project`/`person` 等节点(摄取深度沿用首次,不再重问)。
+     - 各源增量 digest 走标准扇出并通过 `digest-txn validate / execute` 写入:新 `event` + 实体
+       消解**更新**已有 `project`/`person` 等节点(摄取深度沿用首次,不再重问)。
   2. **汇报**:逐源说明有无增量、digest 了哪个新周期 / 窗口、触达哪些节点。
   3. journal 追加一行「定期摄取」运行记录(审计用);并把当天日期(`YYYY-MM-DD`)原子写入数据目录的 `.last-routine-digest` —— 到期提醒据此判断(见 `SKILL.md`「操作前必读」)。INDEX「上次摄取」同步使用规范化日期 / ISO 周 / 群聊高水位。**即便本次各源都无增量也要写** —— 「复查过」与「有新增」是两回事。
 - **到期提醒**:见 `SKILL.md`「操作前必读」—— 清单非空且距上次运行 ≥7 天时,skill 被使用时顺带提醒。byteworker 是 skill、不能自行定时,「到期提醒」是其可移植的 routine 实现。
