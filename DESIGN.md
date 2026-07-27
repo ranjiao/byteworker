@@ -43,6 +43,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
+| `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
@@ -51,6 +52,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | 目录/文件 | 存什么 | 谁写 | 可变性 |
 |-----------|--------|------|--------|
 | `raw_data/` | 摄取的**逐字原文** + 溯源元数据,一次摄取一文件 | skill 写入;正文永不改写,运维 frontmatter 可更新 | 正文只增不改 |
+| `provenance/` | 每个 raw 的原始定位 sidecar:文档 block / 评论 / 消息 / 妙记片段等 | digest 事务写入;受控回填可补充 | 只随对应 raw 增补/升级 |
 | `knowledge/{people,projects,areas,orgs,events,decisions,readings}/` | 7 类节点笔记,按类型分子目录(固定 7 个,不漂移) | skill 写入/更新 | 实体可更新;记录定型 |
 | `journal/` | 摄取/更新/扫描事件的**时间线日志** | skill 追加 | 只追加 |
 | `reports/daily/`, `reports/weekly/`, `reports/im/` | 日报 / 周报 / IM Inbox 摘要归档快照,由 `daily` / `weekly` / `inbox` 流程生成 | skill 写入,用户可手改 | 可覆盖同周期 |
@@ -71,6 +73,8 @@ byteworker 由**两个物理隔离**的部分组成。
 
 **真相源(truth source —— 丢失不可恢复,必须保护):**
 - `raw_data/` —— 正文不可变、逐字;一切知识的根。frontmatter 中 `digest_status`、`digest_targets`、`routine` 等运维元数据可由 skill 更新,但不得改写原文正文。
+- `provenance/` —— 与 raw 内容 hash 绑定的来源定位证据。精确 block/comment/message locator
+  可能无法仅从 raw 正文恢复,因此与 raw 一起保护;修订必须保留 `derived_from.content_hash`。
 - `knowledge/` 节点 —— 可变消化产物,承载真正的知识价值;节点出错可回对应 `raw_data`
   重新消化(LLM digest,非确定性),但 `raw_data` 本身丢了就无源可回。
 - `reports/` —— 日报 / 周报 / IM Inbox 摘要是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
@@ -239,6 +243,29 @@ journal / dashboard 派生内容的事实,回答时都要沿 `sources` / 来源�
 raw 文件名或 git 时间替代。历史 raw 缺字段时必须明确披露,不能猜测;关键结论缺原始出处或
 收录时间时置信度最高为中。
 
+### 3.1 provenance/ — 原始位置 sidecar
+
+`provenance/<raw_id>.json` 使用 `byteworker-provenance/v1`。它不改写历史 raw,而是在旁路保存
+“这条事实在原系统的哪个位置”,至少包含:
+
+- `raw_id` / `raw_path` / `derived_from.content_hash` / `generated_at` / `enrichment`;
+- `source` 的类型、标题、可打开 URL 和 `ingested`;
+- `anchors[]`:稳定 `anchor_id`、`kind`、`precision`、`locator`、可选 `open_url` /
+  `fallback_url`、`source_time`、作者和短 quote。
+
+`kind` 可表示 `source`、`doc_block`、`doc_comment`、`doc_reply`、`chat_message`、
+`chat_thread`、`minutes_segment`、`meeting`、`web_section`、`whiteboard_node` 或
+`local_span`。`precision` 只有四级:
+
+- `exact`:本次抓取保留了原系统稳定 id,可精确打开;
+- `refetched`:为历史 raw 受控重拉同版本 / 同窗口后补得;
+- `source_only`:只能回到整份原始资料;
+- `unresolved`:已知有来源但尚不能可靠定位。
+
+sidecar 的 `source` anchor 必须存在。正文、评论和聊天抓取器应尽量在抓取当下保留 block id、
+comment/reply id、message/thread id;不得靠标题、文件名或模糊文本伪造 `exact`。来源变化导致
+无法证明仍是同版本时,只能标 `source_only` / `unresolved`。
+
 **`routine` 字段(可选)**:若来源是**会定期更新**的源(滚动周会文档、群聊等),经用户确认
 纳入「定期摄取」后,frontmatter 加 `routine: weekly`(cadence,默认 `weekly`);该源后续每个
 raw 都带此标记。INDEX 的「定期摄取清单」由扫描带 `routine` 的 raw 派生(§6),定期摄取例程据此
@@ -263,6 +290,8 @@ last_verified: 2026-05-20                     # 新鲜度判断依据(看板 ⚠
 superseded_by: decision-xxx                   # 仅 status=superseded
 sources:                                      # 溯源:raw_id 或飞书原链接,≥1 条
   - raw-2026-05-20-q2-roadmap-review
+primary_source: raw-2026-05-20-q2-roadmap-review # 主记录必填;实体节点有明确主资料时填写
+primary_source_url: https://<feishu-url>       # 由事务从 primary raw 物化
 links:                                        # 图的边,双向维护(写 A→B 同时在 B 写回 A)
   - person-zhang-san
   - area-product-planning
@@ -279,6 +308,8 @@ links:                                        # 图的边,双向维护(写 A→B
 | `created`/`updated`/`last_verified` | ✓ | 创建 / 最后修改 / 最后被新输入或人工确认的日期,格式固定为 `YYYY-MM-DD` |
 | `superseded_by` | ✗ | 退役时指向取代它的节点 |
 | `sources` | ✓ | 溯源根,指回 raw_data 或飞书链接 |
+| `primary_source` | 主记录 ✓ / 实体可选 | 节点最主要的 raw_id,必须同时位于 `sources` |
+| `primary_source_url` | 有可打开来源时 ✓ | 由 `primary_source` 对应 raw 的 `source_url` 物化 |
 | `links` | ✗ | 关联节点 id,**双向维护**;id 前缀即对端类型;body 中提及的已存在节点 id 自动纳入(auto-link,见 SKILL.md 写入规范) |
 | `feishu_id` | △ | **仅 `person`**:该人飞书英文 id(企业邮箱 `@` 前缀),全局唯一 —— person 实体消解的主键、用于消歧同名。**只是一个字段,不参与 id / slug**(id 规则见 §2)。新建 person 前必须由 `bin/resolve-users.sh` / lark-contact 解析;解析不到就先不建 person,只在事件正文保留姓名 / open_id 并报告待解析。历史遗留的 `?` 允许后续回填,但不得再新增 |
 
@@ -300,6 +331,17 @@ links:                                        # 图的边,双向维护(写 A→B
 - `reading` 的「来源」:列出原文链接、作者、发布日期、类型。
 实体节点(`project`/`org`/`person`/`area`)被本次 digest 更新时,若有「关联文档与会议」等来源章节,
 也应追加标题 + 日期 / 周期 + 节点 id / raw_id + 原始链接,按事件发生时间倒序去重。
+
+**节点内事实证据要求**:
+
+- 由原始资料抽取的关键事实、状态、数字、日期、决定、风险、负责人、行动项和第一方观点,
+  在对应句子末尾用 `[E1]`、`[E2]` 逐条绑定;同一证据可复用。
+- `[E<n>]` 是**节点内持久证据编号**,映射到 `raw_id + anchor_id`;digest 事务确定性生成末尾
+  `## 证据` 表,展示原始链接、定位、原文时间、raw 收录时间和精度。不得手工伪造表格。
+- `[S<n>]` 是回答 / 报告在当次输出中按首次出现顺序生成的动态引用,不写回节点。
+  查询时优先沿节点 `[E]` 精确取证;历史节点无 `[E]` 时仍沿 `sources` 回 raw,但要降低定位精度。
+- 纯结构标题、链接关系、明确标注的 Agent 建议不强制 `[E]`;推断仍需引用其事实依据并保留
+  【推断】标签。
 
 **`person`(实体)** —— 在 §4.1 通用 frontmatter 之外额外带 `feishu_id`(飞书英文 id,§4.1)。
 ```markdown
@@ -510,7 +552,7 @@ templates/
 3. **raw_data 永久保留** — v1 原始输入文件永久保留,不自动删除/归档;
    归档策略见 TODOS.md(P2,规模触发后再做)。
 4. **逻辑与数据严格分离** — skill 仓库只含 agent 逻辑(可进 git/GitHub);所有业务数据
-   (`knowledge/`、`raw_data/`、`journal/`、`INDEX.md`)存在用户指定的独立目录(默认名
+   (`knowledge/`、`raw_data/`、`provenance/`、`journal/`、`INDEX.md`)存在用户指定的独立目录(默认名
    `byteworker_kb`),**绝不进 skill 仓库的 git**。数据目录路径记于 `.kbconfig`(gitignore)。
    数据目录有自己的**独立本地 git**(回滚用,永不 push),首次使用时由 skill 询问并初始化。
 5. **新增并扩展 `reading` 节点类型** — 外部读物(blog/论文/wiki)与内部路线思考 / 方法论 /
@@ -568,6 +610,11 @@ templates/
    `byteworker-payload-v1` 描述正文、评论、白板等实际 payload;旧 raw 只读兼容、不强制迁移。
    飞书正文内嵌白板默认随当前来源读取结构 JSON + 预览,视觉推断不硬化为事实。见 §3、
    `references/digest-transaction.md`、`references/digest-whiteboard.md`。
+19. **主要来源 + 节点事实证据** — raw 正文继续不可变;精确 block/comment/message 等 locator
+   写入 `provenance/<raw_id>.json` sidecar。主记录带 `primary_source` /
+   `primary_source_url`;节点关键事实用持久 `[E<n>]` 映射到 anchor,查询回答再生成动态
+   `[S<n>]`。历史库通过默认不执行的 audit/plan/validate/apply 流程保守回填,不自动猜测
+   多来源节点。见 §3.1、§4、`references/provenance.md`。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 

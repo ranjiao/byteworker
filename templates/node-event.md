@@ -9,12 +9,16 @@ updated: <YYYY-MM-DD>
 last_verified: <YYYY-MM-DD>
 sources:
   - <raw-id 或飞书链接>
+primary_source: <主要 raw-id;主记录必填>
+primary_source_url: <由 digest 事务物化>
 links: []
 ---
 
 # <事件标题>
 
 > **TL;DR:** <一句话:这次会议 / 评审 / 发布的核心结论>
+
+<!-- 关键事实句尾写 [E1] 等;不要手写“证据”章节,由 digest 事务生成。 -->
 
 ## 事件信息
 <!-- 时间 / 类型(会议 | 评审 | 发布 | 群聊讨论窗口) / 参会人(person 链接)。

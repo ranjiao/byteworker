@@ -9,12 +9,16 @@ updated: <YYYY-MM-DD>
 last_verified: <YYYY-MM-DD>
 sources:
   - <文章链接 或 raw-id>
+primary_source: <主要 raw-id;主记录必填>
+primary_source_url: <由 digest 事务物化>
 links: []
 ---
 
 # <文章 / 资料标题>
 
 > **TL;DR:** <一句话:这篇文章 / 资料的核心观点>
+
+<!-- 关键事实句尾写 [E1] 等;不要手写“证据”章节,由 digest 事务生成。 -->
 
 ## 来源
 <!-- 必须包含可点击原文链接;再写作者 / 发布日期 / 类型(blog | 论文 | wiki | 内部路线思考 | 方法论 | 调研 | 技术白皮书 | 复盘)。 -->

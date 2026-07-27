@@ -45,8 +45,8 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
     - **跳过** → 走「常规首次设置」。
   - **常规首次设置**:**主动询问用户**知识库数据目录放在哪里 —— 让用户给一个父目录,目录名默认 `byteworker_kb`(用户可改);拼出绝对路径后写入 `.kbconfig`。
 - 用户之后想再看引导(说「跑一下上手引导」「重看教程」等)→ 读 `TUTORIAL.md` 重走一遍(`.kbconfig` 已存在则跳过其中的建库步骤)。
-- 若该数据目录不存在或为空:按 DESIGN.md §1.B 初始化 —— 创建 `knowledge/` 的 7 个子目录、`raw_data/`、`journal/`、`reports/daily/`、`reports/weekly/`、`reports/im/`、空 `INDEX.md`,并把 skill 目录的 `templates/context.md` / `templates/todo.md` 整份复制为数据目录的 `context.md` / `todo.md`;再对该数据目录执行 `git init`(**仅本地、永不配 remote**,作误删/错改的回滚网)。
-- **下文所有 `knowledge/`、`raw_data/`、`journal/`、`reports/`、`INDEX.md`、`dashboard.md`、`context.md`、`todo.md` 路径,一律指知识库数据目录下的对应路径;`templates/` 与 `DESIGN.md` 在本 skill 目录下。**
+- 若该数据目录不存在或为空:按 DESIGN.md §1.B 初始化 —— 创建 `knowledge/` 的 7 个子目录、`raw_data/`、`provenance/`、`journal/`、`reports/daily/`、`reports/weekly/`、`reports/im/`、空 `INDEX.md`,并把 skill 目录的 `templates/context.md` / `templates/todo.md` 整份复制为数据目录的 `context.md` / `todo.md`;再对该数据目录执行 `git init`(**仅本地、永不配 remote**,作误删/错改的回滚网)。
+- **下文所有 `knowledge/`、`raw_data/`、`provenance/`、`journal/`、`reports/`、`INDEX.md`、`dashboard.md`、`context.md`、`todo.md` 路径,一律指知识库数据目录下的对应路径;`templates/` 与 `DESIGN.md` 在本 skill 目录下。**
 
 **定期摄取到期提醒**:本次操作若会读 `INDEX.md`,顺带看「定期摄取清单」—— 若清单非空、且数据目录的 `.last-routine-digest`(记上次「定期摄取」运行日期;文件不存在 = 从未运行)距今 ≥7 天 → 用一句话提醒用户「定期摄取清单有 N 项可能该查更新了,需要就说『跑定期摄取』」。**只提醒,不打断当前请求、不自动跑。**
 
@@ -78,7 +78,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 ## 安全约束(必须遵守)
 
 - **逻辑与数据严格分离**:本 skill 仓库只含 agent 逻辑(可放 GitHub);知识库数据目录含**公司机密工作内容**。
-- **绝不**把任何业务数据(节点 md、raw_data、journal、INDEX)写进本 skill 目录;数据一律写到知识库数据目录。
+- **绝不**把任何业务数据(节点 md、raw_data、provenance、journal、INDEX)写进本 skill 目录;数据一律写到知识库数据目录。
 - 知识库数据目录**绝不**纳入本 skill 仓库的 git,**绝不** push 到任何 remote,不得外传。
 - **不调用 lark-task 创建任务** —— 会议待办仅以 md 形式记录在 `event` 节点的"待办事项"章节内。
 
@@ -90,7 +90,8 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 
 完整主流程已拆到 `references/digest-core.md`。执行 digest 前必须先读它和
 `references/digest-dependencies.md`(识别重要依赖、必要时向用户确认扩展范围)以及
-`references/digest-transaction.md`(确定性 hash / 幂等 / 写入事务);再按来源类型加读对应细则:
+`references/digest-transaction.md`(确定性 hash / 幂等 / 写入事务)、
+`references/provenance.md`(主要来源、精确定位与 `[E]` 事实证据);再按来源类型加读对应细则:
 
 - `feishu_doc` → `references/digest-doc.md`(正文 + 全部评论 / 回复;该文件继续路由
   `references/digest-comments.md`;正文含白板时再路由 `references/digest-whiteboard.md`)
@@ -103,7 +104,9 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 
 标准 digest 写入必须由 Agent生成临时 manifest 与完整候选节点,再通过
 `bin/digest-txn.py preflight / validate / execute` 完成;脚本只固化确定性执行,语义判断、冲突
-裁决、实体取舍和节点正文仍由 Agent负责。不得为单篇业务资料在 skill 仓库生成硬编码写入脚本。
+裁决、实体取舍和节点正文仍由 Agent负责。候选节点的关键知识库事实必须逐条带 `[E1]` 等标记,
+并在 manifest 中映射到 `raw_id + anchor_id`;主记录必须声明 `primary_source`,事务负责生成
+`primary_source_url` 和 `## 证据`。不得为单篇业务资料在 skill 仓库生成硬编码写入脚本。
 其它写入遵守 `references/write-rules.md`;失败处理见 `references/error-handling.md`。
 
 ## search / update / brief / dashboard / context
@@ -163,7 +166,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 - **写入前必读**:`references/write-rules.md` —— 原子写入、双向 links、auto-link、INDEX、journal、本地 git 回滚点、时间格式、时间倒序。
 - **维护 / 恢复按需读**:`references/maintenance.md` —— 运行 `bin/rebuild-index.sh` 重建 INDEX、运行 `bin/repair-links.sh --autolink` 修复双链 / 正文提及连边、灾难恢复。
 
-核心不变量:知识库数据目录是唯一业务数据位置;`raw_data/` + `knowledge/` + `reports/` + `todo.md` + `context.md` + `dashboard.md` 手动项是真相源,`INDEX.md` 和 dashboard 派生段可重建。
+核心不变量:知识库数据目录是唯一业务数据位置;`raw_data/` + `provenance/` + `knowledge/` + `reports/` + `todo.md` + `context.md` + `dashboard.md` 手动项是真相源,`INDEX.md` 和 dashboard 派生段可重建。
 
 ## 错误处理
 

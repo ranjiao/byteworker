@@ -4,7 +4,7 @@
 
 ## 铁律
 
-- **业务数据绝不进本仓库。** `knowledge/`、`raw_data/`、`journal/`、`INDEX.md` 及任何
+- **业务数据绝不进本仓库。** `knowledge/`、`raw_data/`、`provenance/`、`journal/`、`INDEX.md` 及任何
   节点 md 一律不提交 —— `.gitignore` 已拦截,你也必须主动遵守。
 - 知识库数据存在用户指定的**独立目录**(路径见 `.kbconfig`,已 gitignore),含公司机密,
   绝不外传、绝不进本仓库。

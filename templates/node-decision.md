@@ -9,6 +9,8 @@ updated: <YYYY-MM-DD>
 last_verified: <YYYY-MM-DD>
 sources:
   - <raw-id 或飞书链接>
+primary_source: <主要 raw-id;主记录必填>
+primary_source_url: <由 digest 事务物化>
 superseded_by:
 links: []
 ---
@@ -16,6 +18,8 @@ links: []
 # <决策标题>
 
 > **TL;DR:** <一句话:决定了什么>
+
+<!-- 关键事实句尾写 [E1] 等;不要手写“证据”章节,由 digest 事务生成。 -->
 
 ## 决定了什么
 <!-- 明确的决策内容 -->

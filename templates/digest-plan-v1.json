@@ -44,11 +44,44 @@
     "excluded_dependencies": [],
     "extra_frontmatter": {}
   },
+  "provenance": {
+    "enrichment": "live",
+    "anchors": [
+      {
+        "anchor_id": "source",
+        "kind": "source",
+        "precision": "source_only",
+        "open_url": "<original_url>",
+        "locator": {
+          "source_uid": "<document_id>"
+        }
+      },
+      {
+        "anchor_id": "doc:block:<block_id>",
+        "kind": "doc_block",
+        "precision": "exact",
+        "open_url": "<original_url>#<block_id>",
+        "fallback_url": "<original_url>",
+        "source_time": "<ISO8601_or_omit>",
+        "locator": {
+          "block_id": "<block_id>",
+          "heading": "<section_heading>"
+        }
+      }
+    ]
+  },
   "nodes": [
     {
       "op": "create",
       "path": "knowledge/readings/reading-<slug>.md",
-      "candidate": "<temporary_complete_candidate_path>"
+      "candidate": "<temporary_complete_candidate_path>",
+      "primary_source": "raw-<YYYY-MM-DD>-<slug>",
+      "evidence": [
+        {
+          "id": "E1",
+          "anchor_id": "doc:block:<block_id>"
+        }
+      ]
     },
     {
       "op": "update",

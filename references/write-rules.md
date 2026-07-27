@@ -21,7 +21,7 @@
   `references/maintenance.md`)。标准 digest 事务为避免候选行、routine 与 chat 高水位漂移,
   在同一事务内调用现有确定性脚本全量重建。
 - **journal**:每次摄取/更新/看板/报告写操作后,向 `journal/<YYYY-MM>/<YYYY-MM-DD>.md` 追加一行 —— 时刻、动作、触达节点 id、raw_id、报告路径、是否冲突。
-- **回滚点**:每次写操作完成后,在知识库数据目录只暂存本次实际改动的路径(例如 `git add raw_data/<file> knowledge/projects/<file> INDEX.md journal/<date>.md`),再 `git commit`(该目录自身的本地 git,**永不 push**),使每一步可回滚。不要用 `git add -A` 把无关手改一起卷入。标准 digest 由事务工具执行这一规则:已有 staged 变更或目标路径已有未提交改动时中止,无关未暂存改动不进入 commit。
+- **回滚点**:每次写操作完成后,在知识库数据目录只暂存本次实际改动的路径(例如 `git add raw_data/<file> provenance/<raw-id>.json knowledge/projects/<file> INDEX.md journal/<date>.md`),再 `git commit`(该目录自身的本地 git,**永不 push**),使每一步可回滚。不要用 `git add -A` 把无关手改一起卷入。标准 digest 由事务工具执行这一规则:已有 staged 变更或目标路径已有未提交改动时中止,无关未暂存改动不进入 commit。
 - **Todo 写入**:`todo.md` 由 `bin/todo.py` 原子维护;用户确认前的 digest 候选不得写入。新增 / 完成 / 延期 / 取消 / 真正发出提醒后,只暂存 `todo.md` 与本次 journal 路径创建本地回滚点。todo id 是内部键,用户侧按自然语言标题和当前对话消解。
 - **命名 / 字段**:严格按 DESIGN.md §2(命名)与 §4.1(字段)。
 - 单类节点 > 200 条 → 提示用户该类按子目录分片(暂不自动做)。
