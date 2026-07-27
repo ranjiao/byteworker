@@ -1,0 +1,51 @@
+DESIGN.md
+  s_18edd23a17d981::t_db56028c45a189 46,227-230,522-523,535-536,625-628
+SKILL.md
+  s_18edd23a17d981::t_91ae2d47d9d169 110-112,119-120
+bin/digest-txn.py
+  s_18edd23a17d981::t_7684aede8fc58e 17,19-20,25,84-104,155-158,160-163
+bin/kb-query.py
+  s_18edd23a17d981::t_7bb6ddf4c2ca0e 1-64
+lib/digest_txn.py
+  s_18edd23a17d981::t_eb58d4e4560f73 47,82,117-126,524-598,603,627-632,659,751-752,822-832,834,836-850,852-855,857-864,869,936,981-1290,1495-1512,1725-1900,1927-1960
+lib/kb_query.py
+  s_18edd23a17d981::t_afd903bb88c796 1-258
+references/commands.md
+  s_18edd23a17d981::t_22d557e671b056 10-16,22-24
+references/digest-core.md
+  s_18edd23a17d981::t_8c8faa98d319b9 82-83,88-89
+references/digest-transaction.md
+  s_18edd23a17d981::t_a025063ef67e56 23-24,26,34-37,51-53,56-63,135-139
+references/provenance.md
+  s_18edd23a17d981::t_2c6006c99b7ac0 34-35
+templates/README.md
+  s_18edd23a17d981::t_5eeb0a3de4e86f 4-5,40-41
+templates/digest-batch-plan-v1.json
+  s_18edd23a17d981::t_361773b290f932 1-85
+templates/digest-plan-v1.json
+  s_18edd23a17d981::t_e10f1d0a69a526 90-97
+tests/test_digest_transaction_contract.py
+  s_18edd23a17d981::t_982292ee7d44ef 1,3-4,47-85
+tests/test_digest_txn.py
+  s_18edd23a17d981::t_35910cbf0771b3 17,21,132,154-157,168,324-326,337,343-346,389-495
+tests/test_kb_query.py
+  s_18edd23a17d981::t_47ef4622b1269f 1-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "078bbb8dd98b8bafc53d5a9912165be4cb2d674c",
+  "prompts": {},
+  "sessions": {
+    "s_18edd23a17d981": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa370-9b8f-7910-8625-cc0015ebefbc",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
