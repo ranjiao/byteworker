@@ -547,6 +547,25 @@ body.sidebar-resizing * {
   font-family: var(--font-mono); font-size: 0.84em; font-weight: 700;
   line-height: 1.45;
 }
+.prose a.reference-jump,
+.sx-doc a.reference-jump {
+  cursor: pointer;
+  text-decoration: none;
+}
+.reference-target { scroll-margin-block: 28px; }
+.reference-target.reference-jump-active {
+  animation: reference-jump-flash 1.4s ease-out;
+}
+@keyframes reference-jump-flash {
+  0%, 28% {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
 .sx-doc a.comment-evidence-link {
   margin-left: 5px; padding: 2px 7px;
   font-family: var(--font-ui); font-size: 11px;
@@ -2116,7 +2135,9 @@ async function renderReaderNode(id) {
   D.readerBody.innerHTML = html;
   const proseEl = document.getElementById('prose-content');
   linkifyIds(proseEl);
+  normalizeKbArchiveLinks(proseEl);
   enhanceEvidenceLinks(proseEl);
+  linkifyReferences(proseEl);
   D.readerBody.querySelector('[data-primary-source]')?.addEventListener('click', e => {
     openSource(e.currentTarget.dataset.primarySource);
   });
@@ -2127,6 +2148,28 @@ async function renderReaderNode(id) {
     });
   });
   D.readerBody.scrollTop = 0;
+}
+
+// Markdown is rendered under /app/index.html, while archive files are served
+// under /kb/. Normalize repository-relative links such as ../raw_data/x.md so
+// the browser does not incorrectly resolve them to /raw_data/x.md.
+function kbArchiveHref(href) {
+  const value = String(href || '').trim();
+  if (!value || /^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(value)) return '';
+  if (/^(?:\.\.\/)?kb\//i.test(value)) return value.startsWith('../') ? value : '../' + value;
+  const match = value.match(/^(?:(?:\.\.\/|\.\/|\/)*)(raw_data|knowledge|provenance|journal|reports)(\/[^?#]*)?([?#].*)?$/i);
+  if (!match) return '';
+  return KB + match[1] + (match[2] || '') + (match[3] || '');
+}
+
+function normalizeKbArchiveLinks(root) {
+  if (!root) return;
+  root.querySelectorAll('a[href]').forEach(a => {
+    const normalized = kbArchiveHref(a.getAttribute('href'));
+    if (!normalized) return;
+    a.setAttribute('href', normalized);
+    a.dataset.kbArchiveLink = 'true';
+  });
 }
 
 function enhanceEvidenceLinks(root) {
@@ -2152,6 +2195,132 @@ function enhanceEvidenceLinks(root) {
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
     }
+  });
+}
+
+// ---- in-document reference jumps ([E1], [S1], ...) ------------
+// Keep the app's location hash reserved for node routing. Reference links use
+// hrefs for accessibility, but their click handler scrolls without mutating it.
+const REFERENCE_MARKER_RE = /\[((?:E|S)[1-9][0-9]*)\]/g;
+
+function referenceId(label) {
+  return 'reference-' + String(label || '').toLowerCase();
+}
+
+function leadingReferenceLabel(el) {
+  const text = (el?.textContent || '').trim();
+  const match = text.match(/^\[?((?:E|S)[1-9][0-9]*)\]?(?=\s|$|[：:《])/);
+  return match ? match[1] : '';
+}
+
+function referenceTargetContainers(root) {
+  const containers = [];
+  root.querySelectorAll('section[data-outline]').forEach(section => {
+    if (/^(?:证据|引用)$/.test((section.dataset.outline || '').trim())) containers.push(section);
+  });
+
+  // Raw reports use normal Markdown headings rather than structured sections.
+  root.querySelectorAll('h1, h2, h3, h4').forEach(heading => {
+    if (!/^(?:证据|引用)$/.test((heading.textContent || '').trim())) return;
+    const level = Number(heading.tagName.slice(1));
+    const siblings = [];
+    for (let el = heading.nextElementSibling; el; el = el.nextElementSibling) {
+      if (/^H[1-4]$/.test(el.tagName) && Number(el.tagName.slice(1)) <= level) break;
+      siblings.push(el);
+    }
+    containers.push(...siblings);
+  });
+  return containers;
+}
+
+function collectReferenceTargets(root) {
+  const targets = new Map();
+  for (const container of referenceTargetContainers(root)) {
+    const candidates = container.matches('tr, li, p')
+      ? [container]
+      : [...container.querySelectorAll('tr, li, p')];
+    for (const candidate of candidates) {
+      const label = leadingReferenceLabel(candidate);
+      if (!label || targets.has(label)) continue;
+      candidate.id = referenceId(label);
+      candidate.classList.add('reference-target');
+      candidate.dataset.referenceTarget = label;
+      candidate.tabIndex = -1;
+      targets.set(label, candidate);
+    }
+  }
+  return targets;
+}
+
+function prepareReferenceLink(a, label) {
+  a.classList.remove('comment-evidence-link');
+  a.classList.add('evidence-ref', 'reference-jump');
+  a.dataset.referenceLink = label;
+  delete a.dataset.evidenceId;
+  delete a.dataset.kbArchiveLink;
+  a.href = '#' + referenceId(label);
+  a.removeAttribute('target');
+  a.removeAttribute('rel');
+  a.textContent = `[${label}]`;
+  a.title = `跳到 ${label} 对应的${label.startsWith('E') ? '证据' : '引用'}`;
+  a.setAttribute('aria-label', a.title);
+}
+
+function linkifyReferences(root) {
+  if (!root) return;
+  const targets = collectReferenceTargets(root);
+  if (!targets.size) return;
+
+  // Markdown reference definitions may already have rendered [E1] as an
+  // external anchor whose visible text is E1. Turn only exact marker anchors
+  // into local jumps; source links inside the target row remain untouched.
+  root.querySelectorAll('a').forEach(a => {
+    if (a.closest('[data-reference-target]')) return;
+    const match = (a.textContent || '').trim().match(/^\[?((?:E|S)[1-9][0-9]*)\]?$/);
+    const label = a.dataset.evidenceId || match?.[1] || '';
+    if (targets.has(label)) prepareReferenceLink(a, label);
+  });
+
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const textNodes = [];
+  for (let node; (node = walk.nextNode());) {
+    if (node.parentElement.closest('a, code, pre, script, style, [data-reference-target]')) continue;
+    REFERENCE_MARKER_RE.lastIndex = 0;
+    if (REFERENCE_MARKER_RE.test(node.nodeValue)) textNodes.push(node);
+  }
+
+  for (const node of textNodes) {
+    const text = node.nodeValue;
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    let match;
+    REFERENCE_MARKER_RE.lastIndex = 0;
+    while ((match = REFERENCE_MARKER_RE.exec(text)) !== null) {
+      const label = match[1];
+      if (!targets.has(label)) continue;
+      if (match.index > last) fragment.appendChild(document.createTextNode(text.slice(last, match.index)));
+      const a = document.createElement('a');
+      prepareReferenceLink(a, label);
+      fragment.appendChild(a);
+      last = match.index + match[0].length;
+    }
+    if (!last) continue;
+    if (last < text.length) fragment.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(fragment, node);
+  }
+
+  root.querySelectorAll('[data-reference-link]').forEach(a => {
+    a.addEventListener('click', event => {
+      event.preventDefault();
+      const target = targets.get(a.dataset.referenceLink);
+      if (!target) return;
+      target.classList.remove('reference-jump-active');
+      void target.offsetWidth;
+      target.classList.add('reference-jump-active');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.focus({ preventScroll: true });
+      window.setTimeout(() => target.classList.remove('reference-jump-active'), 1400);
+    });
   });
 }
 
@@ -2215,7 +2384,11 @@ async function renderReaderRaw(path, label) {
       </div>
       <div class="prose" id="prose-content">${html}</div>
     </div>`;
-    linkifyIds(document.getElementById('prose-content'));
+    const proseEl = document.getElementById('prose-content');
+    linkifyIds(proseEl);
+    normalizeKbArchiveLinks(proseEl);
+    enhanceEvidenceLinks(proseEl);
+    linkifyReferences(proseEl);
     D.readerBody.scrollTop = 0;
   } catch (e) {
     D.readerBody.innerHTML = `<div class="err"><strong>读取失败。</strong><br>${esc(e.message)}</div>`;

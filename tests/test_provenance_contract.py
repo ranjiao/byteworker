@@ -26,6 +26,14 @@ class ProvenanceContractTests(unittest.TestCase):
         self.assertIn("sxParseEvidenceRefs", viewer)
         self.assertIn("sxEvidenceRefs[id]", viewer)
         self.assertIn(r"/^\[?E[1-9][0-9]*\]?$/", viewer)
+        self.assertIn("linkifyReferences", viewer)
+        self.assertIn("collectReferenceTargets", viewer)
+        self.assertIn("dataset.referenceLink", viewer)
+        self.assertIn("scrollIntoView({ behavior: 'smooth', block: 'center' })", viewer)
+        self.assertIn("Keep the app's location hash reserved for node routing", viewer)
+        self.assertIn("normalizeKbArchiveLinks", viewer)
+        self.assertIn("kbArchiveHref", viewer)
+        self.assertIn("return KB + match[1]", viewer)
 
     def test_viewer_info_section_does_not_treat_time_as_a_wide_key(self):
         viewer = (ROOT / "viewer/index.html").read_text(encoding="utf-8")
