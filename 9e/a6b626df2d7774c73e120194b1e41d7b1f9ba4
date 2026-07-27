@@ -1,0 +1,47 @@
+DESIGN.md
+  s_71ff566c94f4ce::t_ce3cfed17cc15e 169-171,196-203,655-660
+README.md
+  s_71ff566c94f4ce::t_ababbc10667b27 24-26,42
+SKILL.md
+  s_71ff566c94f4ce::t_bd17b48fc7d879 55-62,108-109,167-169
+TUTORIAL.md
+  s_71ff566c94f4ce::t_e78cc709eeecb9 57-58,63-64
+references/citations.md
+  s_71ff566c94f4ce::t_f5b826fde9bd04 1-110
+references/commands.md
+  s_71ff566c94f4ce::t_300edc43c54dbe 14-20,23,25-27,46-48,66-69
+references/digest-core.md
+  s_71ff566c94f4ce::t_539341c85003fc 43-46
+references/help.md
+  s_71ff566c94f4ce::t_c197e04fe1ab0e 13-14
+references/im-inbox-summary.md
+  s_71ff566c94f4ce::t_41accc16ecf0f5 194,197-202,210-211
+references/periodic-report.md
+  s_71ff566c94f4ce::t_05a65df3fe548f 33-36,42-43,58-60,83-84
+templates/report-daily.md
+  s_71ff566c94f4ce::t_9f7087ca1b53b3 5,11,25,27-29
+templates/report-im.md
+  s_71ff566c94f4ce::t_8c57c782f6898e 26,40,42-44
+templates/report-weekly.md
+  s_71ff566c94f4ce::t_9edab93eb8088e 5,11,25,27-29
+tests/test_citation_contract.py
+  s_71ff566c94f4ce::t_6fd7db30c2ccc0 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9ea6b626df2d7774c73e120194b1e41d7b1f9ba4",
+  "prompts": {},
+  "sessions": {
+    "s_71ff566c94f4ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa19d-4566-7d30-886e-b96f3deb76e9",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
