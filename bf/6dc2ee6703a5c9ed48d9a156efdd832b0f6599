@@ -1,0 +1,75 @@
+AGENTS.md
+  s_71ff566c94f4ce::t_10e34491922eb0 7
+DESIGN.md
+  s_71ff566c94f4ce::t_c0be08da16625c 46,55,76-77,246-268,293-294,311-312,335-345,555,613-617
+README.md
+  s_71ff566c94f4ce::t_355689a555f2ee 106
+SKILL.md
+  s_71ff566c94f4ce::t_f278a28ab66298 48-49,81,93-94,107-109,169
+bin/provenance-backfill.py
+  s_71ff566c94f4ce::t_7b154efc570fe3 1-176
+bin/pull-chat.sh
+  s_71ff566c94f4ce::t_c7f6d37db3bf25 6-8,20,24,35,103-105,108-109,136-154,165-175,185
+lib/digest_txn.py
+  s_71ff566c94f4ce::t_9432f9b7742531 32-43,110-112,637-815,886-888,892-897,953,1188-1189,1216,1227-1231,1246-1251,1307-1312,1331-1332,1336-1340
+lib/provenance_backfill.py
+  s_71ff566c94f4ce::t_48e4ba98af3fee 1-559
+references/citations.md
+  s_71ff566c94f4ce::t_36b90b0e3ac69d 4,27-28,108
+references/digest-chat.md
+  s_71ff566c94f4ce::t_9017fceec320b0 11-18
+references/digest-comments.md
+  s_71ff566c94f4ce::t_7fdc6fc97f5d05 72-75
+references/digest-core.md
+  s_71ff566c94f4ce::t_56d8deb2be9b8f 55-56,81-83,98
+references/digest-doc.md
+  s_71ff566c94f4ce::t_0224d09fe8aecd 11-12
+references/digest-transaction.md
+  s_71ff566c94f4ce::t_578d45aa7b3b65 12-13,23,47-50,122-123,135-136
+references/help.md
+  s_71ff566c94f4ce::t_c4c7cdc1e200cc 61
+references/provenance.md
+  s_71ff566c94f4ce::t_375a50472682ce 1-55
+references/write-rules.md
+  s_71ff566c94f4ce::t_265cd1d58a96b4 24
+templates/README.md
+  s_71ff566c94f4ce::t_23b614c381b136 40
+templates/digest-plan-v1.json
+  s_71ff566c94f4ce::t_ea0348573dd87c 47-72,77-84
+templates/node-area.md
+  s_71ff566c94f4ce::t_42d387e19d249f 12-13,21-22
+templates/node-decision.md
+  s_71ff566c94f4ce::t_b3ea1ca18a5126 12-13,22-23
+templates/node-event.md
+  s_71ff566c94f4ce::t_9a2af3208b2ad6 12-13,21-22
+templates/node-org.md
+  s_71ff566c94f4ce::t_2d3afa1bfdb058 12-13,21-22
+templates/node-person.md
+  s_71ff566c94f4ce::t_abdfc0a73fac71 13-14,22-23
+templates/node-project.md
+  s_71ff566c94f4ce::t_0e257ea08913d8 12-13,21-22
+templates/node-reading.md
+  s_71ff566c94f4ce::t_3a74f9b41902fc 12-13,21-22
+tests/test_digest_txn.py
+  s_71ff566c94f4ce::t_7c4264fc02d1a0 41,55-56
+tests/test_provenance_backfill.py
+  s_71ff566c94f4ce::t_657043f45565ef 1-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "bf6dc2ee6703a5c9ed48d9a156efdd832b0f6599",
+  "prompts": {},
+  "sessions": {
+    "s_71ff566c94f4ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa19d-4566-7d30-886e-b96f3deb76e9",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
