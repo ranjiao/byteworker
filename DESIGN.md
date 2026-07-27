@@ -42,6 +42,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/daily/weekly/inbox/help) |
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
+| `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
@@ -140,13 +141,21 @@ source_type: feishu_doc | feishu_minutes | feishu_meeting | feishu_chat | web | 
 source_uid: doxcnxxx / wiki_token / minute_token / URL / 本地绝对路径
 source_revision: "12"                       # 可选:飞书文档 revision_id / 外部 etag / git commit 等来源版本
 digest_period: 2026-05-20                   # 可选:滚动文档的周期;日期 / ISO 周需规范化
+payload_schema: byteworker-payload-v1       # 新事务写入的组件组合 hash 规范
+payload_components:                        # 本次实际摄取组件:name|kind|sha256
+  - body|body|sha256:<hex>
+  - comments|comments|sha256:<hex>
+  - whiteboard:doxxx|whiteboard|sha256:<hex>
 body_hash: sha256:<hex>                     # feishu_doc:本次实际摄取正文的 hash
 comment_hash: sha256:<hex>                  # feishu_doc:canonical comments 的 hash
 comments_status: complete | partial | unavailable  # feishu_doc:评论覆盖状态
 comment_count: 8                            # feishu_doc:本次完整快照中的评论卡片数
 comments_latest_at: 2026-05-20T14:25:00+08:00 # feishu_doc:最近评论/回复时间
+whiteboard_hash: sha256:<hex>               # 可选:全部已摄取白板 component 的组合 hash
+embedded_whiteboards: 2                     # 可选:实际纳入 payload 的内嵌白板数
+whiteboards_status: complete | partial      # 有白板时必填
 content_hash: sha256:<hex>                  # 本次实际摄取 payload(正文 + 评论等)的 hash
-digest_key: feishu_doc:doxcnxxx:2026-05-20:sha256:<body>:sha256:<comments>
+digest_key: feishu_doc:doxcnxxx:2026-05-20:sha256:<content>
 source_url: https://<feishu-url>           # 用户可打开的原始链接;本地 md 则填原路径
 source_title: Q2 路线图评审会
 digest_status: pending | digested | failed
@@ -178,23 +187,38 @@ feishu_doc 随后附 canonical 文档评论原始快照>
 - `related_source_urls` 只放已确认与本次 raw 同属一场会议 / 一组资料的其它原始链接,例如会议妙记
   对应的投屏文档、日历日程链接,或会议文档对应的妙记。找不到就不写,不得臆造。
 - `content_hash` 取**本次实际摄取 payload**的 SHA-256。普通来源的 payload 就是正文;飞书文档
-  payload 是本次选定正文 + 纳入 raw 的 canonical 评论快照。滚动周会的 `body_hash` 只 hash
-  被选中的周期正文,不是整篇文档;会议簇按合并后的实际 raw 正文 hash。
+  payload 是本次选定正文 + 纳入 raw 的 canonical 评论快照 + 实际读取的白板 / 表格等组件。
+  新事务写入使用 `byteworker-payload-v1`:每个 component 先按自己的 mode 得到 bytes,再按稳定
+  `name` 排序,用 component name 与内容长度作边界后组合 SHA-256,避免简单字符串拼接歧义。
+  `mode=verbatim` 逐 byte hash;`mode=canonical-json` 使用 UTF-8、key 排序、紧凑 JSON且不含抓取
+  时间。滚动周会的 `body_hash` 只 hash 被选中的周期正文,不是整篇文档;会议簇按合并后的实际
+  component 计算。
 - `feishu_doc` 必须额外写 `body_hash`、`comments_status`;评论完整时写 `comment_hash` /
   `comment_count` / `comments_latest_at`。canonical 评论快照包含全部评论(包括已解决)、完整回复链、
   作者 / 时间 / 解决状态及可取得的 relation 锚点,放在 raw 正文的独立章节。`comment_hash`
   不包含抓取时间。评论接口不可用 / 分页不完整时分别写 `unavailable` / `partial`,不得伪造空
   评论 hash;历史 raw 缺这些字段只表示当时未记录评论覆盖。
+- 正文中的内嵌 whiteboard 随当前文档摄取:结构化节点 JSON 是 raw 证据 component,整体预览只
+  用于 Agent视觉复核。全部 token 成功读取才写 `whiteboards_status: complete`;任何缺失写
+  `partial`。白板画出架构不证明系统已上线。
 - `digest_key` 由 `source_type + source_uid + digest_period/source_window + content_hash` 组成,用于
-  判断完全重复摄取。飞书文档的 key 语义上展开为
-  `source_type + source_uid + digest_period + body_hash + comment_hash`;评论变化可独立触发新版本。
-  普通非滚动文档可省略 `digest_period`;群聊使用 `source_window`。
+  判断完全重复摄取。新格式固定为
+  `source_type:source_uid:digest_period-or-window-or--:content_hash`;评论或白板任一 component
+  变化都可独立触发新版本。普通非滚动文档用 `-` 占周期位;群聊使用 `source_window`。
 - 完全相同 `digest_key` 已存在且 `digest_status: digested` → 本次 digest 必须 no-op,只向用户说明
   已摄取过,不得重复写 raw / 节点 / journal。
 - 同一 `source_uid + digest_period/source_window` 但 `content_hash` 不同 → 视为同源新版本,新写一个
   raw(唯一 `raw_id`,不覆盖旧 raw),并按 digest 流程更新已有主记录与实体节点。
 - 同源同内容但历史 raw 缺少 `digest_key` 字段时,用 `source_uid/source_url + digest_period +
-  content_hash` 近似比对;命中则按已摄取处理,可只补运维 frontmatter 字段,不得改 raw 正文。
+  content_hash` 近似比对;新事务还兼容比较旧 `body_hash` / `comment_hash` /
+  `whiteboard_hash` 以及历史“组件末尾补换行后直接拼接”的组合 hash。命中则按已摄取处理,可只
+  补运维 frontmatter 字段,不得改 raw 正文。旧 raw
+  缺少 `payload_schema` / `payload_components` 是合法历史状态,不做启动时全库迁移。
+
+**标准 digest 写入事务**:`bin/digest-txn.py` 在 Agent完成依赖判断、冲突裁决和完整候选节点后,
+一次性校验并写入 raw/节点/INDEX/journal,成功时 raw 可直接落为 `digest_status: digested`;
+因为任何文件在全部候选校验通过前都不可见,失败会恢复事务前快照。手工/旧流程若先落 raw 再
+消化,仍使用 `pending → digested|failed`;两种状态语义兼容。
 
 **`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行,**同一群可多次增量摄取**。
 frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)、
@@ -460,6 +484,7 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 ```
 templates/
   README.md            模板使用说明
+  digest-plan-v1.json  digest 事务临时 manifest 结构参考(填业务内容后只能放系统临时目录)
   node-person.md       \
   node-project.md       \
   node-area.md           \  各 = §4.1 通用 frontmatter
@@ -537,6 +562,12 @@ templates/
    也可触发同源新版本。直属上司与用户点名特别关注人员只提高抽取 / 提醒优先级,其观点仍按
    【主张】/【意图】/【观察】呈现,不自动升级为客观事实。见 §3、
    `references/digest-comments.md`。
+18. **digest 确定性事务 + payload components** — Agent继续负责语义理解、依赖范围、冲突、
+   实体消解与候选正文;`bin/digest-txn.py` 固化逐组件 hash、兼容幂等、候选 schema、
+   `base_sha256` 并发保护、原子写入/回滚、INDEX/journal 与精确本地 commit。新 raw 用
+   `byteworker-payload-v1` 描述正文、评论、白板等实际 payload;旧 raw 只读兼容、不强制迁移。
+   飞书正文内嵌白板默认随当前来源读取结构 JSON + 预览,视觉推断不硬化为事实。见 §3、
+   `references/digest-transaction.md`、`references/digest-whiteboard.md`。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 

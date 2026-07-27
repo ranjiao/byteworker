@@ -89,10 +89,11 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 **触发**:子命令 `digest`;或自然语言 —— 用户给出飞书文档/妙记 URL、会议、群、外部文章或本地 md,说"存入知识库""消化这个""记一下"等。
 
 完整主流程已拆到 `references/digest-core.md`。执行 digest 前必须先读它和
-`references/digest-dependencies.md`(识别重要依赖、必要时向用户确认扩展范围);再按来源类型加读对应细则:
+`references/digest-dependencies.md`(识别重要依赖、必要时向用户确认扩展范围)以及
+`references/digest-transaction.md`(确定性 hash / 幂等 / 写入事务);再按来源类型加读对应细则:
 
 - `feishu_doc` → `references/digest-doc.md`(正文 + 全部评论 / 回复;该文件继续路由
-  `references/digest-comments.md`)
+  `references/digest-comments.md`;正文含白板时再路由 `references/digest-whiteboard.md`)
 - `feishu_chat` → `references/digest-chat.md`
 - `web` / 内部资料型文档 → `references/digest-reading.md`
 - 会议簇(日历 / 投屏文档 / 妙记同属一场会) → `references/digest-meeting.md`
@@ -100,7 +101,10 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 - 大型输入 → `references/digest-large.md`
 - 不带来源的 digest / 跑定期摄取 → `references/digest-routine.md`
 
-写入遵守 `references/write-rules.md`;失败处理见 `references/error-handling.md`。
+标准 digest 写入必须由 Agent生成临时 manifest 与完整候选节点,再通过
+`bin/digest-txn.py preflight / validate / execute` 完成;脚本只固化确定性执行,语义判断、冲突
+裁决、实体取舍和节点正文仍由 Agent负责。不得为单篇业务资料在 skill 仓库生成硬编码写入脚本。
+其它写入遵守 `references/write-rules.md`;失败处理见 `references/error-handling.md`。
 
 ## search / update / brief / dashboard / context
 

@@ -1,0 +1,66 @@
+{
+  "schema_version": "digest-plan/v1",
+  "source": {
+    "type": "feishu_doc",
+    "uid": "<document_id>",
+    "revision": "<revision_id>",
+    "url": "<original_url>",
+    "title": "<source_title>",
+    "comments_status": "complete",
+    "comment_count": 0,
+    "comment_reply_count": 0,
+    "comments_latest_at": "<ISO8601_or_omit>",
+    "whiteboards_status": "complete",
+    "components": [
+      {
+        "name": "body",
+        "kind": "body",
+        "path": "<temporary_body_text_path>",
+        "mode": "verbatim"
+      },
+      {
+        "name": "comments",
+        "kind": "comments",
+        "path": "<temporary_comments_snapshot_path>",
+        "json_pointer": "/comments",
+        "mode": "canonical-json",
+        "coverage": "complete",
+        "heading": "文档评论原始快照"
+      },
+      {
+        "name": "whiteboard:<token>",
+        "kind": "whiteboard",
+        "uid": "<token>",
+        "path": "<temporary_whiteboard_json_path>",
+        "mode": "canonical-json",
+        "coverage": "complete",
+        "heading": "<whiteboard_title>"
+      }
+    ]
+  },
+  "raw": {
+    "raw_id": "raw-<YYYY-MM-DD>-<slug>",
+    "path": "raw_data/<YYYY-MM-DD>-<slug>.md",
+    "excluded_dependencies": [],
+    "extra_frontmatter": {}
+  },
+  "nodes": [
+    {
+      "op": "create",
+      "path": "knowledge/readings/reading-<slug>.md",
+      "candidate": "<temporary_complete_candidate_path>"
+    },
+    {
+      "op": "update",
+      "path": "knowledge/projects/project-<slug>.md",
+      "candidate": "<temporary_complete_candidate_path>",
+      "base_sha256": "sha256:<hash_of_existing_file_read_by_agent>"
+    }
+  ],
+  "journal": {
+    "summary": "《<source_title>》"
+  },
+  "commit": {
+    "message": "digest <short source title>"
+  }
+}
