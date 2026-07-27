@@ -40,8 +40,10 @@
    当前对象照常 digest,但把受影响结论标为「依赖未摄取 / 待核实」。同场会议簇的组成物件仍按
    `references/digest-meeting.md` 的整体确认处理,不重复询问。
 5. **落原文** —— 写 `raw_data/<YYYY-MM-DD>-<slug>.md`:逐字原文 + frontmatter(`digest_status:
-   pending`)。frontmatter 必须尽量写 `source_url`(用户可打开的原始链接);会议 / 资料簇若发现
-   其它同源物件,写 `related_source_urls`。**raw 正文一旦写入永不改写**;digest 完成 / 失败 / 纳入 routine 时,只允许更新
+   pending`)。必须写准确的 `ingested` 与 `source_type`;有名称的来源必须写 `source_title`
+   (群聊写 `source_chat_name`)。飞书文档、妙记 / 录屏、日历会议、网页等可打开来源必须写
+   `source_url`,不能因为节点里已有链接就省略;确实无法取得链接时写入前向用户说明该缺口,
+   不得臆造。会议 / 资料簇若发现其它同源物件,写 `related_source_urls`。**raw 正文一旦写入永不改写**;digest 完成 / 失败 / 纳入 routine 时,只允许更新
    frontmatter 的运维字段。若目标文件或 `raw_id` 已存在,必须追加 `-2`/`-3` 或 revision/hash
    后缀生成唯一文件名,**绝不覆盖旧 raw**。
 6. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名、

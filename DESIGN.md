@@ -166,7 +166,9 @@ related_source_urls:                       # 可选:同一会议簇 / 资料簇�
 - `source_revision` 记录来源版本:飞书文档用 `revision_id`;无明确版本时可为空,以 `content_hash`
   判重。
 - `source_url` 是**用户可点击回原始资料的链接**。飞书文档 / 妙记 / 日历会议 / 外部网页必须尽量
-  保留;可以去掉无意义的 `from=` 等跟踪 query,但不得丢失能打开该资源的主链接。本地文件填绝对路径。
+  保留;新摄取中只要来源本身可打开就是必填。可以去掉无意义的 `from=` 等跟踪 query,但不得丢失
+  能打开该资源的主链接。本地文件填绝对路径。`source_title` 对有标题的来源必填;
+  群聊使用 `source_chat_name`。
 - `related_source_urls` 只放已确认与本次 raw 同属一场会议 / 一组资料的其它原始链接,例如会议妙记
   对应的投屏文档、日历日程链接,或会议文档对应的妙记。找不到就不写,不得臆造。
 - `content_hash` 取**本次实际摄取正文**的 SHA-256。滚动周会只 hash 被选中的周期正文,不是整篇文档;
@@ -190,6 +192,14 @@ frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)
 
 **`web` 变体**:外部读物(blog / 论文 / wiki)。`source_url` 填文章链接(本地 PDF 则填路径),
 `source_title` 填文章标题。正文为宿主 agent 抓取/读取到的文章正文。
+
+**回答引用读取约定**:`raw_data` 是用户可见知识库回答的引用真相源。任何来自节点 / 报告 /
+journal / dashboard 派生内容的事实,回答时都要沿 `sources` / 来源索引回到 raw,读取
+`source_title` / `source_url` / `source_type` / `ingested` 以及 `digest_period` /
+`source_window` / `source_revision`,按 `references/citations.md` 输出论文式引用。
+`ingested` 是 byteworker 的收录时间,不得拿节点 `created` / `updated` / `last_verified`、
+raw 文件名或 git 时间替代。历史 raw 缺字段时必须明确披露,不能猜测;关键结论缺原始出处或
+收录时间时置信度最高为中。
 
 **`routine` 字段(可选)**:若来源是**会定期更新**的源(滚动周会文档、群聊等),经用户确认
 纳入「定期摄取」后,frontmatter 加 `routine: weekly`(cadence,默认 `weekly`);该源后续每个
@@ -642,6 +652,11 @@ reports/
 - **覆盖规则**:同一日期 / 周 / IM 窗口再次生成可覆盖报告正文;若旧报告有 `## 手动补充 / 备注`,必须保留该章节内容。
 - **IM 报告命名**:自然日窗口用 `reports/im/<YYYY-MM-DD>.md`;非自然日窗口用 `reports/im/<start>__<end>.md`,文件名中的 `:` 替换为 `-`。
 - **排序**:章节内带时间条目按事件发生时间倒序;时间不明放末尾并标注。
-- **溯源**:每个事实性条目带节点 id、raw_id、journal 日期,或 IM 的 chat / window / message_ids;无来源不写事实结论。
+- **溯源**:每个事实性条目在正文用 `[S<n>]` 绑定引用;「引用」章节(旧报告为「来源索引」)
+  继续沿节点 / 报告 / journal
+  追到原始 raw,列具体文档 / 妙记录屏 / 会议 / 群聊窗口、原文时间或覆盖范围、`ingested`
+  收录时间、版本与 raw_id。节点 id、raw_id、journal 日期或报告路径不能单独充当原始出处;
+  无来源不写事实结论。IM 尚未形成 raw 时列 chat / window / message_ids 与报告生成时间,
+  并明确它不是标准 digest。
 - **边界**:`reports/im/` 只保存最终精判摘要、统计、warning 与来源窗口;不保存全量聊天原文,也不替代 `raw_data/`。若某个 thread 需要长期沉淀,按 IM Inbox 规则重新拉小窗口并走 `references/digest-chat.md` 生成标准 raw / event / project 更新。
 - **git**:报告写入后按写入规范在知识库数据目录本地 git 创建回滚点,永不 push。
