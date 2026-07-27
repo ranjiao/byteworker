@@ -52,6 +52,14 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 **全局上下文(每次必读)**:读知识库数据目录下的 `context.md` —— 固定包含使用者身份、职责范围、当前重点、主管方向、当前约束、交互与提醒偏好、背景信息(见 DESIGN.md §10)。把它作为本次 digest / search / brief / dashboard / todo 的**「透镜」**:身份表用于本人识别,职责 / 重点用于相关性判断,时区 / 默认时间用于 Todo 自然语言解析。身份 / 职责是**用户提供的信息**;当前重点 / 主管方向等主观内容呈现时标为「你的视角 / 用户陈述」,不硬化为客观事实。`context.md` 是真相源 —— **本流程(操作前必读 / digest / search 等)中只读、绝不擅自改写**;用户要增删改走子命令 `context`。文件不存在 → 整份复制 `templates/context.md` 初始化;姓名 / 别名 / feishu_id 仍是“待补充”且本次任务需要识别本人时,合并成一次简短询问,不在无关操作中反复打断。
 
+**知识库检索回答引用(每次必做)**:凡用户可见回答中的事实来自 `knowledge/`、`raw_data/`、
+`reports/`、`journal/` 或 `dashboard.md` 派生内容,必须读取并执行
+[`references/citations.md`](references/citations.md):正文用 `[S1]` 等编号把具体结论绑定到证据,
+末尾逐条给出原始文档 / 妙记录屏 / 会议 / 群聊窗口 / 网页 / 本地文件、原文时间或覆盖范围、
+raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报告路径;缺字段必须明确写
+“未记录”并降低置信度,不得用文件名或节点更新时间猜测。此规则覆盖 `search`、`brief`、
+`dashboard`、日报 / 周报 / IM 报告的生成与回显,以及任何实际检索知识库的自然语言回答。
+
 **Todo 状态检查(每次必做)**:完成上面的 `context.md` 读取后,按 `references/todo.md` 运行 `python3 bin/todo.py <知识库目录> init --template templates/todo.md` 与 `check`。没有到期 / 临期事项则静默;有则在当前回答开头提醒,真正展示后调用 `mark-reminded` 限频。检查不等于后台推送:只能保证每次 byteworker 被宿主加载并运行时执行,不能保证未加载本 skill 的无关对话或无对话时主动提醒。
 
 **长流程状态输出**:digest / 跑定期摄取 / daily / weekly / IM Inbox / 大输入摄取等可能耗时较久的多步操作,必须给用户阶段性状态,避免长时间沉默。规则:
@@ -97,7 +105,8 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 这些子命令的完整流程已拆到 `references/commands.md`。执行前按需读取对应小节:
 
-- `search`:查询知识库。必须双路召回(语义扫 INDEX + 全文 grep),并沿 `links` 做图遍历;答案必须附 sources 与置信度。
+- `search`:查询知识库。必须双路召回(语义扫 INDEX + 全文 grep),并沿 `links` 做图遍历;按
+  `references/citations.md` 给每条知识库事实附原始出处、收录时间与置信度。
 - `update`:定位目标节点,必要时先 digest 新输入为 raw,再做冲突检测与合并。
 - `brief`:读取日程,按会议主题/参会人查知识库并生成会前上下文。
 - `dashboard`:刷新或维护 `dashboard.md`。派生视图可重算,固定/手动项保留。
@@ -155,5 +164,6 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 错误处理表已拆到 `references/error-handling.md`。摄取/写入失败时按该文件处理:无权限或资源失效中止、不写 raw;会议无纪要提示稍后;网络超时重试一次;写入中断依靠 temp-then-move 保证不留下半成品。
 
-> LLM digest 有丢事实/幻觉风险:`raw_data` 逐字保留 + 节点 `sources` 溯源,
-> 任何答案都可回原文核对。digest 时不确定的内容宁可标注存疑,不臆造。
+> LLM digest 有丢事实/幻觉风险:`raw_data` 逐字保留 + 节点 `sources` 溯源。
+> 任何知识库回答都必须把结论绑定到原始出处并展示收录时间,使用户能回原文核对并判断是否过期。
+> digest 时不确定的内容宁可标注存疑,不臆造。

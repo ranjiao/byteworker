@@ -191,10 +191,15 @@ bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.jso
 
 - 写入前确保 `reports/im/` 目录存在;老知识库没有该目录时直接创建。
 - 自然日窗口写 `reports/im/<YYYY-MM-DD>.md`;非自然日窗口写 `reports/im/<start>__<end>.md`,文件名中的 `:` 替换为 `-`。
-- 复制 `templates/report-im.md` 的结构,填入最终精判摘要、待办、风险、待确认项、来源索引与扫描统计。
+- 复制 `templates/report-im.md` 的结构,填入最终精判摘要、待办、风险、待确认项、引用与扫描统计。
 - 只保存最终精判后的摘要;不要把脚本 candidate JSON 全量写入知识库。candidate JSON 默认留在 `/tmp`。
 - 报告是可覆盖快照:同一窗口再次生成可以覆盖原文件,但要保留用户已手动补充的 `## 手动补充 / 备注` 章节内容。
-- 每条事实性摘要包括时间、群 / 会话、为什么重要、待办 / 风险、来源窗口或 message_ids。
+- 每条事实性摘要包括时间、群 / 会话、为什么重要、待办 / 风险、来源窗口或 message_ids,
+  并就近标 `[S<n>]`。
+- 「引用」章节按 `references/citations.md` 展开:未提升为标准 digest 的 thread 写群 / 会话名、
+  `chat_id`、消息时间或窗口、`message_ids`、报告 `generated_at`,并明确“尚未形成标准 digest
+  raw,无原始文档 / 录屏链接”;因此这类证据不得标为高置信。已提升为 digest 的 thread 改为
+  引用对应 raw 的原始出处与 `ingested` 收录时间。
 - 结合 `context.md` 的“我的身份 / 我的职责范围”对“待办 / 需要跟进”做 Todo 候选判定;
   报告照常保存来源事实,汇报时按 `references/todo.md` 一次性询问哪些加入 `todo.md`,未经确认不写。
 - 汇总采集统计:扫描会话数、原始消息数、候选 thread 数、LLM 精判数、是否截断。
@@ -202,7 +207,8 @@ bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.jso
 
 若作为 `daily` 的一部分:
 
-- 先生成 / 更新对应 `reports/im/` 报告,再把高置信项写进日报相关章节;日报「来源索引」引用该 IM 报告路径。
+- 先生成 / 更新对应 `reports/im/` 报告,再把高置信项写进日报相关章节;日报可注明经由该 IM
+  报告,但仍须展开 chat / window / message_ids / 扫描时间,或已生成 raw 的原始出处与收录时间。
 - 低置信但可能重要的项放「待确认」,不要写成事实。
 
 若 `should_digest_kb=true`:
