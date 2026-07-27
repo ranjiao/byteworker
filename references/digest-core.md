@@ -15,19 +15,23 @@
 
 1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` / `feishu_chat` / `web` / `local_md`。**若输入是一整场会议**(日历会议链接 / 日程,或同属一场会的投屏文档 + 妙记多个 URL)→ 这是「会议簇」,整体摄取成一个 event,见下方场景细则。
 2. **摄取原文**:
-   - `feishu_doc` → 用 `lark-doc +fetch --api-version v2` 读取文档正文。**摄取前必读** `references/digest-doc.md`。
+   - `feishu_doc` → 用 `lark-doc +fetch --api-version v2 --detail with-ids` 读取文档正文,并按
+     `references/digest-comments.md` 独立读取全部评论(含已解决)、完整回复链和正文锚点。
+     **摄取前必读** `references/digest-doc.md` 与它路由的评论细则。
    - `feishu_minutes` → 优先用 `lark-vc` / `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿;若只有会议号/日程,先用 `lark-vc` 定位会议产物和 minute token。若能从妙记元数据、会议名/时间、日历日程、纪要正文中的文档引用找到对应会议文档,把这些链接记为 `related_source_urls` 并写入 event「事件信息」。
    - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物;拿到 minute token 后再取妙记正文 / AI 产物。同步 best-effort 查找该会议的日历链接和会议文档链接,找到则写入 raw / event,找不到不臆造。
    - `feishu_chat` → 运行 `bin/pull-chat.sh` 拉取群聊(底层调 lark-im,自动定位群 + 分页拉全 + 输出逐字转写)。**摄取前必读** `references/digest-chat.md`。
    - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
    - `local_md` → 直接读取本地文件。
    失败按 `references/error-handling.md` 中止。
-3. **幂等检查** —— 在写 raw 前,先为本次实际摄取正文计算 `source_uid` / `source_revision`
-   / `digest_period` 或 `source_window` / `content_hash` / `digest_key`(字段含义见 DESIGN.md §3),
-   并扫描 `raw_data/`:
+3. **幂等检查** —— 在写 raw 前,先为本次实际摄取内容计算 `source_uid` / `source_revision`
+   / `digest_period` 或 `source_window` / `content_hash` / `digest_key`(字段含义见 DESIGN.md §3)。
+   飞书文档还必须分别计算正文 `body_hash` 与评论 `comment_hash`;评论变化不依赖正文 revision,
+   不能因正文未变而跳过评论复查。然后扫描 `raw_data/`:
    - 完全相同 `digest_key` 已存在且 `digest_status: digested` → **no-op**:不写 raw、不改节点、
      不追加 journal;向用户说明"该来源同一版本已摄取过",并列出已有 `raw_id` / `digest_targets`。
-   - 同一 `source_uid + digest_period/source_window` 但 `content_hash` 不同 → 视为同源新版本:
+   - 同一 `source_uid + digest_period/source_window` 但 `content_hash` 不同(含飞书文档
+     `comment_hash` 单独变化)→ 视为同源新版本:
      继续流程,但后续必须更新已有主记录节点,不得另起重复 `reading` / `event` / `decision`。
    - 历史 raw 缺少 `digest_key` 时,用 `source_uid/source_url + digest_period/source_window +
      content_hash` 近似比对;若正文 hash 相同,也按已摄取处理。必要时只补 raw frontmatter 的
@@ -64,7 +68,10 @@
    - **实体消解**(DESIGN.md §4.3):建实体前在 INDEX 比对,命中则更新而非新建。`person` **必须先解析 `feishu_id`**(飞书英文 id、全局唯一;文档/群聊里的 open_id 用 `bin/resolve-users.sh` 解析,写进 person frontmatter `feishu_id`)。**新建 person 不允许写 `feishu_id: ?`**;解析失败时先不要建 person,在主记录正文保留姓名 / open_id 并汇报「待解析人物」。**同名陷阱** —— 中文名相同但 `feishu_id` 不同 = 不同的人,**不合并**、**向用户确认后**各自建节点;`project`/`org`/`area` 按名比对,有歧义问用户。
    - **参与方立场分析**(细则 `references/digest-analysis.md`):`event` 除字面结论外,对每个关键参与方分析其立场、利益/动机、对决策的态度,并沉淀进对应 `person` 节点。**必须基于发言证据**,区分【观察】与【推断】,证据不足标「证据有限」,**不做无证据的发散猜测**。
    - **思路与视角沉淀**(细则 `references/digest-analysis.md`):摄取时若有人(使用者/主管/同事)陈述了对某 `project`/`area` 的思路、想法、打法或意图 → 在该节点「思路与视角」章节追加一条带日期、带作者、带【主张】/【意图】标记的条目(按事件发生时间倒序)。第一方陈述用【主张】/【意图】,从发言推断仍用【推断】;**绝不把主观意图当成客观结论**。跨主题、不挂某个项目的工作底色不进节点,留给使用者维护 `context.md`。
-   - **结合 `context.md` 重点关注**(操作前必读已把 `context.md` 当透镜加载):凡文档涉及 `context.md` 里记录的**使用者本人、其项目 / 团队、其关注的人(如直属领导)及这些人的指令 / 表态** —— 重点抽取、确保进入相应节点,不淡化、不漏。
+   - **结合 `context.md` 重点关注**(操作前必读已把 `context.md` 当透镜加载):凡正文或评论涉及
+     `context.md` 里记录的**使用者本人、其项目 / 团队、直属上司 / 汇报对象、用户点名特别关注的
+     人员及这些人的指令 / 表态** —— 重点抽取、确保进入相应节点,不淡化、不漏。评论的 P0 / P1
+     优先级与证据语义见 `references/digest-comments.md`;职位高只提高关注度,不自动提高事实置信度。
    - **重点高亮**:文档若提到**重大事故、指标重大变化、或其它需要 highlight 的内容** → 在对应节点**显著记录**(如 `event` 的「结论」、`project` 的「关键进展 / 问题 / 风险」),并在汇报时**单独、突出**地提醒用户。
    - **Todo 候选识别**(细则 `references/todo.md`):结合 `context.md` 的“我的身份 / 我的职责范围 / 当前重点”,识别明确 @本人 / 指派给本人,或职责范围内需要用户关注的行动、DDL、风险、待确认项。明确分配给别人、已完成 / 取消、一般广播不列候选;模型推导只能标“推断”。来源待办照常写进 event / report,但**未经用户确认不得写 `todo.md`**。
 8. **写入** —— 每个节点按 `templates/node-<type>.md` 骨架生成,遵守 `references/write-rules.md`。

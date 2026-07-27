@@ -40,6 +40,21 @@ class CitationContractTests(unittest.TestCase):
                 self.assertIn("## 引用", template)
                 self.assertRegex(template, r"收录|扫描")
 
+    def test_document_comments_are_versioned_and_citable(self) -> None:
+        skill = self.read("SKILL.md")
+        doc_rules = self.read("references/digest-doc.md")
+        comment_rules = self.read("references/digest-comments.md")
+        citations = self.read("references/citations.md")
+        routine = self.read("references/digest-routine.md")
+
+        self.assertIn("references/digest-comments.md", skill)
+        self.assertIn("pull_doc_comments.py", doc_rules)
+        self.assertIn("solved_status=all", comment_rules)
+        self.assertIn("直属上司", comment_rules)
+        self.assertIn("特别关注", comment_rules)
+        self.assertIn("comment_id", citations)
+        self.assertIn("comment_hash", routine)
+
 
 if __name__ == "__main__":
     unittest.main()

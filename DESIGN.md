@@ -140,8 +140,13 @@ source_type: feishu_doc | feishu_minutes | feishu_meeting | feishu_chat | web | 
 source_uid: doxcnxxx / wiki_token / minute_token / URL / 本地绝对路径
 source_revision: "12"                       # 可选:飞书文档 revision_id / 外部 etag / git commit 等来源版本
 digest_period: 2026-05-20                   # 可选:滚动文档的周期;日期 / ISO 周需规范化
-content_hash: sha256:<hex>                  # 本次实际摄取正文的 hash
-digest_key: feishu_doc:doxcnxxx:2026-05-20:sha256:<hex>
+body_hash: sha256:<hex>                     # feishu_doc:本次实际摄取正文的 hash
+comment_hash: sha256:<hex>                  # feishu_doc:canonical comments 的 hash
+comments_status: complete | partial | unavailable  # feishu_doc:评论覆盖状态
+comment_count: 8                            # feishu_doc:本次完整快照中的评论卡片数
+comments_latest_at: 2026-05-20T14:25:00+08:00 # feishu_doc:最近评论/回复时间
+content_hash: sha256:<hex>                  # 本次实际摄取 payload(正文 + 评论等)的 hash
+digest_key: feishu_doc:doxcnxxx:2026-05-20:sha256:<body>:sha256:<comments>
 source_url: https://<feishu-url>           # 用户可打开的原始链接;本地 md 则填原路径
 source_title: Q2 路线图评审会
 digest_status: pending | digested | failed
@@ -157,7 +162,8 @@ related_source_urls:                       # 可选:同一会议簇 / 资料簇�
 
 # Q2 路线图评审会
 
-<逐字原文 / lark-minutes 纪要+逐字稿 / lark-doc 文档正文,原样粘贴>
+<逐字原文 / lark-minutes 纪要+逐字稿 / lark-doc 文档正文,原样粘贴;
+feishu_doc 随后附 canonical 文档评论原始快照>
 ```
 
 **幂等键与重复摄取**:
@@ -171,10 +177,18 @@ related_source_urls:                       # 可选:同一会议簇 / 资料簇�
   群聊使用 `source_chat_name`。
 - `related_source_urls` 只放已确认与本次 raw 同属一场会议 / 一组资料的其它原始链接,例如会议妙记
   对应的投屏文档、日历日程链接,或会议文档对应的妙记。找不到就不写,不得臆造。
-- `content_hash` 取**本次实际摄取正文**的 SHA-256。滚动周会只 hash 被选中的周期正文,不是整篇文档;
-  会议簇按合并后的实际 raw 正文 hash。
+- `content_hash` 取**本次实际摄取 payload**的 SHA-256。普通来源的 payload 就是正文;飞书文档
+  payload 是本次选定正文 + 纳入 raw 的 canonical 评论快照。滚动周会的 `body_hash` 只 hash
+  被选中的周期正文,不是整篇文档;会议簇按合并后的实际 raw 正文 hash。
+- `feishu_doc` 必须额外写 `body_hash`、`comments_status`;评论完整时写 `comment_hash` /
+  `comment_count` / `comments_latest_at`。canonical 评论快照包含全部评论(包括已解决)、完整回复链、
+  作者 / 时间 / 解决状态及可取得的 relation 锚点,放在 raw 正文的独立章节。`comment_hash`
+  不包含抓取时间。评论接口不可用 / 分页不完整时分别写 `unavailable` / `partial`,不得伪造空
+  评论 hash;历史 raw 缺这些字段只表示当时未记录评论覆盖。
 - `digest_key` 由 `source_type + source_uid + digest_period/source_window + content_hash` 组成,用于
-  判断完全重复摄取。普通非滚动文档可省略 `digest_period`;群聊使用 `source_window`。
+  判断完全重复摄取。飞书文档的 key 语义上展开为
+  `source_type + source_uid + digest_period + body_hash + comment_hash`;评论变化可独立触发新版本。
+  普通非滚动文档可省略 `digest_period`;群聊使用 `source_window`。
 - 完全相同 `digest_key` 已存在且 `digest_status: digested` → 本次 digest 必须 no-op,只向用户说明
   已摄取过,不得重复写 raw / 节点 / journal。
 - 同一 `source_uid + digest_period/source_window` 但 `content_hash` 不同 → 视为同源新版本,新写一个
@@ -518,6 +532,11 @@ templates/
    event / report 的待办只保留来源事实,不承担完成状态。digest 只产候选、必须经用户确认后入 Todo;
    用户日常以“明天提醒我”“刚才那个做完了”等自然语言操作,id 仅供内部关联。每次 skill 运行
    拉取式检查到期 / 临期项;无对话时不承诺后台推送,也不调用 `lark-task`。见 §11、references/todo.md。
+17. **飞书文档评论进入证据链** — `feishu_doc` 正文与评论独立拉取、独立 hash;raw 保留全部评论
+   (含已解决)、完整回复链、作者 / 时间 / 解决状态和正文锚点。评论变化即使不改变正文 revision
+   也可触发同源新版本。直属上司与用户点名特别关注人员只提高抽取 / 提醒优先级,其观点仍按
+   【主张】/【意图】/【观察】呈现,不自动升级为客观事实。见 §3、
+   `references/digest-comments.md`。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 
