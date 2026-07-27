@@ -14,11 +14,15 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from digest_txn import (  # noqa: E402
+    BATCH_PLAN_SCHEMA,
     DigestTxnError,
+    batch_validation_report,
+    execute_batch_plan,
     execute_plan,
     load_manifest,
     preflight,
     sha256_file,
+    validate_batch_plan,
     validate_plan,
     validation_report,
 )
@@ -77,6 +81,27 @@ def reject_business_files_in_skill(manifest_path: Path, manifest: dict) -> None:
         raise DigestTxnError(
             "manifest 可能包含业务数据，必须放系统临时目录，不能放 skill 仓库"
         )
+    sources = []
+    if isinstance(manifest.get("source"), dict):
+        sources.append(manifest["source"])
+    if isinstance(manifest.get("inputs"), list):
+        sources.extend(
+            item.get("source", {})
+            for item in manifest["inputs"]
+            if isinstance(item, dict) and isinstance(item.get("source"), dict)
+        )
+    for source in sources:
+        for component in source.get("components", []):
+            if not isinstance(component, dict) or not component.get("path"):
+                continue
+            component_path = Path(str(component["path"]))
+            if not component_path.is_absolute():
+                component_path = manifest_path.parent / component_path
+            if inside_skill(component_path):
+                raise DigestTxnError(
+                    "source component 可能包含业务数据，必须放系统临时目录，不能放 skill 仓库"
+                )
+
     for node in manifest.get("nodes", []):
         if not isinstance(node, dict) or not node.get("candidate"):
             continue
@@ -127,9 +152,15 @@ def main() -> int:
                 raise DigestTxnError("manifest.source 必须是对象")
             output = preflight(kb, source, manifest_path.resolve())
         elif args.command == "validate":
-            output = validation_report(validate_plan(kb, manifest_path))
+            if manifest.get("schema_version") == BATCH_PLAN_SCHEMA:
+                output = batch_validation_report(validate_batch_plan(kb, manifest_path))
+            else:
+                output = validation_report(validate_plan(kb, manifest_path))
         else:
-            output = execute_plan(kb, manifest_path, ROOT)
+            if manifest.get("schema_version") == BATCH_PLAN_SCHEMA:
+                output = execute_batch_plan(kb, manifest_path, ROOT)
+            else:
+                output = execute_plan(kb, manifest_path, ROOT)
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0
     except DigestTxnError as exc:

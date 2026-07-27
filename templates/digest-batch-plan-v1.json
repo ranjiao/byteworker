@@ -1,0 +1,85 @@
+{
+  "schema_version": "digest-batch-plan/v1",
+  "inputs": [
+    {
+      "source": {
+        "type": "feishu_doc",
+        "uid": "<document_id_a>",
+        "revision": "<revision_id>",
+        "url": "<original_url_a>",
+        "title": "<source_title_a>",
+        "components": [
+          {
+            "name": "body",
+            "kind": "body",
+            "path": "<system_temporary_body_a>",
+            "mode": "verbatim"
+          }
+        ]
+      },
+      "raw": {
+        "raw_id": "raw-<YYYY-MM-DD>-<slug-a>",
+        "path": "raw_data/<YYYY-MM-DD>-<slug-a>.md"
+      },
+      "provenance": {
+        "enrichment": "live",
+        "anchors": []
+      }
+    },
+    {
+      "source": {
+        "type": "feishu_doc",
+        "uid": "<document_id_b>",
+        "revision": "<revision_id>",
+        "url": "<original_url_b>",
+        "title": "<source_title_b>",
+        "components": [
+          {
+            "name": "body",
+            "kind": "body",
+            "path": "<system_temporary_body_b>",
+            "mode": "verbatim"
+          }
+        ]
+      },
+      "raw": {
+        "raw_id": "raw-<YYYY-MM-DD>-<slug-b>",
+        "path": "raw_data/<YYYY-MM-DD>-<slug-b>.md"
+      },
+      "provenance": {
+        "enrichment": "live",
+        "anchors": []
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "op": "create",
+      "path": "knowledge/readings/reading-<slug>.md",
+      "candidate": "<system_temporary_complete_candidate>",
+      "source_raw_ids": [
+        "raw-<YYYY-MM-DD>-<slug-a>",
+        "raw-<YYYY-MM-DD>-<slug-b>"
+      ],
+      "primary_source": "raw-<YYYY-MM-DD>-<slug-a>",
+      "evidence": [
+        {
+          "id": "E1",
+          "raw_id": "raw-<YYYY-MM-DD>-<slug-a>",
+          "anchor_id": "source"
+        },
+        {
+          "id": "E2",
+          "raw_id": "raw-<YYYY-MM-DD>-<slug-b>",
+          "anchor_id": "source"
+        }
+      ]
+    }
+  ],
+  "journal": {
+    "summary": "<batch_summary>"
+  },
+  "commit": {
+    "message": "digest <batch summary>"
+  }
+}

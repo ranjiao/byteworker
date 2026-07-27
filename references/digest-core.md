@@ -79,12 +79,14 @@
    - **重点高亮**:文档若提到**重大事故、指标重大变化、或其它需要 highlight 的内容** → 在对应节点**显著记录**(如 `event` 的「结论」、`project` 的「关键进展 / 问题 / 风险」),并在汇报时**单独、突出**地提醒用户。
    - **Todo 候选识别**(细则 `references/todo.md`):结合 `context.md` 的“我的身份 / 我的职责范围 / 当前重点”,识别明确 @本人 / 指派给本人,或职责范围内需要用户关注的行动、DDL、风险、待确认项。明确分配给别人、已完成 / 取消、一般广播不列候选;模型推导只能标“推断”。来源待办照常写进 event / report,但**未经用户确认不得写 `todo.md`**。
 8. **写入事务** —— Agent按 `templates/node-<type>.md` 生成每个节点的**完整候选文件**;
-   主记录设置 `primary_source`,关键事实句尾写 `[E<n>]`,plan 中逐条映射到 `raw_id + anchor_id`;
+   所有节点显式给 `evidence`,新节点至少一条；主记录设置 `primary_source`,关键事实句尾写
+   `[E<n>]`,plan 中逐条映射到 `raw_id + anchor_id`;
    更新节点时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。依次运行
    `bin/digest-txn.py validate` 与 `execute`:它会校验候选,原子写 raw/节点,重建 INDEX,追加
    journal,精确暂存本次路径并在知识库本地 git 创建 commit。只有 receipt
    `status=committed` 才算完成;`status=noop` 不得重复写。详见
-   `references/digest-transaction.md` 与 `references/write-rules.md`。
+   `references/digest-transaction.md` 与 `references/write-rules.md`。多份来源需要共同更新节点
+   或必须同成同败时，使用 `digest-batch-plan/v1`，不得拆成多个可能留下半成品的提交。
 9. **汇报** —— 以事务 receipt 为准告诉用户 commit、raw_id、新建/更新节点、warning、是否因幂等检查跳过或合并了重复来源;不得仅凭 Agent已生成候选就声称落库。若发现重要依赖,还要说明哪些已随本次摄取、哪些未摄取及其影响。若命中「重点高亮」内容(重大事故 / 指标剧变 / 涉及你或你关注的人的重要指令等)→ 单独、显眼地提醒。若有 Todo 候选,末尾一次性列最多 5 项“事项 / 与你相关的依据 / 时间 / 来源”,询问哪些加入;用户回复序号 / 全部后再写 `todo.md`。最终汇报前不要让用户等到最后才第一次看到进展。
 
 ## 规模预估

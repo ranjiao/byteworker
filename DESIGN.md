@@ -43,6 +43,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
+| `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
@@ -223,6 +224,10 @@ feishu_doc 随后附 canonical 文档评论原始快照>
 一次性校验并写入 raw/节点/INDEX/journal,成功时 raw 可直接落为 `digest_status: digested`;
 因为任何文件在全部候选校验通过前都不可见,失败会恢复事务前快照。手工/旧流程若先落 raw 再
 消化,仍使用 `pending → digested|failed`;两种状态语义兼容。
+`digest-plan/v1` 处理单来源；`digest-batch-plan/v1` 处理多来源原子摄取与跨来源节点。batch
+不引入事务数据库：仍用 `base_sha256` 乐观基线 + Git 内短时写锁，拿锁后复验，一次重建 INDEX
+并生成一个本地 commit。标准事务强制 provenance；update 默认保留既有来源、证据和正文语义，
+有意删除必须在临时 plan 中显式授权并说明理由。
 
 **`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行,**同一群可多次增量摄取**。
 frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)、
@@ -514,7 +519,8 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
   也能做语义检索的关键:检索器是当前 agent/模型本身,只需把语义面在 INDEX 里铺够。
   摘要过长则截断到一行。
 - **人员表的 `feishu_id` 列** —— 支持按飞书邮箱英文 id 直接检索到对应的人(node id 已与 `feishu_id` 解耦,见 §2;此列补回「按 id 找人」的便利)。若历史 INDEX 暂未带该列,重建脚本必须按本节格式补齐。
-- 查询先扫 INDEX 再定向读取节点;写入时**增量更新**对应行,不每次全扫。
+- 查询先运行无状态 `bin/kb-query.py search`，得到字面/全文候选、覆盖回执和预算内一跳 links；
+  Agent 再按语义补召回并定向读取。节点有 `[E]` 时用 `kb-query.py evidence` 解析精确 sidecar。
 - 一致性兜底:某类 `knowledge/<类型>/` 文件数 ≠ INDEX 该节行数 → 触发全量重建。
   (纯内容编辑不改行数,无法靠计数发现 → 故增量更新是主路径。)
 - 单类节点行数 > 200 → skill 必须提示该类按子目录分片(TODOS)。
@@ -526,7 +532,8 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 ```
 templates/
   README.md            模板使用说明
-  digest-plan-v1.json  digest 事务临时 manifest 结构参考(填业务内容后只能放系统临时目录)
+  digest-plan-v1.json  单来源 digest 临时 manifest 结构参考(填业务内容后只能放系统临时目录)
+  digest-batch-plan-v1.json  多来源原子 digest 临时 manifest 结构参考
   node-person.md       \
   node-project.md       \
   node-area.md           \  各 = §4.1 通用 frontmatter
@@ -615,6 +622,10 @@ templates/
    `primary_source_url`;节点关键事实用持久 `[E<n>]` 映射到 anchor,查询回答再生成动态
    `[S<n>]`。历史库通过默认不执行的 audit/plan/validate/apply 流程保守回填,不自动猜测
    多来源节点。见 §3.1、§4、`references/provenance.md`。
+20. **轻量批量事务 + 确定性查询入口** — 多来源原子 digest 使用
+   `digest-batch-plan/v1`,仍以乐观基线、短时文件锁和单次本地 commit 实现,不引入数据库。
+   `bin/kb-query.py` 每次运行直接扫描节点,统一输出召回覆盖、一跳图扩展和 evidence 解析；
+   不保存索引、不承担语义判断。见 §3、§6、`references/digest-transaction.md`。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 
