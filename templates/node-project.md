@@ -9,12 +9,16 @@ updated: <YYYY-MM-DD>
 last_verified: <YYYY-MM-DD>
 sources:
   - <raw-id 或飞书链接>
+primary_source: <有明确主要资料时填 raw-id,否则省略>
+primary_source_url: <由 digest 事务物化,无则省略>
 links: []
 ---
 
 # <项目 / 专项标题>
 
 > **TL;DR:** <一句话:这个项目是什么、现在到哪了>
+
+<!-- 关键事实句尾写 [E1] 等;不要手写“证据”章节,由 digest 事务生成。 -->
 
 ## 关联文档与会议
 <!-- 该项目被讨论/提及的主要文档、会议、群聊:标题 + 日期 + 链接(或 raw_id / 节点 id)。

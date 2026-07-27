@@ -69,6 +69,10 @@ P0 / P1 是**抽取与提醒优先级**,不是可信度加权:
   `todo.md`。
 - 评论驱动的节点条目必须把当前 raw 加进 `sources`;引用规则见 `references/citations.md`
   的“文档评论证据”。
+- 每条被节点事实使用的评论 / 回复都必须生成 provenance anchor:
+  `doc:comment:<comment_id>` 或 `doc:comment:<comment_id>:reply:<reply_id>`,保存作者、原始时间、
+  relation block locator 和可打开 URL / 文档 fallback;节点 `[E<n>]` 映射到该 anchor。
+  只有 quote 弱匹配时 precision 不得标 `exact`。
 
 ## 评论独立幂等
 

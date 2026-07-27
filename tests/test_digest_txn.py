@@ -38,7 +38,7 @@ def run_git(kb: Path, *args: str) -> str:
 
 class DigestTxnTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.root = Path(self.temp.name)
         self.kb = self.root / "kb"
         self.inputs = self.root / "inputs"
@@ -52,6 +52,8 @@ class DigestTxnTests(unittest.TestCase):
         run_git(self.kb, "init")
         run_git(self.kb, "config", "user.email", "digest-tests@example.test")
         run_git(self.kb, "config", "user.name", "Digest Tests")
+        run_git(self.kb, "config", "gc.auto", "0")
+        run_git(self.kb, "config", "maintenance.auto", "false")
         run_git(self.kb, "add", "INDEX.md")
         run_git(self.kb, "commit", "-m", "init kb")
 

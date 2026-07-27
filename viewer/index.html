@@ -482,6 +482,20 @@ body.sidebar-resizing * {
   font-size: 28px; font-weight: 700; line-height: 1.18;
   letter-spacing: -0.018em; margin: 6px 0 12px;
 }
+.reader-title-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 18px; margin: 6px 0 12px;
+}
+.reader-title-row .reader-title { margin: 0; min-width: 0; }
+.primary-source-button {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  margin-top: 2px; padding: 6px 10px; border: 1px solid var(--line-strong);
+  border-radius: 6px; background: var(--bg-elev); color: var(--ink-2);
+  font-size: 11.5px; font-weight: 600; line-height: 1.2;
+}
+.primary-source-button:hover {
+  color: var(--accent); border-color: var(--accent); background: var(--bg-hover);
+}
 .reader-tldr {
   font-size: 14.5px; line-height: 1.6; color: var(--ink-2);
   padding: 12px 16px; background: var(--bg-chip); border-radius: 8px;
@@ -525,6 +539,20 @@ body.sidebar-resizing * {
 .prose th, .prose td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
 .prose th { background: var(--bg-chip); font-weight: 600; }
 .prose a { color: var(--accent); border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.prose a.evidence-ref,
+.sx-doc a.evidence-ref {
+  display: inline-flex; align-items: center; padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 4px; background: var(--accent-tint);
+  font-family: var(--font-mono); font-size: 0.84em; font-weight: 700;
+  line-height: 1.45;
+}
+.sx-doc a.comment-evidence-link {
+  margin-left: 5px; padding: 2px 7px;
+  font-family: var(--font-ui); font-size: 11px;
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.sx-doc a.comment-evidence-link::after { content: "↗"; margin-left: 4px; }
 .prose hr { border: 0; border-top: 1px solid var(--divider); margin: 1.5em 0; }
 .prose img { max-width: 100%; border-radius: 6px; }
 
@@ -664,6 +692,17 @@ body.sidebar-resizing * {
   flex-shrink: 0;
 }
 .rail-card.source-card:hover .rail-card-action { color: var(--accent); }
+.source-card-actions {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 4px;
+}
+.source-action {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 7px; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--bg); color: var(--ink-2);
+  font-size: 10.5px; font-weight: 600;
+}
+.source-action:hover { color: var(--accent); border-color: var(--accent); }
 .rail-card-top { display: flex; align-items: center; gap: 6px; }
 .rail-card-title { font-size: 12px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rail-card-tldr {
@@ -821,6 +860,12 @@ body.sidebar-resizing * {
 .sx-kv .sx-kv-row { display: contents; }
 .sx-kv dt { color: var(--ink-3); font-size: 12px; font-weight: 500; padding-top: 2px; white-space: nowrap; }
 .sx-kv dd { color: var(--ink); margin: 0; }
+.sx-kv dd.sx-kv-full { grid-column: 1 / -1; min-width: 0; }
+.sx-kv a {
+  color: var(--accent); font-weight: 600;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.sx-kv a::after { content: "↗"; margin-left: 4px; font-size: 0.86em; }
 
 /* timeline */
 .sx-tl { list-style: none; margin: 0; padding: 0; }
@@ -1293,6 +1338,8 @@ const state = {
   inflight: {},          // id -> Promise (dedupe fetches)
   rawById: {},           // raw_id -> raw_data relative filename
   rawIndexPromise: null,
+  rawMetaById: {},       // source/raw_id -> { fm, path }
+  rawMetaInflight: {},
 
   // links/backlinks indices, populated by background scan
   forwardLinks: {},      // id -> Set of ids (from frontmatter `links`)
@@ -1453,6 +1500,88 @@ async function rawPathForSource(source) {
   const map = await ensureRawIndex();
   const file = map[s] || (s.replace(/^raw-/, '') + '.md');
   return KB + 'raw_data/' + file;
+}
+
+function fmScalar(value) {
+  const text = String(value || '').trim();
+  const quoted = text.match(/^(["'])([\s\S]*)\1$/);
+  return quoted ? quoted[2] : text;
+}
+
+async function fetchRawMeta(source) {
+  const key = String(source || '').trim();
+  if (!key) return null;
+  if (state.rawMetaById[key]) return state.rawMetaById[key];
+  if (state.rawMetaInflight[key]) return state.rawMetaInflight[key];
+  state.rawMetaInflight[key] = (async () => {
+    const path = await rawPathForSource(key);
+    if (!path) return null;
+    const r = await fetch(kbUrl(path), { cache: 'no-store' });
+    if (!r.ok) throw new Error('找不到来源归档: ' + path);
+    const parsed = parseFM(await r.text());
+    const value = { fm: parsed.fm || {}, path };
+    state.rawMetaById[key] = value;
+    return value;
+  })().catch(e => {
+    console.warn('raw metadata failed', key, e);
+    return null;
+  }).finally(() => {
+    delete state.rawMetaInflight[key];
+  });
+  return state.rawMetaInflight[key];
+}
+
+async function resolveSourceDetail(source) {
+  const value = String(source || '').trim();
+  if (!value) return null;
+  if (isUrlSource(value)) {
+    return {
+      source: value, title: value, originalUrl: value, rawPath: '',
+      sourceType: 'url', ingested: '', revision: ''
+    };
+  }
+  const raw = await fetchRawMeta(value);
+  if (!raw) {
+    return {
+      source: value, title: value, originalUrl: '', rawPath: '',
+      sourceType: 'unknown', ingested: '', revision: ''
+    };
+  }
+  const fm = raw.fm;
+  const originalUrl = fmScalar(fm.source_url || fm.recording_url);
+  return {
+    source: value,
+    title: fmScalar(fm.source_title || fm.source_chat_name || fm.title || value),
+    originalUrl: isUrlSource(originalUrl) ? originalUrl : '',
+    rawPath: raw.path,
+    sourceType: fmScalar(fm.source_type || 'raw'),
+    ingested: fmScalar(fm.ingested),
+    revision: fmScalar(fm.source_revision || fm.revision_id)
+  };
+}
+
+async function resolveNodePrimarySource(fm) {
+  const explicitUrl = fmScalar(fm.primary_source_url);
+  const explicitRaw = fmScalar(fm.primary_source);
+  if (isUrlSource(explicitUrl)) {
+    const detail = explicitRaw ? await resolveSourceDetail(explicitRaw) : null;
+    return Object.assign(detail || {}, {
+      source: explicitRaw || explicitUrl,
+      title: detail?.title || '主要来源',
+      originalUrl: explicitUrl,
+      explicit: true
+    });
+  }
+  if (explicitRaw) {
+    const detail = await resolveSourceDetail(explicitRaw);
+    if (detail) return Object.assign(detail, { explicit: true });
+  }
+  const sources = Array.isArray(fm.sources) ? fm.sources : (fm.sources ? [fm.sources] : []);
+  for (const source of sources) {
+    const detail = await resolveSourceDetail(source);
+    if (detail?.originalUrl) return Object.assign(detail, { explicit: false });
+  }
+  return null;
 }
 
 async function openSource(source) {
@@ -1960,6 +2089,9 @@ async function renderReaderNode(id) {
     return;
   }
   const fm = full.fm || {};
+  const primary = await resolveNodePrimarySource(fm);
+  const current = currentEntry();
+  if (!(current?.kind === 'node' && current.id === id)) return;
   renderSidebar();
   const status = fm.status || n.status || 'current';
   const effectiveStatus = isStale({ type: n.type, status, last_verified: fm.last_verified || n.last_verified }) ? 'stale' : status;
@@ -1972,7 +2104,11 @@ async function renderReaderNode(id) {
       <span class="id">${esc(n.id)}</span>
       ${(fm.last_verified || n.last_verified) ? `<span style="color:var(--ink-4)">·</span><span>核实于 ${esc(fm.last_verified || n.last_verified)} (${relTime(fm.last_verified || n.last_verified)})</span>` : ''}
     </div>
-    <h1 class="reader-title">${esc(n.title)}</h1>
+    <div class="reader-title-row">
+      <h1 class="reader-title">${esc(n.title)}</h1>
+      ${primary?.originalUrl ? `<a class="primary-source-button" href="${esc(primary.originalUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(primary.title || primary.source)}">${primary.explicit ? '打开主要来源' : '打开来源'}</a>` :
+        (primary?.rawPath ? `<button class="primary-source-button" type="button" data-primary-source="${esc(primary.source)}">查看库内归档</button>` : '')}
+    </div>
     ${n.tldr ? `<div class="reader-tldr"><strong>TL;DR</strong>${esc(n.tldr)}</div>` : ''}
     ${tags.length ? `<div style="margin: -10px 0 24px; display: flex; flex-wrap: wrap; gap: 4px;">${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</div>` : ''}
     <div id="prose-content">${renderBody(full)}</div>
@@ -1980,6 +2116,10 @@ async function renderReaderNode(id) {
   D.readerBody.innerHTML = html;
   const proseEl = document.getElementById('prose-content');
   linkifyIds(proseEl);
+  enhanceEvidenceLinks(proseEl);
+  D.readerBody.querySelector('[data-primary-source]')?.addEventListener('click', e => {
+    openSource(e.currentTarget.dataset.primarySource);
+  });
   proseEl.querySelectorAll('a.nodelink[data-id]').forEach(a => {
     a.addEventListener('click', (ev) => {
       ev.preventDefault();
@@ -1987,6 +2127,32 @@ async function renderReaderNode(id) {
     });
   });
   D.readerBody.scrollTop = 0;
+}
+
+function enhanceEvidenceLinks(root) {
+  if (!root) return;
+  root.querySelectorAll('a[href]').forEach(a => {
+    const label = (a.textContent || '').trim();
+    if (/^\[?E[1-9][0-9]*\]?$/.test(label)) {
+      a.classList.add('evidence-ref');
+      const section = a.closest('section[data-outline]');
+      if (/评论证据|评论.*待核/.test(section?.dataset.outline || '')) {
+        a.classList.add('comment-evidence-link');
+        a.dataset.evidenceId = label.replace(/[\[\]]/g, '');
+        const hasBlockTarget = /#[^#]+$/.test(a.getAttribute('href') || '');
+        a.textContent = hasBlockTarget ? '打开评论出处' : '打开所在文档';
+        a.title = hasBlockTarget
+          ? `打开评论出处（${a.dataset.evidenceId}）`
+          : `该评论没有可验证的 block 深链，打开所在文档（${a.dataset.evidenceId}）`;
+      } else {
+        a.title = '打开这条事实的原始证据';
+      }
+    }
+    if (/^https?:\/\//i.test(a.href)) {
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    }
+  });
 }
 
 // ---- linkify body ids (turn raw ids into clickable nodelinks) ----
@@ -2400,6 +2566,13 @@ function renderRailMeta(id) {
   }
   if (fm.superseded_by) rows.push(['superseded_by', `<span style="font-family:var(--font-mono)">${esc(fm.superseded_by)}</span>`]);
   if (tags.length) rows.push(['tags', `<div class="pillrow">${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</div>`]);
+  if (fm.primary_source) rows.push(['primary_source', `<span style="font-family:var(--font-mono)">${esc(fmScalar(fm.primary_source))}</span>`]);
+  if (fm.primary_source_url) {
+    const primaryUrl = fmScalar(fm.primary_source_url);
+    rows.push(['primary_url', isUrlSource(primaryUrl)
+      ? `<a href="${esc(primaryUrl)}" target="_blank" rel="noopener noreferrer">打开原始来源</a>`
+      : esc(primaryUrl)]);
+  }
   if (sources.length) rows.push(['sources', sources.map(s => `<div>${esc(s)}</div>`).join('')]);
   rows.push(['links', `${linksCount} 条 forward`]);
   if (state.scanDone) {
@@ -2410,37 +2583,41 @@ function renderRailMeta(id) {
     <div class="rail-meta">${rows.map(([k, v]) => `<div class="row"><div class="k">${esc(k)}</div><div class="v">${v}</div></div>`).join('')}</div>`;
 }
 
-function renderRailSource(id) {
+async function renderRailSource(id) {
   const n = state.byId[id];
   if (!n) { D.railScroll.innerHTML = '<div class="empty-rail">未选中节点。</div>'; return; }
   const full = state.nodeFull[id];
   const sources = Array.isArray(full?.fm.sources) ? full.fm.sources : (full?.fm.sources ? [full.fm.sources] : []);
+  D.railScroll.innerHTML = `<div class="rail-h">原始来源</div><div class="empty-rail">正在解析原始出处…</div>`;
+  const details = await Promise.all(sources.map(resolveSourceDetail));
+  const current = currentEntry();
+  if (!(current?.kind === 'node' && current.id === id) || state.rail !== 'source') return;
   let html = `<div class="rail-h">原始来源</div>`;
   if (sources.length) {
-    html += sources.map(s => {
-      const isRaw = isRawSource(s);
-      const isUrl = isUrlSource(s);
-      const canOpen = isRaw || isUrl || /^raw_data\/.+\.md$/i.test(String(s || ''));
-      const detail = isRaw
-        ? '点击在主阅读区打开 raw_data 逐字原文。'
-        : (isUrl ? '点击在新标签打开原始链接。' : '非 raw_id / URL 来源,仅展示。');
-      const action = isRaw ? '打开原文' : (isUrl ? '打开链接' : '');
-      const tag = canOpen ? 'button' : 'div';
-      const attrs = canOpen ? `type="button" data-source="${esc(s)}" title="${esc(detail)}"` : '';
-      return `<${tag} class="rail-card source-card${canOpen ? '' : ' static'}" ${attrs} style="margin-bottom:6px">
+    html += details.map((detail, index) => {
+      const source = sources[index];
+      const meta = [
+        detail?.sourceType || '',
+        detail?.ingested ? `收录 ${detail.ingested}` : '',
+        detail?.revision ? `版本 ${detail.revision}` : ''
+      ].filter(Boolean).join(' · ');
+      return `<div class="rail-card source-card static" style="margin-bottom:6px">
         <div class="rail-card-top">
           <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h4a2 2 0 0 1 2 2v8a1.5 1.5 0 0 0-1.5-1.5H2V3zM12 3H8a2 2 0 0 0-2 2v8a1.5 1.5 0 0 1 1.5-1.5H12V3z"/></svg>
-          <span class="rail-card-title" style="font-family:var(--font-mono);font-size:11.5px">${esc(s)}</span>
-          ${action ? `<span class="rail-card-action">${action}</span>` : ''}
+          <span class="rail-card-title">${esc(detail?.title || source)}</span>
         </div>
-        <div class="rail-card-tldr">${esc(detail)}</div>
-      </${tag}>`;
+        <div class="rail-card-tldr">${esc(source)}${meta ? `<br>${esc(meta)}` : ''}</div>
+        ${(detail?.originalUrl || detail?.rawPath) ? `<div class="source-card-actions">
+          ${detail?.originalUrl ? `<a class="source-action" href="${esc(detail.originalUrl)}" target="_blank" rel="noopener noreferrer">打开飞书原文</a>` : ''}
+          ${detail?.rawPath ? `<button class="source-action" type="button" data-source="${esc(source)}">查看库内归档</button>` : ''}
+        </div>` : ''}
+      </div>`;
     }).join('');
   } else {
     html += `<div class="empty-rail">此节点未登记 sources。所有节点应至少 1 条 sources(raw_id 或飞书原链接);任何答案都能回原文核对。</div>`;
   }
   D.railScroll.innerHTML = html;
-  D.railScroll.querySelectorAll('.source-card[data-source]').forEach(el => {
+  D.railScroll.querySelectorAll('.source-action[data-source]').forEach(el => {
     el.addEventListener('click', () => openSource(el.dataset.source));
   });
 }
@@ -2636,11 +2813,28 @@ function icon(name, size) {
 // Parse a node body into ## sections, detect each section's kind from its
 // Chinese title, render each with a tailored presentation instead of flat md.
 function stripWiki(s) { return String(s == null ? '' : s).replace(/\[\[([^\]]+)\]\]/g, '$1'); }
-function sxInline(text) { return md.renderInline(stripWiki(text)); }
+let sxEvidenceRefs = {};
+function sxParseEvidenceRefs(body) {
+  const refs = {};
+  const re = /^\[(E[1-9][0-9]*)\]:\s*(?:<([^>]+)>|(\S+))\s*$/gm;
+  let match;
+  while ((match = re.exec(String(body || ''))) !== null) {
+    refs[match[1]] = match[2] || match[3];
+  }
+  return refs;
+}
+function sxInline(text) {
+  const expanded = stripWiki(text).replace(/\[(E[1-9][0-9]*)\]/g, (all, id) => {
+    const url = sxEvidenceRefs[id];
+    return url ? `[${id}](<${url}>)` : all;
+  });
+  return md.renderInline(expanded);
+}
 function sxSlug(s) { return String(s).replace(/[^\w一-龥]+/g, '-').toLowerCase(); }
 
 function detectSectionKind(title) {
   const t = title || '';
+  if (/^证据$/.test(t)) return 'evidence';
   if (/思路与视角|视角与思路|观点与思路/.test(t)) return 'perspective';
   if (/基本信息|事件信息|来源/.test(t)) return 'info';
   if (/对接方式/.test(t)) return 'info';
@@ -2741,10 +2935,19 @@ function sxInfo(title, lines) {
   if (!items.length) return sxShell('info', 'info', title, sxProse(lines));
   const rows = items.map(raw => {
     const ci = raw.search(/[:：]/);
-    return ci > -1 ? { k: raw.slice(0, ci).trim(), v: raw.slice(ci + 1).trim() } : { k: '', v: raw };
+    const key = ci > 0 ? raw.slice(0, ci).trim().replace(/^\*\*|\*\*$/g, '') : '';
+    const isTimePrefix = /^\d{4}-\d{2}-\d{2}\s+\d{1,2}$/.test(key);
+    const isUrlScheme = /^(?:https?|ftp)$/i.test(key);
+    const isField = ci > 0 && ci <= 24 && !isTimePrefix && !isUrlScheme;
+    return isField
+      ? { k: key, v: raw.slice(ci + 1).trim(), full: false }
+      : { k: '', v: raw, full: true };
   });
   return sxShell('info', 'info', title, '<dl class="sx-kv">' + rows.map(r =>
-    `<div class="sx-kv-row"><dt>${esc(r.k)}</dt><dd>${sxInline(r.v)}</dd></div>`).join('') + '</dl>');
+    r.full
+      ? `<div class="sx-kv-row"><dd class="sx-kv-full">${sxInline(r.v)}</dd></div>`
+      : `<div class="sx-kv-row"><dt>${esc(r.k)}</dt><dd>${sxInline(r.v)}</dd></div>`
+  ).join('') + '</dl>');
 }
 
 function sxTimeline(title, lines) {
@@ -2947,6 +3150,10 @@ function sxGeneric(kind, iconName, title, lines) {
     `<li><span class="sx-bullet-dot"></span><span>${sxInline(t)}</span></li>`).join('') + '</ul>');
 }
 
+function sxEvidence(title, lines) {
+  return sxShell('evidence', 'book', title, sxProse(lines));
+}
+
 // 思路与视角 —— 第一方观点:【主张|意图】作者 · 日期 —— 内容
 function sxPerspective(title, lines) {
   const items = sxBullets(lines);
@@ -2973,6 +3180,7 @@ function sxPerspective(title, lines) {
 
 function renderSection(title, lines) {
   switch (detectSectionKind(title)) {
+    case 'evidence': return sxEvidence(title, lines);
     case 'info': return sxInfo(title, lines);
     case 'timeline': return sxTimeline(title, lines);
     case 'stance': return sxStance(title, lines);
@@ -2999,9 +3207,15 @@ function renderSection(title, lines) {
 }
 
 function renderStructured(body) {
-  const secs = sxSections(body);
-  if (!secs.length) return '<div class="prose">' + md.render(stripWiki(body || '')) + '</div>';
-  return '<div class="sx-doc">' + secs.map(s => renderSection(s.title, s.lines)).join('') + '</div>';
+  const previousRefs = sxEvidenceRefs;
+  sxEvidenceRefs = sxParseEvidenceRefs(body);
+  try {
+    const secs = sxSections(body);
+    if (!secs.length) return '<div class="prose">' + md.render(stripWiki(body || '')) + '</div>';
+    return '<div class="sx-doc">' + secs.map(s => renderSection(s.title, s.lines)).join('') + '</div>';
+  } finally {
+    sxEvidenceRefs = previousRefs;
+  }
 }
 
 // structured render with a safety net: any error falls back to flat markdown
@@ -3128,6 +3342,8 @@ function clearKbCaches() {
   state.inflight = {};
   state.rawById = {};
   state.rawIndexPromise = null;
+  state.rawMetaById = {};
+  state.rawMetaInflight = {};
   state.forwardLinks = {};
   state.backlinks = {};
   state.scanDone = false;

@@ -10,12 +10,16 @@ updated: <YYYY-MM-DD>
 last_verified: <YYYY-MM-DD>
 sources:
   - <raw-id 或飞书链接>
+primary_source: <有明确主要资料时填 raw-id,否则省略>
+primary_source_url: <由 digest 事务物化,无则省略>
 links: []
 ---
 
 # <姓名>
 
 > **TL;DR:** <一句话:这个人是谁、和我是什么协作关系>
+
+<!-- 关键事实句尾写 [E1] 等;不要手写“证据”章节,由 digest 事务生成。 -->
 
 ## 基本信息
 <!-- 角色 / 所属团队 / 对接方式(飞书、邮箱等) -->

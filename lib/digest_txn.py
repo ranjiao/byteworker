@@ -29,6 +29,18 @@ from zoneinfo import ZoneInfo
 
 from constants import NODE_ID_PREFIXES, NODE_TYPES
 from frontmatter import parse_file, parse_frontmatter
+from provenance import (
+    ProvenanceError,
+    anchor_index,
+    build_provenance_document,
+    materialize_node_provenance,
+    normalize_anchor,
+    provenance_path,
+    render_provenance,
+    scan_provenance,
+    scan_raws,
+    source_anchor,
+)
 
 
 PLAN_SCHEMA = "digest-plan/v1"
@@ -95,6 +107,9 @@ class ValidationResult:
     nodes: List[Dict[str, Any]]
     node_ids: List[str]
     warnings: List[str]
+    provenance_path: Optional[Path]
+    provenance_anchors: List[Dict[str, Any]]
+    provenance_content: str
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -619,6 +634,185 @@ def _validate_scoped_links(
     return sorted(set(warnings))
 
 
+def _planned_raw_record(
+    result: ValidationResult,
+    now: datetime,
+) -> Dict[str, Any]:
+    rendered = render_raw(result, now)
+    frontmatter, body = parse_frontmatter(rendered)
+    return {
+        "path": result.raw_path,
+        "relative_path": str(result.raw_path.relative_to(result.raw_path.parents[1])),
+        "frontmatter": frontmatter,
+        "body": body,
+        "file_sha256": sha256_bytes(rendered.encode("utf-8")),
+    }
+
+
+def _materialize_provenance(
+    kb: Path,
+    result: ValidationResult,
+    node_configs: Sequence[Dict[str, Any]],
+    now: datetime,
+) -> None:
+    provenance_config = result.plan.get("provenance")
+    if provenance_config is not None and not isinstance(provenance_config, dict):
+        raise DigestTxnError("plan.provenance 必须是对象")
+    enabled = provenance_config is not None or any(
+        item.get("primary_source") or item.get("evidence") is not None
+        for item in node_configs
+    )
+    if not enabled:
+        result.provenance_path = None
+        result.provenance_anchors = []
+        result.provenance_content = ""
+        return
+
+    current_record = _planned_raw_record(result, now)
+    current_frontmatter = current_record["frontmatter"]
+    try:
+        raw_records = scan_raws(kb)
+        raw_records[result.raw_id] = current_record
+        existing_provenance = scan_provenance(kb)
+        configured_anchors = (
+            provenance_config.get("anchors", []) if provenance_config else []
+        )
+        if not isinstance(configured_anchors, list):
+            raise DigestTxnError("plan.provenance.anchors 必须是数组")
+        anchors = [
+            normalize_anchor(
+                result.raw_id,
+                item,
+                default_source_url=str(current_frontmatter.get("source_url", "")),
+            )
+            for item in configured_anchors
+        ]
+        if not any(item["anchor_id"] == "source" for item in anchors):
+            anchors.insert(0, source_anchor(result.raw_id, current_frontmatter))
+        current_anchor_index = {
+            item["anchor_id"]: item for item in anchors
+        }
+        if len(current_anchor_index) != len(anchors):
+            raise DigestTxnError("plan.provenance.anchors 包含重复 anchor_id")
+
+        document = build_provenance_document(
+            result.raw_id,
+            current_record["relative_path"],
+            current_frontmatter,
+            anchors,
+            result.payload["content_hash"],
+            now.isoformat(timespec="seconds"),
+            str((provenance_config or {}).get("enrichment", "ingested")),
+        )
+        result.provenance_path = provenance_path(kb, result.raw_id)
+        result.provenance_anchors = document["anchors"]
+        result.provenance_content = render_provenance(document)
+
+        for node, config in zip(result.nodes, node_configs):
+            primary_source = str(
+                config.get("primary_source")
+                or node["frontmatter"].get("primary_source")
+                or ""
+            ).strip()
+            primary_source_url = ""
+            if primary_source:
+                raw_record = raw_records.get(primary_source)
+                if not raw_record:
+                    raise DigestTxnError(
+                        f"节点 {node['id']} 的 primary_source 不存在: {primary_source}"
+                    )
+                primary_source_url = str(
+                    raw_record["frontmatter"].get("source_url")
+                    or raw_record["frontmatter"].get("recording_url")
+                    or ""
+                ).strip()
+                supplied_url = str(config.get("primary_source_url", "")).strip()
+                if supplied_url and supplied_url != primary_source_url:
+                    raise DigestTxnError(
+                        f"节点 {node['id']} 的 primary_source_url 与 raw 不一致"
+                    )
+                if not primary_source_url:
+                    warning = f"节点 {node['id']} 的主要来源没有可打开 URL"
+                    if warning not in result.warnings:
+                        result.warnings.append(warning)
+
+            evidence_config = config.get("evidence")
+            if evidence_config is None:
+                resolved_evidence: List[Dict[str, Any]] = []
+                should_materialize = bool(primary_source)
+            else:
+                if not isinstance(evidence_config, list):
+                    raise DigestTxnError(
+                        f"节点 {node['id']}.evidence 必须是数组"
+                    )
+                resolved_evidence = []
+                should_materialize = True
+                for item in evidence_config:
+                    if not isinstance(item, dict):
+                        raise DigestTxnError(
+                            f"节点 {node['id']} evidence 项必须是对象"
+                        )
+                    raw_id = str(item.get("raw_id") or result.raw_id).strip()
+                    anchor_id = str(item.get("anchor_id", "")).strip()
+                    if raw_id == result.raw_id:
+                        anchor = current_anchor_index.get(anchor_id)
+                    else:
+                        existing = existing_provenance.get(raw_id)
+                        anchor = (
+                            anchor_index(existing).get(anchor_id)
+                            if existing
+                            else None
+                        )
+                        if not anchor and anchor_id == "source" and raw_id in raw_records:
+                            anchor = source_anchor(
+                                raw_id,
+                                raw_records[raw_id]["frontmatter"],
+                            )
+                    if not anchor:
+                        raise DigestTxnError(
+                            f"节点 {node['id']} 找不到 evidence anchor: "
+                            f"{raw_id}#{anchor_id}"
+                        )
+                    resolved_evidence.append(
+                        {
+                            "id": str(item.get("id", "")).strip(),
+                            "raw_id": raw_id,
+                            "anchor_id": anchor_id,
+                            "anchor": anchor,
+                        }
+                    )
+            node["evidence"] = resolved_evidence
+            node["primary_source"] = primary_source
+            node["primary_source_url"] = primary_source_url
+            if (
+                provenance_config is not None
+                and str(node["frontmatter"].get("type", ""))
+                in {"event", "decision", "reading"}
+                and not primary_source
+            ):
+                raise DigestTxnError(
+                    f"主记录节点 {node['id']} 必须设置 primary_source"
+                )
+            if should_materialize:
+                materialized = materialize_node_provenance(
+                    node["content"],
+                    node["relative_path"],
+                    primary_source,
+                    primary_source_url,
+                    resolved_evidence,
+                    raw_records,
+                )
+                frontmatter, body = parse_frontmatter(materialized)
+                if not body.strip():
+                    raise DigestTxnError(
+                        f"节点 provenance 物化后正文为空: {node['id']}"
+                    )
+                node["content"] = materialized
+                node["frontmatter"] = frontmatter
+    except ProvenanceError as exc:
+        raise DigestTxnError(str(exc)) from exc
+
+
 def validate_plan(kb: Path, manifest_path: Path) -> ValidationResult:
     kb = kb.resolve()
     manifest_path = manifest_path.resolve()
@@ -689,9 +883,18 @@ def validate_plan(kb: Path, manifest_path: Path) -> ValidationResult:
         nodes=nodes,
         node_ids=node_ids,
         warnings=warnings,
+        provenance_path=None,
+        provenance_anchors=[],
+        provenance_content="",
     )
     # Render once during validation so raw metadata errors fail before execute.
     render_raw(result, datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")))
+    _materialize_provenance(
+        kb,
+        result,
+        node_configs,
+        datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
     return result
 
 
@@ -747,7 +950,7 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
         ),
         (
             "source_url",
-            source.get("url") if source.get("type") != "feishu_chat" else None,
+            source.get("url"),
         ),
         (
             "source_title",
@@ -982,6 +1185,8 @@ def execute_plan(
     target_paths = [result.raw_path, journal_path, index_path] + [
         node["path"] for node in result.nodes
     ]
+    if result.provenance_path is not None:
+        target_paths.append(result.provenance_path)
     relative_paths = [str(path.relative_to(kb)) for path in target_paths]
 
     lock_path = kb / ".git" / "byteworker-digest.lock"
@@ -1008,6 +1213,7 @@ def execute_plan(
 
         # Re-validate baselines after acquiring the lock.
         result = validate_plan(kb, manifest_path)
+        _materialize_provenance(kb, result, result.plan["nodes"], now)
         snapshots = {
             path: path.read_bytes() if path.exists() else None for path in target_paths
         }
@@ -1018,6 +1224,11 @@ def execute_plan(
         staged_by_txn = False
         try:
             _atomic_write(result.raw_path, render_raw(result, now).encode("utf-8"))
+            if result.provenance_path is not None:
+                _atomic_write(
+                    result.provenance_path,
+                    result.provenance_content.encode("utf-8"),
+                )
             for node in result.nodes:
                 _atomic_write(node["path"], node["content"].encode("utf-8"))
             _atomic_write(
@@ -1032,6 +1243,12 @@ def execute_plan(
                 raise DigestTxnError("raw 写入后的 content_hash 不一致")
             if set(_list_value(raw_fm.get("digest_targets"))) != set(result.node_ids):
                 raise DigestTxnError("raw 写入后的 digest_targets 不一致")
+            if result.provenance_path is not None:
+                written_provenance = json.loads(
+                    result.provenance_path.read_text(encoding="utf-8")
+                )
+                if written_provenance.get("raw_id") != result.raw_id:
+                    raise DigestTxnError("provenance 写入后的 raw_id 不一致")
 
             diff_check = _git(
                 kb,
@@ -1087,6 +1304,12 @@ def execute_plan(
         "index_rebuilt": True,
         "journal": str(journal_path.relative_to(kb)),
         "commit": commit_hash,
+        "provenance": (
+            str(result.provenance_path.relative_to(kb))
+            if result.provenance_path is not None
+            else ""
+        ),
+        "evidence_count": sum(len(node.get("evidence", [])) for node in result.nodes),
         "warnings": result.warnings,
     }
 
@@ -1105,8 +1328,15 @@ def validation_report(result: ValidationResult) -> Dict[str, Any]:
                 "op": node["op"],
                 "id": node["id"],
                 "path": node["relative_path"],
+                "primary_source": node.get("primary_source", ""),
+                "evidence_count": len(node.get("evidence", [])),
             }
             for node in result.nodes
         ],
+        "provenance": (
+            str(result.provenance_path)
+            if result.provenance_path is not None
+            else ""
+        ),
         "warnings": result.warnings,
     }

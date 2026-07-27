@@ -8,7 +8,14 @@
   - **表中已有该群** → 此前摄取过,**默认增量**:`bin/pull-chat.sh --query "<群名>" --since-last` —— 脚本从该群上次窗口结束点续拉到现在。
   - **表中无该群** → 首次摄取:用户给了范围用之;否则默认最近 7 天直接执行 —— `--start <ISO8601> --end <ISO8601>`。只有用户要求先确认、时间窗明显超过 7 天、或预计消息量很大时才先问摄取范围。
   - 用户**显式给了**时间范围 → 永远以用户给的为准(覆盖增量)。
-- **拉取**:运行 `bin/pull-chat.sh`(参数见上;已知 chat_id 用 `--chat-id <oc_xxx>`)。脚本自动定位群、分页拉全、把逐字转写写到文件,stdout 打印 `chat_id` / `window` / `mode` / `messages` / `pages` / `truncated` / `transcript`。转写每条消息必须保留发送人 open_id,格式如 `<姓名> [ou_xxx]`,供后续解析人。**不要手写分页循环、不要手算上次窗口。** 脚本报"匹配到多个群"→ 改 `--chat-id`;报"无历史摄取记录"(退出码 4)→ 其实是首次,改用 `--start`/`--end`;报截断(退出码 5 或 `truncated=1`)→ 缩小时间窗后重拉,不要把不完整窗口入库。
+- **拉取**:运行 `bin/pull-chat.sh`(参数见上;已知 chat_id 用 `--chat-id <oc_xxx>`;
+  另给 `--locators-out <临时 JSON>` 保存消息定位)。脚本自动定位群、分页拉全、把逐字转写写到
+  文件,stdout 打印 `chat_id` / `window` / `mode` / `messages` / `pages` / `truncated` /
+  `transcript` / `locators`。转写每条消息必须保留发送人 open_id,locator 必须保留 message_id /
+  thread_id / 消息时间和可用的飞书消息 URL,供节点 `[E<n>]` 精确回链。**不要手写分页循环、
+  不要手算上次窗口。** 脚本报"匹配到多个群"→ 改 `--chat-id`;报"无历史摄取记录"(退出码 4)
+  → 其实是首次,改用 `--start`/`--end`;报截断(退出码 5 或 `truncated=1`)→ 缩小时间窗后重拉,
+  不要把不完整窗口入库。
 - **人员解析(必须)**:群聊 digest 前,对 transcript 运行 `bin/resolve-users.sh --from-doc <transcript>`。新建 / 更新 `person` 节点时必须使用解析出的 `feishu_id`;不要仅凭中文名新建 `feishu_id: ?` 的 person。若某个发言人解析失败,事件正文可保留其姓名和 open_id,但不要新建 person 节点;在汇报里列为「待解析人物」,等用户补充或权限恢复后再建。
 - **落原文**:raw_data 用 `feishu_chat` 变体 frontmatter(`source_chat_id` / `source_chat_name` / `source_window`,见 DESIGN.md §3)。**`source_window` 必须写本次窗口的完整 ISO8601 起止** —— 它是下次 `--since-last` 的续拉点,务必准确。每窗口一个独立 raw,只增不改。
 - **登记进度**:raw frontmatter 准确写 `source_chat_id` / `source_chat_name` / `source_window`;

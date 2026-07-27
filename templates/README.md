@@ -37,7 +37,7 @@ schema 以 `DESIGN.md` 为唯一真相源。
 ## digest plan 模板
 
 `digest-plan-v1.json` 只作为字段参考。使用时复制到**系统临时目录**并填写 source components、
-raw 目标、完整候选节点、journal 摘要和 commit message，再按
+raw 目标、provenance anchors、完整候选节点、逐事实 evidence 映射、journal 摘要和 commit message，再按
 `references/digest-transaction.md` 调用 `bin/digest-txn.py`。填过业务内容的 plan 和候选节点
 不得留在 templates 或 skill 仓库。
 

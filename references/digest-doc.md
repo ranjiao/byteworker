@@ -8,6 +8,8 @@
   `lark-doc +fetch --api-version v2 --detail with-ids`;评论用
   `python3 bin/pull_doc_comments.py --url "<URL>"`,固定拉取全部评论(含已解决)、完整回复链与
   relation 锚点。正文 fetch 成功不代表评论已读取;评论状态必须在 raw frontmatter 明示。
+  同时按 `references/provenance.md` 把 `with-ids` 的正文 block id、评论 / 回复 id 转成
+  provenance anchors;关键事实节点正文用 `[E<n>]` 绑定到相应 anchor。
 - **正文内嵌白板属于当前来源 payload**:正文出现 `<whiteboard token="...">` 时加读
   `references/digest-whiteboard.md`,默认读取每个白板的结构化节点 JSON 与整体预览;结构 JSON
   以独立 `kind=whiteboard` component 进入 digest plan。不能只保留占位 token 或只看截图。

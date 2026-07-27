@@ -3,9 +3,9 @@
 # 拉取飞书群聊在某时间窗内的全部消息,逐字转写到文件,供知识库摄取(feishu_chat)使用。
 #
 # 用法:
-#   bin/pull-chat.sh --query "<群名>"   --start <ISO8601> --end <ISO8601> [--out <file>]
-#   bin/pull-chat.sh --chat-id <oc_xxx> --start <ISO8601> --end <ISO8601> [--out <file>]
-#   bin/pull-chat.sh --query "<群名>"   --since-last [--end <ISO8601>] [--out <file>]
+#   bin/pull-chat.sh --query "<群名>"   --start <ISO8601> --end <ISO8601> [--out <file>] [--locators-out <json>]
+#   bin/pull-chat.sh --chat-id <oc_xxx> --start <ISO8601> --end <ISO8601> [--out <file>] [--locators-out <json>]
+#   bin/pull-chat.sh --query "<群名>"   --since-last [--end <ISO8601>] [--out <file>] [--locators-out <json>]
 #
 # --since-last:增量摄取。群聊是持续更新的消息流,同一个群通常反复多次摄取;
 #   该参数让脚本自动「从上次摄取处续拉」—— 读 ../.kbconfig 定位知识库数据目录,
@@ -17,11 +17,11 @@
 #       === [时间] 发送人 [open_id] (msg_type)
 #       <内容>
 #   - stdout 末尾打印摘要(供 agent 解析):
-#       chat_id= / chat_name= / messages= / pages= / truncated= / window= / mode= / transcript=
+#       chat_id= / chat_name= / messages= / pages= / truncated= / window= / mode= / transcript= / locators=
 # 退出码:0 成功 | 2 群未找到 | 3 匹配到多个群(需改用 --chat-id) | 4 --since-last 无历史窗口 | 5 拉取被页数上限截断 | 1 其他错误
 set -uo pipefail
 
-QUERY=""; CHAT_ID=""; START=""; END=""; OUT=""; SINCE_LAST=""
+QUERY=""; CHAT_ID=""; START=""; END=""; OUT=""; LOCATORS_OUT=""; SINCE_LAST=""
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 KBCONFIG="$SELF_DIR/../.kbconfig"
 usage() { sed -n '2,21p' "$0"; }
@@ -32,6 +32,7 @@ while [ $# -gt 0 ]; do
     --start)      START="${2:-}"; shift 2;;
     --end)        END="${2:-}"; shift 2;;
     --out)        OUT="${2:-}"; shift 2;;
+    --locators-out) LOCATORS_OUT="${2:-}"; shift 2;;
     --since-last) SINCE_LAST=1; shift;;
     -h|--help)    usage; exit 0;;
     *) echo "未知参数:$1" >&2; exit 1;;
@@ -99,10 +100,13 @@ fi
 # 输出文件
 if [ -z "$OUT" ]; then OUT=$(mktemp /tmp/byteworker-chat-XXXXXX); fi
 : > "$OUT"
+if [ -z "$LOCATORS_OUT" ]; then
+  LOCATORS_OUT=$(mktemp /tmp/byteworker-chat-locators-XXXXXX.json)
+fi
 
 # 2. 分页拉取消息(stdout/stderr 分离,避免污染 JSON)
-TMP=$(mktemp); TMPERR=$(mktemp)
-trap 'rm -f "$TMP" "$TMPERR"' EXIT
+TMP=$(mktemp); TMPERR=$(mktemp); TMPLOC=$(mktemp)
+trap 'rm -f "$TMP" "$TMPERR" "$TMPLOC"' EXIT
 TOKEN=""; PAGE=0; TOTAL=0; TRUNCATED=0
 MAX_PAGES="${BYTEWORKER_CHAT_MAX_PAGES:-60}"
 while :; do
@@ -129,6 +133,25 @@ while :; do
       + " (" + .msg_type + ")\n"
       + (.content // "")
   ' "$TMP" >> "$OUT"
+  jq -c --arg chat_id "$CHAT_ID" '
+    .data.messages[]
+    | (.message_id // .id // "") as $message_id
+    | select($message_id != "")
+    | {
+        anchor_id:("chat:message:" + $message_id),
+        kind:"chat_message",
+        precision:"exact",
+        open_url:(.message_url // .url // ""),
+        source_time:(.create_time // ""),
+        author:(.sender.name // ""),
+        quote:((.content // "") | tostring | gsub("[\\r\\n\\t]+"; " ") | .[0:240]),
+        locator:{
+          chat_id:(.chat_id // $chat_id),
+          message_id:$message_id,
+          thread_id:(.thread_id // "")
+        }
+      }
+  ' "$TMP" >> "$TMPLOC"
   HAS=$(jq -r '.data.has_more' "$TMP")
   TOKEN=$(jq -r '.data.page_token // ""' "$TMP")
   [ "$HAS" = "true" ] || break
@@ -139,6 +162,17 @@ while :; do
   fi
 done
 
+jq -s \
+  --arg chat_id "$CHAT_ID" \
+  --arg window "$START .. $END" \
+  '{
+    schema_version:"byteworker-source-locators/v1",
+    source_type:"feishu_chat",
+    source_chat_id:$chat_id,
+    source_window:$window,
+    anchors:.
+  }' "$TMPLOC" > "$LOCATORS_OUT"
+
 # 3. 摘要(供 agent 解析)
 echo "chat_id=$CHAT_ID"
 echo "chat_name=${CHAT_NAME:-$QUERY}"
@@ -148,6 +182,7 @@ echo "truncated=$TRUNCATED"
 echo "window=$START .. $END"
 echo "mode=$MODE"
 echo "transcript=$OUT"
+echo "locators=$LOCATORS_OUT"
 if [ "$TRUNCATED" -eq 1 ]; then
   exit 5
 fi

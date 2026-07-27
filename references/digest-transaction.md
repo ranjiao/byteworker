@@ -9,6 +9,8 @@
 **Agent 负责:**
 
 - 拉取正文、评论、白板、妙记或聊天原文，并把临时文件放在系统临时目录。
+- 抓取时保留 block/comment/reply/message/segment 等原系统 locator,按
+  `references/provenance.md` 生成 anchors。
 - 重要依赖判断、用户范围确认、冲突检测、实体消解和 Todo 候选。
 - 区分【事实】/【主张】/【意图】/【观察】/【推断】。
 - 按节点模板生成“完整候选文件”；更新已有节点时先把用户已有内容合并进去。
@@ -18,6 +20,7 @@
 - 规范化 JSON component、计算逐组件 hash 与组合 `content_hash`。
 - 扫描历史 raw，返回 `new_source` / `new_version` / `noop` / `resume_failed`。
 - 校验 raw id/path、节点 id/type/path、`sources`、本次新增/删除的双向 links。
+- 校验 `primary_source`、正文 `[E]` 与 evidence 映射,并物化 provenance sidecar 和节点证据表。
 - 用 `base_sha256` 阻止覆盖 Agent 读取之后发生的并发修改。
 - 写锁、原子替换、失败回滚、INDEX 全量重建、journal、精确暂存和本地 commit。
 - 输出 receipt；没有 `status=committed` 和 commit hash，不得向用户声称已落库。
@@ -40,6 +43,10 @@
 飞书文档第一个 component 必须是唯一的 `kind=body`。评论完整或部分可用时必须提供唯一的
 `kind=comments`；`comments_status=unavailable` 时不得伪造空评论 component。包含白板时必须
 声明 `whiteboards_status=complete|partial`。
+
+plan 顶层 `provenance` 包含本次 raw 的 `enrichment` 与 `anchors`;每个 node operation 可包含
+`primary_source` 和 `evidence[]`。`evidence[].id` 必须与候选正文的 `[E<n>]` 一一对应,
+`raw_id` 省略时默认本次 raw,`anchor_id` 必须能在本次或既有 sidecar 中解析。
 
 ## 三段命令
 
@@ -112,6 +119,8 @@ remote 也中止,避免机密数据目录进入可推送状态；脚本自身没
 - Agent生成完整候选 Markdown，不使用 `replace_once` 一类脆弱文本替换 DSL。
 - `create` 的目标 id/path 必须不存在；`update` 必须提供当前文件的 `base_sha256`。
 - 每个候选节点 `sources` 必须包含本次 `raw_id`。
+- 主记录节点必须设置 `primary_source`;关键事实正文必须写 `[E<n>]`,并提供完整 evidence 映射。
+- Agent 不在候选中手写 `primary_source_url` 或 `## 证据`;事务从 raw / anchor 确定性生成。
 - 新节点必须包含模板要求的 status/created/updated/last_verified。
 - raw 的 `digest_targets` 由事务脚本根据 plan.nodes 自动生成，Agent不得另写一套。
 - journal 时刻、INDEX 重建和 Git 精确路径由脚本确定；commit message 由 plan 提供。
@@ -123,3 +132,5 @@ remote 也中止,避免机密数据目录进入可推送状态；脚本自身没
   `whiteboard_hash` 及历史“组件末尾补换行后直接拼接”的算法判重。
 - 严格规则只约束本次新增/改变的边和文件；历史问题作为 warning。
 - 不做启动时全库迁移；旧节点只有在本次真实触达时才由 Agent合并更新。
+- 历史批量补出处使用 `bin/provenance-backfill.py audit|plan|validate|apply`,不走 digest
+  幂等入口。自动生成的 plan 全部 `apply:false`;只有 Agent / 用户审核后才允许 apply。

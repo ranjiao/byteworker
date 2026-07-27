@@ -52,6 +52,8 @@
    用户可打开的 `source_url`。事务脚本会逐字拼入正文、canonical 评论/白板,自动写
    `ingested`、hash、`digest_key`、`digest_targets` 与 `digest_status: digested`。目标文件或
    `raw_id` 已存在时必须改用 `-2`/revision/hash 后缀,**绝不覆盖旧 raw**。
+   同时按 `references/provenance.md` 把抓取阶段保留的稳定 locator 写成
+   `provenance.anchors`;不要等摘要完成后按文本猜位置。
 6. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名、
    已有 raw 的 `digest_targets`、同源历史主记录节点在 INDEX 找可能涉及的已有节点,读取候选,
    语义比对是否与新输入矛盾。**有冲突 → 高亮矛盾点,等用户裁决,不静默覆盖。**
@@ -76,8 +78,9 @@
      优先级与证据语义见 `references/digest-comments.md`;职位高只提高关注度,不自动提高事实置信度。
    - **重点高亮**:文档若提到**重大事故、指标重大变化、或其它需要 highlight 的内容** → 在对应节点**显著记录**(如 `event` 的「结论」、`project` 的「关键进展 / 问题 / 风险」),并在汇报时**单独、突出**地提醒用户。
    - **Todo 候选识别**(细则 `references/todo.md`):结合 `context.md` 的“我的身份 / 我的职责范围 / 当前重点”,识别明确 @本人 / 指派给本人,或职责范围内需要用户关注的行动、DDL、风险、待确认项。明确分配给别人、已完成 / 取消、一般广播不列候选;模型推导只能标“推断”。来源待办照常写进 event / report,但**未经用户确认不得写 `todo.md`**。
-8. **写入事务** —— Agent按 `templates/node-<type>.md` 生成每个节点的**完整候选文件**;更新节点
-   时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。依次运行
+8. **写入事务** —— Agent按 `templates/node-<type>.md` 生成每个节点的**完整候选文件**;
+   主记录设置 `primary_source`,关键事实句尾写 `[E<n>]`,plan 中逐条映射到 `raw_id + anchor_id`;
+   更新节点时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。依次运行
    `bin/digest-txn.py validate` 与 `execute`:它会校验候选,原子写 raw/节点,重建 INDEX,追加
    journal,精确暂存本次路径并在知识库本地 git 创建 commit。只有 receipt
    `status=committed` 才算完成;`status=noop` 不得重复写。详见
@@ -92,6 +95,7 @@
 
 | 场景 | 必读 |
 |------|------|
+| 所有标准 digest | `references/provenance.md` |
 | 摄取群聊(`feishu_chat`) | `references/digest-chat.md` |
 | 摄取飞书文档(`feishu_doc`) | `references/digest-doc.md` |
 | 飞书文档含内嵌白板 | 加读 `references/digest-whiteboard.md` |
