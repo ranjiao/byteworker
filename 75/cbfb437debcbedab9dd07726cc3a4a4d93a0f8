@@ -1,0 +1,49 @@
+DESIGN.md
+  s_18edd23a17d981::t_bc24ca13a1d189 42,48-49
+INSTALL.md
+  s_18edd23a17d981::t_46750d80c2c152 190-192
+SKILL.md
+  s_18edd23a17d981::t_c5ee5ba597a95d 3,27,34-38,163-172,186
+bin/doctor.py
+  s_18edd23a17d981::t_796a7be9de2775 1-108
+bin/repair-links.sh
+  s_18edd23a17d981::t_4c135b34fa89ff 19
+bin/repair_links.py
+  s_18edd23a17d981::t_d3858bd9536e3b 140,149,220
+bin/update-check.sh
+  s_18edd23a17d981::t_e8fb5108b29b53 11-12,112-125
+bin/update-postflight.py
+  s_18edd23a17d981::t_a3556040cc8811 1-85
+lib/doctor.py
+  s_18edd23a17d981::t_6b44ecaa68c388 1-1135
+lib/update_postflight.py
+  s_18edd23a17d981::t_d4b1d8e0c4650d 1-314
+references/doctor.md
+  s_18edd23a17d981::t_85058f7746316b 1-77
+references/help.md
+  s_18edd23a17d981::t_34637f90063828 49-53,56
+references/maintenance.md
+  s_18edd23a17d981::t_a99693295416fd 6-8,27
+tests/test_doctor.py
+  s_18edd23a17d981::t_674b4ef0d89b99 1-517
+tests/test_update_check.py
+  s_18edd23a17d981::t_a9f0881887e3e9 1-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "75cbfb437debcbedab9dd07726cc3a4a4d93a0f8",
+  "prompts": {},
+  "sessions": {
+    "s_18edd23a17d981": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa370-9b8f-7910-8625-cc0015ebefbc",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
