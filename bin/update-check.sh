@@ -8,7 +8,8 @@
 #   bin/update-check.sh --force   # 忽略周期,立即检查
 #
 # 输出约定:
-#   有输出 = 已更新,或自动更新不可用、需用户处理(SKILL.md 把该行转告用户);
+#   有输出 = 已更新及其 doctor 摘要,或自动更新不可用、需用户处理
+#             (SKILL.md 把该行转告用户);
 #   无输出 = 未到检查周期 / 已是最新 / 检查被安全跳过(离线等)。
 # 始终 exit 0,绝不打断调用方。
 #
@@ -108,6 +109,19 @@ AFTER=$(git -C "$DIR" rev-parse HEAD 2>/dev/null) || exit 0
 
 if [ "$BEFORE" != "$AFTER" ]; then
   N=$(git -C "$DIR" rev-list --count "${BEFORE}..${AFTER}" 2>/dev/null || echo "若干")
-  echo "byteworker skill 已自动更新(拉取 $N 个提交,更新于下次使用生效)。"
+  UPDATE_MESSAGE="byteworker skill 已自动更新(拉取 $N 个提交,更新于下次使用生效)。"
+  if [ -f "$DIR/bin/update-postflight.py" ] && command -v python3 >/dev/null 2>&1; then
+    DOCTOR_MESSAGE=$(python3 "$DIR/bin/update-postflight.py" 2>/dev/null)
+    DOCTOR_STATUS=$?
+    if [ -n "$DOCTOR_MESSAGE" ]; then
+      echo "$UPDATE_MESSAGE $DOCTOR_MESSAGE"
+    elif [ "$DOCTOR_STATUS" -ne 0 ]; then
+      echo "$UPDATE_MESSAGE doctor:更新后兼容检查未完成。请决定是否立即检查。"
+    else
+      echo "$UPDATE_MESSAGE"
+    fi
+  else
+    echo "$UPDATE_MESSAGE doctor:更新后兼容检查不可用。请决定是否立即检查。"
+  fi
 fi
 exit 0

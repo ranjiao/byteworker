@@ -39,12 +39,14 @@ byteworker 由**两个物理隔离**的部分组成。
 
 | 文件/目录 | 存什么 |
 |-----------|--------|
-| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/daily/weekly/inbox/help) |
+| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/daily/weekly/inbox/doctor/help) |
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
+| `bin/doctor.py` + `lib/doctor.py` | 按当前 DESIGN/模板/代码 profile 只读扫描知识库兼容性,并编排 INDEX/links 的确定性修复 |
+| `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 

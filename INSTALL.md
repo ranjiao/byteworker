@@ -187,7 +187,9 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"
 ```
 
-之后 skill 每周静默从 GitHub 自动更新(`bin/update-check.sh`)。
+之后 skill 每周静默从 GitHub 自动更新(`bin/update-check.sh`)；代码确实更新后会自动运行
+doctor，修复确定性低成本兼容问题并创建知识库本地回滚提交。无法自动处理的严重错误会请求
+用户决策，warning/info 只给简短摘要。
 
 ## 多个 agent 共用一份代码
 
