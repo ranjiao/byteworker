@@ -16,7 +16,7 @@
 #   · 去重     —— 同一 links 列表里重复的 id 合并为一条。
 #   · auto-link —— 加 --autolink 时,正文提及的已存在节点 id 自动纳入 links。
 #   · 悬空链接 —— A 链到的目标节点不存在:只报告,不修复(交人裁决)。
-#   · 自链接   —— A 链到自己:只报告,不修复。
+#   · 自链接   —— A 链到自己:确定性删除。
 #   只动 frontmatter 的 links 块,其余 frontmatter 与 body 逐字不变。
 #   不碰 git、不写 journal —— 由调用方按「写入规范」收尾。
 #

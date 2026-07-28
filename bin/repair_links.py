@@ -137,7 +137,7 @@ def main():
             continue
         nodes[nid] = p
 
-    # 去重(保序) + 自链接检测
+    # 去重(保序) + 删除自链接
     self_links = set()
     desired = {}
     deduped = set()
@@ -146,6 +146,7 @@ def main():
         for x in p["links"]:
             if x == nid:
                 self_links.add(nid)
+                continue
             if x not in seen:
                 seen.append(x)
         if seen != p["links"]:
@@ -216,7 +217,7 @@ def main():
     if deduped:
         print("\n%s 去重的节点: %d —— %s" % ("→" if dry_run else "✓", len(deduped), ", ".join(sorted(deduped))))
     if self_links:
-        print("\n✗ 自链接(只报告, 未改): %d" % len(self_links))
+        print("\n%s 删除的自链接: %d" % ("→" if dry_run else "✓", len(self_links)))
         for nid in sorted(self_links):
             print("  · %s → %s" % (nid, nid))
     if dangling:

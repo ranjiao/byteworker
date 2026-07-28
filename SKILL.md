@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、会议妙记、会议、群聊、外部 blog/论文/wiki、本地 md 摄取(digest)并消化成结构化实体图笔记(人员/项目/主题领域/组织/事件/决策/读物),支持对话式查询(search)、更新(update)、会前简报(brief)、工作看板(dashboard)、自然语言待办与提醒(todo)、日报(daily)、周报(weekly)、IM Inbox 摘要(inbox)、对话式维护全局工作上下文(context)。当用户要把资料存入知识库、查询或更新工作知识、要会前简报/日报/周报、分析飞书 IM、查看工作看板,或说“记个待办”“明天/后天/下周六提醒我”“刚才那个做完了”“延期/取消提醒”“看看还有什么没做”时使用;支持 /byteworker digest/search/update/brief/dashboard/todo/daily/weekly/inbox/context/help 子命令,但 todo 日常以自然语言为主。
+description: 个人飞书工作知识库。把飞书文档、会议妙记、会议、群聊、外部 blog/论文/wiki、本地 md 摄取(digest)并消化成结构化实体图笔记(人员/项目/主题领域/组织/事件/决策/读物),支持对话式查询(search)、更新(update)、会前简报(brief)、工作看板(dashboard)、自然语言待办与提醒(todo)、日报(daily)、周报(weekly)、IM Inbox 摘要(inbox)、对话式维护全局工作上下文(context),以及扫描/修复知识库与当前 skill/schema 不兼容问题(doctor)。当用户要把资料存入知识库、查询或更新工作知识、要会前简报/日报/周报、分析飞书 IM、查看工作看板、检查/修复知识库、升级 skill 后排查数据兼容性,或说“记个待办”“明天/后天/下周六提醒我”“刚才那个做完了”“延期/取消提醒”“看看还有什么没做”时使用;支持 /byteworker digest/search/update/brief/dashboard/todo/daily/weekly/inbox/context/doctor/help 子命令,但 todo 日常以自然语言为主。
 ---
 
 # byteworker 个人知识库
@@ -24,13 +24,18 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 | `weekly` | 周报 | 自动跑定期摄取,总结本周重要事项并生成周报 | `/byteworker weekly` |
 | `inbox` | IM摘要 | 扫描飞书 IM 高信号消息并生成摘要 | `/byteworker inbox 昨天` |
 | `context` | 全局上下文 | 对话式增删改你的工作上下文 | `/byteworker context 我的当前重点改成X` |
+| `doctor` | 兼容诊断 | 扫描知识库与当前 schema 的不匹配并做确定性修复 | `/byteworker doctor` |
 | `help` | 帮助 | 用法说明 | `/byteworker help` |
 
 带子命令时按对应能力执行;未带子命令的自然语言输入,按各能力的「触发」判断。
 
 ## 操作前必读
 
-**自动更新(最先做)**:每次使用本 skill,先静默运行 `bin/update-check.sh` —— 它每周最多实际检查一次,从 GitHub fast-forward 拉取最新 skill 内容。脚本**有输出**就把那一行转告用户,**无输出**则静默继续(更新于下次使用生效)。
+**自动更新(最先做)**:每次使用本 skill,先静默运行 `bin/update-check.sh` —— 它每周最多实际检查一次,从 GitHub fast-forward 拉取最新 skill 内容。只有代码确实更新后才自动运行 post-update doctor:按 `auto_fix` 白名单修复确定性低成本问题、复扫并创建知识库本地回滚提交。脚本**有输出**就把那一行转告用户,**无输出**则静默继续(代码更新于下次使用生效)。
+
+- doctor 结果含无法自动处理的 `error`、修复失败或相关文件正被编辑 → 告知“严重问题”,请用户决定是否立即检查,当前业务请求可在不依赖损坏数据时继续。
+- 只剩 `warning` / `info` → 用脚本给出的单行数量摘要告知,让用户选择忽略或立即处理;不要展开全量 finding。
+- 自动更新没有发生 → 不运行 post-update doctor,避免每次调用都做全库扫描。
 
 - **无需 GitHub 账号/SSH key**:仓库是 public repo,脚本会自动使用 HTTPS 拉取;若你当前 origin 是 SSH(`git@github.com`) 但环境无 SSH key,脚本会 fallback 到 HTTPS 临时拉取,**默认不改写 origin**。确需让脚本补 / 改 remote 时,手动设置 `BYTEWORKER_AUTO_UPDATE_MUTATE_ORIGIN=1` 后再运行。
 - **主动触发**:用户说"更新 skill""检查更新""byteworker 有新版吗" → 调用 `bin/update-check.sh --force`(跳过 7 天周期,立即检查)。
@@ -155,6 +160,16 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 
 执行细则见 `references/im-inbox-summary.md`。默认扫描今天;用户说"昨天"取上一自然日;用户说"最近一天 / 过去 24 小时"取滚动 24 小时;用户给 `YYYY-MM-DD` 取该日 00:00-23:59:59。输出写到知识库数据目录 `reports/im/<YYYY-MM-DD>.md` 或非自然日窗口文件;不跑定期摄取,不生成 daily / weekly,不把全量 IM 原文写入 `raw_data/`。
 
+## doctor — 兼容性检查与修复
+
+**触发**:子命令 `doctor`;或自然语言 —— “检查知识库”“升级 skill 后数据兼容吗”“扫描并修复
+知识库”“schema 有没有漂移”。
+
+完整流程见 `references/doctor.md`。用户主动调用时默认执行只读 `python3 bin/doctor.py scan`;
+只有用户明确要求修复才执行 `fix`。例外是代码实际自动更新后的 post-update doctor:可直接处理
+finding 明确声明的 `auto_fix`。自动修复只覆盖可确定重建的 INDEX 与 links;缺失业务字段、
+证据链、悬空 id、真相源损坏只列问题和建议,不得猜写。
+
 ## help — 帮助
 
 **触发**:子命令 `help`;或自然语言 —— "帮助""byteworker 怎么用""这个 skill 能做什么""用法"。
@@ -168,6 +183,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 写入、重建和修复规则已拆分:
 
 - **写入前必读**:`references/write-rules.md` —— 原子写入、双向 links、auto-link、INDEX、journal、本地 git 回滚点、时间格式、时间倒序。
+- **兼容性诊断**:`references/doctor.md` —— 先只读扫描当前 schema/profile,再按用户授权做确定性修复。
 - **维护 / 恢复按需读**:`references/maintenance.md` —— 运行 `bin/rebuild-index.sh` 重建 INDEX、运行 `bin/repair-links.sh --autolink` 修复双链 / 正文提及连边、灾难恢复。
 
 核心不变量:知识库数据目录是唯一业务数据位置;`raw_data/` + `provenance/` + `knowledge/` + `reports/` + `todo.md` + `context.md` + `dashboard.md` 手动项是真相源,`INDEX.md` 和 dashboard 派生段可重建。
