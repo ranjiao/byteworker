@@ -1,9 +1,8 @@
 """Read-only source inspection and canonical snapshot capture.
 
-The adapters deliberately shell out to the official CLIs.  Authentication,
-API evolution, and transport details remain owned by those CLIs; byteworker
-owns source identity, completeness checks, canonicalization, and provenance
-locators.
+Meego and Base use their dedicated CLIs.  Aeolus uses byteworker's own
+minimal read-only HTTP client.  In every case byteworker owns source identity,
+completeness checks, canonicalization, and provenance locators.
 """
 
 from __future__ import annotations
@@ -19,6 +18,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import unquote_plus
+
+from aeolus_client import AeolusClient, AeolusClientError
+from source_profiles import (
+    ROUTINE_CADENCES,
+    SourceProfileError,
+    profile_revision,
+    validate_profile,
+)
 
 
 INSPECT_SCHEMA = "byteworker-source-inspect/v1"
@@ -45,11 +52,14 @@ SENSITIVE_QUERY_KEYS = {
     "access_token",
     "auth_token",
     "authorization",
+    "bytecloud_jwt",
+    "client_secret",
     "credential",
     "disposable_login_token",
     "secret",
     "sign",
     "signature",
+    "titan_passport",
     "token",
 }
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
@@ -92,7 +102,7 @@ class CliResponse:
 
 
 class CommandRunner:
-    """Small injectable subprocess boundary used by both adapters."""
+    """Small injectable subprocess boundary used by the CLI-backed adapters."""
 
     def __init__(self, binary: str, *, timeout_seconds: int = 180) -> None:
         self.binary = binary
@@ -306,8 +316,19 @@ def _unwrap_response(raw: Any) -> CliResponse:
     if "data" in raw and (
         "meta" in raw
         or "error" in raw
+        or str(raw.get("status", "")).lower() in {"success", "error"}
         or set(raw).issubset(
-            {"code", "msg", "message", "data", "meta", "error", "_notice"}
+            {
+                "code",
+                "msg",
+                "message",
+                "status",
+                "data",
+                "meta",
+                "error",
+                "context",
+                "_notice",
+            }
         )
     ):
         return CliResponse(data=raw.get("data"), meta=meta, raw=raw)
@@ -1544,6 +1565,836 @@ def capture_base(
     }
 
 
+def _aeolus_client_error(exc: AeolusClientError) -> SourceCaptureError:
+    code_map = {
+        "AEOLUS_AUTH_REQUIRED": "SOURCE_AUTH_REQUIRED",
+        "AEOLUS_PERMISSION_DENIED": "SOURCE_PERMISSION_DENIED",
+        "AEOLUS_NOT_FOUND": "SOURCE_NOT_FOUND",
+        "AEOLUS_TIMEOUT": "SOURCE_TIMEOUT",
+        "AEOLUS_INVALID_URL": "SOURCE_URL_INVALID",
+        "AEOLUS_UNSUPPORTED_URL": "SOURCE_UNSUPPORTED_VIEW",
+    }
+    return SourceCaptureError(
+        code_map.get(exc.code, "SOURCE_AEOLUS_ERROR"),
+        str(exc),
+        hint=exc.hint,
+        details={"aeolus_code": exc.code, **exc.details},
+    )
+
+
+def aeolus_client_from_environment(
+    *,
+    timeout_seconds: int = 180,
+) -> AeolusClient:
+    try:
+        return AeolusClient.from_environment(
+            timeout_seconds=timeout_seconds,
+            forbidden_roots=(Path(__file__).resolve().parents[1],),
+        )
+    except AeolusClientError as exc:
+        raise _aeolus_client_error(exc) from exc
+
+
+def aeolus_auth_status(*, client: AeolusClient) -> dict[str, Any]:
+    try:
+        response = client.auth_status()
+    except AeolusClientError as exc:
+        raise _aeolus_client_error(exc) from exc
+    ready = response.get("ready") is True
+    return {
+        "schema_version": AUTH_SCHEMA,
+        "source_type": "aeolus",
+        "authenticated": response.get("authenticated") is True,
+        "authorized": response.get("authorized") is True,
+        "ready": ready,
+        "site": "cn",
+        "auth_type": response.get("auth_type"),
+        "credential_configured": response.get("configured") is True,
+        "required_scopes": [],
+        "missing_scopes": [],
+        "action": None
+        if ready
+        else {
+            "kind": "configure_credentials",
+            "interactive": False,
+            "message": (
+                "为 byteworker 配置风神只读凭据：Titan Passport、"
+                "ByteCloud JWT 或独立 client credentials。"
+            ),
+        },
+    }
+
+
+def _aeolus_auth(client: AeolusClient) -> Mapping[str, Any]:
+    status = aeolus_auth_status(client=client)
+    if status["ready"] is not True:
+        raise SourceCaptureError(
+            "SOURCE_AUTH_REQUIRED",
+            "byteworker 的风神只读凭据未就绪",
+            hint=(
+                "设置 BYTEWORKER_AEOLUS_TITAN_PASSPORT、"
+                "BYTEWORKER_AEOLUS_BYTECLOUD_JWT，或配置独立 client credentials。"
+            ),
+            details={
+                "source_type": "aeolus",
+                "auth_action": status["action"],
+            },
+        )
+    return status
+
+
+def _aeolus_int(value: Any, *, field: str) -> int:
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError) as exc:
+        raise SourceCaptureError(
+            "SOURCE_COORDINATES_MISSING",
+            f"风神响应中缺少合法的 {field}",
+        ) from exc
+    if parsed <= 0:
+        raise SourceCaptureError(
+            "SOURCE_COORDINATES_MISSING",
+            f"风神响应中缺少合法的 {field}",
+        )
+    return parsed
+
+
+def _aeolus_dashboard(
+    *,
+    client: AeolusClient,
+    url: str,
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
+    if not url.strip():
+        raise SourceCaptureError(
+            "SOURCE_URL_REQUIRED",
+            "风神 inspect/capture 需要 dashboard URL",
+        )
+    _aeolus_auth(client)
+    try:
+        coordinates, resolved = client.resolve_dashboard(url)
+    except AeolusClientError as exc:
+        raise _aeolus_client_error(exc) from exc
+    if not isinstance(resolved, Mapping):
+        raise SourceCaptureError(
+            "SOURCE_INVALID_RESPONSE",
+            "风神 dashboard 解析返回的不是对象",
+        )
+    if str(resolved.get("urlType", "")).lower() != "dashboard":
+        raise SourceCaptureError(
+            "SOURCE_UNSUPPORTED_VIEW",
+            "风神来源必须是 dashboard URL",
+            hint="请使用包含 appId、dashboardId、sheetId 的看板页面 URL。",
+        )
+    try:
+        sheet = client.get_sheet(coordinates=coordinates, url=url)
+    except AeolusClientError as exc:
+        raise _aeolus_client_error(exc) from exc
+    if not isinstance(sheet, Mapping):
+        raise SourceCaptureError(
+            "SOURCE_INVALID_RESPONSE",
+            "风神 simpleSheet 返回的不是对象",
+        )
+    return coordinates, {**resolved, "_sheet": sheet}
+
+
+def _aeolus_dataset_fields(
+    *,
+    client: AeolusClient,
+    dataset_ids: Sequence[int],
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    schemas: list[dict[str, Any]] = []
+    names: dict[str, str] = {}
+    for dataset_id in sorted(set(dataset_ids)):
+        try:
+            response = client.get_dataset_fields(dataset_id)
+        except AeolusClientError as exc:
+            raise _aeolus_client_error(exc) from exc
+        if not isinstance(response, Mapping):
+            raise SourceCaptureError(
+                "SOURCE_INVALID_RESPONSE",
+                f"风神 dataset-fields {dataset_id} 返回的不是对象",
+            )
+        fields: list[dict[str, Any]] = []
+        for role, key in (("dimension", "dimensions"), ("metric", "metrics")):
+            values = response.get(key)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                if not isinstance(value, Mapping) or value.get("id") in (None, ""):
+                    continue
+                canonical = {
+                    "id": _aeolus_int(value.get("id"), field="dimMetId"),
+                    "name": str(value.get("name", "")).strip(),
+                    "role": role,
+                    "data_type": value.get("dataTypeName"),
+                }
+                fields.append(canonical)
+                names[str(canonical["id"])] = canonical["name"]
+        schemas.append(
+            {
+                "dataset_id": dataset_id,
+                "name": str(response.get("datasetName", "")).strip(),
+                "fields": sorted(fields, key=lambda item: item["id"]),
+            }
+        )
+    return schemas, names
+
+
+def _aeolus_reports(resolved: Mapping[str, Any]) -> list[dict[str, Any]]:
+    values = resolved.get("reports")
+    if not isinstance(values, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, Mapping):
+            continue
+        report_id = _aeolus_int(value.get("reportId"), field="reportId")
+        dataset_values = value.get("datasetIds")
+        dataset_ids = (
+            sorted(
+                _aeolus_int(item, field="datasetId")
+                for item in dataset_values
+            )
+            if isinstance(dataset_values, list)
+            else []
+        )
+        if not dataset_ids:
+            raise SourceCaptureError(
+                "SOURCE_COORDINATES_MISSING",
+                f"风神报表 {report_id} 缺少 datasetId",
+            )
+        result.append(
+            {
+                "report_id": report_id,
+                "dataset_ids": dataset_ids,
+                "name": str(value.get("name", "")).strip()
+                or f"Report {report_id}",
+                "display_type": str(value.get("displayType", "")).strip(),
+                "status": str(value.get("statusCode", "")).strip(),
+                "config_updated_at": value.get("updatedAt"),
+            }
+        )
+    result.sort(key=lambda item: item["report_id"])
+    return result
+
+
+def _aeolus_public_filters(
+    sheet: Mapping[str, Any],
+    *,
+    field_names: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    content = sheet.get("content")
+    result: list[dict[str, Any]] = []
+    for candidate in _walk_mappings(content):
+        if candidate.get("componentName") != "filter":
+            continue
+        props = candidate.get("props")
+        if not isinstance(props, Mapping):
+            continue
+        raw_filter = props.get("filter")
+        fields = props.get("fields")
+        if not isinstance(raw_filter, Mapping) or not isinstance(fields, list):
+            continue
+        raw_chart_ids = props.get("chartIDs")
+        if not isinstance(raw_chart_ids, list):
+            raw_chart_ids = []
+        chart_ids = sorted(
+            {
+                _aeolus_int(item, field="reportId")
+                for item in raw_chart_ids
+            }
+        )
+        for field in fields:
+            if not isinstance(field, Mapping):
+                continue
+            dim_met_id = _aeolus_int(field.get("dimMetId"), field="dimMetId")
+            dataset_id = _aeolus_int(field.get("dataSetId"), field="datasetId")
+            values = raw_filter.get("val")
+            if values is None:
+                values = []
+            if not isinstance(values, list):
+                values = [values]
+            result.append(
+                {
+                    "filter_key": str(props.get("filterKey", "")).strip(),
+                    "label": str(props.get("name", "")).strip(),
+                    "name": field_names.get(str(dim_met_id))
+                    or str(props.get("name", "")).strip(),
+                    "dataset_id": dataset_id,
+                    "dim_met_id": dim_met_id,
+                    "op": str(raw_filter.get("op", "in")).strip() or "in",
+                    "values": values,
+                    "is_empty": len(values) == 0,
+                    "hidden": props.get("invisible") is True,
+                    "report_ids": chart_ids,
+                }
+            )
+    result.sort(
+        key=lambda item: (
+            item["dim_met_id"],
+            item["dataset_id"],
+            item["filter_key"],
+        )
+    )
+    return result
+
+
+def _aeolus_inspection(
+    *,
+    client: AeolusClient,
+    url: str,
+) -> dict[str, Any]:
+    coordinates, resolved = _aeolus_dashboard(client=client, url=url)
+    reports = _aeolus_reports(resolved)
+    dataset_ids = sorted(
+        {item for report in reports for item in report["dataset_ids"]}
+    )
+    datasets, field_names = _aeolus_dataset_fields(
+        client=client,
+        dataset_ids=dataset_ids,
+    )
+    sheet = resolved["_sheet"]
+    filters = _aeolus_public_filters(sheet, field_names=field_names)
+    source_uid = (
+        f"aeolus:{coordinates['region']}:{coordinates['app_id']}:"
+        f"{coordinates['dashboard_id']}:{coordinates['sheet_id']}"
+    )
+    return {
+        "schema_version": INSPECT_SCHEMA,
+        "source_type": "aeolus",
+        "source_uid": source_uid,
+        "source_url": url,
+        "title": str(resolved.get("dashboardName", "")).strip()
+        or f"Aeolus dashboard {coordinates['dashboard_id']}",
+        "coordinates": coordinates,
+        "selector": {"kind": "dashboard_sheet"},
+        "reports": reports,
+        "report_count": len(reports),
+        "datasets": datasets,
+        "public_filters": filters,
+        "active_public_filter_count": sum(
+            1 for item in filters if not item["is_empty"]
+        ),
+        "read_only": True,
+    }
+
+
+def inspect_aeolus(
+    *,
+    client: AeolusClient,
+    url: str,
+) -> dict[str, Any]:
+    return _aeolus_inspection(client=client, url=url)
+
+
+def _source_profile_capture_error(exc: SourceProfileError) -> SourceCaptureError:
+    return SourceCaptureError(exc.code, str(exc), hint=exc.hint)
+
+
+def build_aeolus_profile(
+    *,
+    client: AeolusClient,
+    url: str,
+    report_ids: Sequence[int | str] = (),
+    where_filters: Sequence[Mapping[str, Any]] = (),
+    filter_mode: str = "dashboard",
+    max_items: int = DEFAULT_MAX_ITEMS,
+    routine: str = "",
+) -> dict[str, Any]:
+    """Validate and build one KB-owned profile for one dashboard sheet."""
+    inspected = _aeolus_inspection(client=client, url=url)
+    reports_by_id = {
+        report["report_id"]: report for report in inspected["reports"]
+    }
+    selected_ids = (
+        sorted({_aeolus_int(item, field="reportId") for item in report_ids})
+        if report_ids
+        else sorted(reports_by_id)
+    )
+    missing = [item for item in selected_ids if item not in reports_by_id]
+    if missing:
+        raise SourceCaptureError(
+            "SOURCE_REPORT_NOT_FOUND",
+            "风神 sheet 中不存在报表: " + ", ".join(map(str, missing)),
+            hint="重新运行 source inspect，使用当前 sheet 的 report_id。",
+        )
+    normalized_where = [_parse_aeolus_where(item) for item in where_filters]
+    # Fail registration early when an explicit filter cannot apply to any
+    # selected report dataset.  Dashboard filters are provider-owned and are
+    # re-resolved on every capture.
+    selected_dataset_ids = {
+        dataset_id
+        for report_id in selected_ids
+        for dataset_id in reports_by_id[report_id]["dataset_ids"]
+    }
+    known_filter_ids = {
+        field["id"]
+        for dataset in inspected["datasets"]
+        if dataset["dataset_id"] in selected_dataset_ids
+        for field in dataset["fields"]
+    }
+    unknown_filter_ids = sorted(
+        {
+            item["dimMetId"]
+            for item in normalized_where
+            if item["dimMetId"] not in known_filter_ids
+        }
+    )
+    if unknown_filter_ids:
+        raise SourceCaptureError(
+            "SOURCE_FILTER_NOT_FOUND",
+            "所选报表的数据集中不存在筛选字段: "
+            + ", ".join(map(str, unknown_filter_ids)),
+            hint="重新 inspect 看板并使用 datasets.fields 中的稳定字段 ID。",
+        )
+    if routine and routine not in ROUTINE_CADENCES:
+        raise SourceCaptureError(
+            "SOURCE_ARGUMENT_INVALID",
+            "routine 必须为空、daily、weekly 或 monthly",
+        )
+    sanitized_url, _ = _sanitize_url(url)
+    profile = {
+        "schema_version": "byteworker-source-profile/v1",
+        "source_type": "aeolus",
+        "source_uid": inspected["source_uid"],
+        "source_url": sanitized_url,
+        "title": inspected["title"],
+        "coordinates": inspected["coordinates"],
+        "capture": {
+            "report_selector": {
+                "mode": "include" if report_ids else "all",
+                "report_ids": selected_ids if report_ids else [],
+            },
+            "filters": {
+                "mode": filter_mode,
+                "where": normalized_where,
+            },
+            "max_items_per_report": max_items,
+        },
+        "routine": {
+            "enabled": bool(routine),
+            "cadence": routine or None,
+        },
+    }
+    try:
+        return validate_profile(profile)
+    except SourceProfileError as exc:
+        raise _source_profile_capture_error(exc) from exc
+
+
+def capture_aeolus_from_profile(
+    *,
+    client: AeolusClient,
+    profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Capture exactly the selector and filters stored in a KB profile."""
+    try:
+        normalized = validate_profile(profile)
+    except SourceProfileError as exc:
+        raise _source_profile_capture_error(exc) from exc
+    if normalized["source_type"] != "aeolus":
+        raise SourceCaptureError(
+            "SOURCE_PROFILE_UNSUPPORTED",
+            "当前 profile capture 仅支持 source_type=aeolus",
+        )
+    selector = normalized["capture"]["report_selector"]
+    filters = normalized["capture"]["filters"]
+    result = capture_aeolus(
+        client=client,
+        url=normalized["source_url"],
+        report_ids=(
+            selector["report_ids"] if selector["mode"] == "include" else ()
+        ),
+        where_filters=filters["where"],
+        filter_mode=filters["mode"],
+        max_items=normalized["capture"]["max_items_per_report"],
+    )
+    if result["source_uid"] != normalized["source_uid"]:
+        raise SourceCaptureError(
+            "SOURCE_PROFILE_IDENTITY_MISMATCH",
+            "实时解析出的风神 source_uid 与 KB profile 不一致",
+            hint="看板 URL 或坐标可能已变化；请显式重新 register。",
+        )
+    result["source_profile"] = {
+        "source_uid": normalized["source_uid"],
+        "revision": profile_revision(normalized),
+    }
+    return result
+
+
+def _parse_aeolus_where(value: Mapping[str, Any]) -> dict[str, Any]:
+    dim_met_id = value.get("dimMetId", value.get("dim_met_id"))
+    name = str(value.get("name", "")).strip()
+    op = str(value.get("op", "in")).strip() or "in"
+    values = value.get("val", value.get("values"))
+    if not name or dim_met_id in (None, "") or values is None:
+        raise SourceCaptureError(
+            "SOURCE_FILTER_INVALID",
+            "风神 --where 需要 name、dimMetId、op、val",
+            hint=(
+                '例如 {"name":"<field_name>","dimMetId":<dim_met_id>,'
+                '"op":"in","val":["<value>"]}'
+            ),
+        )
+    if not isinstance(values, list):
+        values = [values]
+    return {
+        "name": name,
+        "dimMetId": _aeolus_int(dim_met_id, field="dimMetId"),
+        "op": op,
+        "val": values,
+    }
+
+
+def _aeolus_filters_for_report(
+    *,
+    report_id: int,
+    dataset_id: int,
+    public_filters: Sequence[Mapping[str, Any]],
+    explicit_filters: Sequence[Mapping[str, Any]],
+    filter_mode: str,
+) -> list[dict[str, Any]]:
+    def unique_by_id(
+        values: Sequence[dict[str, Any]],
+        *,
+        label: str,
+    ) -> dict[int, dict[str, Any]]:
+        result: dict[int, dict[str, Any]] = {}
+        for item in values:
+            dim_met_id = item["dimMetId"]
+            existing = result.get(dim_met_id)
+            if existing is not None and existing != item:
+                raise SourceCaptureError(
+                    "SOURCE_FILTER_AMBIGUOUS",
+                    f"风神 {label} 对 dimMetId={dim_met_id} 给出多个不同筛选值",
+                    hint="重新 inspect 看板筛选，或用 explicit 固定唯一口径。",
+                )
+            result[dim_met_id] = item
+        return result
+
+    dashboard = [
+        {
+            "name": str(item["name"]),
+            "dimMetId": int(item["dim_met_id"]),
+            "op": str(item["op"]),
+            "val": item["values"],
+        }
+        for item in public_filters
+        if not item.get("is_empty")
+        and int(item.get("dataset_id", 0)) == dataset_id
+        and report_id in item.get("report_ids", [])
+    ]
+    explicit = [_parse_aeolus_where(item) for item in explicit_filters]
+    dashboard_by_id = unique_by_id(dashboard, label="dashboard")
+    explicit_by_id = unique_by_id(explicit, label="explicit")
+    if filter_mode == "dashboard":
+        if explicit:
+            raise SourceCaptureError(
+                "SOURCE_FILTER_INVALID",
+                "--filter-mode dashboard 不接受 --where",
+                hint="使用 merge 以覆盖看板默认值，或 explicit 完全固定筛选条件。",
+            )
+        selected = list(dashboard_by_id.values())
+    elif filter_mode == "explicit":
+        if not explicit:
+            raise SourceCaptureError(
+                "SOURCE_FILTER_INVALID",
+                "--filter-mode explicit 至少需要一个 --where",
+            )
+        selected = list(explicit_by_id.values())
+    elif filter_mode == "merge":
+        selected_by_id = dict(dashboard_by_id)
+        selected_by_id.update(explicit_by_id)
+        selected = list(selected_by_id.values())
+    else:
+        raise SourceCaptureError(
+            "SOURCE_FILTER_INVALID",
+            f"未知风神 filter_mode={filter_mode}",
+        )
+    return sorted(selected, key=lambda item: (item["dimMetId"], item["name"]))
+
+
+def _aeolus_leaf_maps(value: Any) -> list[Mapping[str, Any]]:
+    result: list[Mapping[str, Any]] = []
+    if isinstance(value, Mapping):
+        if value and all(
+            not isinstance(child, (Mapping, list)) for child in value.values()
+        ):
+            result.append(value)
+        else:
+            for child in value.values():
+                result.extend(_aeolus_leaf_maps(child))
+    elif isinstance(value, list):
+        for child in value:
+            result.extend(_aeolus_leaf_maps(child))
+    return result
+
+
+def _aeolus_normalize_rows(
+    *,
+    report_id: int,
+    columns: Sequence[Any],
+    rows: Any,
+) -> list[dict[str, Any]]:
+    names = [str(item).strip() for item in columns]
+    if not names or any(not item for item in names) or len(set(names)) != len(names):
+        raise SourceCaptureError(
+            "SOURCE_AEOLUS_NORMALIZATION_ERROR",
+            f"风神报表 {report_id} 返回了空列名或重复列名",
+        )
+    if isinstance(rows, list) and all(
+        isinstance(item, list)
+        and not any(isinstance(cell, (Mapping, list)) for cell in item)
+        for item in rows
+    ):
+        normalized: list[dict[str, Any]] = []
+        for item in rows:
+            if len(item) != len(names):
+                raise SourceCaptureError(
+                    "SOURCE_AEOLUS_NORMALIZATION_ERROR",
+                    f"风神报表 {report_id} 行宽与 columns 不一致",
+                )
+            normalized.append(dict(zip(names, item)))
+        return normalized
+
+    leaves = _aeolus_leaf_maps(rows)
+    if not leaves and rows in (None, [], {}):
+        return []
+    if not leaves:
+        raise SourceCaptureError(
+            "SOURCE_AEOLUS_NORMALIZATION_ERROR",
+            f"风神报表 {report_id} 返回了无法解释的 rows 结构",
+        )
+
+    helper_keys = {"10001", "10002", "10003", "20001"}
+    if all("10001" in item and "10002" in item for item in leaves):
+        metric_names = {str(item["10001"]) for item in leaves}
+        if not metric_names or not metric_names.issubset(set(names)):
+            raise SourceCaptureError(
+                "SOURCE_AEOLUS_NORMALIZATION_ERROR",
+                f"风神报表 {report_id} 长表指标名与 columns 不一致",
+            )
+        dimension_names = [item for item in names if item not in metric_names]
+        grouped: dict[bytes, dict[str, Any]] = {}
+        for item in leaves:
+            metric_name = str(item["10001"])
+            metric_id = str(item.get("10003", ""))
+            dimension_values = [
+                value
+                for key, value in item.items()
+                if str(key) not in helper_keys and str(key) != metric_id
+            ]
+            if len(dimension_values) != len(dimension_names):
+                raise SourceCaptureError(
+                    "SOURCE_AEOLUS_NORMALIZATION_ERROR",
+                    f"风神报表 {report_id} 无法把长表维度映射到 columns",
+                )
+            dimensions = dict(zip(dimension_names, dimension_values))
+            group_key = _canonical_bytes(dimensions)
+            row = grouped.setdefault(group_key, dimensions)
+            if metric_name in row:
+                raise SourceCaptureError(
+                    "SOURCE_AEOLUS_NORMALIZATION_ERROR",
+                    f"风神报表 {report_id} 同一维度出现重复指标 {metric_name}",
+                )
+            row[metric_name] = item["10002"]
+        return list(grouped.values())
+
+    normalized = []
+    for item in leaves:
+        if all(name in item for name in names):
+            normalized.append({name: item[name] for name in names})
+            continue
+        values = [
+            value for key, value in item.items() if str(key) not in helper_keys
+        ]
+        if len(values) != len(names):
+            raise SourceCaptureError(
+                "SOURCE_AEOLUS_NORMALIZATION_ERROR",
+                f"风神报表 {report_id} 无法把结果字段映射到 columns",
+            )
+        normalized.append(dict(zip(names, values)))
+    return normalized
+
+
+def capture_aeolus(
+    *,
+    client: AeolusClient,
+    url: str,
+    report_ids: Sequence[int | str] = (),
+    where_filters: Sequence[Mapping[str, Any]] = (),
+    filter_mode: str = "dashboard",
+    max_items: int = DEFAULT_MAX_ITEMS,
+) -> dict[str, Any]:
+    inspected = _aeolus_inspection(client=client, url=url)
+    reports_by_id = {
+        report["report_id"]: report for report in inspected["reports"]
+    }
+    selected_ids = (
+        sorted({_aeolus_int(item, field="reportId") for item in report_ids})
+        if report_ids
+        else sorted(reports_by_id)
+    )
+    missing = [item for item in selected_ids if item not in reports_by_id]
+    if missing:
+        raise SourceCaptureError(
+            "SOURCE_REPORT_NOT_FOUND",
+            "风神 sheet 中不存在报表: " + ", ".join(map(str, missing)),
+            hint="重新运行 source inspect，使用当前 sheet 的 report_id。",
+        )
+    records: list[dict[str, Any]] = []
+    anchors: list[dict[str, Any]] = []
+    removed_sensitive_parameters = 0
+    total_rows = 0
+    coordinates = inspected["coordinates"]
+    for report_id in selected_ids:
+        report = reports_by_id[report_id]
+        if report["status"] and report["status"] != "resolved":
+            raise SourceCaptureError(
+                "SOURCE_AEOLUS_UNSUPPORTED_REPORT",
+                f"风神报表 {report_id} 当前状态为 {report['status']}，不能可靠查询",
+            )
+        if len(report["dataset_ids"]) != 1:
+            raise SourceCaptureError(
+                "SOURCE_AEOLUS_UNSUPPORTED_REPORT",
+                f"风神报表 {report_id} 引用了多个 dataset，当前无法确定查询主表",
+                hint="仅选择单 dataset 报表，避免不确定查询。",
+            )
+        dataset_id = report["dataset_ids"][0]
+        effective_filters = _aeolus_filters_for_report(
+            report_id=report_id,
+            dataset_id=dataset_id,
+            public_filters=inspected["public_filters"],
+            explicit_filters=where_filters,
+            filter_mode=filter_mode,
+        )
+        sanitized_filters, removed = _sanitize_source_value(effective_filters)
+        removed_sensitive_parameters += removed
+        try:
+            response = client.query_report(
+                coordinates=coordinates,
+                report_id=report_id,
+                dataset_id=dataset_id,
+                where_filters=effective_filters,
+                limit=max_items,
+                source_url=url,
+            )
+        except AeolusClientError as exc:
+            raise _aeolus_client_error(exc) from exc
+        if not isinstance(response, Mapping):
+            raise SourceCaptureError(
+                "SOURCE_INVALID_RESPONSE",
+                f"风神报表 {report_id} query 返回的不是对象",
+            )
+        columns = response.get("columns")
+        if not isinstance(columns, list):
+            raise SourceCaptureError(
+                "SOURCE_INVALID_RESPONSE",
+                f"风神报表 {report_id} query 缺少 columns",
+            )
+        normalized_rows = _aeolus_normalize_rows(
+            report_id=report_id,
+            columns=columns,
+            rows=response.get("rows"),
+        )
+        if len(normalized_rows) > max_items:
+            raise SourceCaptureError(
+                "SOURCE_LIMIT_EXCEEDED",
+                f"风神报表 {report_id} 规范化后有 {len(normalized_rows)} 行，"
+                f"超过上限 {max_items}",
+                hint="缩小筛选范围或显式提高 --max-items。",
+            )
+        sanitized_rows, removed = _sanitize_source_value(normalized_rows)
+        removed_sensitive_parameters += removed
+        total_rows += len(sanitized_rows)
+        record = {
+            "record_id": f"report:{report_id}",
+            "report_id": report_id,
+            "name": report["name"],
+            "display_type": report["display_type"],
+            "dataset_id": dataset_id,
+            "columns": [str(item) for item in columns],
+            "effective_filters": sanitized_filters,
+            "row_count": len(sanitized_rows),
+            "rows": sanitized_rows,
+            "freshness": {
+                "status": "unknown",
+                "reason": "风神 query 未返回底层数据更新时间。",
+            },
+        }
+        records.append(record)
+        locator = {
+            **coordinates,
+            "report_id": report_id,
+            "dataset_id": dataset_id,
+            "effective_filters": sanitized_filters,
+        }
+        if response.get("requestId") not in (None, ""):
+            locator["request_id"] = response["requestId"]
+        anchors.append(
+            {
+                "anchor_id": f"aeolus:report:{report_id}",
+                "kind": "aeolus_report",
+                "precision": "exact",
+                "locator": locator,
+                "open_url": url,
+                "label": report["name"],
+            }
+        )
+    ordered = _sort_and_validate_records(
+        records,
+        id_keys=("record_id",),
+        provider="风神",
+    )
+    sanitized_public_filters, removed = _sanitize_source_value(
+        inspected["public_filters"]
+    )
+    removed_sensitive_parameters += removed
+    sanitized_where_filters, removed = _sanitize_source_value(
+        [_parse_aeolus_where(item) for item in where_filters]
+    )
+    removed_sensitive_parameters += removed
+    snapshot = {
+        "schema_version": SNAPSHOT_SCHEMA,
+        "source_type": "aeolus",
+        "source_uid": inspected["source_uid"],
+        "coordinates": coordinates,
+        "selector": {
+            "kind": "dashboard_sheet",
+            "filter_mode": filter_mode,
+            "report_ids": selected_ids,
+            "where_filters": sanitized_where_filters,
+        },
+        "public_filters": sanitized_public_filters,
+        "records": ordered,
+    }
+    return {
+        "schema_version": CAPTURE_SCHEMA,
+        "capture_mode": "snapshot",
+        "captured_at": _captured_at(),
+        "source_type": "aeolus",
+        "source_uid": inspected["source_uid"],
+        "source_url": url,
+        "title": inspected["title"],
+        "coordinates": coordinates,
+        "requested_report_ids": selected_ids,
+        "filter_mode": filter_mode,
+        "where_filters": sanitized_where_filters,
+        "pagination": {
+            "complete": True,
+            "item_count": len(ordered),
+            "row_count": total_rows,
+            "bounded_rows_per_report": max_items,
+        },
+        "sanitization": {
+            "removed_sensitive_query_parameters": removed_sensitive_parameters,
+        },
+        "snapshot": snapshot,
+        "content_hash": _sha256(snapshot),
+        "anchors": anchors,
+    }
+
+
 def _sort_and_validate_records(
     records: Sequence[Any],
     *,
@@ -1599,6 +2450,8 @@ def _diff_id_keys(source_type: str) -> tuple[str, ...]:
         return ("work_item_id", "workItemId", "id")
     if source_type == "feishu_base":
         return ("record_id", "recordId", "id")
+    if source_type == "aeolus":
+        return ("record_id",)
     raise SourceCaptureError(
         "SOURCE_DIFF_UNSUPPORTED",
         f"source diff 暂不支持 source_type={source_type or 'unknown'}",

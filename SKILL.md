@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、会议妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、外部 blog/论文/wiki、本地 md 摄取(digest)并消化成结构化实体图笔记(人员/项目/主题领域/组织/事件/决策/读物),支持对话式查询(search)、更新(update)、会前简报(brief)、工作看板(dashboard)、自然语言待办与提醒(todo)、日报(daily)、周报(weekly)、IM Inbox 摘要(inbox)、对话式维护全局工作上下文(context),以及扫描/修复知识库与当前 skill/schema 不兼容问题(doctor)。当用户要把资料存入知识库、定期复查 Meego / 多维表格视图、查询或更新工作知识、要会前简报/日报/周报、分析飞书 IM、查看工作看板、检查/修复知识库、升级 skill 后排查数据兼容性,或说“记个待办”“明天/后天/下周六提醒我”“刚才那个做完了”“延期/取消提醒”“看看还有什么没做”时使用;支持 /byteworker digest/search/update/brief/dashboard/todo/daily/weekly/inbox/context/doctor/help 子命令,但 todo 日常以自然语言为主。
+description: 个人飞书工作知识库。把飞书文档、会议妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 摄取(digest)并消化成结构化实体图笔记(人员/项目/主题领域/组织/事件/决策/读物),支持对话式查询(search)、更新(update)、会前简报(brief)、工作看板(dashboard)、自然语言待办与提醒(todo)、日报(daily)、周报(weekly)、IM Inbox 摘要(inbox)、对话式维护全局工作上下文(context),以及扫描/修复知识库与当前 skill/schema 不兼容问题(doctor)。当用户要把资料存入知识库、定期复查 Meego / 多维表格视图 / 风神看板、查询或更新工作知识、要会前简报/日报/周报、分析飞书 IM、查看工作看板、检查/修复知识库、升级 skill 后排查数据兼容性,或说“记个待办”“明天/后天/下周六提醒我”“刚才那个做完了”“延期/取消提醒”“看看还有什么没做”时使用;支持 /byteworker digest/search/update/brief/dashboard/todo/daily/weekly/inbox/context/doctor/help 子命令,但 todo 日常以自然语言为主。
 ---
 
 # byteworker 个人知识库
@@ -14,7 +14,7 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 | 子命令 | 中文 | 作用 | 示例 |
 |--------|------|------|------|
-| `digest` | 摄取 | 把飞书文档/妙记/会议/群聊/Meego/Base/md 消化入库 | `/byteworker digest <飞书URL>` |
+| `digest` | 摄取 | 把飞书文档/妙记/会议/群聊/Meego/Base/风神/md 消化入库 | `/byteworker digest <飞书URL>` |
 | `search` | 查询 | 问知识库 | `/byteworker search 我们关于X定过什么` |
 | `update` | 更新 | 某条知识有新进展 | `/byteworker update Y项目有进展` |
 | `brief` | 会前简报 | 开会前拉相关上下文 | `/byteworker brief` |
@@ -48,13 +48,14 @@ provenance 回填时,按 [`references/machine-protocol.md`](references/machine-p
 `status / data / error / context` JSON envelope。`bin/digest-txn.py`、`bin/kb-query.py`、
 `bin/doctor.py`、`bin/todo.py` 等直接入口继续保留给人工排障和兼容旧调用。
 
-Meego / Base 来源授权先用 `source auth-status` 做无副作用检查。未就绪时必须先告诉用户将发起
+Meego / Base / 风神来源授权先用 `source auth-status` 做无副作用检查。未就绪时必须先告诉用户将发起
 OAuth 并取得同意：Meego 走独立 `meegle` 登录；Base 走 `lark-cli` 用户登录 + 最小只读
-scopes 的 split-flow（原样 URL + 二维码，后续由 agent 用 device code 收尾）。运行时
+scopes 的 split-flow（原样 URL + 二维码，后续由 agent 用 device code 收尾）；风神由
+byteworker 原生只读客户端读取，凭据只从环境变量或仓库外 `0600` 私密文件注入。运行时
 `source inspect / capture` 也会执行同一 Auth Guard。资源级 Permission Denied / `91403`
 应请求所有者共享，禁止用重复登录或静默切 bot 掩盖。
 
-Meego / Base 大视图统一采用“完整快照 + 稳定记录 ID 差异 + 知识晋升门槛”：raw 保留完整
+Meego / Base / 风神大视图统一采用“完整快照 + 稳定记录 ID 差异 + 知识晋升门槛”：raw 保留完整
 snapshot，`source diff` 只缩小语义复核范围；普通行不建节点，`left_view` 不等于删除，只有长期
 项目、明确决策、时间事件或稳定跨记录主题才进入实体图。查询其中的具体记录时必须用机器协议
 调用 `kb-query source-record`，禁止 Agent 直接扫描完整大 raw。细则见对应
@@ -69,7 +70,7 @@ snapshot，`source diff` 只缩小语义复核范围；普通行不建节点，`
     - **跳过** → 走「常规首次设置」。
   - **常规首次设置**:**主动询问用户**知识库数据目录放在哪里 —— 让用户给一个父目录,目录名默认 `byteworker_kb`(用户可改);拼出绝对路径后写入 `.kbconfig`。
 - 用户之后想再看引导(说「跑一下上手引导」「重看教程」等)→ 读 `TUTORIAL.md` 重走一遍(`.kbconfig` 已存在则跳过其中的建库步骤)。
-- 若该数据目录不存在或为空:按 DESIGN.md §1.B 初始化 —— 创建 `knowledge/` 的 7 个子目录、`raw_data/`、`provenance/`、`journal/`、`reports/daily/`、`reports/weekly/`、`reports/im/`、空 `INDEX.md`,并把 skill 目录的 `templates/context.md` / `templates/todo.md` 整份复制为数据目录的 `context.md` / `todo.md`;再对该数据目录执行 `git init`(**仅本地、永不配 remote**,作误删/错改的回滚网)。
+- 若该数据目录不存在或为空:按 DESIGN.md §1.B 初始化 —— 创建 `knowledge/` 的 7 个子目录、`sources/`、`raw_data/`、`provenance/`、`journal/`、`reports/daily/`、`reports/weekly/`、`reports/im/`、空 `INDEX.md`,并把 skill 目录的 `templates/context.md` / `templates/todo.md` 整份复制为数据目录的 `context.md` / `todo.md`;再对该数据目录执行 `git init`(**仅本地、永不配 remote**,作误删/错改的回滚网)。
 - **下文所有 `knowledge/`、`raw_data/`、`provenance/`、`journal/`、`reports/`、`INDEX.md`、`dashboard.md`、`context.md`、`todo.md` 路径,一律指知识库数据目录下的对应路径;`templates/` 与 `DESIGN.md` 在本 skill 目录下。**
 
 **定期摄取到期提醒**:本次操作若会读 `INDEX.md`,顺带看「定期摄取清单」—— 若清单非空、且数据目录的 `.last-routine-digest`(记上次「定期摄取」运行日期;文件不存在 = 从未运行)距今 ≥7 天 → 用一句话提醒用户「定期摄取清单有 N 项可能该查更新了,需要就说『跑定期摄取』」。**只提醒,不打断当前请求、不自动跑。**
@@ -111,7 +112,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 ## digest — 摄取
 
 **触发**:子命令 `digest`;或自然语言 —— 用户给出飞书文档/妙记 URL、会议、群、Meego /
-多维表格视图、外部文章或本地 md,说"存入知识库""消化这个""记一下"等。
+多维表格视图、风神看板、外部文章或本地 md,说"存入知识库""消化这个""记一下"等。
 
 完整主流程已拆到 `references/digest-core.md`。执行 digest 前必须先读它和
 `references/digest-dependencies.md`(识别重要依赖、必要时向用户确认扩展范围)以及
@@ -123,6 +124,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 - `feishu_chat` → `references/digest-chat.md`
 - `meego` → `references/digest-meego.md`(第一版只读保存视图)
 - `feishu_base` → `references/digest-base.md`(第一版只读明确 Base 视图)
+- `aeolus` → `references/digest-aeolus.md`(一 sheet 一 KB profile、只读筛选重放与规范快照)
 - `web` / 内部资料型文档 → `references/digest-reading.md`
 - 会议簇(日历 / 投屏文档 / 妙记同属一场会) → `references/digest-meeting.md`
 - 立场分析 / 思路视角沉淀 → `references/digest-analysis.md`
@@ -145,7 +147,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 这些子命令的完整流程已拆到 `references/commands.md`。执行前按需读取对应小节:
 
 - `search`:查询知识库。先通过机器协议调用 `bin/kb-query.py search` 做有覆盖回执的字面/全文召回
-  和一跳图扩展,再由 Agent 语义补召回；若问题指向 Meego / Base 的具体需求、记录 ID 或标题，
+  和一跳图扩展,再由 Agent 语义补召回；若问题指向 Meego / Base / 风神的具体需求、记录 ID 或标题，
   或知识节点只含宏观摘要而不足以回答具体记录，必须通过机器协议调用
   `python3 bin/byteworker-cli.py kb-query source-record`
   从最新结构化 raw 快照按稳定 ID / 模糊标题做有限召回，禁止让 Agent 直接扫描大 raw；

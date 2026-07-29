@@ -17,10 +17,15 @@ from source_capture import (  # noqa: E402
     _classify_cli_error,
     _process_failure,
     _unwrap_response,
+    aeolus_auth_status,
     base_auth_status,
+    build_aeolus_profile,
+    capture_aeolus,
+    capture_aeolus_from_profile,
     capture_base,
     capture_meego,
     diff_captures,
+    inspect_aeolus,
     inspect_base,
     inspect_meego,
     meego_auth_status,
@@ -47,6 +52,299 @@ def value_after(args, flag, default=""):
         return args[args.index(flag) + 1]
     except ValueError:
         return default
+
+
+class FakeAeolusClient:
+    def __init__(
+        self,
+        *,
+        auth=None,
+        query_rows=None,
+        query_columns=None,
+    ):
+        self.auth = auth or {
+            "configured": True,
+            "authenticated": True,
+            "authorized": True,
+            "ready": True,
+            "auth_type": "bytecloud_jwt",
+        }
+        self.query_rows = query_rows
+        self.query_columns = query_columns
+        self.calls = []
+
+    def auth_status(self):
+        self.calls.append(("auth_status", {}))
+        return self.auth
+
+    def resolve_dashboard(self, url):
+        self.calls.append(("resolve_dashboard", {"url": url}))
+        return (
+            {
+                "region": "cn",
+                "app_id": 101,
+                "dashboard_id": 202,
+                "sheet_id": 303,
+            },
+            {
+                "region": "cn",
+                "urlType": "dashboard",
+                "appId": 101,
+                "dashboardId": 202,
+                "sheetId": 303,
+                "dashboardName": "Example dashboard",
+                "reports": [
+                    {
+                        "reportId": 401,
+                        "datasetIds": [501],
+                        "name": "交付卡片",
+                        "displayType": "measure_card",
+                        "statusCode": "resolved",
+                    }
+                ],
+            },
+        )
+
+    def get_sheet(self, *, coordinates, url):
+        self.calls.append(
+            ("get_sheet", {"coordinates": coordinates, "url": url})
+        )
+        return {
+            "content": {
+                "componentTree": {
+                    "children": [
+                        {
+                            "componentName": "filter",
+                            "props": {
+                                "chartIDs": [401],
+                                "fields": [
+                                    {
+                                        "dataSetId": 501,
+                                        "dimMetId": 601,
+                                    }
+                                ],
+                                "filter": {
+                                    "op": "in",
+                                    "val": ["示例部门"],
+                                },
+                                "filterKey": "department",
+                                "invisible": True,
+                                "name": "部门名称",
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+
+    def get_dataset_fields(self, dataset_id):
+        self.calls.append(
+            ("get_dataset_fields", {"dataset_id": dataset_id})
+        )
+        return {
+            "datasetId": "501",
+            "datasetName": "Example dataset",
+            "dimensions": [
+                {
+                    "id": 601,
+                    "name": "一级业务部门",
+                    "dataTypeName": "string",
+                }
+            ],
+            "metrics": [],
+        }
+
+    def query_report(self, **kwargs):
+        self.calls.append(("query_report", kwargs))
+        return {
+            "requestId": "request-1",
+            "columns": self.query_columns
+            or ["预期按预算交付", "合计交付", "满足率"],
+            "rows": self.query_rows
+            if self.query_rows is not None
+            else [[[[[{"a": "10", "b": "12", "c": "0.8"}]]]]],
+        }
+
+
+def aeolus_client(query_rows=None, query_columns=None):
+    return FakeAeolusClient(
+        query_rows=query_rows,
+        query_columns=query_columns,
+    )
+
+
+class AeolusCaptureTests(unittest.TestCase):
+    def test_profile_owns_report_filter_and_routine_configuration(self):
+        client = aeolus_client()
+        profile = build_aeolus_profile(
+            client=client,
+            url="https://data.bytedance.net/aeolus/pages/dashboard/202"
+            "?appId=101&sheetId=303",
+            report_ids=[401],
+            where_filters=[
+                {
+                    "name": "一级业务部门",
+                    "dimMetId": 601,
+                    "op": "in",
+                    "val": ["另一个部门"],
+                }
+            ],
+            filter_mode="explicit",
+            max_items=50,
+            routine="weekly",
+        )
+        self.assertEqual(
+            [401],
+            profile["capture"]["report_selector"]["report_ids"],
+        )
+        self.assertEqual("explicit", profile["capture"]["filters"]["mode"])
+        self.assertEqual("weekly", profile["routine"]["cadence"])
+
+        result = capture_aeolus_from_profile(client=client, profile=profile)
+        query = [item for item in client.calls if item[0] == "query_report"][-1][1]
+        self.assertEqual(
+            ["另一个部门"],
+            query["where_filters"][0]["val"],
+        )
+        self.assertEqual(50, query["limit"])
+        self.assertEqual(profile["source_uid"], result["source_profile"]["source_uid"])
+
+    def test_auth_status_requires_ready_bytecloud_user(self):
+        ready = aeolus_auth_status(client=aeolus_client())
+        self.assertTrue(ready["ready"])
+        self.assertEqual("bytecloud_jwt", ready["auth_type"])
+
+        logged_out = aeolus_auth_status(
+            client=FakeAeolusClient(
+                auth={
+                    "configured": False,
+                    "authenticated": False,
+                    "authorized": False,
+                    "ready": False,
+                    "auth_type": None,
+                }
+            )
+        )
+        self.assertFalse(logged_out["ready"])
+        self.assertEqual(
+            "configure_credentials",
+            logged_out["action"]["kind"],
+        )
+
+    def test_inspect_resolves_hidden_dashboard_filter_to_dataset_name(self):
+        result = inspect_aeolus(
+            client=aeolus_client(),
+            url="https://data.bytedance.net/aeolus/pages/dashboard/202"
+            "?appId=101&sheetId=303",
+        )
+        self.assertEqual(
+            "aeolus:cn:101:202:303",
+            result["source_uid"],
+        )
+        self.assertEqual(1, result["active_public_filter_count"])
+        self.assertEqual("一级业务部门", result["public_filters"][0]["name"])
+        self.assertTrue(result["public_filters"][0]["hidden"])
+
+    def test_capture_replays_filter_and_normalizes_nested_card(self):
+        client = aeolus_client()
+        result = capture_aeolus(
+            client=client,
+            url="https://data.bytedance.net/aeolus/pages/dashboard/202"
+            "?appId=101&sheetId=303",
+        )
+        report = result["snapshot"]["records"][0]
+        self.assertEqual("report:401", report["record_id"])
+        self.assertEqual(
+            {
+                "预期按预算交付": "10",
+                "合计交付": "12",
+                "满足率": "0.8",
+            },
+            report["rows"][0],
+        )
+        query_args = next(
+            values
+            for name, values in client.calls
+            if name == "query_report"
+        )
+        where = query_args["where_filters"][0]
+        self.assertEqual("一级业务部门", where["name"])
+        self.assertEqual(["示例部门"], where["val"])
+        self.assertEqual("aeolus_report", result["anchors"][0]["kind"])
+        self.assertEqual("unknown", report["freshness"]["status"])
+
+    def test_long_form_chart_is_pivoted_without_helper_columns(self):
+        rows = [
+            [
+                [
+                    [
+                        [
+                            {
+                                "10001": "指标A",
+                                "10002": "1",
+                                "10003": "metric-a",
+                                "20001": "指标A",
+                                "department": "部门",
+                                "month": "7月",
+                                "metric-a": "1",
+                            },
+                            {
+                                "10001": "指标B",
+                                "10002": "2",
+                                "10003": "metric-b",
+                                "20001": "指标B",
+                                "department": "部门",
+                                "month": "7月",
+                                "metric-b": "2",
+                            },
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        result = capture_aeolus(
+            client=aeolus_client(
+                query_rows=rows,
+                query_columns=["部门", "月份", "指标A", "指标B"],
+            ),
+            url="https://data.bytedance.net/aeolus/pages/dashboard/202"
+            "?appId=101&sheetId=303",
+        )
+        self.assertEqual(
+            [{"部门": "部门", "月份": "7月", "指标A": "1", "指标B": "2"}],
+            result["snapshot"]["records"][0]["rows"],
+        )
+
+    def test_unmappable_nested_shape_fails_closed(self):
+        with self.assertRaises(SourceCaptureError) as raised:
+            capture_aeolus(
+                client=aeolus_client(
+                    query_rows=[[[[[{"only": "one"}]]]]],
+                    query_columns=["A", "B"],
+                ),
+                url="https://data.bytedance.net/aeolus/pages/dashboard/202"
+                "?appId=101&sheetId=303",
+            )
+        self.assertEqual(
+            "SOURCE_AEOLUS_NORMALIZATION_ERROR",
+            raised.exception.code,
+        )
+
+    def test_explicit_filters_require_explicit_mode(self):
+        with self.assertRaisesRegex(SourceCaptureError, "不接受"):
+            capture_aeolus(
+                client=aeolus_client(),
+                url="https://data.bytedance.net/aeolus/pages/dashboard/202"
+                "?appId=101&sheetId=303",
+                where_filters=[
+                    {
+                        "name": "区域",
+                        "dimMetId": 100,
+                        "op": "in",
+                        "val": ["CN"],
+                    }
+                ],
+            )
 
 
 class MeegoCaptureTests(unittest.TestCase):
@@ -569,6 +867,17 @@ class CaptureOutputTests(unittest.TestCase):
         )
         self.assertEqual("rec1", response.data["records"][0]["record_id"])
 
+    def test_generic_success_envelope_is_unwrapped(self):
+        response = _unwrap_response(
+            {
+                "status": "success",
+                "data": {"columns": ["value"], "rows": [[1]]},
+                "error": None,
+                "context": {"execution_time_ms": 1},
+            }
+        )
+        self.assertEqual(["value"], response.data["columns"])
+
     def test_meegle_unauthenticated_status_is_classified_stably(self):
         code, _ = _classify_cli_error(
             '{"authenticated":false,"host":null,"reason":"no local token"}'
@@ -655,6 +964,30 @@ class CaptureDiffTests(unittest.TestCase):
                 current=self.capture([]),
                 previous=self.capture([], source_uid="meego:p:other"),
             )
+
+    def test_aeolus_diff_uses_stable_report_record(self):
+        previous = {
+            "source_type": "aeolus",
+            "source_uid": "aeolus:cn:1:2:3",
+            "content_hash": "sha256:before",
+            "snapshot": {
+                "source_type": "aeolus",
+                "source_uid": "aeolus:cn:1:2:3",
+                "records": [
+                    {
+                        "record_id": "report:9",
+                        "report_id": 9,
+                        "rows": [{"value": "1"}],
+                    }
+                ],
+            },
+        }
+        current = json.loads(json.dumps(previous))
+        current["content_hash"] = "sha256:after"
+        current["snapshot"]["records"][0]["rows"][0]["value"] = "2"
+        result = diff_captures(current=current, previous=previous)
+        self.assertEqual(1, result["summary"]["changed"])
+        self.assertEqual("report:9", result["changes"][0]["record_id"])
 
 
 if __name__ == "__main__":

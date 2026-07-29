@@ -2,9 +2,12 @@
 
 > 由 `SKILL.md`「digest」一节路由到这里。**不带来源**的 `digest`、或用户说"跑定期摄取""检查周报更新"时,读本文件。
 
-有些来源**会定期更新**(滚动周会文档、群聊、Meego / 多维表格保存视图等),需周期性复查增量。
+有些来源**会定期更新**(滚动周会文档、群聊、Meego / 多维表格保存视图、风神看板等),需周期性复查增量。
 
-- **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。同意 → 给该来源的 raw frontmatter 加 `routine: weekly`(这是允许的 raw frontmatter 运维元数据更新;raw 正文仍不改)。此后该源每个 raw 都带 `routine`。INDEX「定期摄取清单」表即由带 `routine` 的 raw 派生(DESIGN.md §6),无需手工维护。
+- **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。风神等已有
+  `sources/` profile 的结构化来源，把 enabled/cadence 写进该来源自己的 profile；滚动文档、
+  群聊等尚无 profile 的来源才兼容给 raw frontmatter 加 `routine: weekly`。INDEX 优先从
+  profiles 派生，同一 `source_uid` 有 profile 时，历史 raw 的 routine 不再生效。
 - **运行**(触发:不带来源的 `digest` / 用户说"跑定期摄取""检查周报更新" / 操作前必读「到期提醒」后用户确认):
   - 开始时先告知用户本次会复查 INDEX「定期摄取清单」里的多少个来源;逐源处理时用短状态说明当前来源、是否在拉取 / 比对 / digest / 跳过。来源较多或单源处理超过约 30-60 秒时,按 `SKILL.md`「长流程状态输出」发 heartbeat,不要等全部来源处理完才第一次汇报。
   1. 读 INDEX「定期摄取清单」,逐源处理 ——
@@ -26,8 +29,15 @@
        `source_url / source_base_token / source_table_id / source_view_id / source_fields`,按
        `references/digest-base.md` 串行重新 capture。完整快照 hash 不变则跳过;不得用单页结果
        或记录更新时间游标替代完整快照。
+     - 风神看板:INDEX 中每一行对应一个独立 dashboard-sheet `source_uid`。从 KB `sources/`
+       加载该 profile，运行
+       `source capture --source-type aeolus --kb "<知识库目录>" --source-uid "<source_uid>"`；
+       不从最近 raw 还原 dashboard/sheet/report/filter，也不允许 Agent 用 CLI 临时覆盖。
+       profile 缺失的旧来源先按 `references/digest-aeolus.md` 显式迁移，不能静默猜配置。
+       完整快照 hash 不变则跳过；不同时按稳定 `report:<report_id>` diff，只复核 changed reports。
+       授权过期、筛选解析失败、任一报表查询失败或规范化不确定时中止该源，不写部分 raw。
      - 各源增量 digest 走标准扇出并通过 `digest-txn validate / execute` 写入。群聊/会议等时间流
-       可产新 `event`；Meego / Base 保存视图更新同一 `reading`，普通记录变化只留 raw +
+       可产新 `event`；Meego / Base / 风神保存视图更新同一 `reading`，普通记录/数字变化只留 raw +
        provenance，达到晋升门槛才更新 `project` / `decision` / `event` / `area`。
   2. **汇报**:逐源说明有无增量、digest 了哪个新周期 / 窗口、触达哪些节点。
   3. journal 追加一行「定期摄取」运行记录(审计用);并把当天日期(`YYYY-MM-DD`)原子写入数据目录的 `.last-routine-digest` —— 到期提醒据此判断(见 `SKILL.md`「操作前必读」)。INDEX「上次摄取」同步使用规范化日期 / ISO 周 / 群聊高水位。**即便本次各源都无增量也要写** —— 「复查过」与「有新增」是两回事。

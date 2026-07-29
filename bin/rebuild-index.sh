@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # byteworker · rebuild-index.sh
-# 从 knowledge/ 节点与 raw_data/ frontmatter 确定性重建 INDEX.md。
+# 从 knowledge/ 节点、sources/ profiles 与 raw_data/ frontmatter 确定性重建 INDEX.md。
 #
 # 用法:
 #   bin/rebuild-index.sh [--dry-run] [--kb <数据目录>]
@@ -11,7 +11,7 @@
 #
 # 做什么:
 #   · 扫 7 类 knowledge 节点,生成节点登记表;人员表带 feishu_id 列。
-#   · 扫带 routine 的 raw_data,生成「定期摄取清单」。
+#   · 优先扫 sources/ profiles，再兼容带 routine 的 raw_data，生成「定期摄取清单」。
 #   · 扫 feishu_chat raw_data,生成「群聊摄取进度」高水位。
 #   · 原子写回 INDEX.md;不碰 git、不写 journal —— 由调用方按「写入规范」收尾。
 #

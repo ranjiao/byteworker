@@ -54,6 +54,7 @@ ALLOWED_SOURCE_TYPES = {
     "feishu_chat",
     "feishu_base",
     "meego",
+    "aeolus",
     "web",
     "local_md",
 }
@@ -64,6 +65,8 @@ PROTECTED_RAW_FIELDS = {
     "source_type",
     "source_uid",
     "source_revision",
+    "source_profile_path",
+    "source_profile_revision",
     "source_url",
     "source_title",
     "source_chat_id",
@@ -73,6 +76,13 @@ PROTECTED_RAW_FIELDS = {
     "source_table_id",
     "source_view_id",
     "source_fields",
+    "source_region",
+    "source_app_id",
+    "source_dashboard_id",
+    "source_sheet_id",
+    "source_report_ids",
+    "source_filter_mode",
+    "source_where_filters",
     "digest_period",
     "source_window",
     "payload_schema",
@@ -316,6 +326,49 @@ def compute_payload(source: Dict[str, Any], manifest_path: Path) -> Dict[str, An
                 raise DigestTxnError(f"feishu_base 的 source.{field} 不能为空")
         if not _list_value(source.get("fields")):
             raise DigestTxnError("feishu_base 的 source.fields 不能为空")
+    if source_type == "aeolus":
+        for field in (
+            "url",
+            "title",
+            "profile_path",
+            "profile_revision",
+            "region",
+            "app_id",
+            "dashboard_id",
+            "sheet_id",
+            "filter_mode",
+        ):
+            if not str(source.get(field, "")).strip():
+                raise DigestTxnError(f"aeolus 的 source.{field} 不能为空")
+        profile_path = str(source["profile_path"])
+        if (
+            Path(profile_path).is_absolute()
+            or not profile_path.startswith("sources/aeolus-")
+            or not profile_path.endswith(".json")
+        ):
+            raise DigestTxnError(
+                "aeolus 的 source.profile_path 必须指向 KB sources/ 下的 profile"
+            )
+        profile_revision_value = str(source["profile_revision"])
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", profile_revision_value):
+            raise DigestTxnError(
+                "aeolus 的 source.profile_revision 必须是 canonical sha256"
+            )
+        if not _list_value(source.get("report_ids")):
+            raise DigestTxnError("aeolus 的 source.report_ids 不能为空")
+        if source.get("filter_mode") not in {"dashboard", "explicit", "merge"}:
+            raise DigestTxnError(
+                "aeolus 的 source.filter_mode 必须是 dashboard/explicit/merge"
+            )
+        where_filters = source.get("where_filters", [])
+        if not isinstance(where_filters, list) or any(
+            not isinstance(item, dict) for item in where_filters
+        ):
+            raise DigestTxnError("aeolus 的 source.where_filters 必须是对象数组")
+        if source.get("filter_mode") == "explicit" and not where_filters:
+            raise DigestTxnError(
+                "aeolus explicit 模式的 source.where_filters 不能为空"
+            )
 
     result: Dict[str, Any] = {
         "payload_schema": PAYLOAD_SCHEMA,
@@ -1349,6 +1402,8 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
         ("source_type", source.get("type")),
         ("source_uid", source.get("uid")),
         ("source_revision", source.get("revision")),
+        ("source_profile_path", source.get("profile_path")),
+        ("source_profile_revision", source.get("profile_revision")),
         (
             "source_chat_id",
             source.get("uid") if source.get("type") == "feishu_chat" else None,
@@ -1362,6 +1417,24 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
         ("source_table_id", source.get("table_id")),
         ("source_view_id", source.get("view_id")),
         ("source_fields", source.get("fields")),
+        ("source_region", source.get("region")),
+        ("source_app_id", source.get("app_id")),
+        ("source_dashboard_id", source.get("dashboard_id")),
+        ("source_sheet_id", source.get("sheet_id")),
+        ("source_report_ids", source.get("report_ids")),
+        ("source_filter_mode", source.get("filter_mode")),
+        (
+            "source_where_filters",
+            [
+                json.dumps(
+                    item,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                for item in source.get("where_filters", [])
+            ],
+        ),
         (
             "source_url",
             source.get("url"),

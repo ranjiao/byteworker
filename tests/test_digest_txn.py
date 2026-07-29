@@ -746,6 +746,94 @@ legacy raw body
         )
         self.assertIn('"record_id":"rec1"', body)
 
+    def test_aeolus_snapshot_renders_dashboard_and_filter_coordinates(self):
+        capture = self.inputs / "aeolus-capture.json"
+        capture.write_text(
+            json.dumps(
+                {
+                    "snapshot": {
+                        "schema_version": "byteworker-source-snapshot/v1",
+                        "records": [
+                            {
+                                "record_id": "report:401",
+                                "report_id": 401,
+                                "rows": [{"满足率": "0.96"}],
+                            }
+                        ],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        source = {
+            "type": "aeolus",
+            "uid": "aeolus:cn:101:202:303",
+            "profile_path": "sources/aeolus-example.json",
+            "profile_revision": "sha256:" + ("a" * 64),
+            "url": "https://data.bytedance.net/aeolus/pages/dashboard/202"
+            "?appId=101&sheetId=303",
+            "title": "示例指标看板",
+            "region": "cn",
+            "app_id": 101,
+            "dashboard_id": 202,
+            "sheet_id": 303,
+            "report_ids": [401],
+            "filter_mode": "merge",
+            "where_filters": [
+                {
+                    "name": "区域",
+                    "dimMetId": 602,
+                    "op": "in",
+                    "val": ["CN"],
+                }
+            ],
+            "components": [
+                {
+                    "name": "snapshot",
+                    "kind": "records",
+                    "path": str(capture),
+                    "json_pointer": "/snapshot",
+                    "mode": "canonical-json",
+                }
+            ],
+        }
+        raw_id = "raw-2026-07-29-aeolus-dashboard"
+        plan = self.write_plan(
+            source,
+            raw_id,
+            "2026-07-29-aeolus-dashboard",
+            self.reading_text([raw_id]),
+        )
+        receipt = execute_plan(self.kb, plan, ROOT)
+        self.assertEqual("committed", receipt["status"])
+        frontmatter, body = parse_file(
+            str(self.kb / "raw_data/2026-07-29-aeolus-dashboard.md")
+        )
+        self.assertEqual("aeolus", frontmatter["source_type"])
+        self.assertEqual(
+            "sources/aeolus-example.json",
+            frontmatter["source_profile_path"],
+        )
+        self.assertEqual(
+            "sha256:" + ("a" * 64),
+            frontmatter["source_profile_revision"],
+        )
+        self.assertEqual("cn", frontmatter["source_region"])
+        self.assertEqual("101", frontmatter["source_app_id"])
+        self.assertEqual("202", frontmatter["source_dashboard_id"])
+        self.assertEqual("303", frontmatter["source_sheet_id"])
+        self.assertEqual(["401"], frontmatter["source_report_ids"])
+        self.assertEqual("merge", frontmatter["source_filter_mode"])
+        self.assertEqual(
+            [
+                '{"dimMetId":602,"name":"区域",'
+                '"op":"in","val":["CN"]}'
+            ],
+            frontmatter["source_where_filters"],
+        )
+        self.assertIn('"record_id":"report:401"', body)
+
     def test_execute_rejects_kb_with_remote(self):
         run_git(self.kb, "remote", "add", "origin", "https://example.test/private.git")
         body, comments = self.write_source()

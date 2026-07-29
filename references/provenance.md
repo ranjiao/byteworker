@@ -22,6 +22,8 @@ Agent 拉取原文时同步生成 anchors,不要在摘要完成后再猜位置:
 - 白板:`whiteboard:node:<node_id>`;保存白板 token、节点 id;若飞书不能深链则 fallback 到宿主文档。
 - Meego:`workitem:<work_item_id>`;保存 `project_key + view_id + work_item_id`。
 - 多维表格:`record:<record_id>`;保存 `base_token + table_id + view_id + record_id`。
+- 风神:`aeolus:report:<report_id>`;保存
+  `region + app_id + dashboard_id + sheet_id + report_id + dataset_id + effective_filters`。
 - 网页 / 本地文件:优先稳定章节 id;否则用标题 + 行号并标 `source_only` 或 `unresolved`。
 
 quote 只保存定位所需的短片段,不是 raw 的替代品。只有原系统稳定 locator 可证实时标 `exact`;

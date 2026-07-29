@@ -5,7 +5,7 @@
 
 ## 触发
 
-子命令 `digest`;或自然语言 —— 用户给出飞书文档/妙记 URL、会议、群、Meego / 多维表格视图、
+子命令 `digest`;或自然语言 —— 用户给出飞书文档/妙记 URL、会议、群、Meego / 多维表格视图 / 风神看板、
 或本地 md 路径,说"存入知识库""消化这个""记一下""把 XX 群最近的讨论存进来"。
 
 **不带来源**的 `digest`、或"跑定期摄取""检查周报更新" → 运行定期摄取(见 `references/digest-routine.md`)。
@@ -15,7 +15,7 @@
 长流程状态输出:开始摄取时先告诉用户本次会经历「分类 → 拉原文 → 幂等检查 → 依赖判断 → 冲突检测 → 节点写入 → 回滚点」;下面每个阶段完成后回显一行短状态。若拉原文、依赖判断、人员解析、冲突检测或节点写入任一阶段耗时超过约 30-60 秒,按 `SKILL.md`「长流程状态输出」发 heartbeat,只说阶段和数量,不要贴原文。
 
 1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` /
-   `feishu_chat` / `meego` / `feishu_base` / `web` / `local_md`。**若输入是一整场会议**
+   `feishu_chat` / `meego` / `feishu_base` / `aeolus` / `web` / `local_md`。**若输入是一整场会议**
    (日历会议链接 / 日程,或同属一场会的投屏文档 + 妙记多个 URL)→ 这是「会议簇」,整体摄取成
    一个 event,见下方场景细则。
 2. **摄取原文**:
@@ -30,6 +30,10 @@
      复核范围。**摄取前必读** `references/digest-meego.md`。
    - `feishu_base` → 先通过机器协议运行 `source inspect`,用户确认字段后运行 `source capture`
      串行拉完明确 Base 视图。**摄取前必读** `references/digest-base.md`。
+   - `aeolus` → 先通过机器协议运行 `source inspect`，确认报表、dataset 和看板 public filters；
+     再用 `source register --kb ...` 把这个 dashboard sheet 的独立 selector/filter profile
+     写进用户 KB，最后只按 `source_uid` capture。**摄取前必读**
+     `references/digest-aeolus.md`。
    - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
    - `local_md` → 直接读取本地文件。
    失败按 `references/error-handling.md` 中止。
@@ -72,7 +76,7 @@
      历史 raw `digest_targets`、节点 `sources` 或标题/链接召回),更新该节点,不要新建重复
      `reading` / `event`。`decision` 也按同一事实/同一来源去重;新版本改变原决策时,走
      supersede / 冲突裁决,不并排制造两个同义决策。
-   - **结构化保存视图**:Meego / Base 整个视图只产一张同源 `reading` 主记录。普通行只留在
+   - **结构化保存视图**:Meego / Base / 风神整个视图只产一张同源 `reading` 主记录。普通行/报表变化只留在
      raw + provenance；仅长期项目、明确决策、时间事件或稳定跨记录主题达到晋升门槛时进入实体图。
      `left_view` 只表示离开视图，不得推断为删除。
    - **主记录来源链接**:`event` / `reading` 正文必须附上原始来源链接,不能只放 raw_id。`event`
@@ -113,6 +117,7 @@
 | 摄取群聊(`feishu_chat`) | `references/digest-chat.md` |
 | 摄取 Meego 保存视图(`meego`) | `references/digest-meego.md` |
 | 摄取多维表格视图(`feishu_base`) | `references/digest-base.md` |
+| 摄取风神看板(`aeolus`) | `references/digest-aeolus.md` |
 | 摄取飞书文档(`feishu_doc`) | `references/digest-doc.md` |
 | 飞书文档含内嵌白板 | 加读 `references/digest-whiteboard.md` |
 | 摄取外部读物(`web`) / 内部资料型文档(`feishu_doc`) | `references/digest-reading.md` |

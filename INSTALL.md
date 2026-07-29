@@ -70,26 +70,28 @@ git clone https://github.com/ranjiao/byteworker.git "$TARGET"
 
 按退出码处理:
 - **Tier 1**(`git` / `jq` / `bash` / `python3 >= 3.9`)缺失 → 帮用户装上(macOS `brew`,Linux `apt`)。
-- **Tier 2**(`lark-cli` + `meegle` + 对应 skills)缺失 → 摄取飞书内容才需要,可稍后补。
+- **Tier 2**(`lark-cli` + `meegle` + 对应 skills)缺失 → 使用对应内部来源才需要,可稍后补。
   按[飞书 CLI 官方安装指南](https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md)
   装 `lark-cli` 与 `lark-doc / minutes / vc / im / calendar / contact / base` 等 skill。
   摄取 Meego 保存视图时另装 `meegle` 与 `meegle` skill。登录和最小授权放到下一步,
   不要在用户未选择前自动打开 OAuth。
+  风神读取由 byteworker 自带的标准库只读客户端完成，不需要安装额外 CLI；凭据配置放到下一步。
 
 ### 5. 询问可选来源授权
 
-依赖安装和“用户授权”是两件事。只对**已经安装对应 CLI**的来源运行下面的只读检查:
+依赖安装和“用户授权”是两件事。Meego / Base 需要对应 CLI；风神直接运行原生客户端的只读检查:
 
 ```bash
 python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type meego
 python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type feishu_base
+python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type aeolus
 ```
 
-`status=success` 只表示检查命令正常完成；必须看 `data.ready`。若两个来源都已
+`status=success` 只表示检查命令正常完成；必须看 `data.ready`。若所选来源都已
 `ready=true`,无需重复授权。只要有一个未就绪,安装助手必须先问:
 
-> 是否现在启用 Meego / 多维表格定期摄取？它们需要用户 OAuth。可以选择“两者都启用”、
-> “只启用 Meego”、“只启用多维表格”或“稍后再说”；跳过不影响 byteworker 其它能力。
+> 是否现在启用 Meego / 多维表格 / 风神定期摄取？它们需要用户授权。可以选择任意来源，
+> 或“稍后再说”；跳过不影响 byteworker 其它能力。
 
 只为用户选中的来源继续:
 
@@ -113,15 +115,37 @@ python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type feishu_
   `lark-cli auth login --device-code <本次流程返回的 device_code>` 收尾,再运行
   `source auth-status` 验证。URL / device code 只用于这一次进行中的授权,不得写入
   skill 仓库或知识库。
+- **风神** 使用 byteworker 原生只读客户端，不依赖其它 CLI。凭据按以下优先级选择一种：
+  `BYTEWORKER_AEOLUS_TITAN_PASSPORT`（当前用户态会话）、
+  `BYTEWORKER_AEOLUS_BYTECLOUD_JWT`（运行时在内存中交换用户态会话）、
+  `BYTEWORKER_AEOLUS_BEARER_TOKEN`，或适合定时任务的
+  `BYTEWORKER_AEOLUS_CLIENT_ID` + `BYTEWORKER_AEOLUS_CLIENT_SECRET`。服务态凭据必须单独获得
+  目标看板 / dataset 的读取权限，不能假定等同于当前用户。
 
-授权 scope 齐全仍不代表能读取每个具体资源。Base 的 `91403`、Meego 空间
+  交互环境可由进程环境或 secret manager 注入；长期本地任务也可使用
+  `~/.config/byteworker/aeolus-auth.json`（或通过 `BYTEWORKER_AEOLUS_AUTH_FILE` 指定仓库外路径）：
+
+  ```json
+  {
+    "client_id": "<风神只读 client id>",
+    "client_secret": "<风神只读 client secret>"
+  }
+  ```
+
+  凭据文件必须 `chmod 600`，父目录建议 `chmod 700`。也可把键换成
+  `titan_passport`、`bytecloud_jwt` 或 `bearer_token`。不得把凭据写入 skill 仓库、
+  知识库、raw snapshot、日志或命令参数。配置后重新运行
+  `source auth-status --source-type aeolus`，以 `data.ready=true` 为准。定时任务只检查和使用
+  已注入凭据，不自动登录。
+
+授权就绪仍不代表能读取每个具体资源。Base 的 `91403`、Meego 空间或风神看板
 Permission Denied 属于资源共享权限,应让所有者给当前用户开权限；不要重复登录或自动改用 bot。
 
 ### 6. 验证并收尾
 
 - 确认 `"$TARGET/SKILL.md"` 存在。
 - 告诉用户装好了 —— skill 首次使用时会问「知识库数据目录放在哪」。
-- 若用户选择“稍后再说”,明确告诉他:第一次摄取 Meego / Base 时 skill 会再次给出同样的
+- 若用户选择“稍后再说”,明确告诉他:第一次摄取 Meego / Base / 风神时 skill 会再次给出同样的
   登录或最小 scope 授权引导。
 - **提醒用户**:知识库数据目录要选一个**持久、私密**的路径,别放进会被回收的
   沙箱临时目录(原因见下)。
@@ -231,9 +255,10 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 # 3. 自查依赖
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"
 
-# 4. 可选:只读检查 Meego / Base 授权状态(不会打开 OAuth)
+# 4. 可选:只读检查 Meego / Base / 风神授权状态(不会打开 OAuth)
 python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type meego
 python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type feishu_base
+python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type aeolus
 ```
 
 若 `data.ready=false`,按上面第 5 步的相应流程授权；不打算摄取该来源可直接跳过。

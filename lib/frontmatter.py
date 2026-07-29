@@ -3,6 +3,7 @@ byteworker · frontmatter 解析
 统一解析 markdown 文件的 YAML frontmatter + body。
 rebuild-index 与 repair-links 共用，保证解析行为一致。
 """
+import json
 import os
 from typing import Dict, Any, Tuple, List, Optional
 
@@ -39,6 +40,13 @@ def parse_frontmatter(text: str) -> Tuple[Dict[str, Any], str]:
                 fm[current_key] = [fm[current_key]] if fm[current_key] else []
             item = stripped[1:].strip()
             if item:
+                if item.startswith('"') and item.endswith('"'):
+                    try:
+                        item = json.loads(item)
+                    except json.JSONDecodeError:
+                        item = item.strip('"')
+                elif item.startswith("'") and item.endswith("'"):
+                    item = item[1:-1]
                 fm[current_key].append(item)
             continue
 

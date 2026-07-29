@@ -36,6 +36,8 @@ python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" \
   --source-type meego --record-id "<work_item_id>"
 python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" \
   --source-type feishu_base --title "<记录标题>" --limit 5
+python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" \
+  --source-type aeolus --record-id "report:<report_id>"
 
 # doctor、Todo、provenance 回填
 python3 bin/byteworker-cli.py doctor scan --kb "<知识库目录>"
@@ -45,7 +47,7 @@ python3 bin/byteworker-cli.py provenance-backfill audit --kb "<知识库目录>"
 # 自动更新状态；只读，不触发网络检查
 python3 bin/byteworker-cli.py update-status
 
-# Meego / 多维表格只读来源
+# Meego / 多维表格 / 风神只读来源
 python3 bin/byteworker-cli.py source auth-status --source-type meego \
   --host project.feishu.cn
 python3 bin/byteworker-cli.py source auth-status --source-type feishu_base
@@ -57,6 +59,16 @@ python3 bin/byteworker-cli.py source diff --previous "<上一份 capture.json>" 
 python3 bin/byteworker-cli.py source inspect --source-type feishu_base --url "<Base 视图 URL>"
 python3 bin/byteworker-cli.py source capture --source-type feishu_base --url "<Base 视图 URL>" \
   --field fld_title --field fld_status --out "<临时目录>/base-capture.json"
+python3 bin/byteworker-cli.py source auth-status --source-type aeolus
+python3 bin/byteworker-cli.py source inspect --source-type aeolus --url "<风神 dashboard URL>"
+python3 bin/byteworker-cli.py source register --source-type aeolus \
+  --kb "<知识库目录>" --url "<风神 dashboard URL>" \
+  --report-id "<report_id>" --filter-mode dashboard --routine weekly
+python3 bin/byteworker-cli.py source profiles --kb "<知识库目录>" --source-type aeolus
+python3 bin/byteworker-cli.py source capture --source-type aeolus \
+  --kb "<知识库目录>" \
+  --source-uid "aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>" \
+  --out "<临时目录>/aeolus-capture.json"
 
 # 人工可读输出
 python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
@@ -68,12 +80,14 @@ python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
 真正的 `inspect / capture` 会 fail closed 为 `SOURCE_AUTH_REQUIRED`，并把同一
 `auth_action` 放进 error details。
 
-`source inspect` 只读返回真实字段元数据与规模；`source capture` 只在完整分页后写规范快照；
+`source inspect` 只读返回真实字段/报表元数据与规模。风神 `source register` 把一个
+dashboard sheet 的独立 selector/filter/routine profile 写入用户 KB；后续按 `source_uid`
+capture，且不接受 CLI 覆盖该 profile。`source capture` 只在完整读取后写规范快照；
 `source diff` 按稳定记录 ID 比较相邻快照，输出 `baseline / added / changed / left_view`。
 其中 `left_view` 明确不代表来源记录已删除，diff 是可重算派生物，不替代 raw 中的完整快照。
 
 `kb-query source-record` 只读本地 `raw_data/`：先轻量扫描 frontmatter，再默认选择每个
-`source_uid` 的最新完整 Meego / Base 快照并解析 JSON。`--record-id` 是稳定 ID 精确匹配；
+`source_uid` 的最新完整 Meego / Base / 风神快照并解析 JSON。`--record-id` 是稳定 ID 精确匹配；
 `--title` 在 Python 内执行 Unicode、大小写、空白和标点归一化，并结合包含、分词覆盖与字符
 相似度排序；可用 `--title-threshold 0..1` 调整阈值。多条命中时 `ambiguous=true`，每条返回
 `match.kind / score / field`、完整单条 `record` 及

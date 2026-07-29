@@ -37,6 +37,7 @@ ALLOWED_KINDS = {
     "meeting",
     "meego_workitem",
     "base_record",
+    "aeolus_report",
     "web_section",
     "whiteboard_node",
     "local_span",

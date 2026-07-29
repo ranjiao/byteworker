@@ -137,7 +137,11 @@ digest_status: digested
             encoding="utf-8",
         )
         id_key = "work_item_id" if source_type == "meego" else "record_id"
-        prefix = "workitem" if source_type == "meego" else "record"
+        prefix = (
+            "workitem"
+            if source_type == "meego"
+            else ("aeolus" if source_type == "aeolus" else "record")
+        )
         anchors = []
         for record in records:
             container = (
@@ -153,7 +157,11 @@ digest_status: digested
                         "kind": (
                             "meego_workitem"
                             if source_type == "meego"
-                            else "base_record"
+                            else (
+                                "aeolus_report"
+                                if source_type == "aeolus"
+                                else "base_record"
+                            )
                         ),
                         "precision": "exact",
                         "locator": {id_key: record_id},
@@ -312,6 +320,40 @@ digest_status: digested
         )
         self.assertEqual(
             "record:rec1", result["matches"][0]["provenance"]["anchor_id"]
+        )
+
+    def test_source_record_matches_aeolus_report_id_and_title(self):
+        self.write_snapshot(
+            name="aeolus-latest",
+            source_type="aeolus",
+            source_uid="aeolus:cn:101:202:303",
+            ingested="2026-07-29T14:00:00+08:00",
+            records=[
+                {
+                    "record_id": "report:401",
+                    "report_id": 401,
+                    "name": "示例指标卡片",
+                    "rows": [{"满足率": "0.96"}],
+                }
+            ],
+        )
+        exact = source_records(
+            self.kb,
+            source_type="aeolus",
+            record_id="report:401",
+        )
+        self.assertEqual("report:401", exact["matches"][0]["record_id"])
+        self.assertEqual(
+            "aeolus:report:401",
+            exact["matches"][0]["provenance"]["anchor_id"],
+        )
+        by_title = source_records(
+            self.kb,
+            source_type="aeolus",
+            title="示例指标卡片",
+        )
+        self.assertEqual(
+            "report:401", by_title["matches"][0]["record_id"]
         )
 
     def test_source_record_defaults_to_latest_snapshot_and_history_is_explicit(self):
