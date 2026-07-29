@@ -19,6 +19,8 @@ SOURCE_TYPE_LABELS: Dict[str, str] = {
     "feishu_minutes": "妙记",
     "feishu_meeting": "会议",
     "feishu_chat":    "群聊",
+    "feishu_base":    "多维表格",
+    "meego":          "Meego 视图",
     "web":           "网页/读物",
     "local_md":      "本地 Markdown",
 }

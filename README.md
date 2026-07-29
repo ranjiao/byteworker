@@ -1,6 +1,6 @@
 # byteworker
 
-把你日常的飞书文档、会议、群聊,消化成一个**可对话查询的个人工作知识库**。
+把你日常的飞书文档、会议、群聊、Meego 和多维表格视图,消化成一个**可对话查询的个人工作知识库**。
 
 面向飞书重度用户(软件工程师、算法研发、PMO、运营等)—— 信息散落在文档和群里、事后再也找不回?byteworker 把它们结构化沉淀下来,需要时一句话问出来。
 
@@ -38,7 +38,7 @@
 
 | 子命令 | 作用 |
 |--------|------|
-| `/byteworker digest <飞书URL/会议/群/外部文章/本地md>` | **摄取** —— 把资料消化入库 |
+| `/byteworker digest <飞书URL/会议/群/Meego或Base视图/外部文章/本地md>` | **摄取** —— 把资料消化入库 |
 | `/byteworker search <问题>` | **查询** —— 问知识库,带原始出处、收录时间与置信度 |
 | `/byteworker update <节点/新进展>` | **更新** —— 某条知识有新进展 |
 | `/byteworker brief` | **会前简报** —— 读飞书日历,为每个会议拉相关上下文 |
@@ -69,9 +69,11 @@ bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 pyth
 | 层 | 依赖 | 说明 |
 |----|------|------|
 | **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.9` | Python 用于确定性维护 Todo / 索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
-| **飞书生态** | `lark-cli` + `lark-*` skills + 飞书登录 | 摄取飞书内容必需。安装参见[飞书 CLI 官方安装指南](https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md):装 `lark-cli`、装 `lark-doc / minutes / vc / im / calendar / contact` 等 skill|
+| **飞书生态** | `lark-cli` + `meegle` + 对应 skills + 用户授权 | 摄取飞书内容必需。文档 / Base 使用 `lark-cli`;Base 另需最小只读 scopes。Meego 使用独立的 `meegle` OAuth。安装助手会询问现在启用哪些来源,跳过后也会在首次使用时引导|
 
-装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)。
+装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)。依赖就绪不等于授权就绪；
+可用 `python3 bin/byteworker-cli.py source auth-status --source-type meego` 或
+`--source-type feishu_base` 做无副作用检查。
 
 ## 安装
 
@@ -93,6 +95,8 @@ bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 pyth
 SKILLS_DIR=~/.claude/skills
 git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"      # 自查依赖,按提示补齐
+# 可选:无副作用检查来源授权；ready=false 时按 INSTALL.md 第 5 步选择是否授权
+python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type feishu_base
 ```
 
 把 skill **直接 clone 进 agent 的 skills 目录**(而非 clone 到别处再 symlink)—— 这样最稳,且自动更新依赖的 `git` remote 一步到位。沙箱 / 云环境、多 agent 共用、残留修复等细节见 [`INSTALL.md`](INSTALL.md)。

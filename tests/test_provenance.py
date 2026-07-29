@@ -126,6 +126,35 @@ links: []
                 },
             )
 
+    def test_accepts_exact_meego_and_base_record_anchors(self):
+        for kind, locator in (
+            (
+                "meego_workitem",
+                {"project_key": "proj", "view_id": "view", "work_item_id": "1"},
+            ),
+            (
+                "base_record",
+                {
+                    "base_token": "bas1",
+                    "table_id": "tbl1",
+                    "view_id": "vew1",
+                    "record_id": "rec1",
+                },
+            ),
+        ):
+            anchor = normalize_anchor(
+                "raw-2026-07-29-source",
+                {
+                    "anchor_id": f"{kind}:1",
+                    "kind": kind,
+                    "precision": "exact",
+                    "open_url": "https://example.test/source",
+                    "locator": locator,
+                },
+            )
+            self.assertEqual(kind, anchor["kind"])
+            self.assertEqual(locator, anchor["locator"])
+
 
 class ProvenanceOfflineExtractionTests(unittest.TestCase):
     def frontmatter(self):

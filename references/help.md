@@ -3,15 +3,16 @@ byteworker 个人知识库 —— 用法
 用法:/byteworker <子命令> [参数],或直接自然语言。
 
 digest     摄取 —— 把资料存进知识库
-  /byteworker digest <飞书文档/妙记 URL | 会议 | 群 | 外部 blog/论文 | 本地 md>
+  /byteworker digest <飞书文档/妙记 URL | 会议 | 群 | Meego/Base 视图 | 外部 blog/论文 | 本地 md>
   也可:"把这个文档存进知识库 <URL>" / "把『XX群』最近一周的讨论存进来"
-       / "跑定期摄取" —— 复查清单内会定期更新的文档/群有无新增并消化
+       / "跑定期摄取" —— 复查清单内会定期更新的文档/群/Meego/Base 视图有无新增并消化
   → 拉取原文 → 消化成 人员/项目/主题领域/组织/事件/决策 节点 → 入库
 
 search     查询 —— 问知识库
   /byteworker search 关于某人我知道什么 / 我们关于X定过什么 / Y项目现在怎样
   → 答案 + 论文式引用(原始文档 / 录屏 + 原文时间 + byteworker 收录时间)
     + 置信度(高 / 中 / 低-未命中)
+  → 询问 Meego / Base 的具体需求或记录时，从完整 raw 快照按 ID / 模糊标题确定性检索
 
 update     更新 —— 知识有新进展
   /byteworker update 更新一下Y项目 / X决策有变动 / 这条我重新核实过了

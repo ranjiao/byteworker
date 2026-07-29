@@ -56,6 +56,9 @@ def raw_last_seen(fm):
 
 def raw_source_key(fm):
     source_type = fm.get("source_type", "")
+    source_uid = fm.get("source_uid", "")
+    if source_uid:
+        return source_uid
     if source_type == "feishu_chat":
         return fm.get("source_chat_id") or fm.get("source_chat_name") or fm.get("raw_id")
     return fm.get("source_url") or fm.get("source_title") or fm.get("raw_id")

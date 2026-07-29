@@ -52,6 +52,8 @@ ALLOWED_SOURCE_TYPES = {
     "feishu_minutes",
     "feishu_meeting",
     "feishu_chat",
+    "feishu_base",
+    "meego",
     "web",
     "local_md",
 }
@@ -66,6 +68,11 @@ PROTECTED_RAW_FIELDS = {
     "source_title",
     "source_chat_id",
     "source_chat_name",
+    "source_project_key",
+    "source_base_token",
+    "source_table_id",
+    "source_view_id",
+    "source_fields",
     "digest_period",
     "source_window",
     "payload_schema",
@@ -297,6 +304,18 @@ def compute_payload(source: Dict[str, Any], manifest_path: Path) -> Dict[str, An
         for field in ("url", "title"):
             if not str(source.get(field, "")).strip():
                 raise DigestTxnError(f"{source_type} 的 source.{field} 不能为空")
+    if source_type == "meego":
+        for field in ("url", "title", "project_key", "view_id"):
+            if not str(source.get(field, "")).strip():
+                raise DigestTxnError(f"meego 的 source.{field} 不能为空")
+        if not _list_value(source.get("fields")):
+            raise DigestTxnError("meego 的 source.fields 不能为空")
+    if source_type == "feishu_base":
+        for field in ("url", "title", "base_token", "table_id", "view_id"):
+            if not str(source.get(field, "")).strip():
+                raise DigestTxnError(f"feishu_base 的 source.{field} 不能为空")
+        if not _list_value(source.get("fields")):
+            raise DigestTxnError("feishu_base 的 source.fields 不能为空")
 
     result: Dict[str, Any] = {
         "payload_schema": PAYLOAD_SCHEMA,
@@ -1338,6 +1357,11 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
             "source_chat_name",
             source.get("title") if source.get("type") == "feishu_chat" else None,
         ),
+        ("source_project_key", source.get("project_key")),
+        ("source_base_token", source.get("base_token")),
+        ("source_table_id", source.get("table_id")),
+        ("source_view_id", source.get("view_id")),
+        ("source_fields", source.get("fields")),
         (
             "source_url",
             source.get("url"),

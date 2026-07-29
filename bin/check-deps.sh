@@ -33,7 +33,8 @@ fi
 echo
 echo "── Tier 2 · 飞书生态(摄取飞书内容必须)──"
 if have lark-cli; then mark ok "lark-cli"; else mark no "lark-cli(需经 npm/node 安装)"; T2=1; fi
-for s in lark-doc lark-minutes lark-vc lark-im lark-calendar lark-contact; do
+if have meegle; then mark ok "meegle"; else mark no "meegle(摄取 Meego 视图需要)"; T2=1; fi
+for s in lark-doc lark-minutes lark-vc lark-im lark-calendar lark-contact lark-base meegle; do
   if skill_present "$s"; then mark ok "skill: $s"; else mark no "skill: $s"; T2=1; fi
 done
 
@@ -44,10 +45,10 @@ if [ "$T1" -ne 0 ]; then
   exit 1
 elif [ "$T2" -ne 0 ]; then
   echo "结论:Tier 1 就绪;✗ Tier 2 有缺失 —— byteworker 可先装,但摄取飞书内容前需补齐:"
-  echo "  · 安装 lark-cli 并执行 lark-cli auth login 登录飞书"
-  echo "  · 安装 lark-* skills(lark-doc / minutes / vc / im / calendar / contact)"
+  echo "  · 安装 lark-cli；登录与最小 scope 授权由安装流程在用户选择后引导"
+  echo "  · 安装 lark-* / meegle skills(lark-doc / minutes / vc / im / calendar / contact / base / meegle)"
   exit 2
 else
-  echo "结论:✓ 依赖齐全。提醒:确保已执行过 lark-cli auth login(登录飞书)。"
+  echo "结论:✓ 依赖齐全。登录状态另用 byteworker-cli.py source auth-status 只读检查。"
   exit 0
 fi

@@ -689,6 +689,63 @@ legacy raw body
             execute_plan(self.kb, plan, ROOT)
         self.assertFalse((self.kb / "raw_data/2026-07-27-test-plan.md").exists())
 
+    def test_base_snapshot_source_renders_stable_routine_coordinates(self):
+        capture = self.inputs / "base-capture.json"
+        capture.write_text(
+            json.dumps(
+                {
+                    "snapshot": {
+                        "schema_version": "byteworker-source-snapshot/v1",
+                        "records": [
+                            {"record_id": "rec1", "fields": {"Title": "需求"}}
+                        ],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        source = {
+            "type": "feishu_base",
+            "uid": "feishu_base:bas1:tbl1:vew1",
+            "url": "https://example.test/base/bas1?table=tbl1&view=vew1",
+            "title": "需求库 / 本周更新",
+            "base_token": "bas1",
+            "table_id": "tbl1",
+            "view_id": "vew1",
+            "fields": ["fld_title", "fld_status"],
+            "components": [
+                {
+                    "name": "snapshot",
+                    "kind": "records",
+                    "path": str(capture),
+                    "json_pointer": "/snapshot",
+                    "mode": "canonical-json",
+                }
+            ],
+        }
+        raw_id = "raw-2026-07-29-base-view"
+        plan = self.write_plan(
+            source,
+            raw_id,
+            "2026-07-29-base-view",
+            self.reading_text([raw_id]),
+        )
+        receipt = execute_plan(self.kb, plan, ROOT)
+        self.assertEqual("committed", receipt["status"])
+        frontmatter, body = parse_file(
+            str(self.kb / "raw_data/2026-07-29-base-view.md")
+        )
+        self.assertEqual("feishu_base", frontmatter["source_type"])
+        self.assertEqual("bas1", frontmatter["source_base_token"])
+        self.assertEqual("tbl1", frontmatter["source_table_id"])
+        self.assertEqual("vew1", frontmatter["source_view_id"])
+        self.assertEqual(
+            ["fld_title", "fld_status"],
+            frontmatter["source_fields"],
+        )
+        self.assertIn('"record_id":"rec1"', body)
+
     def test_execute_rejects_kb_with_remote(self):
         run_git(self.kb, "remote", "add", "origin", "https://example.test/private.git")
         body, comments = self.write_source()

@@ -12,9 +12,20 @@
    脚本统一扫描 id / 标题 / tag / TL;DR / body，并在预算内扩展一跳 links，输出覆盖数、分数和
    命中理由；它不保存索引、不做语义裁决。若用户用的是抽象表达或候选不足，Agent 再用近义词
    重跑，并语义检查 `INDEX.md`，把补充候选与脚本候选取并集。
-2. **图遍历(检索承重墙,必做)** —— 定向读取候选节点，并综合脚本给出的一跳邻居。关系型问题
+2. **结构化大 raw 召回(按场景必做)** —— 用户询问 Meego / Base 中的具体需求、记录 ID、
+   标题或其状态字段时，即使知识节点已有同一看板的宏观摘要，也必须继续调用：
+   `python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" --source-type meego --record-id "<稳定 ID>"`
+   或
+   `python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" --source-type meego --title "<需求标题或用户表述>"`。
+   Base 使用 `--source-type feishu_base`。标题由 Python 做 Unicode / 大小写 / 空白 / 标点归一化、
+   包含、分词覆盖与字符相似度排序；返回多条时结合 `score / match.kind / source_uid` 判断，
+   分数接近或跨来源同名必须向用户披露歧义，不得擅选。默认每个 `source_uid` 只查最新完整快照；
+   当前未命中但用户明确要历史记录时才加 `--history`，并把 `is_latest_snapshot=false` 说明为
+   历史证据。**禁止用 `rg` / `grep` 或让 Agent 直接读取完整结构化 raw 作为主检索方式**；
+   `source-record` 的 coverage / parse_warnings 不完整时必须披露。
+3. **图遍历(检索承重墙,必做)** —— 定向读取候选节点，并综合脚本给出的一跳邻居。关系型问题
    仍可在 `max-nodes` 预算内继续人工定向读取，不得无界展开全库。
-3. **溯源解析(必做)** —— 对准备写入答案的每条事实,从实际承载该事实的节点 `sources`
+4. **溯源解析(必做)** —— 对准备写入答案的每条事实,从实际承载该事实的节点 `sources`
    反查 `raw_data/` frontmatter,建立“结论 → 原始来源”映射。完整执行
    `references/citations.md`:不能止步于节点 id / raw_id / 报告路径;必须解析出具体原始文档 /
    妙记录屏 / 会议 / 群聊窗口、`ingested` 收录时间及能确认的原文时间 / 覆盖范围。报告和
@@ -22,12 +33,15 @@
    节点已有 `[E<n>]` 时，优先运行
    `python3 bin/byteworker-cli.py kb-query evidence --kb "<知识库目录>" --node "<node-id>" --markers E1,E2`
    解析 raw、sidecar 与精确 anchor；历史节点没有证据表时再退回 `sources` 级溯源。
-4. **置信度(必报)**:
+5. **置信度(必报)**:
    - **高**:命中 ≥1 条直接相关节点,且 `status: current`;非 `reading` 节点还要求 `last_verified` 在 90 天内。`reading` 是低维护资料卡,观点/方法不因 90 天未验证自动降置信度。
    - **中**:命中,但节点 `stale` / 超 90 天 / 仅 tag 间接相关。
    - 关键结论找不到原始出处或收录时间时,即使命中节点,整体置信度最高为**中**。
-   - **低 / 未命中**:执行**漏查防护** —— 二次放宽检索(换近义词重跑 `grep`、放宽到 tag 与邻接领域、扫 journal 近期记录),报告"已检索 N 个方向,未命中;主题接近的有……",**明确区分「知识库确实没有」与「我可能没找到」**。
-5. **输出格式**:先 TL;DR,再展开;每个知识库事实段落 / 列表项就近标 `[S<n>]`;末尾按
+   - **低 / 未命中**:执行**漏查防护** —— 二次放宽检索(换近义词重跑知识节点查询、放宽到
+     tag 与邻接领域、扫 journal 近期记录),报告"已检索 N 个方向,未命中;主题接近的有……"。
+     Meego / Base 大 raw 仍只通过 `source-record` 放宽标题或显式查历史，禁止退回全文 `grep`。
+     **明确区分「知识库确实没有」与「我可能没找到」**。
+6. **输出格式**:先 TL;DR,再展开;每个知识库事实段落 / 列表项就近标 `[S<n>]`;末尾按
    `references/citations.md` 输出“引用”(原始出处 + 原文时间 / 覆盖 + 收录时间 + 版本 / raw_id)
    和置信度。时间敏感事实若来源明显旧,正文直接提示“可能已过期”。
 
