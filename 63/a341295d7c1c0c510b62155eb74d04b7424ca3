@@ -1,0 +1,57 @@
+.coveragerc
+  s_79b347f8085477::t_6900ddb825306a 1-15
+.github/workflows/tests.yml
+  s_79b347f8085477::t_9826bee8e0b2a0 1-39
+.gitignore
+  s_79b347f8085477::t_61dc543b0b2e3d 28-31
+AGENTS.md
+  s_79b347f8085477::t_fdc1be8e318d7b 26-28
+ARCHITECTURE.md
+  s_79b347f8085477::t_1ff70531acb612 797,816-820
+bin/README.md
+  s_79b347f8085477::t_eaa60a26b5ed22 878-882,885-887
+bin/im-inbox-summary.sh
+  s_79b347f8085477::t_6e4616fe57ff7c 15
+tests/test_cli_entrypoints.py
+  s_79b347f8085477::t_fea2f3ebda7564 1-264
+tests/test_coverage_contract.py
+  s_79b347f8085477::t_0c81186dc7106b 1-41
+tests/test_im_inbox_summary.py
+  s_79b347f8085477::t_214e99dc8179c6 1-274
+tests/test_source_operation_integration.py
+  s_79b347f8085477::t_1b87a4e2eede4d 1,8,18-23,25-126,277-527
+tests/test_todo.py
+  s_79b347f8085477::t_12e0d35627ca8a 3,61-67,104-112,115-121,126-273
+tests/test_viewer_freshness.py
+  s_24206d58cf958b::t_e1393de4092c7d 1-87
+tests/test_viewer_runtime.py
+  s_79b347f8085477::t_b6bb5c4e74b44a 1-194
+viewer/index.html
+  s_24206d58cf958b::t_fff9c0687815d0 1717-1730,1743-1748,1761-1767
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "63a341295d7c1c0c510b62155eb74d04b7424ca3",
+  "prompts": {},
+  "sessions": {
+    "s_24206d58cf958b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadd9-5e75-73d1-9a3d-9e509ad0878a",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    },
+    "s_79b347f8085477": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fadd0-c2b7-73a1-8e70-80d4140b2542",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
