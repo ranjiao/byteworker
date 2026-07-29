@@ -2,7 +2,8 @@
 
 > 由 `references/digest-core.md` 路由到这里。标准 digest 的语义判断由 Agent 完成；payload
 > hash、幂等检查、raw 拼装、结构校验、原子写入、INDEX、journal 与本地 Git 回滚点统一交给
-> `bin/digest-txn.py`，不得再为单篇资料生成硬编码业务写入脚本。
+> `bin/digest-txn.py`，Agent 通过 `bin/byteworker-cli.py digest-txn` 的统一机器协议调用；
+> 不得再为单篇资料生成硬编码业务写入脚本。
 
 ## 职责边界
 
@@ -66,7 +67,7 @@ plan 顶层 `provenance` 包含本次 raw 的 `enrichment` 与 `anchors`;每个 
 ### 1. preflight（写入前、无副作用）
 
 ```bash
-python3 bin/digest-txn.py preflight \
+python3 bin/byteworker-cli.py digest-txn preflight \
   --kb "<知识库数据目录>" \
   --source "<临时 source manifest.json>"
 ```
@@ -86,7 +87,7 @@ Agent 不得手算或覆盖脚本返回的 component hash、`content_hash`、`di
 更新节点时必须记录读取基线：
 
 ```bash
-python3 bin/digest-txn.py snapshot-node \
+python3 bin/byteworker-cli.py digest-txn snapshot-node \
   --kb "<知识库数据目录>" \
   --path "knowledge/<type>/<node>.md"
 ```
@@ -94,7 +95,7 @@ python3 bin/digest-txn.py snapshot-node \
 把返回的 `base_sha256` 写入 node operation，然后：
 
 ```bash
-python3 bin/digest-txn.py validate \
+python3 bin/byteworker-cli.py digest-txn validate \
   --kb "<知识库数据目录>" \
   --plan "<临时 digest-plan.json>"
 ```
@@ -105,7 +106,7 @@ python3 bin/digest-txn.py validate \
 ### 3. execute（唯一标准写入口）
 
 ```bash
-python3 bin/digest-txn.py execute \
+python3 bin/byteworker-cli.py digest-txn execute \
   --kb "<知识库数据目录>" \
   --plan "<临时 digest-plan.json>"
 ```
@@ -149,5 +150,5 @@ remote 也中止,避免机密数据目录进入可推送状态；脚本自身没
   `whiteboard_hash` 及历史“组件末尾补换行后直接拼接”的算法判重。
 - 严格规则只约束本次新增/改变的边和文件；历史问题作为 warning。
 - 不做启动时全库迁移；旧节点只有在本次真实触达时才由 Agent合并更新。
-- 历史批量补出处使用 `bin/provenance-backfill.py audit|plan|validate|apply`,不走 digest
+- 历史批量补出处通过机器协议使用 `bin/provenance-backfill.py audit|plan|validate|apply`,不走 digest
   幂等入口。自动生成的 plan 全部 `apply:false`;只有 Agent / 用户审核后才允许 apply。

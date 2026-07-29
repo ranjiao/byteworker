@@ -16,9 +16,12 @@ Todo id (`T-YYYYMMDD-NNN`) 仅供内部去重、来源关联和脚本操作。�
 完成自动更新、定位知识库目录、读取 `context.md` 后，运行：
 
 ```bash
-python3 bin/todo.py <知识库目录> init --template templates/todo.md
-python3 bin/todo.py <知识库目录> check
+python3 bin/byteworker-cli.py todo <知识库目录> init --template templates/todo.md
+python3 bin/byteworker-cli.py todo <知识库目录> check
 ```
+
+解析统一 envelope：`status=success` 时 Todo 原始结果位于 `data`；`status=error` 时按
+`error.code/message/hint` 处理。底层仍由 `bin/todo.py` 执行。
 
 `init` 返回 `created: true` 时,这是一次真实用户状态初始化:追加 journal,精确暂存 `todo.md` 与
 journal 后在知识库本地 git 创建回滚点;返回 false 时不制造日志 / commit。
@@ -43,7 +46,7 @@ journal 后在知识库本地 git 创建回滚点;返回 false 时不制造日�
 Agent 提取简短标题与时间短语，再调用确定性脚本；不要让脚本从整句业务文本猜任务边界：
 
 ```bash
-python3 bin/todo.py <知识库目录> add \
+python3 bin/byteworker-cli.py todo <知识库目录> add \
   --title "提交周报" \
   --remind "明天下午三点" \
   --source "direct:user"

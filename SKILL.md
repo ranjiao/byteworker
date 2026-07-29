@@ -31,15 +31,22 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 ## 操作前必读
 
-**自动更新(最先做)**:每次使用本 skill,先静默运行 `bin/update-check.sh` —— 它每周最多实际检查一次,从 GitHub fast-forward 拉取最新 skill 内容。只有代码确实更新后才自动运行 post-update doctor:按 `auto_fix` 白名单修复确定性低成本问题、复扫并创建知识库本地回滚提交。脚本**有输出**就把那一行转告用户,**无输出**则静默继续(代码更新于下次使用生效)。
+**自动更新(最先做)**:每次使用本 skill,先静默运行 `bin/update-check.sh` —— 成功检查后 7 天内不重复检查；网络 / fast-forward 失败不会伪装成成功,而会按短周期指数退避重试。脚本用跨进程锁避免并发更新,并把检查与 post-update doctor 状态原子写入 `.update-state.json`。只有代码确实更新后才运行 post-update doctor:按 `auto_fix` 白名单修复确定性低成本问题、复扫并创建知识库本地回滚提交；若 doctor 未完成,记录 pending 并独立重试,不重复 merge。脚本**有输出**就把那一行转告用户,**无输出**则静默继续(代码更新于下次使用生效)。
 
 - doctor 结果含无法自动处理的 `error`、修复失败或相关文件正被编辑 → 告知“严重问题”,请用户决定是否立即检查,当前业务请求可在不依赖损坏数据时继续。
 - 只剩 `warning` / `info` → 用脚本给出的单行数量摘要告知,让用户选择忽略或立即处理;不要展开全量 finding。
-- 自动更新没有发生 → 不运行 post-update doctor,避免每次调用都做全库扫描。
+- 自动更新没有发生且没有 pending postflight → 不运行 post-update doctor,避免每次调用都做全库扫描。
 
 - **无需 GitHub 账号/SSH key**:仓库是 public repo,脚本会自动使用 HTTPS 拉取;若你当前 origin 是 SSH(`git@github.com`) 但环境无 SSH key,脚本会 fallback 到 HTTPS 临时拉取,**默认不改写 origin**。确需让脚本补 / 改 remote 时,手动设置 `BYTEWORKER_AUTO_UPDATE_MUTATE_ORIGIN=1` 后再运行。
 - **主动触发**:用户说"更新 skill""检查更新""byteworker 有新版吗" → 调用 `bin/update-check.sh --force`(跳过 7 天周期,立即检查)。
-- **失败提示**:网络不通/本地有改动导致无法 fast-forward 时,脚本会输出一行提示(不再完全静默) —— 把提示转告用户即可。
+- **失败提示**:网络不通/本地有改动导致无法 fast-forward 时,脚本会输出一行提示并记录失败原因 / 下次重试时间 —— 把提示转告用户即可。排障时用 `python3 bin/byteworker-cli.py update-status` 查看状态。
+- **显式停用**:托管或固定版本环境可设置 `BYTEWORKER_NO_AUTO_UPDATE=1`;此时脚本静默退出且不改状态。
+
+**机器协议(确定性 CLI 必用)**:Agent 或其它程序调用 digest 事务、查询、doctor、Todo、
+provenance 回填时,按 [`references/machine-protocol.md`](references/machine-protocol.md)
+通过 `python3 bin/byteworker-cli.py <tool> ...` 调用并解析统一的
+`status / data / error / context` JSON envelope。`bin/digest-txn.py`、`bin/kb-query.py`、
+`bin/doctor.py`、`bin/todo.py` 等直接入口继续保留给人工排障和兼容旧调用。
 
 **本 skill 只含 agent 逻辑。业务数据(知识库内容)存在独立的「知识库数据目录」,不在本 skill 仓库内,也不进本仓库的 git。**
 
@@ -65,7 +72,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 “未记录”并降低置信度,不得用文件名或节点更新时间猜测。此规则覆盖 `search`、`brief`、
 `dashboard`、日报 / 周报 / IM 报告的生成与回显,以及任何实际检索知识库的自然语言回答。
 
-**Todo 状态检查(每次必做)**:完成上面的 `context.md` 读取后,按 `references/todo.md` 运行 `python3 bin/todo.py <知识库目录> init --template templates/todo.md` 与 `check`。没有到期 / 临期事项则静默;有则在当前回答开头提醒,真正展示后调用 `mark-reminded` 限频。检查不等于后台推送:只能保证每次 byteworker 被宿主加载并运行时执行,不能保证未加载本 skill 的无关对话或无对话时主动提醒。
+**Todo 状态检查(每次必做)**:完成上面的 `context.md` 读取后,按 `references/todo.md` 通过机器协议运行 Todo 的 `init --template templates/todo.md` 与 `check`。没有到期 / 临期事项则静默;有则在当前回答开头提醒,真正展示后调用 `mark-reminded` 限频。检查不等于后台推送:只能保证每次 byteworker 被宿主加载并运行时执行,不能保证未加载本 skill 的无关对话或无对话时主动提醒。
 
 **长流程状态输出**:digest / 跑定期摄取 / daily / weekly / IM Inbox / 大输入摄取等可能耗时较久的多步操作,必须给用户阶段性状态,避免长时间沉默。规则:
 - 开始长流程时先发一句说明本次会做哪几步,例如「我先拉取原文,再做幂等检查和节点写入」。
@@ -108,7 +115,8 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 - 不带来源的 digest / 跑定期摄取 → `references/digest-routine.md`
 
 标准 digest 写入必须由 Agent生成临时 manifest 与完整候选节点,再通过
-`bin/digest-txn.py preflight / validate / execute` 完成;脚本只固化确定性执行,语义判断、冲突
+`bin/digest-txn.py preflight / validate / execute` 完成;Agent 实际调用使用
+`python3 bin/byteworker-cli.py digest-txn ...` 机器协议。脚本只固化确定性执行,语义判断、冲突
 裁决、实体取舍和节点正文仍由 Agent负责。候选节点的关键知识库事实必须逐条带 `[E1]` 等标记,
 并在 manifest 中映射到 `raw_id + anchor_id`;主记录必须声明 `primary_source`,事务负责生成
 `primary_source_url` 和 `## 证据`。不得为单篇业务资料在 skill 仓库生成硬编码写入脚本。
@@ -121,8 +129,9 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 
 这些子命令的完整流程已拆到 `references/commands.md`。执行前按需读取对应小节:
 
-- `search`:查询知识库。先用 `bin/kb-query.py search` 做有覆盖回执的字面/全文召回和一跳图扩展,
-  再由 Agent 语义补召回；节点有 `[E]` 时用 `bin/kb-query.py evidence` 精确解析出处。按
+- `search`:查询知识库。先通过机器协议调用 `bin/kb-query.py search` 做有覆盖回执的字面/全文召回
+  和一跳图扩展,再由 Agent 语义补召回；节点有 `[E]` 时调用 `bin/kb-query.py evidence`
+  精确解析出处。按
   `references/citations.md` 给每条知识库事实附原始出处、收录时间与置信度。
 - `update`:定位目标节点,必要时先 digest 新输入为 raw,再做冲突检测与合并。
 - `brief`:读取日程,按会议主题/参会人查知识库并生成会前上下文。
@@ -137,7 +146,8 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 “刚才那个做完了”“把 X 延期到下周二”“取消刚刚的提醒”“我还有什么没做”。
 
 完整流程见 `references/todo.md`。用户侧以自然语言为主;todo id 只在 agent 内部调用脚本时使用,
-不要要求用户记忆或输入。时间由 agent 提取任务标题 / 提醒 / 截止语义后交给 `bin/todo.py`
+不要要求用户记忆或输入。时间由 agent 提取任务标题 / 提醒 / 截止语义后通过机器协议交给
+`bin/todo.py`
 结合 `context.md` 解析,写入后回显绝对时间供用户纠正。
 
 ## daily — 日报
@@ -165,7 +175,8 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 **触发**:子命令 `doctor`;或自然语言 —— “检查知识库”“升级 skill 后数据兼容吗”“扫描并修复
 知识库”“schema 有没有漂移”。
 
-完整流程见 `references/doctor.md`。用户主动调用时默认执行只读 `python3 bin/doctor.py scan`;
+完整流程见 `references/doctor.md`。用户主动调用时默认通过机器协议执行只读
+`python3 bin/byteworker-cli.py doctor scan`;
 只有用户明确要求修复才执行 `fix`。例外是代码实际自动更新后的 post-update doctor:可直接处理
 finding 明确声明的 `auto_fix`。自动修复只覆盖可确定重建的 INDEX 与 links;缺失业务字段、
 证据链、悬空 id、真相源损坏只列问题和建议,不得猜写。

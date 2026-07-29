@@ -16,7 +16,8 @@
 ## skill 更新后的自动检查
 
 `bin/update-check.sh` 只有在 Git fast-forward 确实产生新版本后才调用
-`bin/update-postflight.py`。postflight 不维护迁移数据库或常驻锁：
+`bin/update-postflight.py`。postflight pending / retry 状态由更新器独立持久化，不维护迁移
+数据库或常驻锁：
 
 1. 用更新后的代码只读扫描；
 2. 自动执行 finding 明确声明的全部 `auto_fix`，不按 error/warning 猜测可修性；
@@ -34,23 +35,23 @@
 
 ```bash
 # 默认读取 .kbconfig
-python3 bin/doctor.py
-python3 bin/doctor.py scan --format json
+python3 bin/byteworker-cli.py doctor scan
 
 # 先预演，再执行确定性修复
-python3 bin/doctor.py fix --dry-run
-python3 bin/doctor.py fix
+python3 bin/byteworker-cli.py doctor fix --dry-run
+python3 bin/byteworker-cli.py doctor fix
 
 # 只修一个维度；正文 auto-link 必须显式开启
-python3 bin/doctor.py fix --only index
-python3 bin/doctor.py fix --only links --autolink
+python3 bin/byteworker-cli.py doctor fix --only index
+python3 bin/byteworker-cli.py doctor fix --only links --autolink
 
 # 测试或其它知识库
-python3 bin/doctor.py scan --kb /absolute/path/to/kb
+python3 bin/byteworker-cli.py doctor scan --kb /absolute/path/to/kb
 ```
 
-退出码：`0` 没有 error/warning；`2` 扫描完成但仍有问题；`1` 参数、目录或执行失败。`info`
-是明确兼容的历史格式，不单独导致非零。
+统一 envelope 中 `status=attention` 表示扫描完成但仍有 finding。退出码仍为：`0` 没有
+error/warning；`2` 扫描完成但仍有问题；`1` 参数、目录或执行失败。`info` 是明确兼容的历史
+格式，不单独导致非零。人工排障仍可直接运行 `python3 bin/doctor.py ...` 查看原始输出。
 
 ## 检查范围
 

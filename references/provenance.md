@@ -40,10 +40,10 @@ quote 只保存定位所需的短片段,不是 raw 的替代品。只有原系�
 ## 4. 历史 raw 回填
 
 ```bash
-python3 bin/provenance-backfill.py audit
-python3 bin/provenance-backfill.py plan --output "<临时目录>/provenance-plan.json"
-python3 bin/provenance-backfill.py validate --plan "<审核后的 plan>"
-python3 bin/provenance-backfill.py apply --plan "<审核后的 plan>"
+python3 bin/byteworker-cli.py provenance-backfill audit
+python3 bin/byteworker-cli.py provenance-backfill plan --output "<临时目录>/provenance-plan.json"
+python3 bin/byteworker-cli.py provenance-backfill validate --plan "<审核后的 plan>"
+python3 bin/byteworker-cli.py provenance-backfill apply --plan "<审核后的 plan>"
 ```
 
 - `audit` / `plan` 只读;plan 默认所有项 `apply:false`,不会自动迁移。
