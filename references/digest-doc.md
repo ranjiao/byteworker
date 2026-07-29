@@ -19,7 +19,7 @@
   同一文档 URL 可能带不同 query 参数,不得用完整 URL 作为唯一判重依据;URL 只保留在
   `source_url` 便于回溯。`source_url` 必须是用户可打开的原始文档链接;后续生成的 `event` /
   `reading` 主记录正文也必须在「事件信息」或「来源」写出该链接,不能只引用 `raw_id`。
-  正文、评论、白板等 component 全部交给 `bin/digest-txn.py preflight`:脚本计算
+  正文、评论、白板等 component 全部通过机器协议交给 `bin/digest-txn.py preflight`:脚本计算
   `body_hash`、`comment_hash`、每个白板 hash 与组合 `content_hash` 并组成 `digest_key`
   (见 DESIGN.md §3 / `references/digest-transaction.md`)。完全相同 key 已存在时
   直接 no-op;同一 `document_id` 但 hash 变化时,按同源新版本更新已有主记录节点。

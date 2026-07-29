@@ -59,7 +59,7 @@ git clone https://github.com/ranjiao/byteworker.git "$TARGET"
 - 没有 `git` → 先装(macOS:`brew install git`;Debian/Ubuntu:`sudo apt install git`)。
 - `git clone` 报网络错误 → 你大概在**无外网的沙箱**里(见末尾「沙箱 / 云环境」)。
   把情况如实告诉用户。**绝不**用「`git init` + 手工拼文件」来绕过 —— 那样的仓库没有
-  `origin` remote,自动更新会永久静默失效。
+  `origin` remote,自动更新只能持续报错和重试。
 - 若第 2 步保存过 `.kbconfig`,现在放回 `TARGET/.kbconfig`。
 
 ### 4. 检查依赖
@@ -159,7 +159,7 @@ OpenClaw 或新开 session**,并确认每个 agent 都能列出 / 调用 bytewor
 
 1. **默认无外网**。沙箱常默认禁止出网 —— `git clone`、`npm install`(装 lark-cli)都会失败。
    解决:在有外网的环境安装;或为沙箱开放出网;或预置好 skill 目录。
-   不要用没有 remote 的本地仓库来凑数 —— 自动更新会因此永久失效。
+   不要用没有 remote 的本地仓库来凑数 —— 自动更新会持续报告失败并按短周期退避重试。
 2. **文件系统可能是临时的**。沙箱重建后写入会丢失。
    - skill 本身丢了可重装,问题不大。
    - **知识库数据目录绝不能放临时盘** —— 它是你的真实知识资产。务必选一个跨会话
@@ -187,9 +187,11 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"
 ```
 
-之后 skill 每周静默从 GitHub 自动更新(`bin/update-check.sh`)；代码确实更新后会自动运行
-doctor，修复确定性低成本兼容问题并创建知识库本地回滚提交。无法自动处理的严重错误会请求
-用户决策，warning/info 只给简短摘要。
+之后 skill 在成功检查后 7 天内静默跳过重复检查(`bin/update-check.sh`)；失败会按短周期指数
+退避重试，不再把失败时间当作成功时间。代码确实更新后会自动运行 doctor，修复确定性低成本
+兼容问题并创建知识库本地回滚提交；doctor 未完成会记录 pending 并单独重试。无法自动处理的
+严重错误会请求用户决策，warning/info 只给简短摘要。固定版本环境可设置
+`BYTEWORKER_NO_AUTO_UPDATE=1` 显式停用。
 
 ## 多个 agent 共用一份代码
 
@@ -221,5 +223,6 @@ ln -sfn ~/.claude/skills/byteworker ~/.openclaw/skills/byteworker
 - 符号链接只在 agent 的**全局 / 托管** skills 目录可靠(`~/.claude/skills`、
   `${CODEX_HOME:-$HOME/.codex}/skills`、`~/.openclaw/skills`)。OpenClaw 的 **workspace 级**
   skills 目录会拒绝指向目录之外的符号链接 —— 那里请直接 `git clone`,不要 symlink。
-- 共用一份后,**自动更新只在源那份生效**(`bin/update-check.sh` 在源目录跑 `git pull`,
-  symlink 那几家直接看到更新)。所以源目录要是合法 clone(有 `.git` 与 `origin` remote)。
+- 共用一份后,**自动更新只在源那份生效**(`bin/update-check.sh` 在源目录执行 fetch +
+  fast-forward merge，symlink 那几家直接看到更新)。所以源目录要是合法 clone(有 `.git` 与
+  `origin` remote)。

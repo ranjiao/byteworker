@@ -46,9 +46,15 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `bin/doctor.py` + `lib/doctor.py` | 按当前 DESIGN/模板/代码 profile 只读扫描知识库兼容性,并编排 INDEX/links 的确定性修复 |
+| `bin/byteworker-cli.py` + `lib/machine_protocol.py` | 为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
+| `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
+
+机器协议只统一执行边界，不构成工具注册表：可调用工具仍由代码中的小型白名单明确列出，
+避免在当前规模下引入发现、版本解析和远程分发复杂度。协议细则见
+`references/machine-protocol.md`。
 
 ### B. 知识库数据目录(业务数据,用户指定,**绝不进 skill 仓库的 git**)
 

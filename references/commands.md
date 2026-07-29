@@ -7,8 +7,8 @@
 
 **触发**:子命令 `search`;或自然语言 —— "关于X我知道什么""我们关于Y定过什么""Z项目现在怎样"。
 
-1. **确定性候选召回**:先运行
-   `python3 bin/kb-query.py search --kb "<知识库目录>" --query "<查询>" --limit 12 --graph-depth 1 --max-nodes 30`。
+1. **确定性候选召回**:先按机器协议运行
+   `python3 bin/byteworker-cli.py kb-query search --kb "<知识库目录>" --query "<查询>" --limit 12 --graph-depth 1 --max-nodes 30`。
    脚本统一扫描 id / 标题 / tag / TL;DR / body，并在预算内扩展一跳 links，输出覆盖数、分数和
    命中理由；它不保存索引、不做语义裁决。若用户用的是抽象表达或候选不足，Agent 再用近义词
    重跑，并语义检查 `INDEX.md`，把补充候选与脚本候选取并集。
@@ -20,7 +20,7 @@
    妙记录屏 / 会议 / 群聊窗口、`ingested` 收录时间及能确认的原文时间 / 覆盖范围。报告和
    journal 是二手入口,继续追到 raw;缺失项照实披露。
    节点已有 `[E<n>]` 时，优先运行
-   `python3 bin/kb-query.py evidence --kb "<知识库目录>" --node "<node-id>" --markers E1,E2`
+   `python3 bin/byteworker-cli.py kb-query evidence --kb "<知识库目录>" --node "<node-id>" --markers E1,E2`
    解析 raw、sidecar 与精确 anchor；历史节点没有证据表时再退回 `sources` 级溯源。
 4. **置信度(必报)**:
    - **高**:命中 ≥1 条直接相关节点,且 `status: current`;非 `reading` 节点还要求 `last_verified` 在 90 天内。`reading` 是低维护资料卡,观点/方法不因 90 天未验证自动降置信度。

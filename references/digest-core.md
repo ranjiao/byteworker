@@ -25,7 +25,7 @@
    - `local_md` → 直接读取本地文件。
    失败按 `references/error-handling.md` 中止。
 3. **幂等检查** —— 把本次实际摄取的正文、评论、白板等原始 component 路径写进系统临时目录的
-   source manifest,运行 `bin/digest-txn.py preflight`(完整格式与命令见
+   source manifest,通过机器协议运行 `bin/digest-txn.py preflight`(完整格式与命令见
    `references/digest-transaction.md`)。脚本计算 `source_uid` / `source_revision` /
    `digest_period` 或 `source_window` / 逐组件 hash / `content_hash` / `digest_key`;Agent不得
    手算或覆盖这些值。飞书文档评论变化不依赖正文 revision,白板变化也属于 payload 变化,不能因
@@ -82,7 +82,7 @@
    所有节点显式给 `evidence`,新节点至少一条；主记录设置 `primary_source`,关键事实句尾写
    `[E<n>]`,plan 中逐条映射到 `raw_id + anchor_id`;
    更新节点时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。依次运行
-   `bin/digest-txn.py validate` 与 `execute`:它会校验候选,原子写 raw/节点,重建 INDEX,追加
+   通过机器协议运行 `bin/digest-txn.py validate` 与 `execute`:它会校验候选,原子写 raw/节点,重建 INDEX,追加
    journal,精确暂存本次路径并在知识库本地 git 创建 commit。只有 receipt
    `status=committed` 才算完成;`status=noop` 不得重复写。详见
    `references/digest-transaction.md` 与 `references/write-rules.md`。多份来源需要共同更新节点
