@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -57,6 +58,13 @@ class TodoStorageTest(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
+    def run_cli(self, *args):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            return_code = todo.main([str(self.kb), *args])
+        self.assertEqual(0, return_code)
+        return json.loads(output.getvalue())
+
     def test_round_trip_and_check(self):
         preamble, todos = todo.load_todos(self.path)
         item = todo.Todo(
@@ -93,24 +101,175 @@ class TodoStorageTest(unittest.TestCase):
         self.assertEqual(loaded, [])
 
     def test_cli_add_and_complete_lifecycle(self):
-        with redirect_stdout(io.StringIO()):
-            todo.main([
-                str(self.kb),
-                "add",
-                "--title",
-                "提交周报",
-                "--due",
-                "明天",
-                "--now",
-                "2026-07-23 10:00",
-            ])
+        self.run_cli(
+            "add",
+            "--title",
+            "提交周报",
+            "--due",
+            "明天",
+            "--now",
+            "2026-07-23 10:00",
+        )
         _, loaded = todo.load_todos(self.path)
         self.assertEqual(loaded[0].fields["due_at"], "2026-07-24T18:00:00+08:00")
-        with redirect_stdout(io.StringIO()):
-            todo.main([str(self.kb), "status", loaded[0].todo_id, "done", "--now", "2026-07-23 11:00"])
+        self.run_cli(
+            "status",
+            loaded[0].todo_id,
+            "done",
+            "--now",
+            "2026-07-23 11:00",
+        )
         _, completed = todo.load_todos(self.path)
         self.assertEqual(completed[0].status, "done")
         self.assertIn("## Completed\n\n### [x]", self.path.read_text(encoding="utf-8"))
+
+    def test_list_scopes_include_active_done_and_cancelled_items(self):
+        first = self.run_cli(
+            "add",
+            "--title",
+            "提交周报",
+            "--now",
+            "2026-07-23 10:00",
+        )
+        second = self.run_cli(
+            "add",
+            "--title",
+            "确认排期",
+            "--now",
+            "2026-07-23 10:01",
+        )
+        active = self.run_cli("list", "--scope", "active")
+        self.assertEqual({"提交周报", "确认排期"}, {item["title"] for item in active})
+
+        self.run_cli(
+            "status",
+            first["id"],
+            "done",
+            "--now",
+            "2026-07-23 11:00",
+        )
+        self.run_cli(
+            "status",
+            second["id"],
+            "cancelled",
+            "--now",
+            "2026-07-23 11:01",
+        )
+        self.assertEqual([], self.run_cli("list", "--scope", "active"))
+        completed = self.run_cli("list", "--scope", "completed")
+        self.assertEqual({"done", "cancelled"}, {item["status"] for item in completed})
+        self.assertEqual(2, len(self.run_cli("list", "--scope", "all")))
+
+    def test_snooze_mark_reminded_and_edit_cover_reminder_lifecycle(self):
+        item = self.run_cli(
+            "add",
+            "--title",
+            "跟进发布",
+            "--due",
+            "明天",
+            "--remind",
+            "今天上午九点",
+            "--note",
+            "初始备注",
+            "--now",
+            "2026-07-23 08:00",
+        )
+        alerts = self.run_cli(
+            "check",
+            "--now",
+            "2026-07-23 10:00",
+        )
+        self.assertEqual("reminder", alerts[0]["category"])
+
+        snoozed = self.run_cli(
+            "snooze",
+            item["id"],
+            "明天下午三点",
+            "--now",
+            "2026-07-23 10:00",
+        )
+        self.assertEqual(
+            "2026-07-24T15:00:00+08:00",
+            snoozed["snoozed_until"],
+        )
+        self.assertEqual(
+            [],
+            self.run_cli("check", "--now", "2026-07-24 14:00"),
+        )
+        alerts = self.run_cli("check", "--now", "2026-07-24 16:00")
+        self.assertEqual("reminder", alerts[0]["category"])
+
+        reminded = self.run_cli(
+            "mark-reminded",
+            item["id"],
+            "--now",
+            "2026-07-24 16:00",
+        )
+        self.assertEqual(
+            "2026-07-24T16:00:00+08:00",
+            reminded["last_reminded_at"],
+        )
+        self.assertEqual(
+            [],
+            self.run_cli("check", "--now", "2026-07-24 16:30"),
+        )
+
+        edited = self.run_cli(
+            "edit",
+            item["id"],
+            "--title",
+            "跟进正式发布",
+            "--clear-due",
+            "--clear-remind",
+            "--note",
+            "已调整",
+            "--now",
+            "2026-07-24 17:00",
+        )
+        self.assertEqual("跟进正式发布", edited["title"])
+        self.assertEqual("", edited["due_at"])
+        self.assertEqual("", edited["remind_at"])
+        self.assertEqual("已调整", edited["note"])
+
+    def test_invalid_id_time_and_corrupt_storage_fail_without_rewrite(self):
+        item = self.run_cli(
+            "add",
+            "--title",
+            "保护内容",
+            "--now",
+            "2026-07-23 10:00",
+        )
+        before = self.path.read_bytes()
+        with self.assertRaisesRegex(SystemExit, "未找到 todo"):
+            todo.main(
+                [
+                    str(self.kb),
+                    "status",
+                    "T-20260723-999",
+                    "done",
+                    "--now",
+                    "2026-07-23 11:00",
+                ]
+            )
+        self.assertEqual(before, self.path.read_bytes())
+
+        with self.assertRaisesRegex(SystemExit, "无法解析时间表达"):
+            todo.main(
+                [
+                    str(self.kb),
+                    "edit",
+                    item["id"],
+                    "--due",
+                    "某个不确定时间",
+                    "--now",
+                    "2026-07-23 11:00",
+                ]
+            )
+        self.assertEqual(before, self.path.read_bytes())
+
+        self.path.write_text("# TODO\n\n## Active\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Active / Completed"):
+            todo.load_todos(self.path)
 
 
 if __name__ == "__main__":

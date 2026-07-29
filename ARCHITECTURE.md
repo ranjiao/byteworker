@@ -794,7 +794,7 @@ flowchart LR
     D["若 schema 改变，同步 DESIGN.md"]
     S["若 Agent 行为改变，同步 SKILL / references"]
     T["增加或更新契约测试"]
-    V["compileall + targeted tests + full tests + git diff --check"]
+    V["compileall + shell syntax + targeted tests + full tests + branch coverage gate + git diff --check"]
     M{"文档、代码、测试一致？"}
     F["完成"]
     B["继续修正，不得带漂移交付"]
@@ -812,6 +812,11 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 - 更新了哪些架构图或为何不需要更新；
 - 哪些测试证明实现与文档一致；
 - 是否保留兼容层或新增技术债务。
+
+覆盖率由根目录 `.coveragerc` 统一定义：统计 `bin/`、`lib/` 的 Python line/branch coverage，
+并通过 coverage.py 的 `subprocess` patch 合并 CLI 子进程数据。CI 固定安装 Node.js 与 `jq`，
+执行 viewer runtime、shell 行为与 Python 测试，最后用 `coverage report` 应用最低门禁；
+测试不得仅靠 mock 覆盖入口而跳过真实命令形态和退出码。
 
 ### 8.3 当前兼容边界和已知债务
 

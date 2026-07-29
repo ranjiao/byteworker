@@ -1,0 +1,15 @@
+[run]
+branch = True
+source =
+    bin
+    lib
+patch =
+    subprocess
+
+[report]
+fail_under = 75.0
+precision = 1
+show_missing = True
+skip_empty = True
+omit =
+    tests/*

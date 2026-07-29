@@ -1714,6 +1714,20 @@ function parseDateValue(value) {
   return Number.isNaN(parsed) ? NaN : parsed;
 }
 
+function isDateOnlyValue(value) {
+  if (!value) return false;
+  const s = String(value).trim().replace(/^["']|["']$/g, '');
+  return /^\d{8}$/.test(s) || /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(s);
+}
+
+function calendarDayAge(timestamp) {
+  const now = new Date(Date.now());
+  const then = new Date(timestamp);
+  const nowDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const thenDay = Date.UTC(then.getFullYear(), then.getMonth(), then.getDate());
+  return Math.max(0, Math.floor((nowDay - thenDay) / 86400000));
+}
+
 function updatedValue(n) {
   return n?.updated || n?.last_verified || n?.created || '';
 }
@@ -1726,6 +1740,12 @@ function updatedSortKey(n) {
 function updatedLabel(n) {
   const t = updatedSortKey(n);
   if (!Number.isFinite(t)) return '—';
+  if (isDateOnlyValue(updatedValue(n))) {
+    const days = calendarDayAge(t);
+    if (days === 0) return '今天';
+    if (days === 1) return '昨天';
+    return days > 7 ? '超过7天' : `${days}天`;
+  }
   const minutes = Math.floor(Math.max(0, Date.now() - t) / 60000);
   if (minutes < 1) return '刚刚';
   if (minutes < 60) return `${minutes}分钟前`;
@@ -1738,9 +1758,13 @@ function updatedLabel(n) {
 function freshnessMeta(n) {
   const t = updatedSortKey(n);
   if (!Number.isFinite(t)) return { className: 'fresh-unknown', label: '更新时间未知' };
-  const age = Math.max(0, Date.now() - t);
-  const days = age / 86400000;
-  if (days < 1) return { className: 'fresh-now', label: '24 小时内更新' };
+  const dateOnly = isDateOnlyValue(updatedValue(n));
+  const days = dateOnly
+    ? calendarDayAge(t)
+    : Math.max(0, Date.now() - t) / 86400000;
+  if (days < 1) {
+    return { className: 'fresh-now', label: dateOnly ? '今天更新' : '24 小时内更新' };
+  }
   if (days < 3) return { className: 'fresh-recent', label: '3 天内更新' };
   if (days <= 7) return { className: 'fresh-aging', label: '7 天内更新' };
   return { className: 'fresh-stale', label: '超过 7 天未更新' };

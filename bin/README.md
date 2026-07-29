@@ -875,6 +875,13 @@ python3 bin/byteworker-cli.py update-status
 
 ```bash
 python3 -m compileall -q bin lib tests
-python3 -m unittest discover -s tests -v
+for script in bin/*.sh; do bash -n "$script"; done
+python3 -m coverage erase
+python3 -m coverage run -m unittest discover -s tests -p 'test_*.py'
+python3 -m coverage combine
+python3 -m coverage report
 git diff --check
 ```
+
+完整测试还需要 Node.js 22（viewer runtime）和 `jq`（IM Inbox shell 行为）。覆盖率规则集中在
+根目录 `.coveragerc`，CI 与本地使用同一套 branch coverage 门禁。

@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes jq
+          python -m pip install "coverage>=7.10,<8"
+
+      - name: Validate Python and shell syntax
+        run: |
+          python -m compileall -q bin lib tests
+          for script in bin/*.sh; do
+            bash -n "$script"
+          done
+
+      - name: Run tests with branch coverage
+        run: |
+          python -m coverage erase
+          python -m coverage run -m unittest discover -s tests -p 'test_*.py'
+          python -m coverage combine
+          python -m coverage report
