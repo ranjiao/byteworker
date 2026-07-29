@@ -1,0 +1,63 @@
+INSTALL.md
+  s_8213e8bfd8fd48::t_db4f2ccb2db909 73,75-77,79-120,124-125,233-236,239-240
+README.md
+  s_8213e8bfd8fd48::t_d1a4679a755bd4 3,41,72,74-76,98-99
+agents/openai.yaml
+  s_8213e8bfd8fd48::t_21ee7d01b52f5e 3-4
+bin/byteworker-cli.py
+  s_8213e8bfd8fd48::t_d99b7bd12ba742 30,83-84,102-117,163,167-168
+bin/check-deps.sh
+  s_8213e8bfd8fd48::t_2c42a1c0c96af6 36-37,48-49,52
+bin/rebuild_index.py
+  s_8213e8bfd8fd48::t_bfd62874150d67 59-61
+bin/source.py
+  s_8213e8bfd8fd48::t_51891a533a8cf1 1-201
+lib/constants.py
+  s_8213e8bfd8fd48::t_3f3fa501c7b4c2 22-23
+lib/digest_txn.py
+  s_8213e8bfd8fd48::t_2e3bc0b1d6f47c 55-56,71-75,307-318,1360-1364
+lib/provenance.py
+  s_8213e8bfd8fd48::t_3eaff77767c681 38-39
+lib/source_capture.py
+  s_8213e8bfd8fd48::t_55ffb6a83ee7c0 1-1786
+references/digest-base.md
+  s_8213e8bfd8fd48::t_dc49e04b67b704 1-102
+references/digest-core.md
+  s_8213e8bfd8fd48::t_d589600bcc99d8 8-9,17-20,28-32,75-77,114-115
+references/digest-meego.md
+  s_8213e8bfd8fd48::t_b50831fd54aae9 1-109
+references/digest-routine.md
+  s_8213e8bfd8fd48::t_ef3c101233d2c4 5,19-31
+references/error-handling.md
+  s_8213e8bfd8fd48::t_04bc83c3b2cc1a 7-9,16-17
+references/provenance.md
+  s_8213e8bfd8fd48::t_5e4241bf4b3957 23-24
+tests/test_digest_txn.py
+  s_8213e8bfd8fd48::t_b18fc983614cea 692-748
+tests/test_install_auth_contract.py
+  s_8213e8bfd8fd48::t_2d8608d0f1fb99 1-28
+tests/test_provenance.py
+  s_8213e8bfd8fd48::t_1d4d108c13da99 129-157
+tests/test_rebuild_index.py
+  s_8213e8bfd8fd48::t_18f0237bf51ed0 1-53
+tests/test_source_capture.py
+  s_8213e8bfd8fd48::t_a9a793e571086d 1-661
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "86627f7bd6e00ecaed642e18a18c4252f141e05e",
+  "prompts": {},
+  "sessions": {
+    "s_8213e8bfd8fd48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa75d-6610-7391-9a7c-de27ad8fe7b2",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
