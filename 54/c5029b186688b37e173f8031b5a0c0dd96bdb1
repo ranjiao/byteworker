@@ -1,0 +1,53 @@
+INSTALL.md
+  s_bd5448668e854e::t_968ffa6f086aed 73,78,82,87,90,93-94,118-139,141,148,258,261
+agents/openai.yaml
+  s_bd5448668e854e::t_cf0ab8c8d74961 3
+bin/check-deps.sh
+  s_bd5448668e854e::t_f983b5845b6073 34,48
+bin/kb-query.py
+  s_bd5448668e854e::t_0f9cab8c30688d 42,47
+lib/aeolus_client.py
+  s_bd5448668e854e::t_6ab0c4cc44cca1 1-1002
+lib/constants.py
+  s_bd5448668e854e::t_47ac9b246b7a60 24
+lib/frontmatter.py
+  s_bd5448668e854e::t_32f63789d1c7d4 6,43-49
+lib/kb_query.py
+  s_bd5448668e854e::t_d521e360c59897 21,588-592
+lib/provenance.py
+  s_bd5448668e854e::t_02e03b0fec48e6 40
+references/commands.md
+  s_bd5448668e854e::t_a28674105fdc93 15,20-21,43
+references/error-handling.md
+  s_bd5448668e854e::t_4e230bb1667fd8 9,19
+references/help.md
+  s_bd5448668e854e::t_ccf04af1573975 6,8,15
+references/provenance.md
+  s_bd5448668e854e::t_017f3d0fc9d784 25-26
+tests/test_aeolus_client.py
+  s_bd5448668e854e::t_ad36f0f1901481 1-291
+tests/test_install_auth_contract.py
+  s_bd5448668e854e::t_5a92c87587e3f0 11,15-17,29-35
+tests/test_kb_query.py
+  s_bd5448668e854e::t_0c87e61b3df343 140-144,160-164,325-358
+tests/test_provenance.py
+  s_bd5448668e854e::t_00430694c3ff0e 129,144-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "54c5029b186688b37e173f8031b5a0c0dd96bdb1",
+  "prompts": {},
+  "sessions": {
+    "s_bd5448668e854e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fac4b-35bf-7041-9fa9-3a6e9a9923e5",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
