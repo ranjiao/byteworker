@@ -18,6 +18,10 @@ GLOBAL_REPAIR_BLOCKERS = {
     "KB_GIT_MISSING",
     "KB_GIT_HAS_REMOTE",
     "LAYOUT_MISSING_DIRECTORY",
+    "SOURCE_PROFILE_DUPLICATE_UID",
+    "SOURCE_PROFILE_INVALID",
+    "SOURCE_PROFILE_PATH_MISMATCH",
+    "SOURCE_PROFILE_UNREADABLE",
     "TRUTH_FILE_MISSING",
 }
 NODE_GRAPH_BLOCKERS = {
@@ -33,6 +37,8 @@ NODE_GRAPH_BLOCKERS = {
     "NODE_ID_TYPE_MISMATCH",
 }
 INDEX_BLOCKERS = NODE_GRAPH_BLOCKERS | {
+    "RAW_PROFILE_IDENTITY_MISMATCH",
+    "RAW_PROFILE_PATH_INVALID",
     "RAW_UNREADABLE",
     "RAW_NO_FRONTMATTER",
     "RAW_UNCLOSED_FRONTMATTER",
@@ -121,7 +127,7 @@ def _repair_blockers(
     reasons: List[str] = []
     codes = {item.code for item in report.findings}
     if codes & GLOBAL_REPAIR_BLOCKERS:
-        reasons.append("知识库布局或 Git 隔离存在严重错误")
+        reasons.append("知识库布局、Git 隔离或 source Profile 存在严重错误")
     if "links" in actions and codes & NODE_GRAPH_BLOCKERS:
         reasons.append("节点图存在影响确定性修复的结构错误")
     if "index" in actions and codes & INDEX_BLOCKERS:

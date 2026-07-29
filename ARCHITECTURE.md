@@ -297,12 +297,13 @@ flowchart TB
 
     subgraph Maintenance["诊断与恢复"]
         M1["doctor scan"]
-        M2{"确定性 auto_fix？"}
-        M3["重建 INDEX / 修复明确 links"]
-        M4["报告严重 schema / provenance / graph 问题"]
-        M1 --> M2
-        M2 -->|"是"| M3
-        M2 -->|"否"| M4
+        M2["扫描 Profile / routine 覆盖<br/>raw 绑定与持久化契约"]
+        M3{"确定性 auto_fix？"}
+        M4["重建 INDEX / 修复明确 links"]
+        M5["报告 schema / provenance / graph<br/>Profile 迁移问题"]
+        M1 --> M2 --> M3
+        M3 -->|"是"| M4
+        M3 -->|"否"| M5
     end
 ```
 
@@ -395,6 +396,7 @@ flowchart TB
         KQ["lib/kb_query.py"]
         SO["lib/source_operations.py"]
         DOC["lib/doctor.py"]
+        DS["lib/doctor_sources.py<br/>来源契约只读审计"]
         PB["lib/provenance_backfill.py"]
         UP["lib/update_postflight.py"]
     end
@@ -589,7 +591,8 @@ flowchart TD
 | `lib/kb_query.py` | 无持久数据库的节点召回、一跳扩展、evidence 和结构化记录查询 | 否 |
 | `lib/provenance.py` | anchor schema、sidecar、节点 `[E]` 物化、raw 扫描 | 仅由事务调用 |
 | `lib/provenance_backfill.py` | 历史出处 audit → plan → validate → apply | 仅显式 apply |
-| `lib/doctor.py` | 检测 schema、links、INDEX、provenance、profile 漂移 | scan 否；fix 受白名单限制 |
+| `lib/doctor.py` | 编排布局、节点、raw、provenance、links、报告、INDEX 与来源契约扫描 | scan 否；fix 受白名单限制 |
+| `lib/doctor_sources.py` | 只读检测 Profile/routine 覆盖、raw/Profile 绑定、payload component/digest key 与 record index 漂移 | 否 |
 | `bin/rebuild_index.py` | 从真相源重建 INDEX | 是，可确定重建 |
 | `bin/repair_links.py` | 修复明确、可证明的双向 links/autolink | 是，受保护 |
 | `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
@@ -614,9 +617,15 @@ flowchart LR
 | `byteworker-source-bundle/v2` | `sources/models.py` | identity、components、coverage、anchors 唯一交接；业务路径不在 skill 仓库 |
 | `digest-plan/v2` | Agent + `digest_txn.py` | 只引用 Bundle，不复制 source/anchors；节点候选必须完整 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
-| `byteworker-record-index/v1` | collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
+| `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
 | `byteworker-cli/v1` | `machine_protocol.py` | 稳定 `status/data/error/context`，不泄漏完整 argv 或正文 |
 | transaction receipt | `digest_txn.py` | `committed/noop` 语义明确；写入和 commit 同成同败 |
+
+doctor 不要求临时 `SourceBundle` 或 `DigestPlan` 在事务完成后继续存在，而是检查其落盘结果：
+Profile schema/path、raw component 元数据和 digest key、Profile 绑定、record index、provenance
+闭环。历史 routine 缺 Profile 按来源能力分级：Meego/Aeolus 缺失为 error，飞书文档兼容 raw
+但提示 warning，尚无 Profile schema 的群聊/Base 只记兼容 info。任何 Profile 创建或迁移都
+包含 selector/capture policy 的语义判断，因此不属于 `doctor fix` 或 post-update auto-fix。
 
 ## 6. 失败边界与安全策略
 
@@ -780,6 +789,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | SnapshotStore | latest/history、坏 raw fail closed、source mismatch、baseline/diff |
 | Transaction | plan v1/v2、no-op、新版本、rollback、并发、provenance、raw rendering |
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
+| Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
 | End-to-end | 飞书文档和 Meego 各一条 capture → commit → query/diff 闭环 |
 
 `tests/test_architecture_contract.py` 固化文档入口和核心模块清单；
@@ -797,6 +807,7 @@ byteworker/
 ├── templates/            # 节点、报告、plan、bundle 骨架
 ├── bin/                  # CLI facade、直接入口和 shell 集成
 ├── lib/                  # 确定性 Python 实现
+│   ├── doctor_sources.py # Profile/routine/raw 来源契约只读审计
 │   └── sources/          # SourceBundle、adapter、registry、兼容投影
 ├── viewer/               # 纯前端只读知识库浏览器
 └── tests/                # 单元、集成和架构防漂移契约

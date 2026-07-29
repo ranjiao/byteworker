@@ -120,6 +120,7 @@ python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --sour
 ## 文档
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) —— 信息处理流程、代码分层、模块边界与演进约束
+- [`bin/README.md`](bin/README.md) —— 确定性命令的用途、参数、示例与写入边界
 - [`INSTALL.md`](INSTALL.md) —— 安装与残留修复说明(可直接交给 AI 助手执行)
 - [`TUTORIAL.md`](TUTORIAL.md) —— 首次使用的上手引导剧本
 - [`SKILL.md`](SKILL.md) —— skill 行为定义

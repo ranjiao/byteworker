@@ -203,7 +203,9 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 `python3 bin/byteworker-cli.py doctor scan`;
 只有用户明确要求修复才执行 `fix`。例外是代码实际自动更新后的 post-update doctor:可直接处理
 finding 明确声明的 `auto_fix`。自动修复只覆盖可确定重建的 INDEX 与 links;缺失业务字段、
-证据链、悬空 id、真相源损坏只列问题和建议,不得猜写。
+证据链、悬空 id、真相源损坏只列问题和建议,不得猜写。scan 同时检查 `sources/` Profile、
+定期来源的 Profile 覆盖、raw/Profile identity 和新事务持久化契约；缺失 Profile 只给分级
+finding，绝不由 doctor 自动迁移或拼接 capture policy。
 
 ## help — 帮助
 

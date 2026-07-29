@@ -48,7 +48,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/source.py` + `lib/source_profiles.py` + `lib/snapshot_store.py` | 结构化来源 profile 校验、KB 本地事务、按稳定 source UID 抓取及历史完整快照选择/差异；实例参数只在用户 KB |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
-| `bin/doctor.py` + `lib/doctor.py` | 按当前 DESIGN/模板/代码 profile 只读扫描知识库兼容性,并编排 INDEX/links 的确定性修复 |
+| `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index，主 doctor 编排 INDEX/links 的确定性修复 |
 | `bin/byteworker-cli.py` + `lib/machine_protocol.py` | 为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
@@ -131,6 +131,10 @@ skill 仓库。profile 有两个兼容 schema：
 `raw_data/` 记录“这一次实际读了什么”：实际 report ID、effective filters、完整 snapshot 和
 profile path/revision。它是历史证据，不反向充当下一次调度配置。旧 KB 尚无 profile 时，
 非结构化来源仍可暂由最近 raw 的 `routine` 兼容运行；风神 routine 必须先迁移为 profile。
+doctor 对 `sources/*.json` 逐文件复用当前 Profile validator，并按唯一 `source_uid` 检查
+定期来源覆盖；它只报告迁移需要，不从 raw 自动生成 selector/capture policy，也不修改历史 raw。
+历史 raw 中记录的 Profile revision 可以与当前 revision 不同，但 path/revision 必须成对存在，
+且 source identity 必须与所引用的当前 Profile 一致。
 - `context.md` —— 使用者主动维护的全局工作上下文;手维护、不可派生,只此一处保存。
 - `todo.md` —— 用户确认后的行动状态;来源节点无法重建“完成 / 延期 / 取消”,只此一处保存。
 
