@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterable, List, Mapping
 
 from constants import NODE_ID_PREFIXES, NODE_TYPES
 from digest_txn import ALLOWED_SOURCE_TYPES, PAYLOAD_SCHEMA
+from doctor_sources import scan_source_contracts
 from frontmatter import extract_tldr, extract_title, parse_file
 from provenance import (
     EVIDENCE_MARKER_RE,
@@ -68,6 +69,7 @@ CURRENT_RAW_REQUIRED_FIELDS = (
     "digest_targets",
 )
 EXPECTED_DIRS = (
+    "sources",
     "raw_data",
     "provenance",
     "journal",
@@ -84,6 +86,15 @@ EXPECTED_DIRS = (
 )
 TRUTH_FILES = ("context.md", "todo.md", "dashboard.md")
 SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
+SCHEMA_CONTRACT_PATHS = (
+    "DESIGN.md",
+    "lib/constants.py",
+    "lib/digest_txn.py",
+    "lib/provenance.py",
+    "lib/source_profiles.py",
+    "lib/sources/models.py",
+    "lib/sources/transaction_bridge.py",
+)
 
 
 @dataclass(frozen=True)
@@ -159,10 +170,11 @@ def _frontmatter_state(path: Path) -> tuple[bool, bool, List[str]]:
 def schema_fingerprint(skill_root: Path) -> str:
     digest = hashlib.sha256()
     files = [
-        skill_root / "DESIGN.md",
-        skill_root / "lib/constants.py",
+        *(skill_root / relative for relative in SCHEMA_CONTRACT_PATHS),
         *sorted((skill_root / "templates").glob("node-*.md")),
         *sorted((skill_root / "templates").glob("report-*.md")),
+        *sorted((skill_root / "templates").glob("digest-*.json")),
+        *sorted((skill_root / "templates").glob("source-*.json")),
     ]
     for path in files:
         digest.update(str(path.relative_to(skill_root)).encode("utf-8"))
@@ -194,6 +206,10 @@ class Doctor:
             "raws": 0,
             "provenance": 0,
             "reports": 0,
+            "profiles": 0,
+            "routine_sources": 0,
+            "legacy_routine_sources": 0,
+            "record_indexes": 0,
         }
         self.required_headings = _required_headings(self.skill_root)
         self.legacy_raw_paths: List[str] = []
@@ -217,6 +233,20 @@ class Doctor:
         self.scan_raws()
         self.scan_nodes()
         self.scan_provenance()
+        source_audit = scan_source_contracts(
+            self.kb,
+            self.raws,
+            self.provenance,
+        )
+        self.counts.update(source_audit.counts)
+        for item in source_audit.findings:
+            self.add(
+                item.severity,
+                item.code,
+                item.path,
+                item.message,
+                repair=item.repair,
+            )
         self.scan_cross_references()
         self.scan_links()
         self.scan_reports()
@@ -443,7 +473,7 @@ class Doctor:
             content_hash = str(frontmatter.get("content_hash", "")).strip()
             if content_hash and not SHA256_RE.fullmatch(content_hash):
                 self.add(
-                    "warning",
+                    "error" if payload_schema == PAYLOAD_SCHEMA else "warning",
                     "RAW_INVALID_CONTENT_HASH",
                     relative,
                     "content_hash 不是 sha256:<64 hex>。",

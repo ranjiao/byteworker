@@ -7,6 +7,7 @@ must, however, hand the digest pipeline the same validated ``SourceBundle``.
 from .models import (
     BUNDLE_SCHEMA,
     Coverage,
+    RECORD_INDEX_SCHEMA,
     RecordIndexEntry,
     SourceBundle,
     SourceBundleError,
@@ -53,6 +54,7 @@ __all__ = [
     "Coverage",
     "FeishuDocumentAdapter",
     "MeegoCaptureAdapter",
+    "RECORD_INDEX_SCHEMA",
     "RecordIndexEntry",
     "SourceAdapter",
     "SourceAdapterRegistry",

@@ -12,7 +12,11 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from frontmatter import parse_file, parse_frontmatter
 from provenance import ProvenanceError, anchor_index, scan_provenance, scan_raws
-from sources import STRUCTURED_SOURCE_TYPES, project_legacy_record
+from sources import (
+    RECORD_INDEX_SCHEMA,
+    STRUCTURED_SOURCE_TYPES,
+    project_legacy_record,
+)
 
 
 class QueryError(RuntimeError):
@@ -20,7 +24,6 @@ class QueryError(RuntimeError):
 
 
 SNAPSHOT_SCHEMA = "byteworker-source-snapshot/v1"
-RECORD_INDEX_SCHEMA = "byteworker-record-index/v1"
 
 
 def _list_value(value: Any) -> List[str]:

@@ -44,6 +44,7 @@ from provenance import (
 )
 from sources import (
     BUNDLE_SCHEMA,
+    RECORD_INDEX_SCHEMA,
     SUPPORTED_TRANSACTION_SOURCE_TYPES,
     SourceBundle,
     SourceBundleError,
@@ -1480,7 +1481,7 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
         if not isinstance(record_index, list):
             raise DigestTxnError("adapter 输出的 source.record_index 必须是数组")
         document = {
-            "schema_version": "byteworker-record-index/v1",
+            "schema_version": RECORD_INDEX_SCHEMA,
             "source_type": source.get("type"),
             "source_uid": source.get("uid"),
             "records": record_index,

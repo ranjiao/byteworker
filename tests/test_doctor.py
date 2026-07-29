@@ -12,7 +12,8 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from doctor import apply_repairs, scan  # noqa: E402
+from doctor import SCHEMA_CONTRACT_PATHS, apply_repairs, scan  # noqa: E402
+from source_profiles import profile_relative_path, validate_profile  # noqa: E402
 from update_postflight import render_message, run_postflight  # noqa: E402
 
 
@@ -25,7 +26,7 @@ class DoctorTests(unittest.TestCase):
         self.kb = Path(self.temp.name)
         for directory in NODE_DIRS:
             (self.kb / "knowledge" / directory).mkdir(parents=True)
-        for directory in ("raw_data", "provenance", "journal"):
+        for directory in ("sources", "raw_data", "provenance", "journal"):
             (self.kb / directory).mkdir()
         for directory in ("daily", "weekly", "im"):
             (self.kb / "reports" / directory).mkdir(parents=True)
@@ -112,7 +113,7 @@ payload_schema: byteworker-payload-v1
 payload_components:
   - body|body|sha256:{'a' * 64}
 content_hash: sha256:{'b' * 64}
-digest_key: web:https://example.test/source:sha256:{'b' * 64}
+digest_key: web:https://example.test/source:-:sha256:{'b' * 64}
 source_url: https://example.test/source
 source_title: 示例
 digest_status: digested
@@ -194,12 +195,209 @@ links: []
     def codes(self):
         return [item.code for item in scan(self.kb, ROOT).findings]
 
+    def write_routine_raw(
+        self,
+        *,
+        slug: str,
+        source_type: str,
+        source_uid: str = "",
+    ):
+        uid = f"source_uid: {source_uid}\n" if source_uid else ""
+        path = self.kb / "raw_data" / f"2026-07-29-{slug}.md"
+        path.write_text(
+            f"""---
+raw_id: raw-2026-07-29-{slug}
+ingested: 2026-07-29T10:00:00+08:00
+source_type: {source_type}
+{uid}source_url: https://example.test/{slug}
+source_title: {slug}
+routine: weekly
+digest_status: digested
+digest_targets: []
+---
+
+legacy routine body
+""",
+            encoding="utf-8",
+        )
+        return path
+
+    def write_feishu_profile(self, *, source_uid: str, enabled: bool = False):
+        value = validate_profile(
+            {
+                "schema_version": "byteworker-source-profile/v2",
+                "source_type": "feishu_doc",
+                "source_uid": source_uid,
+                "source_url": f"https://bytedance.larkoffice.com/docx/{source_uid}",
+                "title": "滚动文档",
+                "selector": {"document_id": source_uid},
+                "capture_policy": {
+                    "comments": True,
+                    "whiteboards": True,
+                },
+                "routine": {
+                    "enabled": enabled,
+                    "cadence": "weekly" if enabled else None,
+                },
+            }
+        )
+        relative = profile_relative_path(value)
+        path = self.kb / relative
+        path.write_text(
+            json.dumps(value, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        return relative
+
     def test_healthy_current_schema_fixture(self):
         report = scan(self.kb, ROOT)
         self.assertEqual([], [item for item in report.findings if item.severity != "info"])
         self.assertEqual(1, report.counts["nodes"])
         self.assertEqual(1, report.counts["raws"])
         self.assertEqual(1, report.counts["provenance"])
+        self.assertEqual(0, report.counts["profiles"])
+        self.assertEqual(0, report.counts["routine_sources"])
+
+    def test_sources_directory_is_part_of_current_layout(self):
+        (self.kb / "sources").rmdir()
+        findings = scan(self.kb, ROOT).findings
+        self.assertTrue(
+            any(
+                item.code == "LAYOUT_MISSING_DIRECTORY"
+                and item.path == "sources"
+                for item in findings
+            )
+        )
+
+    def test_invalid_profile_is_reported_without_aborting_scan(self):
+        (self.kb / "sources/bad.json").write_text("{}\n", encoding="utf-8")
+        report = scan(self.kb, ROOT)
+        self.assertIn("SOURCE_PROFILE_INVALID", [item.code for item in report.findings])
+        self.assertEqual(0, report.counts["profiles"])
+        self.assertEqual(1, report.counts["nodes"])
+
+    def test_routine_profile_coverage_uses_compatibility_severity(self):
+        self.write_routine_raw(
+            slug="rolling-doc",
+            source_type="feishu_doc",
+            source_uid="docx123",
+        )
+        self.write_routine_raw(
+            slug="meego-view",
+            source_type="meego",
+            source_uid="meego:project:view",
+        )
+        self.write_routine_raw(
+            slug="chat",
+            source_type="feishu_chat",
+            source_uid="oc_chat",
+        )
+
+        report = scan(self.kb, ROOT)
+        findings = {item.code: item for item in report.findings}
+        self.assertEqual(
+            "warning",
+            findings["ROUTINE_SOURCE_PROFILE_MISSING"].severity,
+        )
+        self.assertEqual(
+            "error",
+            findings["ROUTINE_SOURCE_PROFILE_REQUIRED"].severity,
+        )
+        self.assertEqual(
+            "info",
+            findings["ROUTINE_SOURCE_PROFILE_UNSUPPORTED"].severity,
+        )
+        self.assertEqual(3, report.counts["routine_sources"])
+        self.assertEqual(3, report.counts["legacy_routine_sources"])
+
+    def test_disabled_profile_suppresses_legacy_raw_routine(self):
+        self.write_routine_raw(
+            slug="rolling-doc",
+            source_type="feishu_doc",
+            source_uid="docx123",
+        )
+        self.write_feishu_profile(source_uid="docx123", enabled=False)
+
+        report = scan(self.kb, ROOT)
+        codes = [item.code for item in report.findings]
+        self.assertNotIn("ROUTINE_SOURCE_PROFILE_MISSING", codes)
+        self.assertEqual(1, report.counts["profiles"])
+        self.assertEqual(0, report.counts["routine_sources"])
+        self.assertEqual(0, report.counts["legacy_routine_sources"])
+
+    def test_routine_without_stable_uid_is_reported(self):
+        self.write_routine_raw(
+            slug="legacy-doc",
+            source_type="feishu_doc",
+        )
+        self.assertIn("ROUTINE_SOURCE_UID_MISSING", self.codes())
+
+    def test_raw_profile_binding_identity_is_checked(self):
+        relative = self.write_feishu_profile(
+            source_uid="docx123",
+            enabled=False,
+        )
+        raw = self.kb / "raw_data/2026-07-28-example.md"
+        text = raw.read_text(encoding="utf-8").replace(
+            "payload_schema: byteworker-payload-v1\n",
+            (
+                f"source_profile_path: {relative}\n"
+                f"source_profile_revision: sha256:{'c' * 64}\n"
+                "payload_schema: byteworker-payload-v1\n"
+            ),
+        )
+        raw.write_text(text, encoding="utf-8")
+        self.assertIn("RAW_PROFILE_IDENTITY_MISMATCH", self.codes())
+
+    def test_current_raw_component_and_digest_key_contracts_are_checked(self):
+        raw = self.kb / "raw_data/2026-07-28-example.md"
+        text = raw.read_text(encoding="utf-8")
+        text = text.replace(
+            f"  - body|body|sha256:{'a' * 64}",
+            "  - malformed",
+        )
+        text = re.sub(
+            r"(?m)^digest_key:.*$",
+            "digest_key: wrong",
+            text,
+        )
+        raw.write_text(text, encoding="utf-8")
+        codes = self.codes()
+        self.assertIn("RAW_PAYLOAD_COMPONENT_INVALID", codes)
+        self.assertIn("RAW_DIGEST_KEY_MISMATCH", codes)
+
+    def test_record_index_contract_is_checked(self):
+        raw = self.kb / "raw_data/2026-07-28-example.md"
+        record = {
+            "record_id": "duplicate",
+            "title": "记录",
+            "locator": {"id": "duplicate"},
+            "fields": {},
+        }
+        document = {
+            "schema_version": "byteworker-record-index/v1",
+            "source_type": "web",
+            "source_uid": "https://example.test/source",
+            "records": [record, record],
+        }
+        raw.write_text(
+            raw.read_text(encoding="utf-8")
+            + "\n## 规范记录索引（派生）\n\n```json\n"
+            + json.dumps(document, ensure_ascii=False)
+            + "\n```\n",
+            encoding="utf-8",
+        )
+        self.assertIn("RAW_RECORD_INDEX_DUPLICATE_ID", self.codes())
+
+    def test_schema_fingerprint_covers_refactored_persistence_contracts(self):
+        for relative in (
+            "lib/source_profiles.py",
+            "lib/sources/models.py",
+            "lib/sources/transaction_bridge.py",
+            "lib/digest_txn.py",
+            "lib/provenance.py",
+        ):
+            self.assertIn(relative, SCHEMA_CONTRACT_PATHS)
 
     def test_fix_rebuilds_index_and_repairs_links(self):
         (self.kb / "knowledge/areas/area-example.md").write_text(
@@ -510,6 +708,24 @@ links: []
         self.assertNotIn(
             "reading-example",
             original.read_text(encoding="utf-8"),
+        )
+
+    def test_postflight_blocks_repairs_when_profile_is_invalid(self):
+        self.add_one_way_area_link()
+        (self.kb / "sources/bad.json").write_text("{}\n", encoding="utf-8")
+        self.commit_all()
+
+        result = run_postflight(ROOT, self.kb)
+
+        self.assertEqual("decision", result.status)
+        self.assertIn(
+            "知识库布局、Git 隔离或 source Profile 存在严重错误",
+            result.reasons,
+        )
+        area = self.kb / "knowledge/areas/area-example.md"
+        self.assertNotIn(
+            "reading-example",
+            area.read_text(encoding="utf-8"),
         )
 
 

@@ -12,6 +12,8 @@
   `--autolink` 才补正文提及的节点边。
 - 缺失业务字段、悬空 id、证据链断裂、真相源缺失、person 身份未解析等只报告并给建议，
   绝不让脚本猜业务语义。
+- Profile 创建或迁移需要确认 selector/capture policy，永远不属于 `doctor fix` 或
+  post-update auto-fix；doctor 只报告缺口和严重程度。
 
 ## skill 更新后的自动检查
 
@@ -58,12 +60,21 @@ error/warning；`2` 扫描完成但仍有问题；`1` 参数、目录或执行�
 - 目录、不可派生真相源文件、本地 Git/remote、事务临时残留；
 - 7 类节点的 frontmatter、type/path/id、日期、必需章节、TL;DR、person `feishu_id`；
 - raw 的 id、当前/历史 payload schema、状态、hash、digest targets；
+- `sources/*.json` 的 Profile v1/v2 schema、凭据、规范路径、重复 `source_uid`；
+- 定期来源的 Profile 覆盖和稳定 identity：Meego/Aeolus 缺 Profile 为 error，飞书文档
+  legacy raw 为 warning，群聊/Base 等尚无 Profile schema 的来源为 info；
+- raw 的 Profile path/revision 成对性、source identity，以及 component/digest key 和可选
+  `byteworker-record-index/v1` 持久化契约；
 - provenance JSON schema、raw/path/hash/source anchor；
 - 节点 sources/primary source、`[E]` 标记/证据表/raw/anchor 的闭环；
 - links 重复、自链接、悬空、反向边、正文已存在节点 id 的漏登记；其中自链接属于可确定
   删除的 error，悬空链接仍需人工裁决；
 - 日报/周报/IM 报告 `[S]` 正文标记与「引用」条目；
 - `INDEX.md` 与当前确定性重建结果。
+
+SourceBundle 和 DigestPlan 属于事务临时输入，成功后可以删除；doctor 不要求它们留在知识库。
+它验证的是 Profile → raw metadata/record index → provenance 的持久化结果。历史 raw 引用的
+Profile revision 与当前 revision 不同可以是正常重配，不得据此改写不可变 raw。
 
 ## 执行修复后的收尾
 

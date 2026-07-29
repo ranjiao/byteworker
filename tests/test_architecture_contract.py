@@ -45,6 +45,7 @@ class ArchitectureContractTests(unittest.TestCase):
             "bin/kb-query.py",
             "lib/machine_protocol.py",
             "lib/digest_txn.py",
+            "lib/doctor_sources.py",
             "lib/kb_query.py",
             "lib/source_operations.py",
             "lib/source_profiles.py",

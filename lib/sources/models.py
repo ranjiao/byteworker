@@ -18,6 +18,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 
 BUNDLE_SCHEMA = "byteworker-source-bundle/v2"
+RECORD_INDEX_SCHEMA = "byteworker-record-index/v1"
 SHA_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 SOURCE_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
