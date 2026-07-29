@@ -39,12 +39,12 @@ def main() -> int:
 
     source_parser = subparsers.add_parser(
         "source-record",
-        help="从 Meego / Base 完整 raw 快照确定性检索单条结构化记录",
+        help="从 Meego / Base / 风神完整 raw 快照确定性检索结构化记录",
     )
     source_parser.add_argument("--kb", required=True, type=Path)
     source_parser.add_argument(
         "--source-type",
-        choices=("meego", "feishu_base"),
+        choices=("meego", "feishu_base", "aeolus"),
         default="",
     )
     source_parser.add_argument("--source-uid", default="")

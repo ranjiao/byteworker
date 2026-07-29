@@ -126,7 +126,7 @@ links: []
                 },
             )
 
-    def test_accepts_exact_meego_and_base_record_anchors(self):
+    def test_accepts_exact_structured_source_anchors(self):
         for kind, locator in (
             (
                 "meego_workitem",
@@ -139,6 +139,18 @@ links: []
                     "table_id": "tbl1",
                     "view_id": "vew1",
                     "record_id": "rec1",
+                },
+            ),
+            (
+                "aeolus_report",
+                {
+                    "region": "cn",
+                    "app_id": 101,
+                    "dashboard_id": 202,
+                    "sheet_id": 303,
+                    "report_id": 401,
+                    "dataset_id": 501,
+                    "effective_filters": [],
                 },
             ),
         ):

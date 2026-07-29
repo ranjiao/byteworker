@@ -18,7 +18,7 @@ class QueryError(RuntimeError):
     pass
 
 
-STRUCTURED_SOURCE_TYPES = {"meego", "feishu_base"}
+STRUCTURED_SOURCE_TYPES = {"meego", "feishu_base", "aeolus"}
 SNAPSHOT_SCHEMA = "byteworker-source-snapshot/v1"
 TITLE_KEYS = (
     "work_item_name",
@@ -585,7 +585,11 @@ def source_records(
             anchor_id = (
                 f"workitem:{candidate_id}"
                 if snapshot_source_type == "meego"
-                else f"record:{candidate_id}"
+                else (
+                    f"aeolus:{candidate_id}"
+                    if snapshot_source_type == "aeolus"
+                    else f"record:{candidate_id}"
+                )
             )
             anchor = _record_anchor(kb, raw_id, anchor_id)
             if not anchor:

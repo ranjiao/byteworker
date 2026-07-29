@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 byteworker · rebuild-index
-从 knowledge/ 节点与 raw_data/ frontmatter 确定性重建 INDEX.md。
+从 knowledge/ 节点、sources/ profiles 与 raw_data/ frontmatter 确定性重建 INDEX.md。
 
 用法:
   python3 rebuild_index.py <kb_dir> [--dry-run]
@@ -11,6 +11,7 @@ byteworker · rebuild-index
 import glob
 import os
 import sys
+from pathlib import Path
 
 
 def _add_lib_path():
@@ -25,6 +26,7 @@ _add_lib_path()
 
 from frontmatter import parse_file, extract_tldr, extract_title, source_window_end
 from constants import NODE_TYPES, SOURCE_TYPE_LABELS
+from source_profiles import list_profiles
 
 
 def esc(value):
@@ -115,6 +117,7 @@ def render_node_section(kb, dir_name, node_type, label):
 def render_raw_sections(kb):
     raw_paths = sorted(glob.glob(os.path.join(kb, "raw_data", "*.md")))
     routine = {}
+    latest_by_source = {}
     chats = {}
     pending = failed = 0
 
@@ -130,6 +133,19 @@ def render_raw_sections(kb):
         source_type = fm.get("source_type", "")
         last_seen = raw_last_seen(fm)
         targets = list_value(fm.get("digest_targets"))
+        source_key = raw_source_key(fm)
+        if source_key:
+            old = latest_by_source.get(source_key)
+            if old is None or last_seen > old["last_seen"]:
+                latest_by_source[source_key] = {
+                    "source": raw_source_label(fm),
+                    "type": SOURCE_TYPE_LABELS.get(
+                        source_type,
+                        source_type or "-",
+                    ),
+                    "last_seen": last_seen,
+                    "targets": targets,
+                }
 
         if source_type == "feishu_chat":
             chat_id = fm.get("source_chat_id", "")
@@ -146,7 +162,7 @@ def render_raw_sections(kb):
 
         cadence = fm.get("routine", "")
         if cadence:
-            key = raw_source_key(fm)
+            key = source_key
             if not key:
                 continue
             old = routine.get(key)
@@ -158,6 +174,31 @@ def render_raw_sections(kb):
                     "last_seen": last_seen,
                     "targets": targets,
                 }
+
+    profiles = list_profiles(Path(kb))
+    profile_uids = {profile["source_uid"] for profile in profiles}
+    # A profile is the operational truth for a structured source.  Its
+    # presence suppresses legacy raw-frontmatter routine settings, including
+    # when routine is explicitly disabled.
+    routine = {
+        key: item
+        for key, item in routine.items()
+        if key not in profile_uids
+    }
+    for profile in profiles:
+        if not profile["routine"]["enabled"]:
+            continue
+        latest = latest_by_source.get(profile["source_uid"], {})
+        routine[profile["source_uid"]] = {
+            "source": profile["title"],
+            "type": SOURCE_TYPE_LABELS.get(
+                profile["source_type"],
+                profile["source_type"],
+            ),
+            "cadence": profile["routine"]["cadence"],
+            "last_seen": latest.get("last_seen", ""),
+            "targets": latest.get("targets", []),
+        }
 
     out = [
         "## 定期摄取清单 (routine digest — 会定期更新、需周期性复查的源)",
@@ -208,7 +249,7 @@ def main():
     doc = [
         "# 知识库索引",
         "",
-        "<!-- 此文件由 byteworker 维护;可用 bin/rebuild-index.sh 从 knowledge/ 与 raw_data/ 重建。 -->",
+        "<!-- 此文件由 byteworker 维护;可用 bin/rebuild-index.sh 从 knowledge/、sources/ 与 raw_data/ 重建。 -->",
         "",
     ]
     counts = {}

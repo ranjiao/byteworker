@@ -12,12 +12,13 @@
    脚本统一扫描 id / 标题 / tag / TL;DR / body，并在预算内扩展一跳 links，输出覆盖数、分数和
    命中理由；它不保存索引、不做语义裁决。若用户用的是抽象表达或候选不足，Agent 再用近义词
    重跑，并语义检查 `INDEX.md`，把补充候选与脚本候选取并集。
-2. **结构化大 raw 召回(按场景必做)** —— 用户询问 Meego / Base 中的具体需求、记录 ID、
+2. **结构化大 raw 召回(按场景必做)** —— 用户询问 Meego / Base / 风神中的具体需求、记录/报表 ID、
    标题或其状态字段时，即使知识节点已有同一看板的宏观摘要，也必须继续调用：
    `python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" --source-type meego --record-id "<稳定 ID>"`
    或
    `python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" --source-type meego --title "<需求标题或用户表述>"`。
-   Base 使用 `--source-type feishu_base`。标题由 Python 做 Unicode / 大小写 / 空白 / 标点归一化、
+   Base 使用 `--source-type feishu_base`；风神使用 `--source-type aeolus`，稳定 ID 为
+   `report:<report_id>`。标题由 Python 做 Unicode / 大小写 / 空白 / 标点归一化、
    包含、分词覆盖与字符相似度排序；返回多条时结合 `score / match.kind / source_uid` 判断，
    分数接近或跨来源同名必须向用户披露歧义，不得擅选。默认每个 `source_uid` 只查最新完整快照；
    当前未命中但用户明确要历史记录时才加 `--history`，并把 `is_latest_snapshot=false` 说明为
@@ -39,7 +40,7 @@
    - 关键结论找不到原始出处或收录时间时,即使命中节点,整体置信度最高为**中**。
    - **低 / 未命中**:执行**漏查防护** —— 二次放宽检索(换近义词重跑知识节点查询、放宽到
      tag 与邻接领域、扫 journal 近期记录),报告"已检索 N 个方向,未命中;主题接近的有……"。
-     Meego / Base 大 raw 仍只通过 `source-record` 放宽标题或显式查历史，禁止退回全文 `grep`。
+     Meego / Base / 风神大 raw 仍只通过 `source-record` 放宽标题或显式查历史，禁止退回全文 `grep`。
      **明确区分「知识库确实没有」与「我可能没找到」**。
 6. **输出格式**:先 TL;DR,再展开;每个知识库事实段落 / 列表项就近标 `[S<n>]`;末尾按
    `references/citations.md` 输出“引用”(原始出处 + 原文时间 / 覆盖 + 收录时间 + 版本 / raw_id)

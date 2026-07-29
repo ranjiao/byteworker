@@ -1,6 +1,6 @@
 # byteworker
 
-把你日常的飞书文档、会议、群聊、Meego 和多维表格视图,消化成一个**可对话查询的个人工作知识库**。
+把你日常的飞书文档、会议、群聊、Meego、多维表格视图和风神看板,消化成一个**可对话查询的个人工作知识库**。
 
 面向飞书重度用户(软件工程师、算法研发、PMO、运营等)—— 信息散落在文档和群里、事后再也找不回?byteworker 把它们结构化沉淀下来,需要时一句话问出来。
 
@@ -38,7 +38,7 @@
 
 | 子命令 | 作用 |
 |--------|------|
-| `/byteworker digest <飞书URL/会议/群/Meego或Base视图/外部文章/本地md>` | **摄取** —— 把资料消化入库 |
+| `/byteworker digest <飞书URL/会议/群/Meego或Base视图/风神看板/外部文章/本地md>` | **摄取** —— 把资料消化入库 |
 | `/byteworker search <问题>` | **查询** —— 问知识库,带原始出处、收录时间与置信度 |
 | `/byteworker update <节点/新进展>` | **更新** —— 某条知识有新进展 |
 | `/byteworker brief` | **会前简报** —— 读飞书日历,为每个会议拉相关上下文 |
@@ -69,11 +69,11 @@ bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 pyth
 | 层 | 依赖 | 说明 |
 |----|------|------|
 | **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.9` | Python 用于确定性维护 Todo / 索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
-| **飞书生态** | `lark-cli` + `meegle` + 对应 skills + 用户授权 | 摄取飞书内容必需。文档 / Base 使用 `lark-cli`;Base 另需最小只读 scopes。Meego 使用独立的 `meegle` OAuth。安装助手会询问现在启用哪些来源,跳过后也会在首次使用时引导|
+| **内部数据源** | `lark-cli` + `meegle` + 对应 skills + 用户授权 | 文档 / Base 使用 `lark-cli`;Meego 使用独立的 `meegle` OAuth；风神由 byteworker 原生只读客户端访问，只需单独注入用户态或服务态凭据。安装助手会询问现在启用哪些来源,跳过后也会在首次使用时引导|
 
 装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)。依赖就绪不等于授权就绪；
-可用 `python3 bin/byteworker-cli.py source auth-status --source-type meego` 或
-`--source-type feishu_base` 做无副作用检查。
+可用 `python3 bin/byteworker-cli.py source auth-status --source-type meego`、
+`--source-type feishu_base` 或 `--source-type aeolus` 做无副作用检查。
 
 ## 安装
 
@@ -97,6 +97,8 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"      # 自查依赖,按提示补齐
 # 可选:无副作用检查来源授权；ready=false 时按 INSTALL.md 第 5 步选择是否授权
 python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type feishu_base
+# 风神（凭据配置见 INSTALL.md）
+python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type aeolus
 ```
 
 把 skill **直接 clone 进 agent 的 skills 目录**(而非 clone 到别处再 symlink)—— 这样最稳,且自动更新依赖的 `git` remote 一步到位。沙箱 / 云环境、多 agent 共用、残留修复等细节见 [`INSTALL.md`](INSTALL.md)。
@@ -107,11 +109,13 @@ python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --sour
 
 你的实际知识库数据存在上面指定的独立目录(**不在本仓库**):
 
-- `knowledge/` —— 7 类节点笔记 · `raw_data/` —— 摄取的逐字原文 · `provenance/` —— 原始章节/评论/消息定位 · `journal/` —— 操作日志
+- `sources/` —— 每个结构化来源自己的 selector/filter/routine profile · `knowledge/` —— 7 类节点笔记 · `raw_data/` —— 摄取的逐字原文 · `provenance/` —— 原始章节/评论/消息定位 · `journal/` —— 操作日志
 - `reports/` —— 日报 / 周报归档快照
 - `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板 · `context.md` —— 格式化用户上下文 · `todo.md` —— 本地个人待办
 
 该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`DESIGN.md`](DESIGN.md)。
+风神按 dashboard sheet 注册：每个 sheet 在 `sources/` 中有独立参数，skill 仓库不保存任何
+用户 dashboard、report 或 filter 配置。
 
 ## 文档
 

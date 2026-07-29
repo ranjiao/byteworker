@@ -16,7 +16,11 @@
 
 1. 在本 skill 目录运行 `bin/rebuild-index.sh`(先看不写加 `--dry-run`;测试 / 指定库加 `--kb <数据目录>`)。
 2. 脚本扫 `knowledge/` 下全部 7 类节点的 frontmatter + body 首行 TL;DR,按 DESIGN.md §6 的分节格式重新生成整个 `INDEX.md`。
-3. 「定期摄取清单」由 `raw_data/` 中带 `routine` 的 raw frontmatter 派生;「群聊摄取进度」由 `feishu_chat` raw 的 `source_chat_id` / `source_window` 派生。中断 raw(`digest_status: pending/failed`)不再进入 INDEX 表格,需要排障时直接扫 `raw_data/`。
+3. 「定期摄取清单」优先由 `sources/` profiles 的 routine 派生；没有 profile 的旧来源才兼容
+   `raw_data/` 的 `routine`。同一 `source_uid` 有 profile 时，profile 的启用/禁用和 cadence
+   覆盖历史 raw。「群聊摄取进度」仍由 `feishu_chat` raw 的
+   `source_chat_id` / `source_window` 派生。中断 raw(`digest_status: pending/failed`)不进入
+   INDEX 表格,需要排障时直接扫 `raw_data/`。
 4. 脚本原子写入(temp-then-move),只改 `INDEX.md`;由调用方按 `references/write-rules.md` 追加 journal 并精确暂存本次改动后提交。
 
 ## 校验 / 修复双向链接

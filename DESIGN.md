@@ -43,6 +43,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
+| `bin/source.py` + `lib/source_profiles.py` | 结构化来源 profile 的校验、KB 本地事务、按稳定 source UID 抓取；实例参数只在用户 KB |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `bin/doctor.py` + `lib/doctor.py` | 按当前 DESIGN/模板/代码 profile 只读扫描知识库兼容性,并编排 INDEX/links 的确定性修复 |
@@ -60,6 +61,7 @@ byteworker 由**两个物理隔离**的部分组成。
 
 | 目录/文件 | 存什么 | 谁写 | 可变性 |
 |-----------|--------|------|--------|
+| `sources/` | 每个结构化来源一份独立 operational profile；保存坐标、选择器、筛选口径与 routine，不含凭据和数据行 | `source register` 事务写入 | 显式重配时更新 |
 | `raw_data/` | 摄取的**逐字原文** + 溯源元数据,一次摄取一文件 | skill 写入;正文永不改写,运维 frontmatter 可更新 | 正文只增不改 |
 | `provenance/` | 每个 raw 的原始定位 sidecar:文档 block / 评论 / 消息 / 妙记片段等 | digest 事务写入;受控回填可补充 | 只随对应 raw 增补/升级 |
 | `knowledge/{people,projects,areas,orgs,events,decisions,readings}/` | 7 类节点笔记,按类型分子目录(固定 7 个,不漂移) | skill 写入/更新 | 实体可更新;记录定型 |
@@ -81,6 +83,9 @@ byteworker 由**两个物理隔离**的部分组成。
 知识库数据按「丢了能不能恢复」分两层,这是一条**硬不变量**:
 
 **真相源(truth source —— 丢失不可恢复,必须保护):**
+- `sources/` —— 结构化数据源下一次如何抓取的唯一 operational truth。一个风神
+  dashboard sheet 是一个独立来源，和一份飞书文档处于同等粒度；不同 sheet、report 选择、
+  filter 口径和 cadence 不得共享隐式全局参数。
 - `raw_data/` —— 正文不可变、逐字;一切知识的根。frontmatter 中 `digest_status`、`digest_targets`、`routine` 等运维元数据可由 skill 更新,但不得改写原文正文。
 - `provenance/` —— 与 raw 内容 hash 绑定的来源定位证据。精确 block/comment/message locator
   可能无法仅从 raw 正文恢复,因此与 raw 一起保护;修订必须保留 `derived_from.content_hash`。
@@ -88,6 +93,26 @@ byteworker 由**两个物理隔离**的部分组成。
   重新消化(LLM digest,非确定性),但 `raw_data` 本身丢了就无源可回。
 - `reports/` —— 日报 / 周报 / IM Inbox 摘要是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
 - `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
+
+### D. `sources/` — 结构化来源配置
+
+`sources/<source_type>-<sha256(source_uid)>.json` 使用
+`byteworker-source-profile/v1`。profile 是用户 KB 数据，不得写进 skill 仓库。当前
+`source_type=aeolus` 的不变量：
+
+- 一份 profile 精确对应一个 `region + app_id + dashboard_id + sheet_id`，稳定 ID 为
+  `aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>`；
+- `capture.report_selector` 显式记录动态选择全部报表或固定 report ID 子集；
+- `capture.filters` 显式记录 `dashboard / explicit / merge` 和 canonical `where[]`；
+- `capture.max_items_per_report`、`routine.enabled/cadence` 都属于该来源自身配置；
+- profile 不得含 JWT、token、cookie、密码等凭据，也不得含任何抓取结果；
+- profile 只能由 `source register` 在实时 inspect 校验后写入。之后
+  `source capture --kb ... --source-uid ...` 原样加载，不接受 CLI 覆盖；变更口径必须重新
+  register 并产生新的 `profile_revision` 和 KB 本地 Git 回滚点。
+
+`raw_data/` 记录“这一次实际读了什么”：实际 report ID、effective filters、完整 snapshot 和
+profile path/revision。它是历史证据，不反向充当下一次调度配置。旧 KB 尚无 profile 时，
+非结构化来源仍可暂由最近 raw 的 `routine` 兼容运行；风神 routine 必须先迁移为 profile。
 - `context.md` —— 使用者主动维护的全局工作上下文;手维护、不可派生,只此一处保存。
 - `todo.md` —— 用户确认后的行动状态;来源节点无法重建“完成 / 延期 / 取消”,只此一处保存。
 
@@ -150,9 +175,11 @@ byteworker 由**两个物理隔离**的部分组成。
 ---
 raw_id: raw-2026-05-20-q2-roadmap-review
 ingested: 2026-05-20T14:30:00+08:00
-source_type: feishu_doc | feishu_minutes | feishu_meeting | feishu_chat | meego | feishu_base | web | local_md
+source_type: feishu_doc | feishu_minutes | feishu_meeting | feishu_chat | meego | feishu_base | aeolus | web | local_md
 source_uid: doxcnxxx / wiki_token / minute_token / URL / 本地绝对路径
 source_revision: "12"                       # 可选:飞书文档 revision_id / 外部 etag / git commit 等来源版本
+source_profile_path: sources/aeolus-<sha256>.json # 由 profile 抓取时记录
+source_profile_revision: sha256:<hex>       # 本次使用的 canonical profile hash
 source_project_key: proj_xxx                # meego:空间 project_key
 source_base_token: bascnxxx                 # feishu_base:真实 base token,不使用 wiki token
 source_table_id: tblxxx                     # feishu_base:明确数据表
@@ -160,6 +187,15 @@ source_view_id: vewxxx                      # meego / feishu_base:保存视图
 source_fields:                              # meego 字段 key / Base field ID 或精确名称
   - status
   - owner
+source_region: <region>                     # aeolus:本次实际坐标
+source_app_id: <app_id>                     # aeolus
+source_dashboard_id: <dashboard_id>         # aeolus
+source_sheet_id: <sheet_id>                 # aeolus
+source_report_ids:                          # aeolus:固定读取的 report 子集
+  - <report_id>
+source_filter_mode: dashboard               # aeolus:dashboard | explicit | merge
+source_where_filters:                       # aeolus:explicit / merge 的 canonical JSON
+  - '{"dimMetId":<dim_met_id>,"name":"<field_name>","op":"in","val":["<value>"]}'
 digest_period: 2026-05-20                   # 可选:滚动文档的周期;日期 / ISO 周需规范化
 payload_schema: byteworker-payload-v1       # 新事务写入的组件组合 hash 规范
 payload_components:                        # 本次实际摄取组件:name|kind|sha256
@@ -198,7 +234,8 @@ feishu_doc 随后附 canonical 文档评论原始快照>
 **幂等键与重复摄取**:
 - `source_uid` 是规范化来源主键:飞书文档优先用 `document_id` / wiki token,妙记用 minute token,
   群聊用 `source_chat_id`,Meego 保存视图用 `meego:<project_key>:<view_id>`,多维表格视图用
-  `feishu_base:<base_token>:<table_id>:<view_id>`,外部网页用规范化 URL,本地文件用绝对路径。
+  `feishu_base:<base_token>:<table_id>:<view_id>`,风神看板用
+  `aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>`,外部网页用规范化 URL,本地文件用绝对路径。
 - `source_revision` 记录来源版本:飞书文档用 `revision_id`;无明确版本时可为空,以 `content_hash`
   判重。
 - `source_url` 是**用户可点击回原始资料的链接**。飞书文档 / 妙记 / 日历会议 / 外部网页必须尽量
@@ -266,30 +303,42 @@ raw 文件名或 git 时间替代。历史 raw 缺字段时必须明确披露,�
 
 ### 3.1 结构化保存视图的大规模摄取
 
-Meego / Base 保存视图同时含数百条需求或记录时,采用“**一份全量快照、逐记录差异、少量知识
-晋升**”模型:
+Meego / Base 保存视图及风神 dashboard sheet 含大量记录/报表结果时,采用
+“**一份全量快照、逐稳定单元差异、少量知识晋升**”模型:
+
+风神的运行边界固定为 byteworker 自带的最小只读 HTTP 客户端：只允许 dashboard/sheet
+发现、dataset 字段读取、report 保存态配置读取和 VizQuery 查询，不接入创建、修改、发布或
+权限申请接口，也不依赖其它 CLI。用户态 Titan Passport、ByteCloud JWT、Bearer token 或
+服务态 client credentials 只从进程环境 / secret manager / 仓库外 `0600` 私密文件读取；
+只在内存中交换和缓存，不得进入 skill 仓库、知识库、raw、diff、provenance、日志或命令参数。
+定时任务优先使用单独授权、可轮换的服务态凭据；服务身份与个人身份的资源权限必须分别验证，
+不能因为个人能打开看板就推断服务身份也能读取。
 
 - 每次摄取必须完整分页并把规范化 `snapshot` 作为一个 raw component；它是本次看板事实的
   原始证据,不能只保存摘要、变更行或单页结果。
 - 结构化字段中的 URL 必须在 snapshot/hash 之前剥离一次性登录 token、access token、签名等
   敏感 query 参数；脱敏计数进入 capture 诊断，但凭据值不得进入 raw、diff、provenance 或日志。
-- 每条记录用稳定 ID 建 exact provenance anchor。相邻完整快照可用 `source diff` 按 ID 生成
+- Meego / Base 每条记录、风神每个 report 用稳定 ID 建 exact provenance anchor。相邻完整
+  快照可用 `source diff` 按 ID 生成
   `baseline / added / changed / left_view`；差异是可重算的派生物,不是新的权威真相源。
 - `left_view` 只表示记录不再出现在当前保存视图中,**不等于工作项被删除或取消**。需要删除语义
   时必须回权威来源另行确认。
-- Meego / Base 对状态、负责人、优先级、排期等结构化字段具有优先权；文档、会议、群聊对理由、
+- Meego / Base 对状态、负责人、优先级、排期等结构化字段具有优先权；风神对其明确口径下的
+  报表结果具有优先权，但 query 时间不等于底层数据更新时间；文档、会议、群聊对理由、
   讨论过程和生效决策具有优先权。两者冲突时保留各自出处,不让摘要覆盖来源状态。
 - 普通需求及日常状态变化只留在 raw + provenance；满足下列门槛才进入实体图:
   长期持续且需跨来源追踪 → `project`，明确生效选择 → `decision`，评审/发布/事故等时间事实 →
   `event`，跨多条需求反复出现且稳定的能力/风险主题 → `area`。**禁止一条需求一个节点或一个
   person**；人员只在其身份/观点/协作关系本身具有长期知识价值时创建或更新。
 - 首次快照建立一张代表保存视图的 `reading` 主记录；后续同源快照更新同一主记录，并只检查
-  差异记录是否达到晋升门槛。字段投影写入 `source_fields`，后续例行摄取保持一致；字段调整视为
-  显式的新投影版本并在主记录中说明。
+  差异记录/报表是否达到晋升门槛。Meego / Base 字段投影写入 `source_fields`；风神把 report
+  子集和筛选策略写入 `source_report_ids / source_filter_mode`。后续例行摄取保持一致；投影、
+  report 子集或筛选策略调整视为显式的新口径版本并在主记录中说明。
 - 普通记录虽不进入实体图，仍必须可确定性查询。`kb-query source-record` 先按 raw frontmatter
   的 `source_type / source_uid / ingested` 选每个来源的最新完整快照，再解析 canonical JSON，
-  按 Meego `work_item_id` / Base `record_id` 精确查找，或在 Python 内对标题做归一化和有分数的
-  模糊匹配。输出只包含有限条完整记录及 raw / exact anchor 溯源，不把整个大 raw 交给 Agent。
+  按 Meego `work_item_id` / Base `record_id` / 风神 `report:<report_id>` 精确查找，或在
+  Python 内对标题做归一化和有分数的模糊匹配。输出只包含有限条完整记录及 raw / exact anchor
+  溯源，不把整个大 raw 交给 Agent。
   历史快照只能显式请求，并必须标明不是当前最新版本；该查询是无持久索引的可重算派生能力。
 
 ### 3.2 provenance/ — 原始位置 sidecar
@@ -303,7 +352,7 @@ Meego / Base 保存视图同时含数百条需求或记录时,采用“**一份�
   `fallback_url`、`source_time`、作者和短 quote。
 
 `kind` 可表示 `source`、`doc_block`、`doc_comment`、`doc_reply`、`chat_message`、
-`chat_thread`、`minutes_segment`、`meeting`、`meego_workitem`、`base_record`、
+`chat_thread`、`minutes_segment`、`meeting`、`meego_workitem`、`base_record`、`aeolus_report`、
 `web_section`、`whiteboard_node` 或
 `local_span`。`precision` 只有四级:
 
@@ -316,11 +365,10 @@ sidecar 的 `source` anchor 必须存在。正文、评论和聊天抓取器应�
 comment/reply id、message/thread id;不得靠标题、文件名或模糊文本伪造 `exact`。来源变化导致
 无法证明仍是同版本时,只能标 `source_only` / `unresolved`。
 
-**`routine` 字段(可选)**:若来源是**会定期更新**的源(滚动周会文档、群聊、Meego / Base
-保存视图等),经用户确认
-纳入「定期摄取」后,frontmatter 加 `routine: weekly`(cadence,默认 `weekly`);该源后续每个
-raw 都带此标记。INDEX 的「定期摄取清单」由扫描带 `routine` 的 raw 派生(§6),定期摄取例程据此
-逐源增量 re-digest。详见 SKILL「定期摄取」。
+**`routine` 字段(兼容字段)**:滚动文档、群聊等没有独立 profile 的来源，经用户确认后仍可在
+raw frontmatter 加 `routine: weekly`。有 `sources/` profile 的结构化来源以
+`profile.routine` 为唯一真相源；raw 中旧 `routine` 不得覆盖 profile。INDEX 优先扫描
+profiles，再为没有 profile 的旧来源兼容扫描 raw。详见 SKILL「定期摄取」。
 
 ---
 
@@ -482,7 +530,7 @@ links:                                        # 图的边,双向维护(写 A→B
    走**实体消解**更新(建前在 INDEX 比对;`person` 优先按 `feishu_id`,见 §4.1)。
 4. **全部互链** `links`(双向),并登记进 raw 的 `digest_targets`。
 
-> Meego / Base 保存视图的“必产 1 个记录节点”是代表整个视图的同源 `reading`,不是每条记录各产
+> Meego / Base / 风神保存视图的“必产 1 个记录节点”是代表整个视图/看板口径的同源 `reading`,不是每条记录/报表各产
 > 一个节点。首次快照的数百条 baseline 记录也不自动变成数百个 `project` / `event`；后续按
 > §3.1 的差异和晋升门槛选择性更新实体图。
 
@@ -562,9 +610,10 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 | 群名 | chat_id | 已摄取至 | 最近 raw_id |
 ```
 
-- **「定期摄取清单」表** = 会定期更新、需周期性复查的源(滚动周会文档、群聊、Meego / Base
-  保存视图等)。由扫描带 `routine` 标记的 `raw_data/` 文件派生(§3),并优先以稳定
-  `source_uid` 合并成一源一行。`上次摄取` = 该源最近 raw 的规范化周期 / 窗口;没有周期的完整
+- **「定期摄取清单」表** = 会定期更新、需周期性复查的源(滚动周会文档、群聊、Meego / Base / 风神
+  保存视图等)。结构化来源由 `sources/*.json` 中启用的 `routine` 派生；没有 profile 的旧来源
+  才兼容扫描带 `routine` 的 raw。两者都按稳定 `source_uid` 合并成一源一行，profile 的启用/
+  禁用与 cadence 优先于任何历史 raw。`上次摄取` = 该源最近 raw 的规范化周期 / 窗口;没有周期的完整
   视图快照使用 `ingested` 日期。日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`,群聊窗口用完整
   高水位时间戳。「定期摄取」例程逐源 re-digest(见 SKILL「定期摄取」)。*替代了旧的「待消化」
   表 —— 后者无机制主动入列、形同虚设;`digest_status: pending/failed` 的中断 raw 改由扫
@@ -631,9 +680,9 @@ templates/
    结束点 = 高水位,在 INDEX「群聊摄取进度」表登记(agent 据此查首次/增量),
    `bin/pull-chat.sh --since-last` 据此自动续拉下一窗口。每窗口一个 event,实体节点跨窗口
    累积更新。见 §3、§4.3、§6、SKILL「群聊摄取补充」。
-9. **定期摄取(routine digest)** — 会定期更新的源(滚动周会文档、群聊、Meego / Base 保存视图)
-   经用户确认后,raw 打
-   `routine` 标记;INDEX「定期摄取清单」表由此派生(替代旧「待消化」表)。「定期摄取」例程
+9. **定期摄取(routine digest)** — 会定期更新的源(滚动周会文档、群聊、Meego / Base / 风神保存视图)
+   经用户确认后，结构化来源写各自 `sources/` profile 的 routine；无 profile 的旧来源兼容
+   raw `routine` 标记。INDEX「定期摄取清单」由 profile 优先派生。「定期摄取」例程
    逐源增量 re-digest,支持手动触发与 skill-use 到期提醒。见 §3、§6、SKILL「定期摄取」。
 10. **第一方观点:思路与视角章节 + 全局 context.md** — 使用者/主管/同事的主观工作思路、想法、
    意图作为第一方输入纳入考量。挂在具体 project/area 上的观点 → 节点新增「思路与视角」章节
@@ -683,13 +732,15 @@ templates/
    `digest-batch-plan/v1`,仍以乐观基线、短时文件锁和单次本地 commit 实现,不引入数据库。
    `bin/kb-query.py` 每次运行直接扫描节点,统一输出召回覆盖、一跳图扩展和 evidence 解析；
    不保存索引、不承担语义判断。见 §3、§6、`references/digest-transaction.md`。
-21. **结构化视图采用快照 + 差异 + 晋升门槛** — Meego / Base 每次保存完整规范快照并为记录
-   建 exact anchor；`source diff` 只产可重算的 `baseline / added / changed / left_view`，
+21. **结构化视图采用快照 + 差异 + 晋升门槛** — Meego / Base / 风神每次保存完整规范快照并为
+   记录/报表建 exact anchor；`source diff` 只产可重算的
+   `baseline / added / changed / left_view`，
    其中 `left_view` 不代表删除。普通记录不进入实体图，只有长期项目、明确决策、时间事件或稳定
    跨需求主题才晋升；同一视图始终更新一张 `reading` 主记录。见 §3.1、
-   `references/digest-meego.md`、`references/digest-base.md`。
-22. **结构化 raw 记录检索** — Meego / Base 的普通记录由 `kb-query source-record` 从每个
-   `source_uid` 的最新完整快照按稳定 ID 或模糊标题有限召回；Agent 不直接扫描大 raw。历史查询
+   `references/digest-meego.md`、`references/digest-base.md`、`references/digest-aeolus.md`。
+22. **结构化 raw 记录检索** — Meego / Base / 风神的普通记录/报表由
+   `kb-query source-record` 从每个 `source_uid` 的最新完整快照按稳定 ID 或模糊标题有限召回；
+   Agent 不直接扫描大 raw。历史查询
    必须显式开启并返回最新性标记；检索结果携带 raw 与 exact anchor 溯源。见 §3.1、
    `references/commands.md`、`references/machine-protocol.md`。
 
