@@ -1,0 +1,73 @@
+.gitignore
+  s_8213e8bfd8fd48::t_128aaa4307a04c 16-17
+DESIGN.md
+  s_8213e8bfd8fd48::t_f9a0dd0dcc31a4 49-50,55-58
+INSTALL.md
+  s_8213e8bfd8fd48::t_dfa2ed2a34a635 62,162,190-194,226-228
+SKILL.md
+  s_8213e8bfd8fd48::t_817cbb07eba688 34,38,42-49,75,118-119,132-134,149-150,178-179
+bin/byteworker-cli.py
+  s_8213e8bfd8fd48::t_fe53f3b2509607 1-205
+bin/update-check.sh
+  s_450f537c53b10c::t_12f7d6d8d4b564 3,13,22,28-43,45-130,135-137,144-149,182-184,199-201,207-209,213-219,224-226,228,231
+bin/update-state.py
+  s_8213e8bfd8fd48::t_28d176f20cc38f 1-107
+lib/machine_protocol.py
+  s_8213e8bfd8fd48::t_e469cd65c3a957 1-75
+lib/update_state.py
+  s_8213e8bfd8fd48::t_d8698142aa93db 1-203
+references/commands.md
+  s_8213e8bfd8fd48::t_26b962a715d3ed 10-11,23
+references/digest-core.md
+  s_8213e8bfd8fd48::t_d97c3db36adaa8 28,85
+references/digest-doc.md
+  s_8213e8bfd8fd48::t_acffb83326b209 22
+references/digest-transaction.md
+  s_8213e8bfd8fd48::t_eda514221c6d18 5-6,70,90,98,109,153
+references/doctor.md
+  s_8213e8bfd8fd48::t_0fb8b9c82e57ec 19-20,38,41-42,45-46,49,52-54
+references/help.md
+  s_8213e8bfd8fd48::t_6b171dc7c8b0da 56
+references/machine-protocol.md
+  s_8213e8bfd8fd48::t_d557d05da6fe44 1-57
+references/provenance.md
+  s_8213e8bfd8fd48::t_e17520846de6c6 43-46
+references/todo.md
+  s_8213e8bfd8fd48::t_8d070291aacd40 19-20,23-25,49
+references/write-rules.md
+  s_8213e8bfd8fd48::t_05c0987caf4e7d 9,25
+tests/test_machine_protocol.py
+  s_8213e8bfd8fd48::t_8ac97acfb3b325 1-82
+tests/test_skill_static_contract.py
+  s_8213e8bfd8fd48::t_bd6cdde7b02a5a 1-49
+tests/test_update_check.py
+  s_8213e8bfd8fd48::t_67b7511d32e6d9 1-2,23-34,39,94-244
+tests/test_update_state.py
+  s_450f537c53b10c::t_56abb72c6066b1 1-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a4466ca5992c49ddf700a72bc6287bf6839617bc",
+  "prompts": {},
+  "sessions": {
+    "s_450f537c53b10c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabe5-b08a-7fa1-8288-ffcbe0946d34",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    },
+    "s_8213e8bfd8fd48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa75d-6610-7391-9a7c-de27ad8fe7b2",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
