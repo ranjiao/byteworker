@@ -1,4 +1,4 @@
 interface:
   display_name: "Byteworker"
-  short_description: "把飞书信息沉淀为可查询知识库，并用自然语言维护本地待办提醒"
-  default_prompt: "Use $byteworker to digest this Feishu document into my personal work knowledge base."
+  short_description: "把飞书文档、群聊、Meego 与多维表格沉淀为可查询知识库"
+  default_prompt: "Use $byteworker to digest this Feishu source into my personal work knowledge base."

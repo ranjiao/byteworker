@@ -27,6 +27,7 @@ TOOLS = {
     "doctor": "doctor.py",
     "todo": "todo.py",
     "provenance-backfill": "provenance-backfill.py",
+    "source": "source.py",
 }
 ATTENTION_EXIT_CODES = {"doctor": {2}}
 
@@ -79,6 +80,8 @@ def _parse_json(value: str) -> Any:
 def _legacy_error_message(data: Any, stderr: str) -> str:
     if isinstance(data, dict):
         value = data.get("error") or data.get("message")
+        if isinstance(value, dict):
+            value = value.get("message") or value.get("error")
         if isinstance(value, str) and value.strip():
             return _bounded(value)
     if stderr.strip():
@@ -94,6 +97,22 @@ def _error_code(tool: str, returncode: int, message: str) -> tuple[str, str]:
     prefix = tool.upper().replace("-", "_")
     suffix = "INPUT_ERROR" if returncode == 2 else "ERROR"
     return f"{prefix}_{suffix}", ""
+
+
+def _structured_error(data: Any) -> dict[str, Any] | None:
+    if not isinstance(data, dict) or not isinstance(data.get("error"), dict):
+        return None
+    value = data["error"]
+    code = str(value.get("code", "")).strip()
+    message = str(value.get("message", "")).strip()
+    if not code or not message:
+        return None
+    return error_payload(
+        code=code,
+        message=_bounded(message),
+        hint=_bounded(str(value.get("hint", ""))),
+        details=value.get("details"),
+    )
 
 
 def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
@@ -141,10 +160,12 @@ def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
         details: dict[str, Any] = {"exit_code": completed.returncode}
         if completed.stderr.strip():
             details["stderr"] = _bounded(completed.stderr)
+        structured = _structured_error(data)
         payload = envelope(
             status="error",
             data=None,
-            error=error_payload(
+            error=structured
+            or error_payload(
                 code=code,
                 message=message,
                 hint=hint,

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -10,7 +11,7 @@ CLI = ROOT / "bin" / "byteworker-cli.py"
 
 
 class MachineProtocolTests(unittest.TestCase):
-    def run_cli(self, *args):
+    def run_cli(self, *args, env=None):
         return subprocess.run(
             ["python3", str(CLI), *map(str, args)],
             cwd=ROOT,
@@ -18,6 +19,7 @@ class MachineProtocolTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
+            env=env,
         )
 
     def test_todo_success_uses_stable_single_line_envelope(self):
@@ -50,6 +52,49 @@ class MachineProtocolTests(unittest.TestCase):
         self.assertEqual("KB_QUERY_INPUT_ERROR", payload["error"]["code"])
         self.assertEqual(2, payload["error"]["details"]["exit_code"])
 
+    def test_source_record_lookup_uses_machine_envelope(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = Path(temporary)
+            (kb / "raw_data").mkdir()
+            snapshot = {
+                "schema_version": "byteworker-source-snapshot/v1",
+                "source_type": "feishu_base",
+                "source_uid": "feishu_base:base:table:view",
+                "records": [
+                    {
+                        "record_id": "rec1",
+                        "fields": {"标题": "风险治理需求"},
+                    }
+                ],
+            }
+            (kb / "raw_data/base.md").write_text(
+                "---\n"
+                "raw_id: raw-base\n"
+                "ingested: 2026-07-29T14:00:00+08:00\n"
+                "source_type: feishu_base\n"
+                "source_uid: feishu_base:base:table:view\n"
+                "digest_status: digested\n"
+                "---\n\n"
+                "```json\n"
+                f"{json.dumps(snapshot, ensure_ascii=False)}\n"
+                "```\n",
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                "kb-query",
+                "source-record",
+                "--kb",
+                kb,
+                "--title",
+                "风险治理",
+            )
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("success", payload["status"])
+        self.assertEqual("kb-query", payload["context"]["tool"])
+        self.assertEqual("source-record", payload["context"]["operation"])
+        self.assertEqual("rec1", payload["data"]["matches"][0]["record_id"])
+
     def test_facade_usage_error_is_also_an_envelope(self):
         result = self.run_cli("unknown-tool")
         self.assertEqual(2, result.returncode)
@@ -76,6 +121,128 @@ class MachineProtocolTests(unittest.TestCase):
         self.assertIsNone(payload["error"])
         self.assertGreater(payload["data"]["summary"]["error"], 0)
         self.assertEqual("scan", payload["context"]["operation"])
+
+    def test_source_structured_error_code_survives_facade(self):
+        result = self.run_cli(
+            "source",
+            "capture",
+            "--source-type",
+            "meego",
+            "--project-key",
+            "demo",
+            "--view-id",
+            "view-1",
+        )
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("error", payload["status"])
+        self.assertEqual("SOURCE_FIELDS_REQUIRED", payload["error"]["code"])
+        self.assertEqual("source", payload["context"]["tool"])
+        self.assertEqual("capture", payload["context"]["operation"])
+
+    def test_source_auth_status_treats_logged_out_as_actionable_state(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            fake = Path(temporary) / "meegle"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys\n"
+                "print(json.dumps({'authenticated': False, "
+                "'host': None, 'reason': 'no local token'}))\n"
+                "sys.exit(1)\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            env = {
+                **os.environ,
+                "BYTEWORKER_MEEGLE_BIN": str(fake),
+            }
+            result = self.run_cli(
+                "source",
+                "auth-status",
+                "--source-type",
+                "meego",
+                "--host",
+                "project.feishu.cn",
+                env=env,
+            )
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("success", payload["status"])
+        self.assertFalse(payload["data"]["ready"])
+        self.assertEqual("login", payload["data"]["action"]["kind"])
+        self.assertEqual("auth-status", payload["context"]["operation"])
+
+    def test_source_diff_uses_same_envelope_and_writes_summary(self):
+        def capture(records):
+            return {
+                "source_type": "meego",
+                "source_uid": "meego:project:view",
+                "content_hash": "sha256:test",
+                "snapshot": {
+                    "schema_version": "byteworker-source-snapshot/v1",
+                    "source_type": "meego",
+                    "source_uid": "meego:project:view",
+                    "coordinates": {
+                        "project_key": "project",
+                        "view_id": "view",
+                    },
+                    "fields": ["name", "status"],
+                    "records": records,
+                },
+            }
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            previous = root / "previous.json"
+            current = root / "current.json"
+            output = root / "diff.json"
+            previous.write_text(
+                json.dumps(
+                    capture(
+                        [
+                            {
+                                "work_item_id": "1",
+                                "name": "A",
+                                "status": "doing",
+                            }
+                        ]
+                    )
+                ),
+                encoding="utf-8",
+            )
+            current.write_text(
+                json.dumps(
+                    capture(
+                        [
+                            {
+                                "work_item_id": "1",
+                                "name": "A",
+                                "status": "done",
+                            }
+                        ]
+                    )
+                ),
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                "source",
+                "diff",
+                "--previous",
+                previous,
+                "--current",
+                current,
+                "--out",
+                output,
+            )
+            diff = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("success", payload["status"])
+        self.assertEqual("source", payload["context"]["tool"])
+        self.assertEqual("diff", payload["context"]["operation"])
+        self.assertEqual(1, payload["data"]["summary"]["changed"])
+        self.assertEqual(["status"], diff["changes"][0]["changed_paths"])
 
 
 if __name__ == "__main__":

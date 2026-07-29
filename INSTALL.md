@@ -70,14 +70,59 @@ git clone https://github.com/ranjiao/byteworker.git "$TARGET"
 
 按退出码处理:
 - **Tier 1**(`git` / `jq` / `bash` / `python3 >= 3.9`)缺失 → 帮用户装上(macOS `brew`,Linux `apt`)。
-- **Tier 2**(`lark-cli` + `lark-*` skills)缺失 → 摄取飞书内容才需要,可稍后补。
+- **Tier 2**(`lark-cli` + `meegle` + 对应 skills)缺失 → 摄取飞书内容才需要,可稍后补。
   按[飞书 CLI 官方安装指南](https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md)
-  装 `lark-cli` 与 `lark-doc / minutes / vc / im / calendar / contact` 等 skill,并 `lark-cli auth login` 登录飞书。
+  装 `lark-cli` 与 `lark-doc / minutes / vc / im / calendar / contact / base` 等 skill。
+  摄取 Meego 保存视图时另装 `meegle` 与 `meegle` skill。登录和最小授权放到下一步,
+  不要在用户未选择前自动打开 OAuth。
 
-### 5. 验证并收尾
+### 5. 询问可选来源授权
+
+依赖安装和“用户授权”是两件事。只对**已经安装对应 CLI**的来源运行下面的只读检查:
+
+```bash
+python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type meego
+python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type feishu_base
+```
+
+`status=success` 只表示检查命令正常完成；必须看 `data.ready`。若两个来源都已
+`ready=true`,无需重复授权。只要有一个未就绪,安装助手必须先问:
+
+> 是否现在启用 Meego / 多维表格定期摄取？它们需要用户 OAuth。可以选择“两者都启用”、
+> “只启用 Meego”、“只启用多维表格”或“稍后再说”；跳过不影响 byteworker 其它能力。
+
+只为用户选中的来源继续:
+
+- **Meego** 使用独立的 `meegle` OAuth。先从用户给的资源 URL 确定 host；没有 URL 就问
+  `project.feishu.cn`、`meegle.com` 还是自定义域名。然后执行
+  `meegle auth login --host <host>`，等待浏览器授权完成，再运行一次 `source auth-status`
+  验证。不得替用户猜站点。
+- **多维表格** 复用 `lark-cli` 用户身份，但另需 Base 摄取的 5 个最小只读 scope。
+  以 `source auth-status` 返回的 `data.action.command` 为准发起 split-flow；当前命令形如:
+
+  ```bash
+  lark-cli auth login \
+    --scope "base:app:read base:table:read base:field:read base:view:read base:record:read" \
+    --no-wait --json
+  ```
+
+  若 `lark-cli` 尚未初始化,先运行 `lark-cli config init --new`。发起授权后,把返回的
+  `verification_url` **原样**展示给用户,并运行
+  `lark-cli auth qrcode "<verification_url>" --output "<cwd 下的相对 PNG 路径>"`
+  展示二维码；本轮到此结束。用户回复已完成后,由安装助手执行
+  `lark-cli auth login --device-code <本次流程返回的 device_code>` 收尾,再运行
+  `source auth-status` 验证。URL / device code 只用于这一次进行中的授权,不得写入
+  skill 仓库或知识库。
+
+授权 scope 齐全仍不代表能读取每个具体资源。Base 的 `91403`、Meego 空间
+Permission Denied 属于资源共享权限,应让所有者给当前用户开权限；不要重复登录或自动改用 bot。
+
+### 6. 验证并收尾
 
 - 确认 `"$TARGET/SKILL.md"` 存在。
 - 告诉用户装好了 —— skill 首次使用时会问「知识库数据目录放在哪」。
+- 若用户选择“稍后再说”,明确告诉他:第一次摄取 Meego / Base 时 skill 会再次给出同样的
+  登录或最小 scope 授权引导。
 - **提醒用户**:知识库数据目录要选一个**持久、私密**的路径,别放进会被回收的
   沙箱临时目录(原因见下)。
 
@@ -185,7 +230,13 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 
 # 3. 自查依赖
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"
+
+# 4. 可选:只读检查 Meego / Base 授权状态(不会打开 OAuth)
+python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type meego
+python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type feishu_base
 ```
+
+若 `data.ready=false`,按上面第 5 步的相应流程授权；不打算摄取该来源可直接跳过。
 
 之后 skill 在成功检查后 7 天内静默跳过重复检查(`bin/update-check.sh`)；失败会按短周期指数
 退避重试，不再把失败时间当作成功时间。代码确实更新后会自动运行 doctor，修复确定性低成本

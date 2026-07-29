@@ -2,16 +2,45 @@
 
 from __future__ import annotations
 
+import difflib
+import json
 import re
+import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
-from frontmatter import parse_file
+from frontmatter import parse_file, parse_frontmatter
 from provenance import ProvenanceError, anchor_index, scan_provenance, scan_raws
 
 
 class QueryError(RuntimeError):
     pass
+
+
+STRUCTURED_SOURCE_TYPES = {"meego", "feishu_base"}
+SNAPSHOT_SCHEMA = "byteworker-source-snapshot/v1"
+TITLE_KEYS = (
+    "work_item_name",
+    "workItemName",
+    "record_name",
+    "recordName",
+    "title",
+    "name",
+    "summary",
+    "subject",
+)
+BASE_TITLE_FIELD_HINTS = (
+    "title",
+    "name",
+    "summary",
+    "subject",
+    "标题",
+    "名称",
+    "主题",
+    "需求",
+    "事项",
+)
 
 
 def _list_value(value: Any) -> List[str]:
@@ -145,6 +174,482 @@ def search(
             ),
         },
         "candidates": candidates,
+    }
+
+
+def _frontmatter_only(path: Path) -> Dict[str, Any]:
+    """Read only the small YAML header, without loading a potentially huge raw body."""
+    lines: List[str] = []
+    with path.open("r", encoding="utf-8") as handle:
+        first = handle.readline()
+        if first.strip() != "---":
+            return {}
+        lines.append(first.rstrip("\n"))
+        for line in handle:
+            lines.append(line.rstrip("\n"))
+            if line.strip() == "---":
+                break
+        else:
+            return {}
+    frontmatter, _ = parse_frontmatter("\n".join(lines))
+    return frontmatter
+
+
+def _ingested_sort_key(value: Any) -> Tuple[int, float, str]:
+    text = str(value or "").strip()
+    if not text:
+        return (0, 0.0, "")
+    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return (1, parsed.timestamp(), text)
+    except ValueError:
+        return (0, 0.0, text)
+
+
+def _structured_raw_inventory(
+    kb: Path,
+    *,
+    source_type: str = "",
+    source_uid: str = "",
+) -> List[Dict[str, Any]]:
+    inventory: List[Dict[str, Any]] = []
+    for path in sorted((kb / "raw_data").glob("*.md")):
+        frontmatter = _frontmatter_only(path)
+        raw_source_type = str(frontmatter.get("source_type", "")).strip()
+        raw_source_uid = str(frontmatter.get("source_uid", "")).strip()
+        if raw_source_type not in STRUCTURED_SOURCE_TYPES or not raw_source_uid:
+            continue
+        if source_type and raw_source_type != source_type:
+            continue
+        if source_uid and raw_source_uid != source_uid:
+            continue
+        digest_status = str(frontmatter.get("digest_status", "")).strip()
+        if digest_status and digest_status != "digested":
+            continue
+        inventory.append(
+            {
+                "path": path,
+                "relative_path": str(path.relative_to(kb)),
+                "frontmatter": frontmatter,
+                "source_type": raw_source_type,
+                "source_uid": raw_source_uid,
+                "sort_key": (
+                    *_ingested_sort_key(frontmatter.get("ingested")),
+                    path.name,
+                ),
+            }
+        )
+    return inventory
+
+
+def _json_code_blocks(body: str) -> Iterable[Any]:
+    lines = body.splitlines()
+    index = 0
+    while index < len(lines):
+        match = re.fullmatch(r"(`{3,})json\s*", lines[index].strip())
+        if not match:
+            index += 1
+            continue
+        fence = match.group(1)
+        start = index + 1
+        index = start
+        while index < len(lines) and lines[index].strip() != fence:
+            index += 1
+        if index >= len(lines):
+            raise QueryError("raw 中的 JSON code fence 未闭合")
+        text = "\n".join(lines[start:index]).strip()
+        if text:
+            try:
+                yield json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise QueryError(
+                    f"raw 中的结构化 JSON 无法解析: line {exc.lineno} column {exc.colno}"
+                ) from exc
+        index += 1
+
+
+def _snapshot_from_raw(path: Path) -> Mapping[str, Any]:
+    _, body = parse_file(str(path))
+    for value in _json_code_blocks(body):
+        candidate = value.get("snapshot") if isinstance(value, Mapping) else None
+        if isinstance(candidate, Mapping):
+            value = candidate
+        if not isinstance(value, Mapping):
+            continue
+        records = value.get("records")
+        if value.get("schema_version") == SNAPSHOT_SCHEMA and isinstance(records, list):
+            return value
+        if isinstance(records, list) and value.get("source_type") in STRUCTURED_SOURCE_TYPES:
+            return value
+    raise QueryError("raw 中找不到 byteworker-source-snapshot/v1 完整快照")
+
+
+def _record_anchor(kb: Path, raw_id: str, anchor_id: str) -> Mapping[str, Any]:
+    if not raw_id or "/" in raw_id or "\\" in raw_id:
+        return {}
+    path = kb / "provenance" / f"{raw_id}.json"
+    if not path.is_file():
+        return {}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    anchors = document.get("anchors") if isinstance(document, Mapping) else None
+    if not isinstance(anchors, list):
+        return {}
+    for anchor in anchors:
+        if (
+            isinstance(anchor, Mapping)
+            and str(anchor.get("anchor_id", "")).strip() == anchor_id
+        ):
+            return anchor
+    return {}
+
+
+def _mapping_child(value: Any, keys: Sequence[str]) -> Mapping[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    for key in keys:
+        child = value.get(key)
+        if isinstance(child, Mapping):
+            return child
+    return None
+
+
+def _record_id(record: Any, source_type: str) -> str:
+    if not isinstance(record, Mapping):
+        return ""
+    keys = (
+        ("work_item_id", "workItemId", "id")
+        if source_type == "meego"
+        else ("record_id", "recordId", "id")
+    )
+    for key in keys:
+        value = record.get(key)
+        if value not in (None, ""):
+            return str(value)
+    wrappers = (
+        (
+            "work_item",
+            "workItem",
+            "work_item_info",
+            "workItemInfo",
+            "work_item_attribute",
+            "workItemAttribute",
+        )
+        if source_type == "meego"
+        else ("record",)
+    )
+    child = _mapping_child(record, wrappers)
+    if child:
+        for key in keys:
+            value = child.get(key)
+            if value not in (None, ""):
+                return str(value)
+    return ""
+
+
+def _first_text_by_key(value: Any, keys: Sequence[str]) -> Tuple[str, str]:
+    if not isinstance(value, Mapping):
+        return "", ""
+    for key in keys:
+        candidate = value.get(key)
+        if isinstance(candidate, (str, int, float)) and str(candidate).strip():
+            return str(candidate).strip(), key
+    for wrapper in (
+        "work_item",
+        "workItem",
+        "work_item_info",
+        "workItemInfo",
+        "work_item_attribute",
+        "workItemAttribute",
+        "record",
+    ):
+        child = value.get(wrapper)
+        if not isinstance(child, Mapping):
+            continue
+        text, field = _first_text_by_key(child, keys)
+        if text:
+            return text, f"{wrapper}.{field}"
+    return "", ""
+
+
+def _flatten_text(value: Any, *, limit: int = 12) -> List[str]:
+    result: List[str] = []
+
+    def visit(current: Any) -> None:
+        if len(result) >= limit:
+            return
+        if isinstance(current, str):
+            text = current.strip()
+            if text and not re.match(r"^https?://", text):
+                result.append(text)
+            return
+        if isinstance(current, (int, float)) and not isinstance(current, bool):
+            result.append(str(current))
+            return
+        if isinstance(current, Mapping):
+            for child in current.values():
+                visit(child)
+            return
+        if isinstance(current, list):
+            for child in current:
+                visit(child)
+
+    visit(value)
+    return list(dict.fromkeys(result))
+
+
+def _normalize_title(value: str) -> Tuple[str, str]:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    spaced = "".join(
+        character
+        if unicodedata.category(character)[0] in {"L", "N"}
+        else " "
+        for character in normalized
+    )
+    words = " ".join(spaced.split())
+    return words, words.replace(" ", "")
+
+
+def _base_title_candidates(record: Mapping[str, Any]) -> List[Tuple[str, str, float]]:
+    container = record.get("fields")
+    if not isinstance(container, Mapping):
+        child = _mapping_child(record, ("record",))
+        container = child.get("fields") if child else None
+    if not isinstance(container, Mapping):
+        return []
+    preferred: List[Tuple[str, str, float]] = []
+    fallback: List[Tuple[str, str, float]] = []
+    for field, value in container.items():
+        texts = _flatten_text(value)
+        if not texts:
+            continue
+        combined = " ".join(texts)
+        field_words, field_compact = _normalize_title(str(field))
+        hinted = any(
+            hint in field_words or _normalize_title(hint)[1] in field_compact
+            for hint in BASE_TITLE_FIELD_HINTS
+        )
+        candidate = (f"fields.{field}", combined, 1.0 if hinted else 0.82)
+        (preferred if hinted else fallback).append(candidate)
+    return preferred or fallback
+
+
+def _title_candidates(record: Any, source_type: str) -> List[Tuple[str, str, float]]:
+    if not isinstance(record, Mapping):
+        return []
+    if source_type == "feishu_base":
+        return _base_title_candidates(record)
+    title, field = _first_text_by_key(record, TITLE_KEYS)
+    return [(field, title, 1.0)] if title else []
+
+
+def _bigram_dice(left: str, right: str) -> float:
+    if len(left) < 2 or len(right) < 2:
+        return 0.0
+    left_pairs = {left[index:index + 2] for index in range(len(left) - 1)}
+    right_pairs = {right[index:index + 2] for index in range(len(right) - 1)}
+    return 2 * len(left_pairs & right_pairs) / (len(left_pairs) + len(right_pairs))
+
+
+def _title_score(query: str, candidate: str) -> Tuple[float, str]:
+    raw_query = unicodedata.normalize("NFKC", query).casefold().strip()
+    raw_candidate = unicodedata.normalize("NFKC", candidate).casefold().strip()
+    query_words, query_compact = _normalize_title(query)
+    candidate_words, candidate_compact = _normalize_title(candidate)
+    if not query_compact:
+        raise QueryError("title 归一化后为空，请提供至少一个文字或数字")
+    if not candidate_compact:
+        return 0.0, "empty"
+    if raw_query == raw_candidate:
+        return 1.0, "exact"
+    if query_words == candidate_words or query_compact == candidate_compact:
+        return 0.99, "normalized_exact"
+    scores: List[Tuple[float, str]] = []
+    if query_compact in candidate_compact:
+        ratio = len(query_compact) / len(candidate_compact)
+        scores.append((0.90 + 0.09 * ratio, "contains"))
+    if candidate_compact in query_compact:
+        ratio = len(candidate_compact) / len(query_compact)
+        scores.append((0.86 + 0.10 * ratio, "contained_by"))
+    sequence = difflib.SequenceMatcher(
+        None, query_compact, candidate_compact, autojunk=False
+    ).ratio()
+    dice = _bigram_dice(query_compact, candidate_compact)
+    scores.append((0.65 * sequence + 0.35 * dice, "fuzzy"))
+    query_tokens = query_words.split()
+    if query_tokens:
+        covered = sum(token in candidate_compact for token in query_tokens)
+        if covered:
+            coverage = covered / len(query_tokens)
+            scores.append((0.52 + 0.43 * coverage, "token_coverage"))
+    return max(scores, default=(0.0, "none"))
+
+
+def source_records(
+    kb: Path,
+    *,
+    source_type: str = "",
+    source_uid: str = "",
+    record_id: str = "",
+    title: str = "",
+    title_threshold: float = 0.55,
+    limit: int = 5,
+    history: bool = False,
+) -> Dict[str, Any]:
+    """Search records inside canonical Meego/Base raw snapshots."""
+    kb = kb.resolve()
+    source_type = source_type.strip()
+    source_uid = source_uid.strip()
+    record_id = record_id.strip()
+    title = title.strip()
+    if source_type and source_type not in STRUCTURED_SOURCE_TYPES:
+        raise QueryError(f"不支持 source_type={source_type}")
+    if not record_id and not title:
+        raise QueryError("record-id 与 title 至少提供一个")
+    if not 0 <= title_threshold <= 1:
+        raise QueryError("title-threshold 必须位于 0 到 1")
+    if not 1 <= limit <= 50:
+        raise QueryError("limit 必须位于 1 到 50")
+    if title:
+        _normalize_words, normalized_title = _normalize_title(title)
+        if not normalized_title:
+            raise QueryError("title 归一化后为空，请提供至少一个文字或数字")
+
+    inventory = _structured_raw_inventory(
+        kb,
+        source_type=source_type,
+        source_uid=source_uid,
+    )
+    latest_by_source: Dict[str, Dict[str, Any]] = {}
+    for item in inventory:
+        current = latest_by_source.get(item["source_uid"])
+        if current is None or item["sort_key"] > current["sort_key"]:
+            latest_by_source[item["source_uid"]] = item
+    selected = inventory if history else list(latest_by_source.values())
+    selected.sort(key=lambda item: item["sort_key"], reverse=True)
+
+    matches: List[Dict[str, Any]] = []
+    parse_warnings: List[Dict[str, str]] = []
+    missing_anchors: set[str] = set()
+    scanned_records = 0
+    parsed_snapshots = 0
+    for item in selected:
+        try:
+            snapshot = _snapshot_from_raw(item["path"])
+        except QueryError as exc:
+            parse_warnings.append(
+                {"raw_path": item["relative_path"], "message": str(exc)}
+            )
+            continue
+        records = snapshot.get("records")
+        if not isinstance(records, list):
+            continue
+        parsed_snapshots += 1
+        snapshot_source_type = str(
+            snapshot.get("source_type") or item["source_type"]
+        ).strip()
+        snapshot_source_uid = str(
+            snapshot.get("source_uid") or item["source_uid"]
+        ).strip()
+        for record in records:
+            scanned_records += 1
+            candidate_id = _record_id(record, snapshot_source_type)
+            if not candidate_id:
+                continue
+            if record_id and candidate_id != record_id:
+                continue
+            candidates = _title_candidates(record, snapshot_source_type)
+            best_score = 1.0 if record_id and not title else 0.0
+            best_kind = "record_id" if record_id and not title else ""
+            best_field = ""
+            best_title = candidates[0][1] if candidates else ""
+            if title:
+                for field, candidate_title, preference in candidates:
+                    score, kind = _title_score(title, candidate_title)
+                    score *= preference
+                    if score > best_score:
+                        best_score = score
+                        best_kind = kind
+                        best_field = field
+                        best_title = candidate_title
+                if best_score < title_threshold:
+                    continue
+            is_latest = latest_by_source.get(item["source_uid"]) is item
+            frontmatter = item["frontmatter"]
+            raw_id = str(frontmatter.get("raw_id", "")).strip()
+            anchor_id = (
+                f"workitem:{candidate_id}"
+                if snapshot_source_type == "meego"
+                else f"record:{candidate_id}"
+            )
+            anchor = _record_anchor(kb, raw_id, anchor_id)
+            if not anchor:
+                missing_anchors.add(f"{raw_id}#{anchor_id}")
+            matches.append(
+                {
+                    "source_type": snapshot_source_type,
+                    "source_uid": snapshot_source_uid,
+                    "record_id": candidate_id,
+                    "title": best_title,
+                    "match": {
+                        "kind": best_kind,
+                        "score": round(best_score, 4),
+                        "field": best_field,
+                    },
+                    "record": record,
+                    "provenance": {
+                        "raw_id": raw_id,
+                        "raw_path": item["relative_path"],
+                        "ingested": str(frontmatter.get("ingested", "")).strip(),
+                        "source_title": str(
+                            frontmatter.get("source_title", "")
+                        ).strip(),
+                        "source_url": str(frontmatter.get("source_url", "")).strip(),
+                        "anchor_id": anchor_id,
+                        "anchor": anchor,
+                        "is_latest_snapshot": is_latest,
+                    },
+                    "_sort_key": (
+                        best_score,
+                        1 if is_latest else 0,
+                        item["sort_key"],
+                    ),
+                }
+            )
+
+    matches.sort(key=lambda item: item["_sort_key"], reverse=True)
+    total_matches = len(matches)
+    for item in matches:
+        item.pop("_sort_key", None)
+    returned = matches[:limit]
+    return {
+        "query": {
+            "source_type": source_type or None,
+            "source_uid": source_uid or None,
+            "record_id": record_id or None,
+            "title": title or None,
+            "title_threshold": title_threshold if title else None,
+            "history": history,
+        },
+        "coverage": {
+            "scanned_raw_files": len(list((kb / "raw_data").glob("*.md"))),
+            "structured_raw_files": len(inventory),
+            "selected_snapshots": len(selected),
+            "parsed_snapshots": parsed_snapshots,
+            "scanned_records": scanned_records,
+            "text_matches": total_matches,
+            "returned": len(returned),
+            "truncated": total_matches > limit,
+            "parse_warnings": parse_warnings,
+            "missing_anchors": sorted(missing_anchors),
+        },
+        "ambiguous": total_matches > 1,
+        "matches": returned,
     }
 
 
