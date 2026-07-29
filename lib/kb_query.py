@@ -12,35 +12,15 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from frontmatter import parse_file, parse_frontmatter
 from provenance import ProvenanceError, anchor_index, scan_provenance, scan_raws
+from sources import STRUCTURED_SOURCE_TYPES, project_legacy_record
 
 
 class QueryError(RuntimeError):
     pass
 
 
-STRUCTURED_SOURCE_TYPES = {"meego", "feishu_base", "aeolus"}
 SNAPSHOT_SCHEMA = "byteworker-source-snapshot/v1"
-TITLE_KEYS = (
-    "work_item_name",
-    "workItemName",
-    "record_name",
-    "recordName",
-    "title",
-    "name",
-    "summary",
-    "subject",
-)
-BASE_TITLE_FIELD_HINTS = (
-    "title",
-    "name",
-    "summary",
-    "subject",
-    "标题",
-    "名称",
-    "主题",
-    "需求",
-    "事项",
-)
+RECORD_INDEX_SCHEMA = "byteworker-record-index/v1"
 
 
 def _list_value(value: Any) -> List[str]:
@@ -287,6 +267,18 @@ def _snapshot_from_raw(path: Path) -> Mapping[str, Any]:
     raise QueryError("raw 中找不到 byteworker-source-snapshot/v1 完整快照")
 
 
+def _record_index_from_raw(path: Path) -> Mapping[str, Any] | None:
+    _, body = parse_file(str(path))
+    for value in _json_code_blocks(body):
+        if (
+            isinstance(value, Mapping)
+            and value.get("schema_version") == RECORD_INDEX_SCHEMA
+            and isinstance(value.get("records"), list)
+        ):
+            return value
+    return None
+
+
 def _record_anchor(kb: Path, raw_id: str, anchor_id: str) -> Mapping[str, Any]:
     if not raw_id or "/" in raw_id or "\\" in raw_id:
         return {}
@@ -309,100 +301,6 @@ def _record_anchor(kb: Path, raw_id: str, anchor_id: str) -> Mapping[str, Any]:
     return {}
 
 
-def _mapping_child(value: Any, keys: Sequence[str]) -> Mapping[str, Any] | None:
-    if not isinstance(value, Mapping):
-        return None
-    for key in keys:
-        child = value.get(key)
-        if isinstance(child, Mapping):
-            return child
-    return None
-
-
-def _record_id(record: Any, source_type: str) -> str:
-    if not isinstance(record, Mapping):
-        return ""
-    keys = (
-        ("work_item_id", "workItemId", "id")
-        if source_type == "meego"
-        else ("record_id", "recordId", "id")
-    )
-    for key in keys:
-        value = record.get(key)
-        if value not in (None, ""):
-            return str(value)
-    wrappers = (
-        (
-            "work_item",
-            "workItem",
-            "work_item_info",
-            "workItemInfo",
-            "work_item_attribute",
-            "workItemAttribute",
-        )
-        if source_type == "meego"
-        else ("record",)
-    )
-    child = _mapping_child(record, wrappers)
-    if child:
-        for key in keys:
-            value = child.get(key)
-            if value not in (None, ""):
-                return str(value)
-    return ""
-
-
-def _first_text_by_key(value: Any, keys: Sequence[str]) -> Tuple[str, str]:
-    if not isinstance(value, Mapping):
-        return "", ""
-    for key in keys:
-        candidate = value.get(key)
-        if isinstance(candidate, (str, int, float)) and str(candidate).strip():
-            return str(candidate).strip(), key
-    for wrapper in (
-        "work_item",
-        "workItem",
-        "work_item_info",
-        "workItemInfo",
-        "work_item_attribute",
-        "workItemAttribute",
-        "record",
-    ):
-        child = value.get(wrapper)
-        if not isinstance(child, Mapping):
-            continue
-        text, field = _first_text_by_key(child, keys)
-        if text:
-            return text, f"{wrapper}.{field}"
-    return "", ""
-
-
-def _flatten_text(value: Any, *, limit: int = 12) -> List[str]:
-    result: List[str] = []
-
-    def visit(current: Any) -> None:
-        if len(result) >= limit:
-            return
-        if isinstance(current, str):
-            text = current.strip()
-            if text and not re.match(r"^https?://", text):
-                result.append(text)
-            return
-        if isinstance(current, (int, float)) and not isinstance(current, bool):
-            result.append(str(current))
-            return
-        if isinstance(current, Mapping):
-            for child in current.values():
-                visit(child)
-            return
-        if isinstance(current, list):
-            for child in current:
-                visit(child)
-
-    visit(value)
-    return list(dict.fromkeys(result))
-
-
 def _normalize_title(value: str) -> Tuple[str, str]:
     normalized = unicodedata.normalize("NFKC", value).casefold()
     spaced = "".join(
@@ -413,39 +311,6 @@ def _normalize_title(value: str) -> Tuple[str, str]:
     )
     words = " ".join(spaced.split())
     return words, words.replace(" ", "")
-
-
-def _base_title_candidates(record: Mapping[str, Any]) -> List[Tuple[str, str, float]]:
-    container = record.get("fields")
-    if not isinstance(container, Mapping):
-        child = _mapping_child(record, ("record",))
-        container = child.get("fields") if child else None
-    if not isinstance(container, Mapping):
-        return []
-    preferred: List[Tuple[str, str, float]] = []
-    fallback: List[Tuple[str, str, float]] = []
-    for field, value in container.items():
-        texts = _flatten_text(value)
-        if not texts:
-            continue
-        combined = " ".join(texts)
-        field_words, field_compact = _normalize_title(str(field))
-        hinted = any(
-            hint in field_words or _normalize_title(hint)[1] in field_compact
-            for hint in BASE_TITLE_FIELD_HINTS
-        )
-        candidate = (f"fields.{field}", combined, 1.0 if hinted else 0.82)
-        (preferred if hinted else fallback).append(candidate)
-    return preferred or fallback
-
-
-def _title_candidates(record: Any, source_type: str) -> List[Tuple[str, str, float]]:
-    if not isinstance(record, Mapping):
-        return []
-    if source_type == "feishu_base":
-        return _base_title_candidates(record)
-    title, field = _first_text_by_key(record, TITLE_KEYS)
-    return [(field, title, 1.0)] if title else []
 
 
 def _bigram_dice(left: str, right: str) -> float:
@@ -541,29 +406,46 @@ def source_records(
     for item in selected:
         try:
             snapshot = _snapshot_from_raw(item["path"])
+            record_index = _record_index_from_raw(item["path"])
         except QueryError as exc:
             parse_warnings.append(
                 {"raw_path": item["relative_path"], "message": str(exc)}
             )
             continue
-        records = snapshot.get("records")
+        payload = record_index or snapshot
+        records = payload.get("records")
         if not isinstance(records, list):
             continue
         parsed_snapshots += 1
         snapshot_source_type = str(
-            snapshot.get("source_type") or item["source_type"]
+            payload.get("source_type") or item["source_type"]
         ).strip()
         snapshot_source_uid = str(
-            snapshot.get("source_uid") or item["source_uid"]
+            payload.get("source_uid") or item["source_uid"]
         ).strip()
         for record in records:
             scanned_records += 1
-            candidate_id = _record_id(record, snapshot_source_type)
+            if record_index is not None and isinstance(record, Mapping):
+                candidate_id = str(record.get("record_id", "")).strip()
+                candidate_title = str(record.get("title", "")).strip()
+                projection = {
+                    "record_id": candidate_id,
+                    "title_candidates": (
+                        [("title", candidate_title, 1.0)]
+                        if candidate_title
+                        else []
+                    ),
+                    "anchor_id": str(record.get("anchor_id", "")).strip()
+                    or f"record:{candidate_id}",
+                }
+            else:
+                projection = project_legacy_record(record, snapshot_source_type)
+            candidate_id = projection["record_id"]
             if not candidate_id:
                 continue
             if record_id and candidate_id != record_id:
                 continue
-            candidates = _title_candidates(record, snapshot_source_type)
+            candidates = projection["title_candidates"]
             best_score = 1.0 if record_id and not title else 0.0
             best_kind = "record_id" if record_id and not title else ""
             best_field = ""
@@ -582,15 +464,7 @@ def source_records(
             is_latest = latest_by_source.get(item["source_uid"]) is item
             frontmatter = item["frontmatter"]
             raw_id = str(frontmatter.get("raw_id", "")).strip()
-            anchor_id = (
-                f"workitem:{candidate_id}"
-                if snapshot_source_type == "meego"
-                else (
-                    f"aeolus:{candidate_id}"
-                    if snapshot_source_type == "aeolus"
-                    else f"record:{candidate_id}"
-                )
-            )
+            anchor_id = projection["anchor_id"]
             anchor = _record_anchor(kb, raw_id, anchor_id)
             if not anchor:
                 missing_anchors.add(f"{raw_id}#{anchor_id}")

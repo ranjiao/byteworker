@@ -27,10 +27,12 @@ class InstallAuthContractTests(unittest.TestCase):
         self.assertIn("禁止用重复登录或静默切 bot 掩盖", skill)
 
     def test_aeolus_runtime_uses_native_client_not_external_cli(self):
-        source = (ROOT / "bin" / "source.py").read_text(encoding="utf-8")
+        source = (ROOT / "lib" / "source_operations.py").read_text(encoding="utf-8")
+        cli = (ROOT / "bin" / "source.py").read_text(encoding="utf-8")
         client = (ROOT / "lib" / "aeolus_client.py").read_text(encoding="utf-8")
         self.assertIn("aeolus_client_from_environment", source)
         self.assertNotIn("BYTEWORKER_BYTEDCLI", source)
+        self.assertIn("run_source_operation", cli)
         self.assertNotIn("subprocess", client)
 
 

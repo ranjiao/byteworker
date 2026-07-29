@@ -13,6 +13,7 @@ in the byteworker skill repository.
 from __future__ import annotations
 
 import fcntl
+import copy
 import hashlib
 import json
 import os
@@ -41,23 +42,28 @@ from provenance import (
     scan_raws,
     source_anchor,
 )
+from sources import (
+    BUNDLE_SCHEMA,
+    SUPPORTED_TRANSACTION_SOURCE_TYPES,
+    SourceBundle,
+    SourceBundleError,
+    SourceRegistryError,
+    SourceTransactionError,
+    create_default_registry,
+    load_source_bundle,
+    raw_source_fields,
+    validate_transaction_source,
+)
 
 
 PLAN_SCHEMA = "digest-plan/v1"
+PLAN_SCHEMA_V2 = "digest-plan/v2"
 BATCH_PLAN_SCHEMA = "digest-batch-plan/v1"
 PAYLOAD_SCHEMA = "byteworker-payload-v1"
 SHA_PREFIX = "sha256:"
-ALLOWED_SOURCE_TYPES = {
-    "feishu_doc",
-    "feishu_minutes",
-    "feishu_meeting",
-    "feishu_chat",
-    "feishu_base",
-    "meego",
-    "aeolus",
-    "web",
-    "local_md",
-}
+# Compatibility export for doctor and external callers; ownership moved to
+# sources.transaction_bridge so transaction core does not define providers.
+ALLOWED_SOURCE_TYPES = SUPPORTED_TRANSACTION_SOURCE_TYPES
 NODE_DIR_BY_TYPE = {node_type: dir_name for dir_name, node_type, _ in NODE_TYPES}
 PROTECTED_RAW_FIELDS = {
     "raw_id",
@@ -264,111 +270,10 @@ def compute_payload(source: Dict[str, Any], manifest_path: Path) -> Dict[str, An
     body_components = [item for item in components if item.kind == "body"]
     comment_components = [item for item in components if item.kind == "comments"]
     whiteboards = [item for item in components if item.kind == "whiteboard"]
-    if str(source.get("type", "")) == "feishu_doc" and len(body_components) != 1:
-        raise DigestTxnError("feishu_doc 必须且只能包含一个 kind=body component")
-    if str(source.get("type", "")) == "feishu_doc" and components[0].kind != "body":
-        raise DigestTxnError("feishu_doc 的第一个 component 必须是 kind=body")
-    if len(comment_components) > 1:
-        raise DigestTxnError("一个 source 最多只能包含一个 kind=comments component")
-    if str(source.get("type", "")) == "feishu_doc":
-        for field in ("uid", "revision", "url", "title"):
-            if not str(source.get(field, "")).strip():
-                raise DigestTxnError(f"feishu_doc 的 source.{field} 不能为空")
-        comments_status = str(source.get("comments_status", "")).strip()
-        if comments_status not in {"complete", "partial", "unavailable"}:
-            raise DigestTxnError(
-                "feishu_doc 的 source.comments_status 必须是 complete/partial/unavailable"
-            )
-        if comments_status in {"complete", "partial"} and len(comment_components) != 1:
-            raise DigestTxnError(
-                f"comments_status={comments_status} 时必须包含 kind=comments component"
-            )
-        if comments_status == "unavailable" and comment_components:
-            raise DigestTxnError(
-                "comments_status=unavailable 时不得提供伪造的 comments component"
-            )
-        if comment_components and source.get("comment_count") not in (None, ""):
-            try:
-                comments_value = json.loads(comment_components[0].data.decode("utf-8"))
-                actual_count = len(comments_value) if isinstance(comments_value, list) else None
-                expected_count = int(source["comment_count"])
-            except (ValueError, TypeError, json.JSONDecodeError) as exc:
-                raise DigestTxnError("source.comment_count 或评论组件格式非法") from exc
-            if actual_count is None or actual_count != expected_count:
-                raise DigestTxnError(
-                    f"comment_count 不一致: expected={expected_count}, actual={actual_count}"
-                )
-        if whiteboards:
-            whiteboards_status = str(source.get("whiteboards_status", "")).strip()
-            if whiteboards_status not in {"complete", "partial"}:
-                raise DigestTxnError(
-                    "包含 whiteboard component 时必须声明 "
-                    "source.whiteboards_status=complete/partial"
-                )
-    source_type = str(source.get("type", ""))
-    if source_type == "feishu_chat":
-        for field in ("uid", "title", "source_window"):
-            if not str(source.get(field, "")).strip():
-                raise DigestTxnError(f"feishu_chat 的 source.{field} 不能为空")
-    if source_type in {"feishu_minutes", "feishu_meeting", "web"}:
-        for field in ("url", "title"):
-            if not str(source.get(field, "")).strip():
-                raise DigestTxnError(f"{source_type} 的 source.{field} 不能为空")
-    if source_type == "meego":
-        for field in ("url", "title", "project_key", "view_id"):
-            if not str(source.get(field, "")).strip():
-                raise DigestTxnError(f"meego 的 source.{field} 不能为空")
-        if not _list_value(source.get("fields")):
-            raise DigestTxnError("meego 的 source.fields 不能为空")
-    if source_type == "feishu_base":
-        for field in ("url", "title", "base_token", "table_id", "view_id"):
-            if not str(source.get(field, "")).strip():
-                raise DigestTxnError(f"feishu_base 的 source.{field} 不能为空")
-        if not _list_value(source.get("fields")):
-            raise DigestTxnError("feishu_base 的 source.fields 不能为空")
-    if source_type == "aeolus":
-        for field in (
-            "url",
-            "title",
-            "profile_path",
-            "profile_revision",
-            "region",
-            "app_id",
-            "dashboard_id",
-            "sheet_id",
-            "filter_mode",
-        ):
-            if not str(source.get(field, "")).strip():
-                raise DigestTxnError(f"aeolus 的 source.{field} 不能为空")
-        profile_path = str(source["profile_path"])
-        if (
-            Path(profile_path).is_absolute()
-            or not profile_path.startswith("sources/aeolus-")
-            or not profile_path.endswith(".json")
-        ):
-            raise DigestTxnError(
-                "aeolus 的 source.profile_path 必须指向 KB sources/ 下的 profile"
-            )
-        profile_revision_value = str(source["profile_revision"])
-        if not re.fullmatch(r"sha256:[0-9a-f]{64}", profile_revision_value):
-            raise DigestTxnError(
-                "aeolus 的 source.profile_revision 必须是 canonical sha256"
-            )
-        if not _list_value(source.get("report_ids")):
-            raise DigestTxnError("aeolus 的 source.report_ids 不能为空")
-        if source.get("filter_mode") not in {"dashboard", "explicit", "merge"}:
-            raise DigestTxnError(
-                "aeolus 的 source.filter_mode 必须是 dashboard/explicit/merge"
-            )
-        where_filters = source.get("where_filters", [])
-        if not isinstance(where_filters, list) or any(
-            not isinstance(item, dict) for item in where_filters
-        ):
-            raise DigestTxnError("aeolus 的 source.where_filters 必须是对象数组")
-        if source.get("filter_mode") == "explicit" and not where_filters:
-            raise DigestTxnError(
-                "aeolus explicit 模式的 source.where_filters 不能为空"
-            )
+    try:
+        validate_transaction_source(source, components)
+    except SourceTransactionError as exc:
+        raise DigestTxnError(str(exc)) from exc
 
     result: Dict[str, Any] = {
         "payload_schema": PAYLOAD_SCHEMA,
@@ -427,7 +332,7 @@ def _source_identity(source: Dict[str, Any]) -> Tuple[str, str, str]:
     period = str(source.get("digest_period") or source.get("source_window") or "").strip()
     if not source_type:
         raise DigestTxnError("source.type 不能为空")
-    if source_type not in ALLOWED_SOURCE_TYPES:
+    if source_type not in SUPPORTED_TRANSACTION_SOURCE_TYPES:
         raise DigestTxnError(f"不支持的 source.type: {source_type}")
     if not source_uid:
         raise DigestTxnError("source.uid 不能为空")
@@ -543,6 +448,115 @@ def load_manifest(path: Path) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise DigestTxnError("manifest 顶层必须是对象")
     return data
+
+
+def _resolve_bundle_path(value: Any, manifest_path: Path) -> Path:
+    raw = str(value or "").strip()
+    if not raw:
+        raise DigestTxnError("plan.source_bundle 不能为空")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = manifest_path.parent / path
+    return path.resolve()
+
+
+def _bundle_transaction_source(
+    bundle: SourceBundle,
+) -> Dict[str, Any]:
+    try:
+        return create_default_registry().to_transaction_source(bundle)
+    except (SourceBundleError, SourceRegistryError) as exc:
+        raise DigestTxnError(f"source bundle 无法进入事务: {exc}") from exc
+
+
+def _load_bundle_source(
+    bundle_path: Path,
+) -> Tuple[SourceBundle, Dict[str, Any]]:
+    try:
+        bundle = load_source_bundle(bundle_path)
+    except SourceBundleError as exc:
+        raise DigestTxnError(f"source bundle 校验失败 [{exc.code}]: {exc}") from exc
+    return bundle, _bundle_transaction_source(bundle)
+
+
+def _verify_bundle_payload(
+    bundle: SourceBundle,
+    payload: Dict[str, Any],
+) -> None:
+    if bundle.snapshot_hash:
+        snapshot_components = [
+            component
+            for component in payload["components"]
+            if component.kind == "records"
+        ]
+        if len(snapshot_components) != 1:
+            raise DigestTxnError(
+                "source bundle.snapshot_hash 要求且只能对应一个 kind=records component"
+            )
+        if bundle.snapshot_hash != snapshot_components[0].digest:
+            raise DigestTxnError(
+                "source bundle.snapshot_hash 与事务重算结果不一致: "
+                f"bundle={bundle.snapshot_hash}, "
+                f"actual={snapshot_components[0].digest}"
+            )
+    if bundle.payload_hash and bundle.payload_hash != payload["content_hash"]:
+        raise DigestTxnError(
+            "source bundle.payload_hash 与事务重算结果不一致: "
+            f"bundle={bundle.payload_hash}, actual={payload['content_hash']}"
+        )
+
+
+def _resolve_plan_source(
+    plan: Dict[str, Any],
+    manifest_path: Path,
+) -> Tuple[Dict[str, Any], Dict[str, Any], Path, Optional[SourceBundle]]:
+    schema = plan.get("schema_version")
+    if schema == PLAN_SCHEMA:
+        source = plan.get("source")
+        if not isinstance(source, dict):
+            raise DigestTxnError("plan.source 必须是对象")
+        return plan, source, manifest_path, None
+    if schema != PLAN_SCHEMA_V2:
+        raise DigestTxnError(
+            f"不支持的 schema_version: {schema!r}; "
+            f"需要 {PLAN_SCHEMA} 或 {PLAN_SCHEMA_V2}"
+        )
+    if "source" in plan:
+        raise DigestTxnError("digest-plan/v2 不允许复制 plan.source；请只引用 source_bundle")
+    bundle_path = _resolve_bundle_path(plan.get("source_bundle"), manifest_path)
+    bundle, source = _load_bundle_source(bundle_path)
+    configured_provenance = plan.get("provenance", {})
+    if configured_provenance is None:
+        configured_provenance = {}
+    if not isinstance(configured_provenance, dict):
+        raise DigestTxnError("plan.provenance 必须是对象")
+    if configured_provenance.get("anchors"):
+        raise DigestTxnError(
+            "digest-plan/v2 的 anchors 由 source bundle 提供，不允许在 plan 中复制"
+        )
+    unknown = set(configured_provenance) - {"enrichment", "anchors"}
+    if unknown:
+        raise DigestTxnError(
+            "digest-plan/v2 provenance 含未知字段: " + ", ".join(sorted(unknown))
+        )
+    effective = copy.deepcopy(plan)
+    effective["source"] = source
+    effective["provenance"] = {
+        "enrichment": str(
+            configured_provenance.get("enrichment", "live")
+        ).strip()
+        or "live",
+        "anchors": copy.deepcopy(list(bundle.anchors)),
+    }
+    return effective, source, bundle_path, bundle
+
+
+def preflight_bundle(kb: Path, bundle_path: Path) -> Dict[str, Any]:
+    bundle_path = bundle_path.resolve()
+    bundle, source = _load_bundle_source(bundle_path)
+    payload = compute_payload(source, bundle_path)
+    _verify_bundle_payload(bundle, payload)
+    return preflight(kb, source, bundle_path)
 
 
 def _safe_relative_path(kb: Path, value: str, allowed_prefixes: Sequence[str]) -> Path:
@@ -968,16 +982,15 @@ def _materialize_provenance(
 def validate_plan(kb: Path, manifest_path: Path) -> ValidationResult:
     kb = kb.resolve()
     manifest_path = manifest_path.resolve()
-    plan = load_manifest(manifest_path)
-    if plan.get("schema_version") != PLAN_SCHEMA:
-        raise DigestTxnError(
-            f"不支持的 schema_version: {plan.get('schema_version')!r}; 需要 {PLAN_SCHEMA}"
-        )
-    source = plan.get("source")
-    if not isinstance(source, dict):
-        raise DigestTxnError("plan.source 必须是对象")
-    payload = compute_payload(source, manifest_path)
-    flight = preflight(kb, source, manifest_path)
+    configured_plan = load_manifest(manifest_path)
+    plan, source, source_path, bundle = _resolve_plan_source(
+        configured_plan,
+        manifest_path,
+    )
+    payload = compute_payload(source, source_path)
+    if bundle is not None:
+        _verify_bundle_payload(bundle, payload)
+    flight = preflight(kb, source, source_path)
 
     raw = plan.get("raw")
     if not isinstance(raw, dict):
@@ -1027,7 +1040,7 @@ def validate_plan(kb: Path, manifest_path: Path) -> ValidationResult:
         warnings.append("相同 payload 已完成摄取; execute 将 no-op")
     result = ValidationResult(
         plan=plan,
-        source_path=manifest_path,
+        source_path=source_path,
         payload=payload,
         preflight=flight,
         raw_id=raw_id,
@@ -1399,52 +1412,7 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
     ordered = [
         ("raw_id", result.raw_id),
         ("ingested", now.isoformat(timespec="seconds")),
-        ("source_type", source.get("type")),
-        ("source_uid", source.get("uid")),
-        ("source_revision", source.get("revision")),
-        ("source_profile_path", source.get("profile_path")),
-        ("source_profile_revision", source.get("profile_revision")),
-        (
-            "source_chat_id",
-            source.get("uid") if source.get("type") == "feishu_chat" else None,
-        ),
-        (
-            "source_chat_name",
-            source.get("title") if source.get("type") == "feishu_chat" else None,
-        ),
-        ("source_project_key", source.get("project_key")),
-        ("source_base_token", source.get("base_token")),
-        ("source_table_id", source.get("table_id")),
-        ("source_view_id", source.get("view_id")),
-        ("source_fields", source.get("fields")),
-        ("source_region", source.get("region")),
-        ("source_app_id", source.get("app_id")),
-        ("source_dashboard_id", source.get("dashboard_id")),
-        ("source_sheet_id", source.get("sheet_id")),
-        ("source_report_ids", source.get("report_ids")),
-        ("source_filter_mode", source.get("filter_mode")),
-        (
-            "source_where_filters",
-            [
-                json.dumps(
-                    item,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                for item in source.get("where_filters", [])
-            ],
-        ),
-        (
-            "source_url",
-            source.get("url"),
-        ),
-        (
-            "source_title",
-            source.get("title") if source.get("type") != "feishu_chat" else None,
-        ),
-        ("digest_period", source.get("digest_period")),
-        ("source_window", source.get("source_window")),
+        *raw_source_fields(source),
         ("payload_schema", payload["payload_schema"]),
         (
             "payload_components",
@@ -1454,11 +1422,6 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
         ("comment_hash", payload.get("comment_hash")),
         ("whiteboard_hash", payload.get("whiteboard_hash")),
         ("embedded_whiteboards", payload.get("whiteboard_count")),
-        ("comments_status", source.get("comments_status")),
-        ("comment_count", source.get("comment_count")),
-        ("comment_reply_count", source.get("comment_reply_count")),
-        ("comments_latest_at", source.get("comments_latest_at")),
-        ("whiteboards_status", source.get("whiteboards_status")),
         ("content_hash", payload["content_hash"]),
         ("digest_key", digest_key),
         ("digest_status", "digested"),
@@ -1512,6 +1475,26 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
             output += text
             if not output.endswith("\n"):
                 output += "\n"
+    record_index = source.get("record_index")
+    if plan.get("schema_version") == PLAN_SCHEMA_V2 and record_index is not None:
+        if not isinstance(record_index, list):
+            raise DigestTxnError("adapter 输出的 source.record_index 必须是数组")
+        document = {
+            "schema_version": "byteworker-record-index/v1",
+            "source_type": source.get("type"),
+            "source_uid": source.get("uid"),
+            "records": record_index,
+        }
+        text = json.dumps(
+            document,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if not output.endswith("\n"):
+            output += "\n"
+        output += "\n## 规范记录索引（派生）\n\n```json\n"
+        output += text + "\n```\n"
     return output
 
 
@@ -1652,10 +1635,13 @@ def execute_plan(
     if not (kb / ".git").is_dir():
         raise DigestTxnError("知识库数据目录不是本地 Git 仓库，无法创建 digest 回滚点")
     manifest = load_manifest(manifest_path)
-    source = manifest.get("source")
-    if not isinstance(source, dict):
-        raise DigestTxnError("plan.source 必须是对象")
-    early_flight = preflight(kb, source, manifest_path.resolve())
+    _, source, source_path, bundle = _resolve_plan_source(
+        manifest,
+        manifest_path.resolve(),
+    )
+    if bundle is not None:
+        _verify_bundle_payload(bundle, compute_payload(source, source_path))
+    early_flight = preflight(kb, source, source_path)
     if early_flight["state"] == "noop":
         existing = early_flight.get("existing") or {}
         return {

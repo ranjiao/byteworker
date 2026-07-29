@@ -54,7 +54,13 @@ python3 bin/byteworker-cli.py source auth-status --source-type feishu_base
 python3 bin/byteworker-cli.py source inspect --source-type meego --url "<Meego 视图 URL>"
 python3 bin/byteworker-cli.py source capture --source-type meego --url "<Meego 视图 URL>" \
   --field name --field status --out "<临时目录>/meego-capture.json"
-python3 bin/byteworker-cli.py source diff --previous "<上一份 capture.json>" \
+python3 bin/byteworker-cli.py source profile-save --kb "<知识库目录>" \
+  --file "<临时目录>/meego-profile.json"
+python3 bin/byteworker-cli.py source capture --source-type meego \
+  --kb "<知识库目录>" --source-uid "meego:<project_key>:<view_id>" \
+  --out "<临时目录>/meego-capture.json"
+python3 bin/byteworker-cli.py source diff --kb "<知识库目录>" \
+  --source-uid "meego:<project_key>:<view_id>" \
   --current "<本次 capture.json>" --out "<临时目录>/meego-diff.json"
 python3 bin/byteworker-cli.py source inspect --source-type feishu_base --url "<Base 视图 URL>"
 python3 bin/byteworker-cli.py source capture --source-type feishu_base --url "<Base 视图 URL>" \
@@ -80,10 +86,13 @@ python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
 真正的 `inspect / capture` 会 fail closed 为 `SOURCE_AUTH_REQUIRED`，并把同一
 `auth_action` 放进 error details。
 
-`source inspect` 只读返回真实字段/报表元数据与规模。风神 `source register` 把一个
-dashboard sheet 的独立 selector/filter/routine profile 写入用户 KB；后续按 `source_uid`
-capture，且不接受 CLI 覆盖该 profile。`source capture` 只在完整读取后写规范快照；
-`source diff` 按稳定记录 ID 比较相邻快照，输出 `baseline / added / changed / left_view`。
+`source inspect` 只读返回真实字段/报表元数据与规模。`source profile-save` 严格校验
+`byteworker-source-profile/v2`（当前 Meego/飞书文档）并事务写入用户 KB；风神
+`source register` 继续写其兼容 v1 profile。后续按 `source_uid` capture，且不接受 CLI
+覆盖该 profile。`source capture` 只在完整读取后写规范快照；`source diff --kb` 通过
+SnapshotStore 从已提交 raw 选择上一份完整快照，也可用 `--raw-id` 或 `--history-index`
+显式选择历史版本。diff 按稳定记录 ID 比较，输出
+`baseline / added / changed / left_view`。
 其中 `left_view` 明确不代表来源记录已删除，diff 是可重算派生物，不替代 raw 中的完整快照。
 
 `kb-query source-record` 只读本地 `raw_data/`：先轻量扫描 frontmatter，再默认选择每个

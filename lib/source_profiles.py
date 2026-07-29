@@ -21,12 +21,19 @@ from urllib.parse import parse_qsl, urlsplit
 from zoneinfo import ZoneInfo
 
 
-PROFILE_SCHEMA = "byteworker-source-profile/v1"
-PROFILE_SOURCE_TYPES = {"aeolus"}
+PROFILE_SCHEMA_V1 = "byteworker-source-profile/v1"
+PROFILE_SCHEMA_V2 = "byteworker-source-profile/v2"
+# Kept for callers which still construct the original Aeolus profile.
+PROFILE_SCHEMA = PROFILE_SCHEMA_V1
+PROFILE_SCHEMAS = {PROFILE_SCHEMA_V1, PROFILE_SCHEMA_V2}
+PROFILE_SOURCE_TYPES_V1 = {"aeolus"}
+PROFILE_SOURCE_TYPES_V2 = {"meego", "feishu_doc"}
+PROFILE_SOURCE_TYPES = PROFILE_SOURCE_TYPES_V1 | PROFILE_SOURCE_TYPES_V2
 ROUTINE_CADENCES = {"daily", "weekly", "monthly"}
 SHA_PREFIX = "sha256:"
 SENSITIVE_KEYS = {
     "access_token",
+    "api_key",
     "auth_token",
     "authorization",
     "bearer_token",
@@ -36,7 +43,10 @@ SENSITIVE_KEYS = {
     "disposable_login_token",
     "jwt",
     "password",
+    "private_key",
+    "refresh_token",
     "secret",
+    "session_token",
     "sign",
     "signature",
     "titan_passport",
@@ -63,7 +73,8 @@ def _canonical_bytes(value: Any) -> bytes:
 
 
 def profile_revision(profile: Mapping[str, Any]) -> str:
-    return SHA_PREFIX + hashlib.sha256(_canonical_bytes(profile)).hexdigest()
+    normalized = validate_profile(profile)
+    return SHA_PREFIX + hashlib.sha256(_canonical_bytes(normalized)).hexdigest()
 
 
 def _positive_int(value: Any, field: str) -> int:
@@ -110,38 +121,9 @@ def _reject_credentials(value: Any, path: str = "profile") -> None:
             _reject_credentials(child, f"{path}[{index}]")
 
 
-def validate_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
-    if not isinstance(profile, Mapping):
-        raise SourceProfileError(
-            "SOURCE_PROFILE_INVALID",
-            "source profile 顶层必须是 JSON 对象",
-        )
-    _reject_credentials(profile)
-    _reject_unknown(
-        profile,
-        {
-            "schema_version",
-            "source_type",
-            "source_uid",
-            "source_url",
-            "title",
-            "coordinates",
-            "capture",
-            "routine",
-        },
-        "顶层",
-    )
-    if profile.get("schema_version") != PROFILE_SCHEMA:
-        raise SourceProfileError(
-            "SOURCE_PROFILE_INVALID",
-            f"source profile schema_version 必须是 {PROFILE_SCHEMA}",
-        )
-    source_type = str(profile.get("source_type", "")).strip()
-    if source_type not in PROFILE_SOURCE_TYPES:
-        raise SourceProfileError(
-            "SOURCE_PROFILE_UNSUPPORTED",
-            f"source profile 暂不支持 source_type={source_type or 'missing'}",
-        )
+def _validate_source_identity(
+    profile: Mapping[str, Any],
+) -> tuple[str, str, str]:
     source_uid = str(profile.get("source_uid", "")).strip()
     source_url = str(profile.get("source_url", "")).strip()
     title = str(profile.get("title", "")).strip()
@@ -166,6 +148,76 @@ def validate_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
             "source profile URL 不得保存凭据参数: "
             + ", ".join(sensitive_query_keys),
         )
+    return source_uid, source_url, title
+
+
+def _validate_routine(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile.routine 必须是对象",
+        )
+    _reject_unknown(value, {"enabled", "cadence"}, "routine")
+    enabled = value.get("enabled")
+    cadence = value.get("cadence")
+    if not isinstance(enabled, bool):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile.routine.enabled 必须是布尔值",
+        )
+    if enabled:
+        cadence = str(cadence or "").strip()
+        if cadence not in ROUTINE_CADENCES:
+            raise SourceProfileError(
+                "SOURCE_PROFILE_INVALID",
+                "启用 routine 时 cadence 必须是 daily、weekly 或 monthly",
+            )
+    elif cadence not in (None, ""):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "routine.enabled=false 时 cadence 必须为空",
+        )
+    else:
+        cadence = None
+    return {
+        "enabled": enabled,
+        "cadence": cadence,
+    }
+
+
+def _validate_v1_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(profile, Mapping):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile 顶层必须是 JSON 对象",
+        )
+    _reject_credentials(profile)
+    _reject_unknown(
+        profile,
+        {
+            "schema_version",
+            "source_type",
+            "source_uid",
+            "source_url",
+            "title",
+            "coordinates",
+            "capture",
+            "routine",
+        },
+        "顶层",
+    )
+    if profile.get("schema_version") != PROFILE_SCHEMA_V1:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            f"source profile schema_version 必须是 {PROFILE_SCHEMA_V1}",
+        )
+    source_type = str(profile.get("source_type", "")).strip()
+    if source_type not in PROFILE_SOURCE_TYPES_V1:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_UNSUPPORTED",
+            f"source profile 暂不支持 source_type={source_type or 'missing'}",
+        )
+    source_uid, source_url, title = _validate_source_identity(profile)
 
     coordinates = profile.get("coordinates")
     if not isinstance(coordinates, Mapping):
@@ -306,37 +358,10 @@ def validate_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
         "capture.max_items_per_report",
     )
 
-    routine = profile.get("routine")
-    if not isinstance(routine, Mapping):
-        raise SourceProfileError(
-            "SOURCE_PROFILE_INVALID",
-            "source profile.routine 必须是对象",
-        )
-    _reject_unknown(routine, {"enabled", "cadence"}, "routine")
-    enabled = routine.get("enabled")
-    cadence = routine.get("cadence")
-    if not isinstance(enabled, bool):
-        raise SourceProfileError(
-            "SOURCE_PROFILE_INVALID",
-            "source profile.routine.enabled 必须是布尔值",
-        )
-    if enabled:
-        cadence = str(cadence or "").strip()
-        if cadence not in ROUTINE_CADENCES:
-            raise SourceProfileError(
-                "SOURCE_PROFILE_INVALID",
-                "启用 routine 时 cadence 必须是 daily、weekly 或 monthly",
-            )
-    elif cadence not in (None, ""):
-        raise SourceProfileError(
-            "SOURCE_PROFILE_INVALID",
-            "routine.enabled=false 时 cadence 必须为空",
-        )
-    else:
-        cadence = None
+    routine = _validate_routine(profile.get("routine"))
 
     return {
-        "schema_version": PROFILE_SCHEMA,
+        "schema_version": PROFILE_SCHEMA_V1,
         "source_type": source_type,
         "source_uid": source_uid,
         "source_url": source_url,
@@ -358,11 +383,200 @@ def validate_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
             },
             "max_items_per_report": max_items,
         },
-        "routine": {
-            "enabled": enabled,
-            "cadence": cadence,
-        },
+        "routine": routine,
     }
+
+
+def _required_text(value: Any, field: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            f"source profile 的 {field} 不能为空",
+        )
+    return normalized
+
+
+def _validate_meego_v2(
+    *,
+    source_uid: str,
+    selector: Mapping[str, Any],
+    capture_policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    _reject_unknown(selector, {"project_key", "view_id"}, "selector")
+    project_key = _required_text(selector.get("project_key"), "selector.project_key")
+    view_id = _required_text(selector.get("view_id"), "selector.view_id")
+    expected_uid = f"meego:{project_key}:{view_id}"
+    if source_uid != expected_uid:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_IDENTITY_MISMATCH",
+            "source profile 的 source_uid 与 selector 不一致",
+        )
+
+    _reject_unknown(capture_policy, {"fields", "max_items"}, "capture_policy")
+    raw_fields = capture_policy.get("fields")
+    if not isinstance(raw_fields, list):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile.capture_policy.fields 必须是非空数组",
+        )
+    fields = sorted(
+        {
+            str(field).strip()
+            for field in raw_fields
+            if isinstance(field, str) and field.strip()
+        }
+    )
+    if not fields or len(fields) != len(raw_fields):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile.capture_policy.fields 必须是非空且不重复的字符串数组",
+        )
+    max_items = _positive_int(
+        capture_policy.get("max_items"),
+        "capture_policy.max_items",
+    )
+    return (
+        {
+            "project_key": project_key,
+            "view_id": view_id,
+        },
+        {
+            "fields": fields,
+            "max_items": max_items,
+        },
+    )
+
+
+def _validate_feishu_doc_v2(
+    *,
+    source_uid: str,
+    selector: Mapping[str, Any],
+    capture_policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    _reject_unknown(selector, {"document_id"}, "selector")
+    document_id = _required_text(
+        selector.get("document_id"),
+        "selector.document_id",
+    )
+    if source_uid != document_id:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_IDENTITY_MISMATCH",
+            "source profile 的 source_uid 与 selector.document_id 不一致",
+        )
+
+    _reject_unknown(
+        capture_policy,
+        {"period", "comments", "whiteboards"},
+        "capture_policy",
+    )
+    period_value = capture_policy.get("period", "")
+    if period_value is None:
+        period = ""
+    elif isinstance(period_value, str):
+        period = period_value.strip()
+    else:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile.capture_policy.period 必须是字符串或为空",
+        )
+    comments = capture_policy.get("comments")
+    whiteboards = capture_policy.get("whiteboards")
+    if not isinstance(comments, bool) or not isinstance(whiteboards, bool):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile.capture_policy.comments/whiteboards 必须是布尔值",
+        )
+    return (
+        {"document_id": document_id},
+        {
+            "period": period,
+            "comments": comments,
+            "whiteboards": whiteboards,
+        },
+    )
+
+
+def _validate_v2_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
+    _reject_unknown(
+        profile,
+        {
+            "schema_version",
+            "source_type",
+            "source_uid",
+            "source_url",
+            "title",
+            "selector",
+            "capture_policy",
+            "routine",
+        },
+        "顶层",
+    )
+    source_type = str(profile.get("source_type", "")).strip()
+    if source_type not in PROFILE_SOURCE_TYPES_V2:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_UNSUPPORTED",
+            f"source profile v2 暂不支持 source_type={source_type or 'missing'}",
+        )
+    source_uid, source_url, title = _validate_source_identity(profile)
+    selector = profile.get("selector")
+    capture_policy = profile.get("capture_policy")
+    if not isinstance(selector, Mapping):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile.selector 必须是对象",
+        )
+    if not isinstance(capture_policy, Mapping):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile.capture_policy 必须是对象",
+        )
+    if source_type == "meego":
+        normalized_selector, normalized_policy = _validate_meego_v2(
+            source_uid=source_uid,
+            selector=selector,
+            capture_policy=capture_policy,
+        )
+    elif source_type == "feishu_doc":
+        normalized_selector, normalized_policy = _validate_feishu_doc_v2(
+            source_uid=source_uid,
+            selector=selector,
+            capture_policy=capture_policy,
+        )
+    else:  # pragma: no cover - guarded above; keeps dispatch fail closed.
+        raise SourceProfileError(
+            "SOURCE_PROFILE_UNSUPPORTED",
+            f"source profile v2 暂不支持 source_type={source_type}",
+        )
+    return {
+        "schema_version": PROFILE_SCHEMA_V2,
+        "source_type": source_type,
+        "source_uid": source_uid,
+        "source_url": source_url,
+        "title": title,
+        "selector": normalized_selector,
+        "capture_policy": normalized_policy,
+        "routine": _validate_routine(profile.get("routine")),
+    }
+
+
+def validate_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(profile, Mapping):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "source profile 顶层必须是 JSON 对象",
+        )
+    _reject_credentials(profile)
+    schema_version = profile.get("schema_version")
+    if schema_version == PROFILE_SCHEMA_V1:
+        return _validate_v1_profile(profile)
+    if schema_version == PROFILE_SCHEMA_V2:
+        return _validate_v2_profile(profile)
+    raise SourceProfileError(
+        "SOURCE_PROFILE_INVALID",
+        "source profile schema_version 必须是 "
+        + " 或 ".join(sorted(PROFILE_SCHEMAS)),
+    )
 
 
 def profile_relative_path(profile: Mapping[str, Any]) -> Path:
@@ -378,28 +592,43 @@ def load_profile(kb: Path, source_uid: str) -> dict[str, Any]:
             "SOURCE_PROFILE_NOT_FOUND",
             "source_uid 不能为空",
         )
-    source_type = source_uid.split(":", 1)[0]
     digest = hashlib.sha256(source_uid.encode("utf-8")).hexdigest()
-    path = kb.resolve() / "sources" / f"{source_type}-{digest}.json"
-    if not path.is_file():
+    root = kb.resolve() / "sources"
+    paths = sorted(root.glob(f"*-{digest}.json")) if root.is_dir() else []
+    if not paths:
         raise SourceProfileError(
             "SOURCE_PROFILE_NOT_FOUND",
             f"KB 中没有 source profile: {source_uid}",
         )
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    matches: list[dict[str, Any]] = []
+    for path in paths:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SourceProfileError(
+                "SOURCE_PROFILE_INVALID",
+                f"无法读取 source profile: {path}",
+            ) from exc
+        normalized = validate_profile(value)
+        expected = profile_relative_path(normalized).name
+        if path.name != expected:
+            raise SourceProfileError(
+                "SOURCE_PROFILE_PATH_MISMATCH",
+                f"source profile 文件名与 source_uid 不一致: {path}",
+            )
+        if normalized["source_uid"] == source_uid:
+            matches.append(normalized)
+    if not matches:
         raise SourceProfileError(
-            "SOURCE_PROFILE_INVALID",
-            f"无法读取 source profile: {path}",
-        ) from exc
-    normalized = validate_profile(value)
-    if normalized["source_uid"] != source_uid:
+            "SOURCE_PROFILE_NOT_FOUND",
+            f"KB 中没有 source profile: {source_uid}",
+        )
+    if len(matches) != 1:
         raise SourceProfileError(
             "SOURCE_PROFILE_IDENTITY_MISMATCH",
-            f"source profile 文件与请求的 source_uid 不一致: {path}",
+            f"KB 中存在重复 source profile: {source_uid}",
         )
-    return normalized
+    return matches[0]
 
 
 def list_profiles(
@@ -407,6 +636,12 @@ def list_profiles(
     *,
     source_type: str = "",
 ) -> list[dict[str, Any]]:
+    source_type = source_type.strip()
+    if source_type and source_type not in PROFILE_SOURCE_TYPES:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_UNSUPPORTED",
+            f"source profile 暂不支持 source_type={source_type}",
+        )
     root = kb.resolve() / "sources"
     if not root.is_dir():
         return []

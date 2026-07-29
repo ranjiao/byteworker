@@ -17,11 +17,18 @@ from digest_txn import (  # noqa: E402
     execute_batch_plan,
     execute_plan,
     preflight,
+    preflight_bundle,
     sha256_file,
     validate_batch_plan,
     validate_plan,
 )
 from frontmatter import parse_file  # noqa: E402
+from kb_query import source_records  # noqa: E402
+from sources import (  # noqa: E402
+    build_meego_bundle,
+    canonical_sha256,
+    create_default_registry,
+)
 
 
 NODE_DIRS = ("people", "projects", "areas", "orgs", "events", "decisions", "readings")
@@ -205,6 +212,288 @@ links: [{links}]
         self.assertEqual("noop", after["state"])
         self.assertEqual(raw_id, after["existing"]["raw_id"])
         self.assertEqual("", run_git(self.kb, "status", "--short"))
+
+    def test_digest_plan_v2_uses_bundle_as_single_source_contract(self):
+        body, comments = self.write_source("-bundle")
+        source = self.source_manifest(body, comments)
+        raw_id = "raw-2026-07-27-test-plan-bundle"
+        plan_path = self.write_plan(
+            source,
+            raw_id,
+            "2026-07-27-test-plan-bundle",
+            self.reading_text([raw_id]),
+        )
+        bundle_path = self.inputs / "source-bundle.json"
+        bundle_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "byteworker-source-bundle/v2",
+                    "identity": {
+                        "source_type": "feishu_doc",
+                        "source_uid": "doc-test-1",
+                        "source_url": "https://example.test/docx/doc-test-1",
+                        "title": "测试方案",
+                        "revision": "1",
+                    },
+                    "components": [
+                        {
+                            "name": "body",
+                            "kind": "body",
+                            "path": str(body),
+                            "mode": "verbatim",
+                        },
+                        {
+                            "name": "comments",
+                            "kind": "comments",
+                            "path": str(comments),
+                            "mode": "canonical-json",
+                            "json_pointer": "/comments",
+                        },
+                    ],
+                    "coverage": {
+                        "status": "complete",
+                        "components": {
+                            "body": "complete",
+                            "comments": "complete",
+                        },
+                    },
+                    "anchors": [
+                        {
+                            "anchor_id": "source",
+                            "kind": "source",
+                            "precision": "source_only",
+                            "locator": {"source_uid": "doc-test-1"},
+                            "open_url": "https://example.test/docx/doc-test-1",
+                        }
+                    ],
+                    "provider_metadata": {
+                        "comments_status": "complete",
+                        "comment_count": 0,
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["schema_version"] = "digest-plan/v2"
+        plan.pop("source")
+        plan["source_bundle"] = str(bundle_path)
+        plan["provenance"] = {"enrichment": "live"}
+        plan_path.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        validated = validate_plan(self.kb, plan_path)
+        self.assertEqual("feishu_doc", validated.plan["source"]["type"])
+        self.assertEqual(
+            "new_source",
+            preflight_bundle(self.kb, bundle_path)["state"],
+        )
+        receipt = execute_plan(self.kb, plan_path, ROOT)
+        self.assertEqual("committed", receipt["status"])
+        raw_fm, _ = parse_file(
+            str(self.kb / "raw_data/2026-07-27-test-plan-bundle.md")
+        )
+        self.assertEqual("feishu_doc", raw_fm["source_type"])
+        self.assertEqual("complete", raw_fm["comments_status"])
+
+    def test_digest_plan_v2_rejects_copied_source_and_anchors(self):
+        body, comments = self.write_source("-bundle-invalid")
+        source = self.source_manifest(body, comments)
+        raw_id = "raw-2026-07-27-test-plan-bundle-invalid"
+        plan_path = self.write_plan(
+            source,
+            raw_id,
+            "2026-07-27-test-plan-bundle-invalid",
+            self.reading_text([raw_id]),
+        )
+        bundle_path = self.inputs / "source-bundle-invalid.json"
+        bundle_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "byteworker-source-bundle/v2",
+                    "identity": {
+                        "source_type": "feishu_doc",
+                        "source_uid": "doc-test-1",
+                        "source_url": "https://example.test/docx/doc-test-1",
+                        "title": "测试方案",
+                        "revision": "1",
+                    },
+                    "components": [
+                        {
+                            "name": "body",
+                            "kind": "body",
+                            "path": str(body),
+                            "mode": "verbatim",
+                        },
+                        {
+                            "name": "comments",
+                            "kind": "comments",
+                            "path": str(comments),
+                            "mode": "canonical-json",
+                            "json_pointer": "/comments",
+                        },
+                    ],
+                    "coverage": {
+                        "status": "complete",
+                        "components": {
+                            "body": "complete",
+                            "comments": "complete",
+                        },
+                    },
+                    "anchors": [],
+                    "provider_metadata": {"comments_status": "complete"},
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["schema_version"] = "digest-plan/v2"
+        plan["source_bundle"] = str(bundle_path)
+        plan_path.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(DigestTxnError, "不允许复制 plan.source"):
+            validate_plan(self.kb, plan_path)
+
+        plan.pop("source")
+        plan["provenance"] = {
+            "anchors": [
+                {
+                    "anchor_id": "source",
+                    "kind": "source",
+                    "precision": "source_only",
+                    "locator": {"source_uid": "doc-test-1"},
+                }
+            ]
+        }
+        plan_path.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(DigestTxnError, "anchors 由 source bundle"):
+            validate_plan(self.kb, plan_path)
+
+    def test_meego_bundle_v2_persists_queryable_record_index(self):
+        snapshot = {
+            "schema_version": "byteworker-source-snapshot/v1",
+            "source_type": "meego",
+            "source_uid": "meego:project:view",
+            "coordinates": {
+                "project_key": "project",
+                "view_id": "view",
+            },
+            "fields": ["name", "status"],
+            "records": [
+                {
+                    "work_item_id": "wi-1",
+                    "name": "安全审核链路",
+                    "status": "done",
+                }
+            ],
+        }
+        capture = {
+            "schema_version": "byteworker-source-capture/v1",
+            "capture_mode": "snapshot",
+            "captured_at": "2026-07-29T11:00:00+08:00",
+            "source_type": "meego",
+            "source_uid": "meego:project:view",
+            "source_url": "https://project.feishu.cn/project/view/view",
+            "title": "安全需求视图",
+            "coordinates": {
+                "project_key": "project",
+                "view_id": "view",
+            },
+            "requested_fields": ["name", "status"],
+            "pagination": {
+                "complete": True,
+                "item_count": 1,
+                "auto_paginated": True,
+            },
+            "sanitization": {
+                "removed_sensitive_query_parameters": 0,
+            },
+            "snapshot": snapshot,
+            "content_hash": canonical_sha256(snapshot),
+            "anchors": [
+                {
+                    "anchor_id": "workitem:wi-1",
+                    "kind": "meego_workitem",
+                    "precision": "exact",
+                    "locator": {
+                        "project_key": "project",
+                        "view_id": "view",
+                        "work_item_id": "wi-1",
+                    },
+                    "open_url": "https://project.feishu.cn/project/view/view",
+                }
+            ],
+        }
+        capture_path = self.inputs / "meego-capture.json"
+        capture_path.write_text(
+            json.dumps(capture, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        bundle = build_meego_bundle(capture, capture_path=capture_path)
+        bundle_path = self.inputs / "meego-bundle.json"
+        bundle_path.write_text(
+            json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        source = create_default_registry().to_transaction_source(bundle)
+        raw_id = "raw-2026-07-29-meego-view"
+        plan_path = self.write_plan(
+            source,
+            raw_id,
+            "2026-07-29-meego-view",
+            self.reading_text([raw_id], title="安全需求视图"),
+        )
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["schema_version"] = "digest-plan/v2"
+        plan.pop("source")
+        plan["source_bundle"] = str(bundle_path)
+        plan["provenance"] = {"enrichment": "live"}
+        plan_path.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        tampered_capture = json.loads(json.dumps(capture))
+        tampered_capture["snapshot"]["records"][0]["status"] = "tampered"
+        capture_path.write_text(
+            json.dumps(tampered_capture, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(DigestTxnError, "snapshot_hash"):
+            validate_plan(self.kb, plan_path)
+        capture_path.write_text(
+            json.dumps(capture, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        receipt = execute_plan(self.kb, plan_path, ROOT)
+        self.assertEqual("committed", receipt["status"])
+        raw_text = (
+            self.kb / "raw_data/2026-07-29-meego-view.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("byteworker-record-index/v1", raw_text)
+        result = source_records(
+            self.kb,
+            source_type="meego",
+            record_id="wi-1",
+        )
+        self.assertEqual("安全审核链路", result["matches"][0]["title"])
+        self.assertEqual(
+            "workitem:wi-1",
+            result["matches"][0]["provenance"]["anchor_id"],
+        )
 
     def test_comment_only_change_updates_same_node(self):
         body, comments = self.write_source()

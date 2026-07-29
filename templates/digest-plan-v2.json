@@ -1,0 +1,33 @@
+{
+  "schema_version": "digest-plan/v2",
+  "source_bundle": "<system_temporary_source_bundle_v2.json>",
+  "raw": {
+    "raw_id": "raw-<YYYY-MM-DD>-<slug>",
+    "path": "raw_data/<YYYY-MM-DD>-<slug>.md",
+    "excluded_dependencies": [],
+    "extra_frontmatter": {}
+  },
+  "provenance": {
+    "enrichment": "live"
+  },
+  "nodes": [
+    {
+      "op": "create",
+      "path": "knowledge/readings/reading-<slug>.md",
+      "candidate": "<system_temporary_complete_candidate_path>",
+      "primary_source": "raw-<YYYY-MM-DD>-<slug>",
+      "evidence": [
+        {
+          "id": "E1",
+          "anchor_id": "<anchor_id_from_source_bundle>"
+        }
+      ]
+    }
+  ],
+  "journal": {
+    "summary": "《<source_title>》"
+  },
+  "commit": {
+    "message": "digest <short source title>"
+  }
+}

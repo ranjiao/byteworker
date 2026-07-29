@@ -18,6 +18,7 @@ from source_profiles import (  # noqa: E402
     list_profiles,
     load_profile,
     profile_relative_path,
+    profile_revision,
     save_profile,
     validate_profile,
 )
@@ -63,6 +64,52 @@ def profile(
         "routine": {
             "enabled": bool(routine),
             "cadence": routine or None,
+        },
+    }
+
+
+def meego_profile(*, routine="daily"):
+    return {
+        "schema_version": "byteworker-source-profile/v2",
+        "source_type": "meego",
+        "source_uid": "meego:safety:view-42",
+        "source_url": "https://project.feishu.cn/safety/view/view-42",
+        "title": "安全需求视图",
+        "selector": {
+            "project_key": "safety",
+            "view_id": "view-42",
+        },
+        "capture_policy": {
+            "fields": ["updated_at", "name", "status"],
+            "max_items": 500,
+        },
+        "routine": {
+            "enabled": bool(routine),
+            "cadence": routine or None,
+        },
+    }
+
+
+def feishu_doc_profile(*, period=None, comments=True, whiteboards=True):
+    capture_policy = {
+        "comments": comments,
+        "whiteboards": whiteboards,
+    }
+    if period is not None:
+        capture_policy["period"] = period
+    return {
+        "schema_version": "byteworker-source-profile/v2",
+        "source_type": "feishu_doc",
+        "source_uid": "docx123",
+        "source_url": "https://bytedance.larkoffice.com/docx/docx123",
+        "title": "滚动周报",
+        "selector": {
+            "document_id": "docx123",
+        },
+        "capture_policy": capture_policy,
+        "routine": {
+            "enabled": True,
+            "cadence": "weekly",
         },
     }
 
@@ -156,6 +203,126 @@ class SourceProfileTests(unittest.TestCase):
             caught.exception.code,
         )
 
+    def test_v2_meego_profile_is_strict_and_canonical(self):
+        value = meego_profile()
+        normalized = validate_profile(value)
+        self.assertEqual("byteworker-source-profile/v2", normalized["schema_version"])
+        self.assertEqual(
+            ["name", "status", "updated_at"],
+            normalized["capture_policy"]["fields"],
+        )
+        reordered = meego_profile()
+        reordered["capture_policy"]["fields"] = ["status", "updated_at", "name"]
+        self.assertEqual(
+            profile_revision(value),
+            profile_revision(reordered),
+        )
+
+        invalid = meego_profile()
+        invalid["capture_policy"]["extra"] = True
+        with self.assertRaises(SourceProfileError) as caught:
+            validate_profile(invalid)
+        self.assertEqual("SOURCE_PROFILE_INVALID", caught.exception.code)
+
+        invalid = meego_profile()
+        invalid["capture_policy"]["fields"] = ["name", "name"]
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = meego_profile()
+        invalid["source_uid"] = "meego:safety:another-view"
+        with self.assertRaises(SourceProfileError) as caught:
+            validate_profile(invalid)
+        self.assertEqual(
+            "SOURCE_PROFILE_IDENTITY_MISMATCH",
+            caught.exception.code,
+        )
+
+    def test_v2_feishu_doc_has_optional_period_and_boolean_policies(self):
+        normalized = validate_profile(feishu_doc_profile())
+        self.assertEqual("", normalized["capture_policy"]["period"])
+        self.assertTrue(normalized["capture_policy"]["comments"])
+        self.assertTrue(normalized["capture_policy"]["whiteboards"])
+
+        explicit = validate_profile(feishu_doc_profile(period=" 2026-W31 "))
+        self.assertEqual("2026-W31", explicit["capture_policy"]["period"])
+
+        invalid = feishu_doc_profile()
+        invalid["capture_policy"]["comments"] = "all"
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_doc_profile()
+        invalid["selector"]["document_id"] = "docx-other"
+        with self.assertRaises(SourceProfileError) as caught:
+            validate_profile(invalid)
+        self.assertEqual(
+            "SOURCE_PROFILE_IDENTITY_MISMATCH",
+            caught.exception.code,
+        )
+
+    def test_v2_rejects_unknown_types_fields_and_nested_credentials(self):
+        invalid = meego_profile()
+        invalid["source_type"] = "feishu_base"
+        with self.assertRaises(SourceProfileError) as caught:
+            validate_profile(invalid)
+        self.assertEqual("SOURCE_PROFILE_UNSUPPORTED", caught.exception.code)
+
+        invalid = meego_profile()
+        invalid["unexpected"] = "value"
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = meego_profile()
+        invalid["capture_policy"]["nested"] = {
+            "settings": [{"client_secret": "must-not-be-saved"}]
+        }
+        with self.assertRaises(SourceProfileError) as caught:
+            validate_profile(invalid)
+        self.assertEqual(
+            "SOURCE_PROFILE_CONTAINS_CREDENTIAL",
+            caught.exception.code,
+        )
+
+    def test_load_and_list_support_v1_and_v2_stable_paths(self):
+        values = [
+            validate_profile(profile()),
+            validate_profile(meego_profile()),
+            validate_profile(feishu_doc_profile()),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = Path(temporary)
+            for value in values:
+                path = kb / profile_relative_path(value)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(value, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            self.assertEqual(
+                {value["source_uid"] for value in values},
+                {value["source_uid"] for value in list_profiles(kb)},
+            )
+            for value in values:
+                self.assertEqual(
+                    value,
+                    load_profile(kb, value["source_uid"]),
+                )
+                self.assertEqual(
+                    profile_relative_path(value),
+                    profile_relative_path(load_profile(kb, value["source_uid"])),
+                )
+            self.assertEqual(
+                ["docx123"],
+                [
+                    value["source_uid"]
+                    for value in list_profiles(kb, source_type="feishu_doc")
+                ],
+            )
+            with self.assertRaises(SourceProfileError) as caught:
+                list_profiles(kb, source_type="unknown")
+            self.assertEqual("SOURCE_PROFILE_UNSUPPORTED", caught.exception.code)
+
     def test_save_profile_commits_only_kb_configuration(self):
         with tempfile.TemporaryDirectory() as temporary:
             kb = Path(temporary)
@@ -206,6 +373,43 @@ class SourceProfileTests(unittest.TestCase):
             )
             saved = json.loads((kb / receipt["profile_path"]).read_text())
             self.assertNotIn("token", json.dumps(saved))
+
+    def test_save_profile_supports_v2(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = Path(temporary)
+            (kb / "knowledge").mkdir()
+            (kb / "raw_data").mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=kb, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.test"],
+                cwd=kb,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=kb,
+                check=True,
+            )
+            (kb / "INDEX.md").write_text("# initial\n", encoding="utf-8")
+            subprocess.run(["git", "add", "INDEX.md"], cwd=kb, check=True)
+            subprocess.run(["git", "commit", "-qm", "init"], cwd=kb, check=True)
+
+            value = meego_profile()
+            receipt = save_profile(
+                kb,
+                value,
+                skill_root=ROOT,
+                now=datetime(2026, 7, 29, 11, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+            self.assertEqual("committed", receipt["status"])
+            self.assertEqual(
+                validate_profile(value),
+                load_profile(kb, value["source_uid"]),
+            )
+            self.assertEqual(
+                profile_revision(value),
+                receipt["profile_revision"],
+            )
 
 
 if __name__ == "__main__":
