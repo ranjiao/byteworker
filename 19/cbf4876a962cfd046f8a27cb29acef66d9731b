@@ -1,0 +1,23 @@
+README.md
+  s_450f537c53b10c::t_0c4e41b35e53cd 123
+tests/test_bin_readme_contract.py
+  s_450f537c53b10c::t_80153238439068 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "19cbf4876a962cfd046f8a27cb29acef66d9731b",
+  "prompts": {},
+  "sessions": {
+    "s_450f537c53b10c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabe5-b08a-7fa1-8288-ffcbe0946d34",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
