@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -1438,6 +1439,7 @@ def capture_base(
     view_id: str = "",
     fields: Sequence[str],
     max_items: int = DEFAULT_MAX_ITEMS,
+    page_size: int = 200,
 ) -> dict[str, Any]:
     fields = _normalized_fields(fields)
     if not fields:
@@ -1497,7 +1499,7 @@ def capture_base(
             "view_id": coordinates["view_id"],
             "field_id": fields,
         },
-        limit=200,
+        limit=page_size,
         max_items=max_items,
     )
     sanitized_records, removed_sensitive_parameters = _sanitize_source_value(records)
@@ -2612,7 +2614,7 @@ def read_capture(path: Path) -> Mapping[str, Any]:
     return value
 
 
-def write_capture(path: Path, capture: Mapping[str, Any], *, skill_root: Path) -> None:
+def validate_capture_output_path(path: Path, *, skill_root: Path) -> Path:
     resolved = path.expanduser().resolve()
     root = skill_root.resolve()
     if resolved == root or root in resolved.parents:
@@ -2621,10 +2623,14 @@ def write_capture(path: Path, capture: Mapping[str, Any], *, skill_root: Path) -
             "业务快照不得写入 byteworker skill 仓库",
             hint="使用系统临时目录或知识库数据目录。",
         )
-    resolved.parent.mkdir(parents=True, exist_ok=True)
+    return resolved
+
+
+def _stage_capture(path: Path, capture: Mapping[str, Any]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     fd, raw_temporary = tempfile.mkstemp(
-        dir=resolved.parent,
-        prefix=f".{resolved.name}.",
+        dir=path.parent,
+        prefix=f".{path.name}.",
         suffix=".tmp",
     )
     temporary = Path(raw_temporary)
@@ -2633,7 +2639,71 @@ def write_capture(path: Path, capture: Mapping[str, Any], *, skill_root: Path) -
             stream.write(json.dumps(capture, ensure_ascii=False, indent=2) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
+        return temporary
+    except Exception:
+        if temporary.exists():
+            temporary.unlink()
+        raise
+
+
+def write_capture(path: Path, capture: Mapping[str, Any], *, skill_root: Path) -> None:
+    resolved = validate_capture_output_path(path, skill_root=skill_root)
+    temporary = _stage_capture(resolved, capture)
+    try:
         os.replace(temporary, resolved)
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def write_capture_pair(
+    first_path: Path,
+    first_capture: Mapping[str, Any],
+    second_path: Path,
+    second_capture: Mapping[str, Any],
+    *,
+    skill_root: Path,
+) -> None:
+    """Stage both outputs before replacing either; roll back the first on error."""
+
+    first = validate_capture_output_path(first_path, skill_root=skill_root)
+    second = validate_capture_output_path(second_path, skill_root=skill_root)
+    if first == second:
+        raise SourceCaptureError(
+            "SOURCE_OUTPUT_PATH_CONFLICT",
+            "--out 与 --bundle-out 必须指向不同文件",
+        )
+
+    first_temporary = _stage_capture(first, first_capture)
+    second_temporary: Path | None = None
+    first_backup: Path | None = None
+    first_existed = first.exists()
+    try:
+        second_temporary = _stage_capture(second, second_capture)
+        if first_existed:
+            fd, raw_backup = tempfile.mkstemp(
+                dir=first.parent,
+                prefix=f".{first.name}.",
+                suffix=".backup",
+            )
+            os.close(fd)
+            first_backup = Path(raw_backup)
+            shutil.copyfile(first, first_backup)
+
+        os.replace(first_temporary, first)
+        try:
+            os.replace(second_temporary, second)
+        except Exception:
+            if first_backup is not None:
+                os.replace(first_backup, first)
+            elif first.exists():
+                first.unlink()
+            raise
+    finally:
+        for temporary in (
+            first_temporary,
+            second_temporary,
+            first_backup,
+        ):
+            if temporary is not None and temporary.exists():
+                temporary.unlink()

@@ -31,6 +31,7 @@ from source_profiles import (
     profile_revision,
     save_profile,
 )
+from source_chat_operations import FeishuChatOperations
 
 
 class SourceOperationAdapter(Protocol):
@@ -188,10 +189,7 @@ class BaseOperations:
                 view_id=args.view_id,
             )
         if args.source_uid:
-            raise SourceCaptureError(
-                "SOURCE_PROFILE_UNSUPPORTED",
-                "当前 profile capture 暂不支持 source_type=feishu_base",
-            )
+            return self._capture_profile(args, runner=runner)
         if args.kb:
             raise SourceCaptureError(
                 "SOURCE_ARGUMENT_INVALID",
@@ -206,6 +204,61 @@ class BaseOperations:
             fields=args.field,
             max_items=args.max_items,
         )
+
+    def _capture_profile(
+        self,
+        args: argparse.Namespace,
+        *,
+        runner: CommandRunner,
+    ) -> dict[str, Any]:
+        if not args.kb:
+            raise SourceCaptureError(
+                "SOURCE_ARGUMENT_INVALID",
+                "--source-uid 必须同时提供 --kb",
+            )
+        if (
+            args.url
+            or args.project_key
+            or args.base_token
+            or args.table_id
+            or args.view_id
+            or args.field
+            or args.max_items != DEFAULT_MAX_ITEMS
+        ):
+            raise SourceCaptureError(
+                "SOURCE_ARGUMENT_INVALID",
+                "按 --source-uid 抓取时不得用 CLI 覆盖 URL、坐标、字段或行数",
+                hint="需要改变口径时保存新的 source profile revision。",
+            )
+        profile = load_profile(Path(args.kb).expanduser(), args.source_uid)
+        if profile["source_type"] != self.source_type:
+            raise SourceCaptureError(
+                "SOURCE_PROFILE_IDENTITY_MISMATCH",
+                "source profile 的 source_type 与 --source-type 不一致",
+            )
+        selector = profile["selector"]
+        policy = profile["capture_policy"]
+        result = capture_base(
+            runner=runner,
+            url=profile["source_url"],
+            base_token=selector["app_token"],
+            table_id=selector["table_id"],
+            view_id=selector["view_id"],
+            fields=policy["fields"],
+            max_items=policy["max_records"],
+            page_size=policy["page_size"],
+        )
+        if result["source_uid"] != profile["source_uid"]:
+            raise SourceCaptureError(
+                "SOURCE_PROFILE_IDENTITY_MISMATCH",
+                "capture 结果与 source profile 的 source_uid 不一致",
+            )
+        result["title"] = profile["title"]
+        result["source_profile"] = {
+            "path": str(profile_relative_path(profile)),
+            "revision": profile_revision(profile),
+        }
+        return result
 
 
 class AeolusOperations:
@@ -299,7 +352,12 @@ class AeolusOperations:
 
 _ADAPTERS: dict[str, SourceOperationAdapter] = {
     adapter.source_type: adapter
-    for adapter in (MeegoOperations(), BaseOperations(), AeolusOperations())
+    for adapter in (
+        MeegoOperations(),
+        BaseOperations(),
+        AeolusOperations(),
+        FeishuChatOperations(),
+    )
 }
 
 

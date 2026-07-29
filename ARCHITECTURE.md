@@ -165,9 +165,12 @@ sequenceDiagram
     Agent->>Source: auth-status / inspect
     Source-->>Agent: 授权、坐标、字段、规模
     Agent->>Source: capture 完整原文或完整快照
-    Source-->>Agent: components + coverage + anchors
-    Agent->>Bundle: adapter 构造并严格校验 Bundle
+    Source-->>Agent: provider 原始材料
+    Agent->>Source: source bundle 或 capture --bundle-out
+    Source->>Bundle: adapter 构造并严格校验
     Bundle->>Txn: preflight
+    Txn->>Source: provider conformance 复验
+    Source-->>Txn: Bundle 与所指 capture 一致
     Txn->>KB: 扫描同源 raw 和 digest_key
 
     alt 完全相同 payload
@@ -395,6 +398,7 @@ flowchart TB
         DT["lib/digest_txn.py"]
         KQ["lib/kb_query.py"]
         SO["lib/source_operations.py"]
+        SCO["lib/source_chat_operations.py"]
         DOC["lib/doctor.py"]
         DS["lib/doctor_sources.py<br/>来源契约只读审计"]
         PB["lib/provenance_backfill.py"]
@@ -405,6 +409,7 @@ flowchart TB
         SRC["lib/sources/<br/>Bundle / Adapter / Registry / Projection"]
         PR["lib/provenance.py"]
         SP["lib/source_profiles.py"]
+        SPP["lib/source_profile_providers.py"]
         SS["lib/snapshot_store.py"]
         FM["lib/frontmatter.py"]
         CO["lib/constants.py"]
@@ -428,6 +433,7 @@ flowchart TB
     DIRECT --> DT
     DIRECT --> KQ
     DIRECT --> SO
+    SO --> SCO
     DIRECT --> DOC
     DIRECT --> PB
     DT --> SRC
@@ -436,6 +442,7 @@ flowchart TB
     KQ --> SRC
     KQ --> PR
     SO --> SP
+    SP --> SPP
     SO --> SC
     SS --> SC
     SC --> AE
@@ -466,7 +473,7 @@ flowchart TB
 | `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI | `byteworker-cli/v1` envelope |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
-| `bin/source.py` | auth / inspect / capture / profile / diff 参数入口 | capture、profile receipt、ChangeSet |
+| `bin/source.py` | capabilities / auth / inspect / capture / bundle / profile / diff 参数入口 | capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/kb-query.py` | search / evidence / source-record | 有覆盖信息的有限候选 |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
 | `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
@@ -481,10 +488,14 @@ Source 子系统允许 provider 内部异构，但交给事务层的边界必须
 ```mermaid
 flowchart LR
     CLI["bin/source.py"]
-    OPS["lib/source_operations.py<br/>Provider operation registry"]
-    CAP["lib/source_capture.py<br/>auth / inspect / capture 兼容实现"]
+    OPS["lib/source_operations.py<br/>结构化 operation registry"]
+    CHATOPS["lib/source_chat_operations.py<br/>群聊 Profile + transport 编排"]
+    CAP["lib/source_capture.py<br/>结构化 auth / inspect / capture 兼容实现"]
+    HOST["宿主抓取 / pull-chat.sh<br/>文档、妙记、Web、本地、群聊"]
     PROF["lib/source_profiles.py<br/>CaptureProfile 生命周期"]
+    PROFV["lib/source_profile_providers.py<br/>provider v2 validator"]
     ADP["lib/sources/adapters/*<br/>Provider -> Bundle"]
+    CONF["adapters/conformance.py<br/>重载后的 provider 一致性复验"]
     MODEL["lib/sources/models.py<br/>严格 SourceBundle schema"]
     REG["lib/sources/registry.py<br/>Bundle adapter registry"]
     BRIDGE["lib/sources/transaction_bridge.py<br/>迁移期 legacy source 物化"]
@@ -494,12 +505,19 @@ flowchart LR
     QUERY["lib/kb_query.py"]
 
     CLI --> OPS
+    OPS --> CHATOPS
     OPS --> CAP
     OPS --> PROF
+    CHATOPS --> HOST
     PROF --> CAP
-    CAP -->|"capture envelope，由 Agent 交接"| ADP
+    PROF --> PROFV
+    CAP -->|"capture envelope"| ADP
+    HOST -->|"已抓取 artifacts"| ADP
+    CLI -->|"bundle request / bundle-out"| REG
     REG --> ADP
     ADP --> MODEL
+    REG --> CONF
+    CONF --> ADP
     TXN --> MODEL
     TXN --> REG
     TXN --> BRIDGE
@@ -508,12 +526,29 @@ flowchart LR
     QUERY --> PROJ
 ```
 
-当前真实边界：
+当前真实能力按三个正交集合声明，调用方通过 `source capabilities` 查询，不能把“已支持
+Bundle”误认为“也必须有同形态网络 capture”：
 
-- Bundle adapter 已注册 `meego` 和 `feishu_doc`。
-- source operation adapter 已覆盖 `meego`、`feishu_base`、`aeolus`。
-- Aeolus profile 仍是 `byteworker-source-profile/v1`；Meego/飞书文档使用 v2。
-- `source_capture.py` 暂时是兼容实现，不应继续吸收 transaction/query/CLI 分支。
+| 能力 | 当前来源 | 边界 |
+|---|---|---|
+| operation | `meego`、`feishu_base`、`aeolus`、`feishu_chat` | 前三类提供结构化 auth/inspect/capture；群聊用 Profile 包装 `pull-chat.sh` 完整分页 |
+| Profile | `meego`、`feishu_base`、`feishu_chat`、`feishu_doc`；兼容 `aeolus` v1 | Base/Chat/Doc/Meego 使用 v2；Aeolus 保留 v1 |
+| Bundle adapter | `meego`、`feishu_base`、`aeolus`、`feishu_chat`、`feishu_doc`、`feishu_minutes`、`web`、`local_md` | 所有单来源统一输出 `SourceBundle v2` |
+
+- Meego/Base/Aeolus 可用 `capture --bundle-out` 从完整 capture 同步产生 Bundle。
+- `capture --bundle-out` 必须先在内存中完成 Bundle 校验，再预检并暂存两个不同的输出路径；
+  第二个替换失败时恢复第一个文件，且拒绝 `--out` 与 `--bundle-out` 指向同一路径。通用
+  `bundle request` 只接受 `capture_path`，拒绝同时存在的内联 capture，避免两份内容真相。
+- 群聊的 Profile capture 直接输出 Bundle，并把逐字稿和 locator artifact 保存在 Bundle
+  旁的业务临时目录。
+- 群聊 operation 单独位于 `lib/source_chat_operations.py`；它复用 `pull-chat.sh`，避免把
+  高水位、transcript/locator 编排继续堆进结构化 `source_operations.py`。
+- 飞书文档、妙记、Web 和本地文件由宿主能力先抓取原始 artifact，再用
+  `source bundle --source-type ... --request ... --out ...` 进入同一边界。
+- `feishu_meeting` 是日历、妙记、投屏文档组成的复合编排，不注册伪造的单来源 adapter；
+  各物件先各自产生 Bundle，再由 meeting/batch 流程组合。
+- `source_capture.py` 暂时是结构化来源兼容实现，不应继续吸收
+  transaction/query/CLI 分支。
 
 #### 4.3.1 最终领域模型
 
@@ -530,8 +565,14 @@ Source 子系统统一的是交接契约，不是 provider 的内容结构：
 | `DigestPlan` | Agent 对节点、evidence、journal 和 commit 的完整写入决策 | v2 只引用 Bundle，不复制 source identity 或 anchors |
 
 `SourceBundle.components` 保留 provider 自身形态：文档可以是 body/comments/whiteboard，
-结构化来源可以是 canonical records snapshot。component 使用 `verbatim` 或
+群聊和妙记是 transcript，Web/本地资料是 body，结构化来源是 canonical records snapshot。component 使用 `verbatim` 或
 `canonical-json` 模式；不为了“统一”而把飞书文档、Meego、Base、风神压成同一个内容 AST。
+
+通用 schema 校验只证明 envelope 合法，不证明字段仍然忠于 provider。Bundle 从磁盘重载并
+进入事务前，registry 必须调用 adapter 的 `validate_bundle`：结构化来源从唯一的
+`snapshot` component 重新构造期望 Bundle，并复验 identity、coordinates、coverage、
+anchors、record index 和 `snapshot_hash`。事务派生的 `payload_hash` 单独由事务复算，不参与
+provider 一致性比较。任何差异都必须在写 raw 之前 fail closed。
 
 Hash 语义必须区分：
 
@@ -544,8 +585,13 @@ Hash 语义必须区分：
 
 #### 4.3.2 Profile、快照与查询的最终规则
 
-- v2 Profile 的公共生命周期由 `lib/source_profiles.py` 管理，provider adapter 严格校验
+- v2 Profile 的公共生命周期由 `lib/source_profiles.py` 管理，当前覆盖 Meego、Base、
+  群聊和飞书文档；provider validator 严格校验
   selector 和 capture policy；未知字段、未知 provider、凭据字段全部拒绝。
+- Base/群聊等新增 provider 规则放在 `lib/source_profile_providers.py`，避免 Profile 的
+  持久化、revision 和 Git 生命周期继续吸收 provider 分支。
+- 群聊的一次性显式窗口与 routine 增量 Profile 分开：启用 routine 必须使用
+  `since_last=true`；高水位来自已提交 raw，Profile 只保存策略和 overlap。
 - routine 优先且只按已注册 Profile 重放配置；没有 Profile 的历史来源才允许兼容读取 raw 上的
   routine。已有 Profile 时禁止从最近 raw 猜测或拼接抓取参数。
 - `SnapshotStore` 默认选择同一 `source_type + source_uid` 最新的已提交完整 raw，也支持
@@ -623,8 +669,8 @@ flowchart LR
 
 doctor 不要求临时 `SourceBundle` 或 `DigestPlan` 在事务完成后继续存在，而是检查其落盘结果：
 Profile schema/path、raw component 元数据和 digest key、Profile 绑定、record index、provenance
-闭环。历史 routine 缺 Profile 按来源能力分级：Meego/Aeolus 缺失为 error，飞书文档兼容 raw
-但提示 warning，尚无 Profile schema 的群聊/Base 只记兼容 info。任何 Profile 创建或迁移都
+闭环。历史 routine 缺 Profile 按来源能力分级：Meego/Base/Aeolus/群聊缺失为 error，
+飞书文档兼容 raw 但提示 warning；尚无 Profile schema 的来源才记兼容 info。任何 Profile 创建或迁移都
 包含 selector/capture policy 的语义判断，因此不属于 `doctor fix` 或 post-update auto-fix。
 
 ## 6. 失败边界与安全策略
@@ -666,7 +712,9 @@ hash 不一致、重复 ID、目标文件并发变化和 KB remote 都必须 fai
 flowchart TD
     N["新增 provider"]
     P["定义 SourceRef、selector 和 capture policy"]
-    O["实现 auth / inspect / capture operation adapter"]
+    RPT{"是否确定性、可重放或定期读取？"}
+    O["实现 auth / inspect / capture operation adapter<br/>并定义 Profile"]
+    H["声明宿主抓取边界<br/>输入已抓取 artifact"]
     B["实现 Bundle adapter + capabilities"]
     C["输出 components / coverage / anchors<br/>collection 可输出 record_index"]
     T["增加 adapter / bundle / profile / E2E 测试"]
@@ -675,7 +723,10 @@ flowchart TD
     R["架构错误：退回 adapter / compatibility 层"]
     OK["允许合入"]
 
-    N --> P --> O --> B --> C --> T --> D --> X
+    N --> P --> RPT
+    RPT -->|"是"| O --> B
+    RPT -->|"否"| H --> B
+    B --> C --> T --> D --> X
     X -->|"是"| R
     X -->|"否"| OK
 ```
@@ -687,6 +738,11 @@ flowchart TD
 - `lib/source_profiles.py` 的 provider validator；
 - 对应 `references/digest-<provider>.md`；
 - tests 和本文件。
+
+“统一”要求所有单来源最终进入 Bundle registry，但不要求所有来源拥有相同 transport：
+结构化保存视图、群聊等确定性例行来源进入 operation/Profile；浏览器正文、妙记宿主产物等
+先由宿主能力抓取，再由薄 adapter 校验。只有真实可重放的 selector/capture policy 才能写
+Profile，不能为了矩阵好看而保存不可执行配置。
 
 通常不允许修改：
 
@@ -784,13 +840,13 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | 层 | 最低验证范围 |
 |---|---|
 | Adapter / operation | auth、inspect、capture、完整分页、顺序稳定、URL 脱敏、稳定 ID |
-| Bundle | schema、credential/path 防护、component、anchor、coverage、canonical hash |
+| Bundle | schema、credential/path 防护、component、anchor、coverage、canonical hash、重载后的 provider 派生一致性 |
 | Profile | v1/v2 兼容、revision、unknown field、credential rejection |
 | SnapshotStore | latest/history、坏 raw fail closed、source mismatch、baseline/diff |
 | Transaction | plan v1/v2、no-op、新版本、rollback、并发、provenance、raw rendering |
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
 | Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
-| End-to-end | 飞书文档和 Meego 各一条 capture → commit → query/diff 闭环 |
+| End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle，以及 Bundle → commit → query/diff 闭环 |
 
 `tests/test_architecture_contract.py` 固化文档入口和核心模块清单；
 `tests/test_source_architecture.py` 固化 core 不含 provider 分支以及本节最终契约。
@@ -808,7 +864,9 @@ byteworker/
 ├── bin/                  # CLI facade、直接入口和 shell 集成
 ├── lib/                  # 确定性 Python 实现
 │   ├── doctor_sources.py # Profile/routine/raw 来源契约只读审计
-│   └── sources/          # SourceBundle、adapter、registry、兼容投影
+│   ├── source_chat_operations.py # 群聊 Profile capture 与高水位 transport 编排
+│   ├── source_profile_providers.py # v2 provider selector/capture-policy 校验
+│   └── sources/          # SourceBundle、adapter、provider conformance、registry、兼容投影
 ├── viewer/               # 纯前端只读知识库浏览器
 └── tests/                # 单元、集成和架构防漂移契约
 ```

@@ -32,7 +32,8 @@ python3 bin/byteworker-cli.py source inspect \
 python3 bin/byteworker-cli.py source capture \
   --source-type meego --url "<Meego 保存视图 URL>" \
   --field name --field status --field owner --field updated_at \
-  --out "<系统临时目录>/meego-capture.json"
+  --out "<系统临时目录>/meego-capture.json" \
+  --bundle-out "<系统临时目录>/meego-bundle.json"
 
 # 首次确认后，在系统临时目录准备 byteworker-source-profile/v2 并保存
 python3 bin/byteworker-cli.py source profile-save \
@@ -43,7 +44,8 @@ python3 bin/byteworker-cli.py source profile-save \
 python3 bin/byteworker-cli.py source capture \
   --source-type meego --kb "<知识库目录>" \
   --source-uid "meego:<project_key>:<view_id>" \
-  --out "<系统临时目录>/meego-capture.json"
+  --out "<系统临时目录>/meego-capture.json" \
+  --bundle-out "<系统临时目录>/meego-bundle.json"
 
 python3 bin/byteworker-cli.py source diff \
   --kb "<知识库目录>" \

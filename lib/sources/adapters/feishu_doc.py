@@ -38,7 +38,7 @@ def build_feishu_document_bundle(
     title: str,
     revision: str,
     body: Mapping[str, Any],
-    comments: Mapping[str, Any],
+    comments: Mapping[str, Any] | None = None,
     whiteboards: Sequence[Mapping[str, Any]] = (),
     anchors: Sequence[Mapping[str, Any]] = (),
     provider_metadata: Mapping[str, Any] | None = None,
@@ -53,18 +53,25 @@ def build_feishu_document_bundle(
         default_mode="verbatim",
         default_heading="文档正文",
     )
-    comments_component, comments_coverage = _component(
-        comments,
-        default_name="comments",
-        default_kind="comments",
-        default_mode="canonical-json",
-        default_heading="文档评论",
-    )
-    components = [body_component, comments_component]
-    coverage = {
-        body_component["name"]: body_coverage,
-        comments_component["name"]: comments_coverage,
-    }
+    components = [body_component]
+    coverage = {body_component["name"]: body_coverage}
+    comments_coverage = "unavailable"
+    if comments is not None:
+        comments_component, comments_coverage = _component(
+            comments,
+            default_name="comments",
+            default_kind="comments",
+            default_mode="canonical-json",
+            default_heading="文档评论",
+        )
+        if comments_coverage == "unavailable":
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_ADAPTER_INVALID",
+                "评论不可用时应省略 comments component，而不是提供伪组件",
+                path="comments.coverage",
+            )
+        components.append(comments_component)
+        coverage[comments_component["name"]] = comments_coverage
     for index, whiteboard in enumerate(whiteboards, start=1):
         component, status = _component(
             whiteboard,
@@ -197,6 +204,7 @@ def feishu_document_bundle_to_transaction_source(
 
 class FeishuDocumentAdapter:
     source_type = "feishu_doc"
+    request_builder = staticmethod(build_feishu_document_bundle)
     capabilities = Capabilities(
         component_kinds=frozenset({"body", "comments", "whiteboard"}),
         coverage_dimensions=frozenset({"body", "comments", "whiteboard"}),
@@ -204,6 +212,9 @@ class FeishuDocumentAdapter:
 
     def build_bundle(self, **kwargs: Any) -> SourceBundle:
         return build_feishu_document_bundle(**kwargs)
+
+    def validate_bundle(self, bundle: SourceBundle) -> None:
+        feishu_document_bundle_to_transaction_source(bundle)
 
     def to_transaction_source(self, bundle: SourceBundle) -> dict[str, Any]:
         return feishu_document_bundle_to_transaction_source(bundle)

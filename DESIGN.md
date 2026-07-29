@@ -45,7 +45,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `templates/` | 7 类节点骨架模板 |
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
 | `lib/sources/` | 来源适配器注册表、`SourceBundle` 契约及 provider → transaction 兼容边界；provider payload 保持异构 |
-| `bin/source.py` + `lib/source_profiles.py` + `lib/snapshot_store.py` | 结构化来源 profile 校验、KB 本地事务、按稳定 source UID 抓取及历史完整快照选择/差异；实例参数只在用户 KB |
+| `bin/source.py` + `lib/source_profiles.py` + `lib/snapshot_store.py` | 统一来源 capability、Profile、capture、Bundle 构造及历史完整快照选择/差异；实例参数只在用户 KB |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index，主 doctor 编排 INDEX/links 的确定性修复 |
@@ -63,7 +63,7 @@ byteworker 由**两个物理隔离**的部分组成。
 
 | 目录/文件 | 存什么 | 谁写 | 可变性 |
 |-----------|--------|------|--------|
-| `sources/` | 每个结构化来源一份独立 operational profile；保存坐标、选择器、筛选口径与 routine，不含凭据和数据行 | `source register` 事务写入 | 显式重配时更新 |
+| `sources/` | 每个可重放来源一份独立 operational profile；保存 selector、capture policy 与 routine，不含凭据和抓取结果 | `source register` / `source profile-save` 事务写入 | 显式重配时更新 |
 | `raw_data/` | 摄取的**逐字原文** + 溯源元数据,一次摄取一文件 | skill 写入;正文永不改写,运维 frontmatter 可更新 | 正文只增不改 |
 | `provenance/` | 每个 raw 的原始定位 sidecar:文档 block / 评论 / 消息 / 妙记片段等 | digest 事务写入;受控回填可补充 | 只随对应 raw 增补/升级 |
 | `knowledge/{people,projects,areas,orgs,events,decisions,readings}/` | 7 类节点笔记,按类型分子目录(固定 7 个,不漂移) | skill 写入/更新 | 实体可更新;记录定型 |
@@ -85,7 +85,7 @@ byteworker 由**两个物理隔离**的部分组成。
 知识库数据按「丢了能不能恢复」分两层,这是一条**硬不变量**:
 
 **真相源(truth source —— 丢失不可恢复,必须保护):**
-- `sources/` —— 结构化数据源下一次如何抓取的唯一 operational truth。一个风神
+- `sources/` —— 可重放数据源下一次如何抓取的唯一 operational truth。一个风神
   dashboard sheet 是一个独立来源，和一份飞书文档处于同等粒度；不同 sheet、report 选择、
   filter 口径和 cadence 不得共享隐式全局参数。
 - `raw_data/` —— 正文不可变、逐字;一切知识的根。frontmatter 中 `digest_status`、`digest_targets`、`routine` 等运维元数据可由 skill 更新,但不得改写原文正文。
@@ -96,15 +96,16 @@ byteworker 由**两个物理隔离**的部分组成。
 - `reports/` —— 日报 / 周报 / IM Inbox 摘要是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
 - `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
 
-### D. `sources/` — 结构化来源配置
+### D. `sources/` — 可重放来源配置
 
 `sources/<source_type>-<sha256(source_uid)>.json` 是用户 KB 的 operational truth，不得写进
 skill 仓库。profile 有两个兼容 schema：
 
 - `byteworker-source-profile/v2` 是通用结构：顶层固定为
   `source_type/source_uid/source_url/title/selector/capture_policy/routine`。当前支持
-  `meego` 与 `feishu_doc`；selector 必须与 `source_uid` 相互校验，capture policy 只保存
-  可重放的字段投影、上限、评论/白板策略和周期，不保存抓取结果。
+  `meego`、`feishu_base`、`feishu_chat` 与 `feishu_doc`；selector 必须与
+  `source_uid` 相互校验，capture policy 只保存可重放的字段投影、上限、窗口/高水位策略、
+  评论/白板策略和周期，不保存抓取结果。
 - `byteworker-source-profile/v1` 仅作为现有 `aeolus` profile 的兼容 schema，保留其
   `coordinates/capture/routine` 结构；不得把 v1 当成新增来源的通用模板。
 
@@ -112,10 +113,13 @@ skill 仓库。profile 有两个兼容 schema：
 
 - profile 不得含 JWT、token、cookie、密码等凭据，也不得含任何抓取结果；
 - `profile_revision` 是规范化 profile JSON 的 canonical SHA-256；
-- Meego/飞书文档 profile 可由 `source profile-save --kb ... --file ...` 校验并写入；风神仍由
+- Meego/Base/群聊/飞书文档 profile 可由 `source profile-save --kb ... --file ...`
+  校验并写入；风神仍由
   `source register` 在实时 inspect 后写入；
 - `source capture --kb ... --source-uid ...` 必须原样加载 profile，不接受同次 CLI 覆盖；
   变更口径必须显式保存新 profile revision 并创建 KB 本地 Git 回滚点。
+- 群聊显式 `start/end` Profile 只用于一次性窗口；`routine.enabled=true` 时必须使用
+  `since_last=true`，高水位由已提交 raw 推导，可配置非负 overlap 防边界漏读。
 
 其中 `source_type=aeolus` 的既有不变量：
 
@@ -307,10 +311,15 @@ provider metadata 和可选 record index 的唯一交接契约。`digest-plan/v1
 并生成一个本地 commit。标准事务强制 provenance；update 默认保留既有来源、证据和正文语义，
 有意删除必须在临时 plan 中显式授权并说明理由。
 
-`SourceBundle` 不定义统一正文 AST，也不要求飞书文档、Meego、Base、风神共享抓取代码结构。
-每个 adapter 自己负责 transport、分页、规范快照与 provider 校验，只需输出同一 bundle
-envelope。事务核心只处理 component bytes、hash、幂等和写入；旧 transaction source 的
+`SourceBundle` 不定义统一正文 AST，也不要求飞书文档、群聊、妙记、Web、本地资料、
+Meego、Base、风神共享抓取代码结构。
+operation adapter 或宿主工具负责 transport；Bundle adapter 负责 provider 输入、覆盖度和
+identity 校验，只需输出同一 bundle envelope。事务核心只处理 component bytes、hash、幂等和写入；旧 transaction source 的
 provider 特例集中在 `lib/sources/transaction_bridge.py`，不得重新散回 `digest_txn.py`。
+Bundle 从文件重载后还必须经 registry 调用 provider adapter 的 `validate_bundle`；Meego、
+Base、风神从唯一 records snapshot 重新派生并比较 identity、坐标、anchor、record index 与
+`snapshot_hash`，不能把通用 schema 通过当作 provider 一致。通用 bundle request 对结构化
+capture 只接受 `capture_path`，不接受与路径并存的内联副本。
 最终 Source 模块边界、领域模型和兼容删除条件见 `ARCHITECTURE.md` §4.3、§8.3。
 
 **`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行,**同一群可多次增量摄取**。

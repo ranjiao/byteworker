@@ -5,7 +5,7 @@
 # 用法:
 #   bin/pull-chat.sh --query "<群名>"   --start <ISO8601> --end <ISO8601> [--out <file>] [--locators-out <json>]
 #   bin/pull-chat.sh --chat-id <oc_xxx> --start <ISO8601> --end <ISO8601> [--out <file>] [--locators-out <json>]
-#   bin/pull-chat.sh --query "<群名>"   --since-last [--end <ISO8601>] [--out <file>] [--locators-out <json>]
+#   bin/pull-chat.sh --query "<群名>"   --since-last [--kb <知识库目录>] [--end <ISO8601>] [--out <file>] [--locators-out <json>]
 #
 # --since-last:增量摄取。群聊是持续更新的消息流,同一个群通常反复多次摄取;
 #   该参数让脚本自动「从上次摄取处续拉」—— 读 ../.kbconfig 定位知识库数据目录,
@@ -21,9 +21,11 @@
 # 退出码:0 成功 | 2 群未找到 | 3 匹配到多个群(需改用 --chat-id) | 4 --since-last 无历史窗口 | 5 拉取被页数上限截断 | 1 其他错误
 set -uo pipefail
 
-QUERY=""; CHAT_ID=""; START=""; END=""; OUT=""; LOCATORS_OUT=""; SINCE_LAST=""
+QUERY=""; CHAT_ID=""; START=""; END=""; OUT=""; LOCATORS_OUT=""; SINCE_LAST=""; KBDIR=""
+PAGE_SIZE=50; OVERLAP_SECONDS=0
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 KBCONFIG="$SELF_DIR/../.kbconfig"
+LARK_CLI_BIN="${BYTEWORKER_LARK_CLI_BIN:-lark-cli}"
 usage() { sed -n '2,21p' "$0"; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,6 +33,9 @@ while [ $# -gt 0 ]; do
     --chat-id)    CHAT_ID="${2:-}"; shift 2;;
     --start)      START="${2:-}"; shift 2;;
     --end)        END="${2:-}"; shift 2;;
+    --kb)         KBDIR="${2:-}"; shift 2;;
+    --page-size)  PAGE_SIZE="${2:-}"; shift 2;;
+    --overlap-seconds) OVERLAP_SECONDS="${2:-}"; shift 2;;
     --out)        OUT="${2:-}"; shift 2;;
     --locators-out) LOCATORS_OUT="${2:-}"; shift 2;;
     --since-last) SINCE_LAST=1; shift;;
@@ -39,20 +44,28 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+case "$PAGE_SIZE" in
+  ''|*[!0-9]*) echo "错误:--page-size 必须是正整数" >&2; exit 1;;
+esac
+[ "$PAGE_SIZE" -gt 0 ] || { echo "错误:--page-size 必须是正整数" >&2; exit 1; }
+case "$OVERLAP_SECONDS" in
+  ''|*[!0-9]*) echo "错误:--overlap-seconds 必须是非负整数" >&2; exit 1;;
+esac
+
 if [ -z "$QUERY" ] && [ -z "$CHAT_ID" ]; then
   echo "错误:--query(群名)或 --chat-id(oc_xxx)二选一" >&2; exit 1
 fi
 if [ -z "$SINCE_LAST" ] && { [ -z "$START" ] || [ -z "$END" ]; }; then
   echo "错误:--start 与 --end 必填(ISO8601,如 2026-04-21T00:00:00+08:00);或用 --since-last 增量摄取" >&2; exit 1
 fi
-command -v lark-cli >/dev/null 2>&1 || { echo "错误:未找到 lark-cli" >&2; exit 1; }
+command -v "$LARK_CLI_BIN" >/dev/null 2>&1 || { echo "错误:未找到 lark-cli" >&2; exit 1; }
 command -v jq      >/dev/null 2>&1 || { echo "错误:未找到 jq" >&2; exit 1; }
 
 CHAT_NAME=""
 
 # 1. 按群名定位 chat_id（已给 --chat-id 则跳过）
 if [ -z "$CHAT_ID" ]; then
-  SRCH=$(lark-cli im +chat-search --query "$QUERY" 2>&1 || true)
+  SRCH=$("$LARK_CLI_BIN" im +chat-search --query "$QUERY" 2>&1 || true)
   if ! echo "$SRCH" | jq -e '.ok == true' >/dev/null 2>&1; then
     echo "错误:chat-search 失败(可能未登录,试 lark-cli auth login):" >&2
     echo "$SRCH" | head -c 400 >&2; echo >&2; exit 1
@@ -76,7 +89,9 @@ if [ -n "$SINCE_LAST" ]; then
   MODE="since-last"
   [ -z "$END" ] && END=$(date "+%Y-%m-%dT%H:%M:%S+08:00")
   if [ -z "$START" ]; then
-    KBDIR=$(head -n1 "$KBCONFIG" 2>/dev/null | tr -d '[:space:]')
+    if [ -z "$KBDIR" ]; then
+      KBDIR=$(head -n1 "$KBCONFIG" 2>/dev/null | tr -d '[:space:]')
+    fi
     LAST_END=""
     if [ -n "$KBDIR" ] && [ -d "$KBDIR/raw_data" ]; then
       for f in "$KBDIR"/raw_data/*.md; do
@@ -94,6 +109,19 @@ if [ -n "$SINCE_LAST" ]; then
       exit 4
     fi
     START="$LAST_END"
+    if [ "$OVERLAP_SECONDS" -gt 0 ]; then
+      START=$(python3 - "$START" "$OVERLAP_SECONDS" <<'PY'
+from datetime import datetime, timedelta
+import sys
+
+value = sys.argv[1]
+parsed = datetime.fromisoformat(
+    value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
+)
+print((parsed - timedelta(seconds=int(sys.argv[2]))).isoformat())
+PY
+)
+    fi
   fi
 fi
 
@@ -112,11 +140,11 @@ MAX_PAGES="${BYTEWORKER_CHAT_MAX_PAGES:-60}"
 while :; do
   PAGE=$((PAGE+1))
   if [ -z "$TOKEN" ]; then
-    lark-cli im +chat-messages-list --chat-id "$CHAT_ID" --start "$START" --end "$END" \
-      --sort asc --page-size 50 >"$TMP" 2>"$TMPERR" || true
+    "$LARK_CLI_BIN" im +chat-messages-list --chat-id "$CHAT_ID" --start "$START" --end "$END" \
+      --sort asc --page-size "$PAGE_SIZE" >"$TMP" 2>"$TMPERR" || true
   else
-    lark-cli im +chat-messages-list --chat-id "$CHAT_ID" --start "$START" --end "$END" \
-      --sort asc --page-size 50 --page-token "$TOKEN" >"$TMP" 2>"$TMPERR" || true
+    "$LARK_CLI_BIN" im +chat-messages-list --chat-id "$CHAT_ID" --start "$START" --end "$END" \
+      --sort asc --page-size "$PAGE_SIZE" --page-token "$TOKEN" >"$TMP" 2>"$TMPERR" || true
   fi
   if ! jq -e '.ok == true' "$TMP" >/dev/null 2>&1; then
     echo "错误:chat-messages-list 第 $PAGE 页失败:" >&2
@@ -181,6 +209,8 @@ echo "pages=$PAGE"
 echo "truncated=$TRUNCATED"
 echo "window=$START .. $END"
 echo "mode=$MODE"
+echo "page_size=$PAGE_SIZE"
+echo "overlap_seconds=$OVERLAP_SECONDS"
 echo "transcript=$OUT"
 echo "locators=$LOCATORS_OUT"
 if [ "$TRUNCATED" -eq 1 ]; then

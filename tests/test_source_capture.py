@@ -3,6 +3,7 @@ import sys
 import tempfile
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,7 @@ from source_capture import (  # noqa: E402
     inspect_meego,
     meego_auth_status,
     write_capture,
+    write_capture_pair,
 )
 
 
@@ -905,6 +907,55 @@ class CaptureOutputTests(unittest.TestCase):
                 json.loads(output.read_text(encoding="utf-8")),
             )
             self.assertEqual([], list(output.parent.glob("*.tmp")))
+
+    def test_capture_pair_rejects_same_output_path(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            output = Path(temporary) / "same.json"
+            with self.assertRaises(SourceCaptureError) as caught:
+                write_capture_pair(
+                    output,
+                    {"kind": "capture"},
+                    output,
+                    {"kind": "bundle"},
+                    skill_root=ROOT,
+                )
+            self.assertEqual(
+                "SOURCE_OUTPUT_PATH_CONFLICT",
+                caught.exception.code,
+            )
+            self.assertFalse(output.exists())
+
+    def test_capture_pair_rolls_back_first_file_if_second_replace_fails(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            capture_path = root / "capture.json"
+            bundle_path = root / "bundle.json"
+            capture_path.write_text('{"state":"old"}\n', encoding="utf-8")
+            real_replace = __import__("os").replace
+
+            def replace_with_second_failure(source, target):
+                if Path(target) == bundle_path.resolve():
+                    raise OSError("simulated bundle replace failure")
+                return real_replace(source, target)
+
+            with mock.patch(
+                "source_capture.os.replace",
+                side_effect=replace_with_second_failure,
+            ):
+                with self.assertRaises(OSError):
+                    write_capture_pair(
+                        capture_path,
+                        {"state": "new"},
+                        bundle_path,
+                        {"schema_version": "bundle"},
+                        skill_root=ROOT,
+                    )
+
+            self.assertEqual(
+                {"state": "old"},
+                json.loads(capture_path.read_text(encoding="utf-8")),
+            )
+            self.assertFalse(bundle_path.exists())
 
 
 class CaptureDiffTests(unittest.TestCase):

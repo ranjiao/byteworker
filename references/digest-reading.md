@@ -5,6 +5,9 @@
 `reading` 是"这篇资料本身"的 digest,不是项目状态、会议快照或决策本体。它用于保存可复用的观点、方法、框架、证据和启发。
 
 - **抓取**:web URL → 用宿主 agent 的网页抓取/浏览能力取正文;本地 PDF / 文章 → 读取本地文件;飞书内部资料 → 先按 `references/digest-doc.md` 用 `lark-doc +fetch --api-version v2` 取正文。
+- **统一交接**:Web 正文抓取后走 `source bundle --source-type web`；本地 Markdown 走
+  `source bundle --source-type local_md`；飞书内部资料仍走 `feishu_doc` adapter。浏览器和
+  本地文件读取不塞进 `source.py` transport，但进入 digest 前必须得到同一 SourceBundle。
 - **外部读物**:blog / 论文 / wiki 通常弱相关于工作,一篇文章 → **1 个 `reading` 节点**(写入 `knowledge/readings/`),提炼核心观点 + 可借鉴点。默认不产 `event` / `decision`,一般不动工作实体节点。
 - **内部资料型文档**:路线思考、方法论、调研、技术白皮书、方案复盘、原则阐释等,一篇资料 → **1 个 `reading` 主记录节点**。同时可按内容扇出:
   - 明确已经生效的选择 / 原则 / 边界 → `decision`;

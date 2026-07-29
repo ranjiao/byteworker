@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .base import Capabilities
+from .conformance import (
+    require_rebuilt_bundle_match,
+    structured_capture_path,
+)
 from ..models import (
     BUNDLE_SCHEMA,
     DEFAULT_SKILL_ROOT,
@@ -80,13 +85,30 @@ def _field_value(record: Mapping[str, Any], field: str) -> Any:
 
 
 def build_meego_bundle(
-    capture: Mapping[str, Any],
+    capture: Mapping[str, Any] | None = None,
     *,
     capture_path: Path,
     skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> SourceBundle:
     """Convert an already captured Meego envelope without fetching or writing."""
 
+    if capture is None:
+        path = Path(capture_path).expanduser()
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_REQUEST_INVALID",
+                f"无法读取 Meego capture: {path}",
+                path="capture_path",
+            ) from exc
+        if not isinstance(loaded, Mapping):
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_REQUEST_INVALID",
+                "Meego capture 顶层必须是对象",
+                path="capture_path",
+            )
+        capture = loaded
     if not isinstance(capture, Mapping):
         raise SourceBundleError(
             "SOURCE_BUNDLE_ADAPTER_INVALID",
@@ -300,6 +322,7 @@ def meego_bundle_to_transaction_source(bundle: SourceBundle) -> dict[str, Any]:
 
 class MeegoCaptureAdapter:
     source_type = "meego"
+    request_builder = staticmethod(build_meego_bundle)
     capabilities = Capabilities(
         component_kinds=frozenset({"records"}),
         coverage_dimensions=frozenset({"snapshot"}),
@@ -310,6 +333,18 @@ class MeegoCaptureAdapter:
 
     def build_bundle(self, **kwargs: Any) -> SourceBundle:
         return build_meego_bundle(**kwargs)
+
+    def validate_bundle(self, bundle: SourceBundle) -> None:
+        capture_path = structured_capture_path(
+            bundle,
+            source_type=self.source_type,
+        )
+        rebuilt = build_meego_bundle(capture_path=capture_path)
+        require_rebuilt_bundle_match(
+            bundle,
+            rebuilt,
+            source_type=self.source_type,
+        )
 
     def to_transaction_source(self, bundle: SourceBundle) -> dict[str, Any]:
         return meego_bundle_to_transaction_source(bundle)

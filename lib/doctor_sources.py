@@ -403,7 +403,27 @@ class SourceContractDoctor:
                     ),
                     repair="迁移前先从原始 URL/来源 API 核对稳定 identity。",
                 )
-            if source_type in {"meego", "aeolus"}:
+            if source_type in {
+                "meego",
+                "aeolus",
+                "feishu_base",
+                "feishu_chat",
+            }:
+                repair = {
+                    "aeolus": "重新 source register，显式保存看板口径。",
+                    "feishu_base": (
+                        "先 source inspect 核对视图和字段，再用 "
+                        "source profile-save 保存 v2 Profile。"
+                    ),
+                    "feishu_chat": (
+                        "先用 pull-chat.sh 核对 chat_id 和首个窗口，再用 "
+                        "source profile-save 保存增量策略。"
+                    ),
+                    "meego": (
+                        "先 source inspect 核对视图和字段，再用 "
+                        "source profile-save 保存 v2 Profile。"
+                    ),
+                }[source_type]
                 self.add(
                     "error",
                     "ROUTINE_SOURCE_PROFILE_REQUIRED",
@@ -412,10 +432,7 @@ class SourceContractDoctor:
                         f"{source_type} 定期来源必须由 Profile 重放配置，"
                         "不能从最近 raw 猜测。"
                     ),
-                    repair=(
-                        "显式 inspect/register 或 profile-save "
-                        "后再运行定期摄取。"
-                    ),
+                    repair=repair,
                 )
             elif source_type == "feishu_doc":
                 self.add(
