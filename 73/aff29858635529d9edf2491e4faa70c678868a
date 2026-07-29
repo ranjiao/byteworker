@@ -1,0 +1,113 @@
+ARCHITECTURE.md
+  s_450f537c53b10c::t_a6f7e1659af746 168-170,172-173,401,412,436,445,476,491-494,496,498,508,511,513-516,519-520,529-530,532-551,568,571-576,588-589,591-594,672-673,715-717,726-729,742-746,843,849,867-869
+DESIGN.md
+  s_450f537c53b10c::t_f3c39dd65cb960 48,66,88,99,106-108,116-117,121-122,314-317,319-322
+SKILL.md
+  s_450f537c53b10c::t_03d005906dde1e 51,144-148
+bin/README.md
+  s_450f537c53b10c::t_c4e1fd863f53e0 91,223,225-226,232-239,250-251,275,284-285,291-331,346,374-375,487
+bin/pull-chat.sh
+  s_450f537c53b10c::t_c487933e165448 8,24-25,28,36-38,47-54,61,68,92-94,112-124,143-144,146-147,212-213
+bin/source.py
+  s_450f537c53b10c::t_97a55e751eb892 23,39-45,64,67-70,154-182,266-323,407,410-430,432-472,483-490,493,504-513,518-522
+lib/doctor_sources.py
+  s_450f537c53b10c::t_6b5c8d343f9fa5 406-426,435
+lib/source_capture.py
+  s_450f537c53b10c::t_8f3429cf13f2a4 14,1442,1502,2617,2626-2630,2632-2633,2642-2652,2657-2709
+lib/source_chat_operations.py
+  s_450f537c53b10c::t_45cd41f6c8c46d 1-280
+lib/source_operations.py
+  s_450f537c53b10c::t_2c9c242301646c 34,192,208-262,355-360
+lib/source_profile_providers.py
+  s_450f537c53b10c::t_2ae4ca6bed2c39 1-244
+lib/source_profiles.py
+  s_450f537c53b10c::t_320d4d63641a22 30-35,405-425,443-445,513-517,557-568,580-589,598
+lib/sources/__init__.py
+  s_450f537c53b10c::t_1c13460c3bc2dc 19,39-48,61-74,77,81-82,84-85,101-105,107-108,110,112,114-115,118-119,127
+lib/sources/adapters/__init__.py
+  s_450f537c53b10c::t_92127fe114f29f 4-13,26-39,42,44-45,47-48,51-55,57-58,60-62,65-66,69
+lib/sources/adapters/aeolus.py
+  s_450f537c53b10c::t_534e851ef7d730 1-569
+lib/sources/adapters/base.py
+  s_450f537c53b10c::t_31fb0a513bc346 17,22-24
+lib/sources/adapters/conformance.py
+  s_450f537c53b10c::t_b5b4591b5c2321 1-67
+lib/sources/adapters/feishu_base.py
+  s_450f537c53b10c::t_5da2fdaf1b2dcf 1-445
+lib/sources/adapters/feishu_doc.py
+  s_450f537c53b10c::t_04aac31820fd71 41,56-74,207,216-218
+lib/sources/adapters/meego.py
+  s_450f537c53b10c::t_389d580a567de8 5,10-13,88,95-111,325,337-348
+lib/sources/adapters/text.py
+  s_450f537c53b10c::t_1dc687f5e7f1ab 1-554
+lib/sources/models.py
+  s_450f537c53b10c::t_cb575e98479bb1 94-99
+lib/sources/registry.py
+  s_450f537c53b10c::t_e18d4527a277f4 9,13,17-24,39,41,45-46,49-50,70-84,87-103,110,112,114-119,122-124,126-127,129
+references/digest-aeolus.md
+  s_450f537c53b10c::t_ea61831975c819 39-40
+references/digest-base.md
+  s_450f537c53b10c::t_8a857bb537019c 34-35,57-58
+references/digest-chat.md
+  s_450f537c53b10c::t_a5a39eaa4def76 11,18-24
+references/digest-core.md
+  s_450f537c53b10c::t_c04a9b3f14b44c 25,27,32,39-40
+references/digest-doc.md
+  s_450f537c53b10c::t_a35968d61385fb 17-20
+references/digest-meego.md
+  s_450f537c53b10c::t_2c720727c7f00f 35-36,47-48
+references/digest-meeting.md
+  s_450f537c53b10c::t_d0c3b0fd74230e 37-39
+references/digest-reading.md
+  s_450f537c53b10c::t_09b72f34bf2ae7 8-10
+references/digest-routine.md
+  s_450f537c53b10c::t_a94ab48e2bbab8 7-9,22-25,33-36
+references/machine-protocol.md
+  s_450f537c53b10c::t_cff718cd899d04 50-51,57-58,69-70,80-87,99-102,104-106,126-127
+tests/test_architecture_contract.py
+  s_450f537c53b10c::t_a149860b0b546a 51,53
+tests/test_digest_txn.py
+  s_450f537c53b10c::t_2c2a4c2aae1329 474-477
+tests/test_doctor.py
+  s_450f537c53b10c::t_471bb82e280224 306,308-312
+tests/test_machine_protocol.py
+  s_450f537c53b10c::t_5ea389bd012d81 175-279
+tests/test_source_bundle.py
+  s_450f537c53b10c::t_abb5aee080cc9d 17,172-188,261-277,377-389,391-392,399-431
+tests/test_source_capture.py
+  s_450f537c53b10c::t_072754c54d84c9 6,34,911-959
+tests/test_source_operation_integration.py
+  s_450f537c53b10c::t_90fa6731987fb9 1-169
+tests/test_source_profiles.py
+  s_450f537c53b10c::t_dce34365f52f2d 117-173,321-435,438,464-465
+tests/test_structured_source_bundle_adapters.py
+  s_450f537c53b10c::t_89cffcc06522f5 1-366
+tests/test_text_source_adapters.py
+  s_4600dca5c2de28::t_e1c3efd93b31ea 1-278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "73aff29858635529d9edf2491e4faa70c678868a",
+  "prompts": {},
+  "sessions": {
+    "s_450f537c53b10c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabe5-b08a-7fa1-8288-ffcbe0946d34",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    },
+    "s_4600dca5c2de28": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fad39-669f-7e12-a4a0-91ea08ee9675",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
