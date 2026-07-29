@@ -40,10 +40,12 @@ byteworker 由**两个物理隔离**的部分组成。
 | 文件/目录 | 存什么 |
 |-----------|--------|
 | `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/daily/weekly/inbox/doctor/help) |
+| `ARCHITECTURE.md` | 信息处理流程、代码分层、模块边界、依赖方向与演进约束 |
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
-| `bin/source.py` + `lib/source_profiles.py` | 结构化来源 profile 的校验、KB 本地事务、按稳定 source UID 抓取；实例参数只在用户 KB |
+| `lib/sources/` | 来源适配器注册表、`SourceBundle` 契约及 provider → transaction 兼容边界；provider payload 保持异构 |
+| `bin/source.py` + `lib/source_profiles.py` + `lib/snapshot_store.py` | 结构化来源 profile 校验、KB 本地事务、按稳定 source UID 抓取及历史完整快照选择/差异；实例参数只在用户 KB |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `bin/doctor.py` + `lib/doctor.py` | 按当前 DESIGN/模板/代码 profile 只读扫描知识库兼容性,并编排 INDEX/links 的确定性修复 |
@@ -96,16 +98,32 @@ byteworker 由**两个物理隔离**的部分组成。
 
 ### D. `sources/` — 结构化来源配置
 
-`sources/<source_type>-<sha256(source_uid)>.json` 使用
-`byteworker-source-profile/v1`。profile 是用户 KB 数据，不得写进 skill 仓库。当前
-`source_type=aeolus` 的不变量：
+`sources/<source_type>-<sha256(source_uid)>.json` 是用户 KB 的 operational truth，不得写进
+skill 仓库。profile 有两个兼容 schema：
+
+- `byteworker-source-profile/v2` 是通用结构：顶层固定为
+  `source_type/source_uid/source_url/title/selector/capture_policy/routine`。当前支持
+  `meego` 与 `feishu_doc`；selector 必须与 `source_uid` 相互校验，capture policy 只保存
+  可重放的字段投影、上限、评论/白板策略和周期，不保存抓取结果。
+- `byteworker-source-profile/v1` 仅作为现有 `aeolus` profile 的兼容 schema，保留其
+  `coordinates/capture/routine` 结构；不得把 v1 当成新增来源的通用模板。
+
+所有 profile 共同遵守：
+
+- profile 不得含 JWT、token、cookie、密码等凭据，也不得含任何抓取结果；
+- `profile_revision` 是规范化 profile JSON 的 canonical SHA-256；
+- Meego/飞书文档 profile 可由 `source profile-save --kb ... --file ...` 校验并写入；风神仍由
+  `source register` 在实时 inspect 后写入；
+- `source capture --kb ... --source-uid ...` 必须原样加载 profile，不接受同次 CLI 覆盖；
+  变更口径必须显式保存新 profile revision 并创建 KB 本地 Git 回滚点。
+
+其中 `source_type=aeolus` 的既有不变量：
 
 - 一份 profile 精确对应一个 `region + app_id + dashboard_id + sheet_id`，稳定 ID 为
   `aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>`；
 - `capture.report_selector` 显式记录动态选择全部报表或固定 report ID 子集；
 - `capture.filters` 显式记录 `dashboard / explicit / merge` 和 canonical `where[]`；
 - `capture.max_items_per_report`、`routine.enabled/cadence` 都属于该来源自身配置；
-- profile 不得含 JWT、token、cookie、密码等凭据，也不得含任何抓取结果；
 - profile 只能由 `source register` 在实时 inspect 校验后写入。之后
   `source capture --kb ... --source-uid ...` 原样加载，不接受 CLI 覆盖；变更口径必须重新
   register 并产生新的 `profile_revision` 和 KB 本地 Git 回滚点。
@@ -277,10 +295,19 @@ feishu_doc 随后附 canonical 文档评论原始快照>
 一次性校验并写入 raw/节点/INDEX/journal,成功时 raw 可直接落为 `digest_status: digested`;
 因为任何文件在全部候选校验通过前都不可见,失败会恢复事务前快照。手工/旧流程若先落 raw 再
 消化,仍使用 `pending → digested|failed`;两种状态语义兼容。
-`digest-plan/v1` 处理单来源；`digest-batch-plan/v1` 处理多来源原子摄取与跨来源节点。batch
+新增单来源优先使用 `byteworker-source-bundle/v2` + `digest-plan/v2`：plan 只引用 bundle，
+不得复制 `source` 或 `provenance.anchors`；bundle 是来源身份、外部 component、覆盖度、锚点、
+provider metadata 和可选 record index 的唯一交接契约。`digest-plan/v1` 保持只读兼容；
+`digest-batch-plan/v1` 继续处理多来源原子摄取与跨来源节点。batch
 不引入事务数据库：仍用 `base_sha256` 乐观基线 + Git 内短时写锁，拿锁后复验，一次重建 INDEX
 并生成一个本地 commit。标准事务强制 provenance；update 默认保留既有来源、证据和正文语义，
 有意删除必须在临时 plan 中显式授权并说明理由。
+
+`SourceBundle` 不定义统一正文 AST，也不要求飞书文档、Meego、Base、风神共享抓取代码结构。
+每个 adapter 自己负责 transport、分页、规范快照与 provider 校验，只需输出同一 bundle
+envelope。事务核心只处理 component bytes、hash、幂等和写入；旧 transaction source 的
+provider 特例集中在 `lib/sources/transaction_bridge.py`，不得重新散回 `digest_txn.py`。
+最终 Source 模块边界、领域模型和兼容删除条件见 `ARCHITECTURE.md` §4.3、§8.3。
 
 **`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行,**同一群可多次增量摄取**。
 frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)、
@@ -335,7 +362,9 @@ Meego / Base 保存视图及风神 dashboard sheet 含大量记录/报表结果�
   子集和筛选策略写入 `source_report_ids / source_filter_mode`。后续例行摄取保持一致；投影、
   report 子集或筛选策略调整视为显式的新口径版本并在主记录中说明。
 - 普通记录虽不进入实体图，仍必须可确定性查询。`kb-query source-record` 先按 raw frontmatter
-  的 `source_type / source_uid / ingested` 选每个来源的最新完整快照，再解析 canonical JSON，
+  的 `source_type / source_uid / ingested` 选每个来源的最新完整快照。新 Bundle 若提供
+  `record_index`，事务会把它作为 `byteworker-record-index/v1` 派生 JSON 段随 raw 保存，
+  query 优先使用该 provider-neutral projection；旧 raw 再回退解析 provider snapshot。
   按 Meego `work_item_id` / Base `record_id` / 风神 `report:<report_id>` 精确查找，或在
   Python 内对标题做归一化和有分数的模糊匹配。输出只包含有限条完整记录及 raw / exact anchor
   溯源，不把整个大 raw 交给 Agent。
@@ -638,7 +667,9 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 templates/
   README.md            模板使用说明
   digest-plan-v1.json  单来源 digest 临时 manifest 结构参考(填业务内容后只能放系统临时目录)
+  digest-plan-v2.json  新单来源 plan；只引用 source bundle，不复制来源/锚点
   digest-batch-plan-v1.json  多来源原子 digest 临时 manifest 结构参考
+  source-bundle-v2.json  来源适配器输出契约结构参考
   node-person.md       \
   node-project.md       \
   node-area.md           \  各 = §4.1 通用 frontmatter
@@ -743,6 +774,12 @@ templates/
    Agent 不直接扫描大 raw。历史查询
    必须显式开启并返回最新性标记；检索结果携带 raw 与 exact anchor 溯源。见 §3.1、
    `references/commands.md`、`references/machine-protocol.md`。
+23. **异构来源通过 Bundle/Adapter 解耦** — 新单来源 digest 使用
+   `byteworker-source-bundle/v2` + `digest-plan/v2`；来源 adapter 保留 provider 自身
+   transport 和 payload，只在 bundle 边界统一身份、component、coverage、anchor 和可选
+   record index。plan 不复制来源或 anchors；事务核心不新增 provider 分支。
+   `digest-plan/v1`、Aeolus profile v1 和既有 raw/query 解析作为迁移期兼容层保留，达到
+   `ARCHITECTURE.md` §8.3 的删除条件后再移除。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 

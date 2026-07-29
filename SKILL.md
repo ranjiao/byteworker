@@ -131,12 +131,16 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 - 大型输入 → `references/digest-large.md`
 - 不带来源的 digest / 跑定期摄取 → `references/digest-routine.md`
 
-标准 digest 写入必须由 Agent生成临时 manifest 与完整候选节点,再通过
+标准单来源 digest 写入必须由来源 adapter 先生成
+`byteworker-source-bundle/v2`，再由 Agent生成只引用该 bundle 的
+`digest-plan/v2` 与完整候选节点，通过
 `bin/digest-txn.py preflight / validate / execute` 完成;Agent 实际调用使用
 `python3 bin/byteworker-cli.py digest-txn ...` 机器协议。脚本只固化确定性执行,语义判断、冲突
 裁决、实体取舍和节点正文仍由 Agent负责。候选节点的关键知识库事实必须逐条带 `[E1]` 等标记,
 并在 manifest 中映射到 `raw_id + anchor_id`;主记录必须声明 `primary_source`,事务负责生成
 `primary_source_url` 和 `## 证据`。不得为单篇业务资料在 skill 仓库生成硬编码写入脚本。
+`digest-plan/v1` 仅作为已有调用方兼容入口；新代码不得继续在 plan 内复制 provider-specific
+`source` 或 `provenance.anchors`。
 两个以上来源需要原子落库或共同更新一个节点时，使用 `digest-batch-plan/v1`；它仍只持一个短时
 写锁并产生一个 commit。所有业务 component、manifest 和候选文件都必须位于系统临时目录或
 知识库目录，事务 CLI 会拒绝 skill 仓库内路径。
@@ -218,6 +222,11 @@ finding 明确声明的 `auto_fix`。自动修复只覆盖可确定重建的 IND
 - **维护 / 恢复按需读**:`references/maintenance.md` —— 运行 `bin/rebuild-index.sh` 重建 INDEX、运行 `bin/repair-links.sh --autolink` 修复双链 / 正文提及连边、灾难恢复。
 
 核心不变量:知识库数据目录是唯一业务数据位置;`raw_data/` + `provenance/` + `knowledge/` + `reports/` + `todo.md` + `context.md` + `dashboard.md` 手动项是真相源,`INDEX.md` 和 dashboard 派生段可重建。
+
+系统的信息处理流程、代码分层、模块职责与依赖方向以
+[`ARCHITECTURE.md`](ARCHITECTURE.md) 为准。coding agent 修改代码或主流程前必须先读对应章节；
+若模块、依赖、跨层契约、成功/失败路径发生变化，必须在同一变更中同步该文档和架构契约测试。
+持久化 schema 仍以 [`DESIGN.md`](DESIGN.md) 为准，Agent 行为仍以本文件及 `references/` 为准。
 
 ## 错误处理
 

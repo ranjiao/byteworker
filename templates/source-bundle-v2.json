@@ -1,0 +1,38 @@
+{
+  "schema_version": "byteworker-source-bundle/v2",
+  "identity": {
+    "source_type": "<registered_adapter_type>",
+    "source_uid": "<stable_source_uid>",
+    "source_url": "<original_openable_url>",
+    "title": "<source_title>",
+    "revision": "<optional_source_revision>"
+  },
+  "components": [
+    {
+      "name": "body",
+      "kind": "body",
+      "path": "<absolute_system_temporary_component_path>",
+      "mode": "verbatim"
+    }
+  ],
+  "coverage": {
+    "status": "complete",
+    "components": {
+      "body": "complete"
+    }
+  },
+  "anchors": [
+    {
+      "anchor_id": "source",
+      "kind": "source",
+      "precision": "source_only",
+      "locator": {
+        "source_uid": "<stable_source_uid>"
+      },
+      "open_url": "<original_openable_url>"
+    }
+  ],
+  "provider_metadata": {},
+  "snapshot_hash": null,
+  "payload_hash": null
+}

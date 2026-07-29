@@ -4,14 +4,15 @@
 
 有些来源**会定期更新**(滚动周会文档、群聊、Meego / 多维表格保存视图、风神看板等),需周期性复查增量。
 
-- **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。风神等已有
-  `sources/` profile 的结构化来源，把 enabled/cadence 写进该来源自己的 profile；滚动文档、
-  群聊等尚无 profile 的来源才兼容给 raw frontmatter 加 `routine: weekly`。INDEX 优先从
+- **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。Meego、飞书文档、
+  风神等已有 `sources/` profile 的来源，把 enabled/cadence 写进该来源自己的 profile；群聊
+  等尚无 profile 的来源才兼容给 raw frontmatter 加 `routine: weekly`。INDEX 优先从
   profiles 派生，同一 `source_uid` 有 profile 时，历史 raw 的 routine 不再生效。
 - **运行**(触发:不带来源的 `digest` / 用户说"跑定期摄取""检查周报更新" / 操作前必读「到期提醒」后用户确认):
   - 开始时先告知用户本次会复查 INDEX「定期摄取清单」里的多少个来源;逐源处理时用短状态说明当前来源、是否在拉取 / 比对 / digest / 跳过。来源较多或单源处理超过约 30-60 秒时,按 `SKILL.md`「长流程状态输出」发 heartbeat,不要等全部来源处理完才第一次汇报。
   1. 读 INDEX「定期摄取清单」,逐源处理 ——
-     - 滚动周会文档:重新 `lark-doc +fetch --api-version v2 --detail with-ids`,并按
+     - 滚动周会文档:优先从 `byteworker-source-profile/v2` 读取 document identity、周期、
+       评论/白板策略，再重新 `lark-doc +fetch --api-version v2 --detail with-ids`,并按
        `references/digest-comments.md` **独立复查评论**(含已解决和完整回复),正文有白板时按
        `references/digest-whiteboard.md` 复查。把顶层最新周期按 DESIGN.md §2.1 规范化后,将本
        周期正文、评论、白板等 component 交给 `digest-txn preflight`,与最近 raw 做兼容幂等
@@ -19,10 +20,11 @@
        同一个主记录;`state=noop` 才跳过。`body_hash` / `comment_hash` /
        `whiteboard_hash` 会作为诊断字段保留,但不能只看 `revision_id` 或正文 hash。
      - 群聊:`bin/pull-chat.sh --query "<群名>" --since-last`;有新消息则按 `references/digest-chat.md` digest 新窗口,否则跳过。
-     - Meego 保存视图:从最近 raw 读取
-       `source_url / source_project_key / source_view_id / source_fields`,按
-       `references/digest-meego.md` 重新运行 `source capture`。完整快照 hash 不变则跳过；
-       不同时用 `source diff` 与上一份完整快照按工作项 ID 比对，只对
+     - Meego 保存视图:从 KB `sources/` 加载 `byteworker-source-profile/v2`，按
+       `source capture --source-type meego --kb ... --source-uid ...` 重放已确认坐标、字段与上限。
+       不从最近 raw 拼接配置，也不接受同次 CLI 覆盖。完整快照 hash 不变则跳过；不同时用
+       `source diff --kb ... --source-uid ...` 让 SnapshotStore 从已提交 raw 选择上一份完整
+       快照并按工作项 ID 比对，只对
        `added / changed / left_view` 做语义复核，raw 仍保存本次完整快照。`left_view` 不等于
        删除。分页不完整、权限失败或超过范围上限时中止该源且不记为复查成功。
      - 多维表格视图:从最近 raw 读取

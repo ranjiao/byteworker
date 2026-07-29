@@ -30,14 +30,18 @@
 
 脚本**不**理解业务内容、不决定建什么节点、不生成观点、不裁决冲突、不写 Todo，也永不 push。
 
-## 临时 manifest
+## 临时 SourceBundle 与 manifest
 
-单来源使用 `templates/digest-plan-v1.json`；两个以上必须原子落库、或一个节点同时综合多份
-原文时使用 `templates/digest-batch-plan-v1.json`。复制到系统临时目录后填写。manifest、
-候选节点以及所有 `source.components[].path` 可能包含公司机密，**不得**位于 skill 仓库。
-换言之，任何含业务数据的临时产物都不得写进 skill 仓库。
+新增单来源使用 `templates/source-bundle-v2.json` +
+`templates/digest-plan-v2.json`。来源 adapter 先在系统临时目录生成
+`byteworker-source-bundle/v2`，Agent 的 `digest-plan/v2` 只引用这个 bundle；不得复制
+`plan.source` 或 `plan.provenance.anchors`。两个以上必须原子落库、或一个节点同时综合多份
+原文时暂继续使用 `templates/digest-batch-plan-v1.json`。
 
-`source.components` 是本次实际摄取 payload，按原始资料中的顺序排列：
+`digest-plan/v1` 保留给已有调用方和未迁移来源，不是新增 adapter 的目标格式。所有 bundle、
+manifest、候选节点和 component 文件都可能包含公司机密，**不得写进 skill 仓库**。
+
+`SourceBundle.components` 是本次实际摄取 payload，按原始资料中的顺序排列：
 
 - `mode=verbatim`：逐字读取文件 bytes；正文必须用此模式。
 - `mode=canonical-json`：解析 JSON、按 key 排序并去掉无意义空白后 hash；评论和白板用此模式。
@@ -45,11 +49,20 @@
 - 每个 component 的 `name` 在一次摄取内唯一且稳定；白板建议
   `whiteboard:<token>`。
 
+bundle 还必须显式包含：
+
+- `identity`:稳定 `source_type/source_uid/source_url/title/revision`；
+- `coverage`:总覆盖状态和逐 component 覆盖状态，禁止把未读取内容宣称为 complete；
+- `anchors`:抓取时保留的精确或 source-only locator；
+- `provider_metadata`:只放可序列化、非凭据的 provider 事实；
+- 可选 `record_index/snapshot_hash/payload_hash`。
+
 飞书文档第一个 component 必须是唯一的 `kind=body`。评论完整或部分可用时必须提供唯一的
 `kind=comments`；`comments_status=unavailable` 时不得伪造空评论 component。包含白板时必须
 声明 `whiteboards_status=complete|partial`。
 
-plan 顶层 `provenance` 包含本次 raw 的 `enrichment` 与 `anchors`;每个 node operation 必须
+v2 plan 顶层 `provenance` 只允许本次 raw 的 `enrichment`；anchors 自动从 bundle 注入。
+每个 node operation 必须
 显式包含 `evidence[]`，主记录还必须包含 `primary_source`。新节点至少一条 evidence。
 `evidence[].id` 必须与候选正文的 `[E<n>]` 一一对应,
 `raw_id` 省略时默认本次 raw,`anchor_id` 必须能在本次或既有 sidecar 中解析。
@@ -69,7 +82,7 @@ plan 顶层 `provenance` 包含本次 raw 的 `enrichment` 与 `anchors`;每个 
 ```bash
 python3 bin/byteworker-cli.py digest-txn preflight \
   --kb "<知识库数据目录>" \
-  --source "<临时 source manifest.json>"
+  --source "<临时 source-bundle-v2.json>"
 ```
 
 处理返回值：

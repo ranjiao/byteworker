@@ -21,12 +21,14 @@ from digest_txn import (  # noqa: E402
     execute_plan,
     load_manifest,
     preflight,
+    preflight_bundle,
     sha256_file,
     validate_batch_plan,
     validate_plan,
     validation_report,
 )
 from frontmatter import parse_file  # noqa: E402
+from sources import BUNDLE_SCHEMA  # noqa: E402
 
 
 def configured_kb() -> str:
@@ -90,6 +92,22 @@ def reject_business_files_in_skill(manifest_path: Path, manifest: dict) -> None:
             for item in manifest["inputs"]
             if isinstance(item, dict) and isinstance(item.get("source"), dict)
         )
+    bundle_manifest = manifest
+    if manifest.get("source_bundle"):
+        bundle_path = Path(str(manifest["source_bundle"]))
+        if not bundle_path.is_absolute():
+            bundle_path = manifest_path.parent / bundle_path
+        bundle_path = bundle_path.resolve()
+        if inside_skill(bundle_path):
+            raise DigestTxnError(
+                "source bundle 可能包含业务数据，必须放系统临时目录，不能放 skill 仓库"
+            )
+        try:
+            bundle_manifest = json.loads(bundle_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise DigestTxnError(f"无法读取 source bundle: {bundle_path}") from exc
+    if bundle_manifest.get("schema_version") == BUNDLE_SCHEMA:
+        sources.append({"components": bundle_manifest.get("components", [])})
     for source in sources:
         for component in source.get("components", []):
             if not isinstance(component, dict) or not component.get("path"):
@@ -147,10 +165,18 @@ def main() -> int:
         manifest = load_manifest(manifest_path)
         reject_business_files_in_skill(manifest_path.resolve(), manifest)
         if args.command == "preflight":
-            source = manifest.get("source", manifest)
-            if not isinstance(source, dict):
-                raise DigestTxnError("manifest.source 必须是对象")
-            output = preflight(kb, source, manifest_path.resolve())
+            if manifest.get("schema_version") == BUNDLE_SCHEMA:
+                output = preflight_bundle(kb, manifest_path.resolve())
+            elif manifest.get("source_bundle"):
+                bundle_path = Path(str(manifest["source_bundle"]))
+                if not bundle_path.is_absolute():
+                    bundle_path = manifest_path.parent / bundle_path
+                output = preflight_bundle(kb, bundle_path.resolve())
+            else:
+                source = manifest.get("source", manifest)
+                if not isinstance(source, dict):
+                    raise DigestTxnError("manifest.source 必须是对象")
+                output = preflight(kb, source, manifest_path.resolve())
         elif args.command == "validate":
             if manifest.get("schema_version") == BATCH_PLAN_SCHEMA:
                 output = batch_validation_report(validate_batch_plan(kb, manifest_path))

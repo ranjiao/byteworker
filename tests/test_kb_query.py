@@ -108,6 +108,7 @@ raw
         source_uid,
         ingested,
         records,
+        record_index=None,
     ):
         raw_id = f"raw-{name}"
         snapshot = {
@@ -117,6 +118,22 @@ raw
             "records": records,
         }
         path = self.kb / "raw_data" / f"{name}.md"
+        record_index_text = ""
+        if record_index is not None:
+            record_index_text = (
+                "\n## 规范记录索引（派生）\n\n```json\n"
+                + json.dumps(
+                    {
+                        "schema_version": "byteworker-record-index/v1",
+                        "source_type": source_type,
+                        "source_uid": source_uid,
+                        "records": record_index,
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                + "\n```\n"
+            )
         path.write_text(
             f"""---
 raw_id: {raw_id}
@@ -133,7 +150,7 @@ digest_status: digested
 ```json
 {json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))}
 ```
-""",
+{record_index_text}""",
             encoding="utf-8",
         )
         id_key = "work_item_id" if source_type == "meego" else "record_id"
@@ -236,6 +253,58 @@ digest_status: digested
             result["matches"][0]["record"]["work_item_attribute"][
                 "work_item_status"
             ]["name"],
+        )
+
+    def test_source_record_prefers_canonical_record_index(self):
+        self.write_snapshot(
+            name="meego-index",
+            source_type="meego",
+            source_uid="meego:project:view",
+            ingested="2026-07-29T15:00:00+08:00",
+            records=[{"provider_shape": {"opaque": True}}],
+            record_index=[
+                {
+                    "record_id": "wi-indexed",
+                    "title": "统一索引可查询事项",
+                    "anchor_id": "workitem:wi-indexed",
+                    "locator": {"work_item_id": "wi-indexed"},
+                    "fields": {"status": "done"},
+                }
+            ],
+        )
+        (self.kb / "provenance/raw-meego-index.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "byteworker-provenance/v1",
+                    "raw_id": "raw-meego-index",
+                    "raw_path": "raw_data/meego-index.md",
+                    "anchors": [
+                        {
+                            "anchor_id": "workitem:wi-indexed",
+                            "kind": "meego_workitem",
+                            "precision": "exact",
+                            "locator": {"work_item_id": "wi-indexed"},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        result = source_records(
+            self.kb,
+            source_type="meego",
+            title="统一索引",
+        )
+        self.assertEqual("wi-indexed", result["matches"][0]["record_id"])
+        self.assertEqual(
+            "done",
+            result["matches"][0]["record"]["fields"]["status"],
+        )
+        self.assertEqual(
+            "workitem:wi-indexed",
+            result["matches"][0]["provenance"]["anchor_id"],
         )
 
     def test_source_record_title_normalizes_punctuation_and_supports_fuzzy_typo(self):

@@ -244,6 +244,69 @@ class MachineProtocolTests(unittest.TestCase):
         self.assertEqual(1, payload["data"]["summary"]["changed"])
         self.assertEqual(["status"], diff["changes"][0]["changed_paths"])
 
+    def test_source_diff_can_load_previous_snapshot_from_kb(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            kb = root / "kb"
+            raw = kb / "raw_data"
+            raw.mkdir(parents=True)
+            snapshot = {
+                "schema_version": "byteworker-source-snapshot/v1",
+                "source_type": "meego",
+                "source_uid": "meego:project:view",
+                "records": [{"work_item_id": "1", "status": "doing"}],
+            }
+            (raw / "previous.md").write_text(
+                "---\n"
+                "raw_id: raw-previous\n"
+                "ingested: 2026-07-29T09:00:00+08:00\n"
+                "source_type: meego\n"
+                "source_uid: meego:project:view\n"
+                "digest_status: digested\n"
+                "---\n\n"
+                "```json\n"
+                f"{json.dumps(snapshot, ensure_ascii=False)}\n"
+                "```\n",
+                encoding="utf-8",
+            )
+            current = root / "current.json"
+            current.write_text(
+                json.dumps(
+                    {
+                        "source_type": "meego",
+                        "source_uid": "meego:project:view",
+                        "content_hash": "sha256:current",
+                        "snapshot": {
+                            **snapshot,
+                            "records": [
+                                {"work_item_id": "1", "status": "done"}
+                            ],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                "source",
+                "diff",
+                "--kb",
+                kb,
+                "--source-uid",
+                "meego:project:view",
+                "--current",
+                current,
+            )
+
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("success", payload["status"])
+        self.assertEqual(1, payload["data"]["summary"]["changed"])
+        self.assertEqual(
+            "raw-previous",
+            payload["data"]["previous_raw"]["raw_id"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

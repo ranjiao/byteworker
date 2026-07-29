@@ -15,9 +15,11 @@
   Permission Denied 时让空间所有者给当前用户开权限，重复登录无效。
 - `inspect` 返回权威字段元数据、首批数量与总量估计。选择最小稳定投影：名称、状态、负责人、
   优先级、分类、排期/更新时间；用户指定字段时以用户要求为准。首次摄取需向用户说明字段投影，
-  并把它写入 `source_fields`；后续 routine 沿用，不随意增删列。
-- `capture` 至少传一个 `--field`，默认上限 1000 条；超出上限先说明规模并让用户确认是否
-  缩小视图或显式提高 `--max-items`。
+  并保存为 `byteworker-source-profile/v2` 的 `capture_policy.fields`；后续 routine 沿用，
+  不随意增删列。
+- 首次 capture 至少传一个 `--field`，默认上限 1000 条；超出上限先说明规模并让用户确认是否
+  缩小视图或显式提高 `--max-items`。权威 project/view 坐标和确认后的字段随后写入 profile；
+  以后只按 `--kb + --source-uid` 抓取，不接受同次 CLI 覆盖。
 - 默认只读当前视图返回的字段。不递归读取工作项详情、评论、附件、群聊、关联工作项或正文链接。
 
 ```bash
@@ -32,8 +34,20 @@ python3 bin/byteworker-cli.py source capture \
   --field name --field status --field owner --field updated_at \
   --out "<系统临时目录>/meego-capture.json"
 
+# 首次确认后，在系统临时目录准备 byteworker-source-profile/v2 并保存
+python3 bin/byteworker-cli.py source profile-save \
+  --kb "<知识库目录>" \
+  --file "<系统临时目录>/meego-profile.json"
+
+# 后续按稳定 source UID 重放 profile
+python3 bin/byteworker-cli.py source capture \
+  --source-type meego --kb "<知识库目录>" \
+  --source-uid "meego:<project_key>:<view_id>" \
+  --out "<系统临时目录>/meego-capture.json"
+
 python3 bin/byteworker-cli.py source diff \
-  --previous "<上一份完整 capture.json>" \
+  --kb "<知识库目录>" \
+  --source-uid "meego:<project_key>:<view_id>" \
   --current "<本次完整 capture.json>" \
   --out "<系统临时目录>/meego-diff.json"
 ```
@@ -65,17 +79,19 @@ python3 bin/byteworker-cli.py source diff \
 
 ## 4. 交给 digest 事务
 
-把 capture 文件的 `/snapshot` 作为一个 canonical component：
+Meego adapter 把 capture 转成 `byteworker-source-bundle/v2`。capture 文件的 `/snapshot`
+作为 canonical component，来源身份、coverage、anchors、profile path/revision 与 canonical
+`record_index` 同时进入 bundle。结构示意：
 
 ```json
 {
-  "type": "meego",
-  "uid": "meego:<project_key>:<view_id>",
-  "url": "<原保存视图 URL>",
-  "title": "<视图标题>",
-  "project_key": "<project_key>",
-  "view_id": "<view_id>",
-  "fields": ["name", "status", "owner", "updated_at"],
+  "schema_version": "byteworker-source-bundle/v2",
+  "identity": {
+    "source_type": "meego",
+    "source_uid": "meego:<project_key>:<view_id>",
+    "source_url": "<原保存视图 URL>",
+    "title": "<视图标题>"
+  },
   "components": [{
     "name": "snapshot",
     "kind": "records",
@@ -83,11 +99,26 @@ python3 bin/byteworker-cli.py source diff \
     "json_pointer": "/snapshot",
     "mode": "canonical-json",
     "heading": "Meego 视图快照"
-  }]
+  }],
+  "coverage": {
+    "status": "complete",
+    "components": {"snapshot": "complete"}
+  },
+  "anchors": "<capture.anchors + source anchor>",
+  "provider_metadata": {
+    "project_key": "<project_key>",
+    "view_id": "<view_id>",
+    "fields": ["name", "status", "owner", "updated_at"],
+    "source_profile": {
+      "path": "sources/meego-<hash>.json",
+      "revision": "sha256:<canonical profile hash>"
+    }
+  },
+  "record_index": "<adapter 生成的稳定记录索引>"
 }
 ```
 
-把 capture 的 `anchors[]` 原样放入 plan 的 `provenance.anchors`，另补一个 source anchor。
+然后创建 `digest-plan/v2`，只引用 bundle；plan 不再复制 `source` 或 anchors。
 首次 digest 创建一张代表该视图的 `reading` 主记录；同源新快照更新同一 reading。对 baseline /
 added / changed 逐条应用晋升门槛:
 
@@ -102,8 +133,8 @@ added / changed 逐条应用晋升门槛:
 
 ## 5. 定期摄取
 
-用户确认纳入 routine 后，在 raw 加 `routine: weekly`。后续从最近 raw 读取
-`source_url / source_project_key / source_view_id / source_fields`，重新 capture 完整视图并走
-`digest-txn preflight`。完整快照 hash 相同则只记录“已复查、无变化”；不同则对上一份和本次
-capture 运行 `source diff`，只把差异记录交给语义层，raw 仍保存本次全量快照。只有事务 receipt
-`status=committed` 才表示知识库更新成功。
+用户确认纳入 routine 后，把 `enabled/cadence` 写入该 Meego profile，raw 只记录本次使用的
+profile path/revision，不再充当下一次调度配置。后续加载 profile 重新 capture 完整视图并走
+`digest-txn preflight`。完整快照 hash 相同只记录“已复查、无变化”；不同时让 SnapshotStore
+从 KB 选择上一份已提交完整 raw，再运行 `source diff --kb ... --source-uid ...`，只把差异记录
+交给语义层，raw 仍保存本次全量快照。只有事务 receipt `status=committed` 才表示知识库更新成功。

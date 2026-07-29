@@ -26,8 +26,9 @@
    - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物;拿到 minute token 后再取妙记正文 / AI 产物。同步 best-effort 查找该会议的日历链接和会议文档链接,找到则写入 raw / event,找不到不臆造。
    - `feishu_chat` → 运行 `bin/pull-chat.sh` 拉取群聊(底层调 lark-im,自动定位群 + 分页拉全 + 输出逐字转写)。**摄取前必读** `references/digest-chat.md`。
    - `meego` → 先通过机器协议运行 `source inspect`,基于真实字段元数据选择并说明最小稳定投影，
-     再运行 `source capture` 生成完整保存视图快照；已有同源快照时用 `source diff` 缩小语义
-     复核范围。**摄取前必读** `references/digest-meego.md`。
+     首次把权威坐标和投影保存为 `byteworker-source-profile/v2`；之后按 `--kb + --source-uid`
+     capture。已有同源快照时由 SnapshotStore 直接从 KB 选择上一份完整快照并运行
+     `source diff` 缩小语义复核范围。**摄取前必读** `references/digest-meego.md`。
    - `feishu_base` → 先通过机器协议运行 `source inspect`,用户确认字段后运行 `source capture`
      串行拉完明确 Base 视图。**摄取前必读** `references/digest-base.md`。
    - `aeolus` → 先通过机器协议运行 `source inspect`，确认报表、dataset 和看板 public filters；
@@ -37,8 +38,10 @@
    - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
    - `local_md` → 直接读取本地文件。
    失败按 `references/error-handling.md` 中止。
-3. **幂等检查** —— 把本次实际摄取的正文、评论、白板等原始 component 路径写进系统临时目录的
-   source manifest,通过机器协议运行 `bin/digest-txn.py preflight`(完整格式与命令见
+3. **幂等检查** —— 来源 adapter 把本次实际摄取的正文、评论、白板或结构化快照写成系统
+   临时目录中的 `byteworker-source-bundle/v2`。bundle 是来源身份、外部 component、coverage、
+   anchors 与 provider metadata 的唯一交接结构；通过机器协议运行
+   `bin/digest-txn.py preflight`(完整格式与命令见
    `references/digest-transaction.md`)。脚本计算 `source_uid` / `source_revision` /
    `digest_period` 或 `source_window` / 逐组件 hash / `content_hash` / `digest_key`;Agent不得
    手算或覆盖这些值。飞书文档评论变化不依赖正文 revision,白板变化也属于 payload 变化,不能因
@@ -59,14 +62,15 @@
    建议范围合并成一次询问,由用户选择是否增加本次 digest 内容。未经同意不扩展;用户拒绝或暂缓时,
    当前对象照常 digest,但把受影响结论标为「依赖未摄取 / 待核实」。同场会议簇的组成物件仍按
    `references/digest-meeting.md` 的整体确认处理,不重复询问。
-5. **准备 raw 计划** —— 决定唯一 `raw_id` 与 `raw_data/<YYYY-MM-DD>-<slug>.md`,把准确的
-   `source_type` / `source_title` / `source_url` / 周期、未摄取依赖与原始 component 写入
-   digest plan；此时不手工拼 raw。飞书文档、妙记 / 录屏、日历会议、网页等可打开来源必须保留
+5. **准备 raw 计划** —— 决定唯一 `raw_id` 与 `raw_data/<YYYY-MM-DD>-<slug>.md`，在
+   `digest-plan/v2` 里只引用已经校验的 source bundle，并写未摄取依赖与节点候选；不得把
+   `source` 或 `provenance.anchors` 从 bundle 复制到 plan。此时不手工拼 raw。飞书文档、
+   妙记 / 录屏、日历会议、网页等可打开来源必须由 bundle 保留
    用户可打开的 `source_url`。事务脚本会逐字拼入正文、canonical 评论/白板,自动写
    `ingested`、hash、`digest_key`、`digest_targets` 与 `digest_status: digested`。目标文件或
    `raw_id` 已存在时必须改用 `-2`/revision/hash 后缀,**绝不覆盖旧 raw**。
-   同时按 `references/provenance.md` 把抓取阶段保留的稳定 locator 写成
-   `provenance.anchors`;不要等摘要完成后按文本猜位置。
+   同时按 `references/provenance.md` 把抓取阶段保留的稳定 locator 写成 bundle
+   `anchors`;不要等摘要完成后按文本猜位置。
 6. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名、
    已有 raw 的 `digest_targets`、同源历史主记录节点在 INDEX 找可能涉及的已有节点,读取候选,
    语义比对是否与新输入矛盾。**有冲突 → 高亮矛盾点,等用户裁决,不静默覆盖。**

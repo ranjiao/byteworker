@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -17,25 +16,17 @@ if str(LIB) not in sys.path:
 
 from source_capture import (  # noqa: E402
     DEFAULT_MAX_ITEMS,
-    CommandRunner,
     SourceCaptureError,
-    aeolus_client_from_environment,
-    aeolus_auth_status,
-    base_auth_status,
-    build_aeolus_profile,
-    capture_aeolus,
-    capture_aeolus_from_profile,
-    capture_base,
-    capture_meego,
     diff_captures,
-    inspect_aeolus,
-    inspect_base,
-    inspect_meego,
-    meego_auth_status,
     read_capture,
     write_capture,
 )
+from source_operations import (  # noqa: E402
+    run_source_operation,
+    source_operation_types,
+)
 from source_profiles import (  # noqa: E402
+    PROFILE_SOURCE_TYPES,
     SourceProfileError,
     list_profiles,
     load_profile,
@@ -43,12 +34,20 @@ from source_profiles import (  # noqa: E402
     profile_revision,
     save_profile,
 )
+from snapshot_store import diff_current_against_kb  # noqa: E402
 
 
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("必须是正整数")
+    return parsed
+
+
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("必须是非负整数")
     return parsed
 
 
@@ -63,7 +62,7 @@ def parser() -> argparse.ArgumentParser:
     )
     auth.add_argument(
         "--source-type",
-        choices=("meego", "feishu_base", "aeolus"),
+        choices=source_operation_types(),
         required=True,
     )
     auth.add_argument(
@@ -81,7 +80,7 @@ def parser() -> argparse.ArgumentParser:
         command = sub.add_parser(name)
         command.add_argument(
             "--source-type",
-            choices=("meego", "feishu_base", "aeolus"),
+            choices=source_operation_types(),
             required=True,
         )
         command.add_argument("--url", default="")
@@ -174,49 +173,76 @@ def parser() -> argparse.ArgumentParser:
     profile = sub.add_parser("profile", help="读取一个 KB source profile")
     profile.add_argument("--kb", required=True)
     profile.add_argument("--source-uid", required=True)
+    profile_save = sub.add_parser(
+        "profile-save",
+        help="严格校验并把一个 v1/v2 source profile 写入 KB",
+    )
+    profile_save.add_argument("--kb", required=True)
+    profile_save.add_argument(
+        "--file",
+        required=True,
+        help="系统临时目录中的 source profile JSON",
+    )
     profiles = sub.add_parser("profiles", help="列出 KB 的 source profiles")
     profiles.add_argument("--kb", required=True)
-    profiles.add_argument("--source-type", choices=("aeolus",), default="")
+    profiles.add_argument(
+        "--source-type",
+        choices=tuple(sorted(PROFILE_SOURCE_TYPES)),
+        default="",
+    )
     diff = sub.add_parser(
         "diff",
         help="按稳定记录 ID 比较相邻完整快照；left_view 不等于删除",
     )
     diff.add_argument("--current", required=True, help="当前 capture JSON")
     diff.add_argument("--previous", default="", help="上一份 capture JSON；首轮可省略")
+    diff.add_argument(
+        "--kb",
+        default="",
+        help="知识库数据目录；提供后从已提交 raw 读取上一份 snapshot",
+    )
+    diff.add_argument(
+        "--source-uid",
+        default="",
+        help="显式校验当前 capture 的稳定来源 ID",
+    )
+    diff.add_argument(
+        "--raw-id",
+        default="",
+        help="显式选择 KB 中的历史 raw；仅和 --kb 一起使用",
+    )
+    diff.add_argument(
+        "--history-index",
+        type=_nonnegative_int,
+        default=0,
+        help="选择第 N 个历史 snapshot；0 为最新，仅和 --kb 一起使用",
+    )
     diff.add_argument("--out", help="差异 JSON 输出路径")
-    return result
-
-
-def _runner(source_type: str, timeout: int) -> CommandRunner:
-    if source_type == "meego":
-        binary = os.environ.get("BYTEWORKER_MEEGLE_BIN", "meegle")
-    else:
-        binary = os.environ.get("BYTEWORKER_LARK_CLI_BIN", "lark-cli")
-    return CommandRunner(binary, timeout_seconds=timeout)
-
-
-def _where_filters(values: list[str]) -> list[dict]:
-    result = []
-    for raw in values:
-        try:
-            value = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise SourceCaptureError(
-                "SOURCE_FILTER_INVALID",
-                f"--where 不是合法 JSON: {raw}",
-            ) from exc
-        if not isinstance(value, dict):
-            raise SourceCaptureError(
-                "SOURCE_FILTER_INVALID",
-                "--where 顶层必须是 JSON 对象",
-            )
-        result.append(value)
     return result
 
 
 def _run(args: argparse.Namespace) -> dict:
     if args.operation == "diff":
         current = read_capture(Path(args.current))
+        if args.kb:
+            if args.previous:
+                raise SourceCaptureError(
+                    "SOURCE_ARGUMENT_INVALID",
+                    "--kb 与 --previous 不能同时使用",
+                    hint="让 SnapshotStore 从 KB raw 选择上一版本，或显式提供 capture 文件。",
+                )
+            return diff_current_against_kb(
+                current,
+                Path(args.kb),
+                source_uid=args.source_uid or None,
+                raw_id=args.raw_id or None,
+                history_index=args.history_index,
+            )
+        if args.source_uid or args.raw_id or args.history_index:
+            raise SourceCaptureError(
+                "SOURCE_ARGUMENT_INVALID",
+                "--source-uid / --raw-id / --history-index 必须和 --kb 一起使用",
+            )
         previous = read_capture(Path(args.previous)) if args.previous else None
         return diff_captures(current=current, previous=previous)
     if args.operation == "profile":
@@ -229,6 +255,30 @@ def _run(args: argparse.Namespace) -> dict:
             "profile_path": str(profile_relative_path(profile)),
             "profile_revision": profile_revision(profile),
         }
+    if args.operation == "profile-save":
+        profile_path = Path(args.file).expanduser().resolve()
+        if ROOT.resolve() == profile_path or ROOT.resolve() in profile_path.parents:
+            raise SourceProfileError(
+                "SOURCE_PROFILE_IN_SKILL_REPO",
+                "来源实例 profile 不得放在 byteworker skill 仓库",
+            )
+        try:
+            value = json.loads(profile_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SourceProfileError(
+                "SOURCE_PROFILE_INVALID",
+                f"无法读取 source profile JSON: {profile_path}",
+            ) from exc
+        if not isinstance(value, dict):
+            raise SourceProfileError(
+                "SOURCE_PROFILE_INVALID",
+                "source profile 顶层必须是 JSON 对象",
+            )
+        return save_profile(
+            Path(args.kb).expanduser(),
+            value,
+            skill_root=ROOT,
+        )
     if args.operation == "profiles":
         profiles = list_profiles(
             Path(args.kb).expanduser(),
@@ -248,130 +298,7 @@ def _run(args: argparse.Namespace) -> dict:
             ],
             "count": len(profiles),
         }
-    if args.source_type == "aeolus":
-        client = aeolus_client_from_environment(
-            timeout_seconds=args.timeout,
-        )
-    else:
-        runner = _runner(args.source_type, args.timeout)
-    if args.operation == "auth-status":
-        if args.source_type == "meego":
-            return meego_auth_status(runner=runner, host=args.host)
-        if args.source_type == "aeolus":
-            return aeolus_auth_status(client=client)
-        return base_auth_status(runner=runner)
-
-    if args.operation == "register":
-        profile = build_aeolus_profile(
-            client=client,
-            url=args.url,
-            report_ids=args.report_id,
-            where_filters=_where_filters(args.where),
-            filter_mode=args.filter_mode,
-            max_items=args.max_items,
-            routine="" if args.routine == "off" else args.routine,
-        )
-        receipt = save_profile(
-            Path(args.kb).expanduser(),
-            profile,
-            skill_root=ROOT,
-        )
-        return {
-            **receipt,
-            "profile": profile,
-        }
-
-    if args.source_type == "aeolus":
-        if args.field:
-            raise SourceCaptureError(
-                "SOURCE_ARGUMENT_INVALID",
-                "风神使用 --report-id 选择报表，不使用 --field",
-            )
-        if args.operation == "inspect":
-            if args.report_id or args.where or args.filter_mode != "dashboard":
-                raise SourceCaptureError(
-                    "SOURCE_ARGUMENT_INVALID",
-                    "风神 inspect 只解析 dashboard；报表与筛选选择在 capture 时指定",
-                )
-            return inspect_aeolus(client=client, url=args.url)
-        if args.source_uid:
-            if not args.kb:
-                raise SourceCaptureError(
-                    "SOURCE_ARGUMENT_INVALID",
-                    "--source-uid 必须同时提供 --kb",
-                )
-            if (
-                args.url
-                or args.report_id
-                or args.where
-                or args.filter_mode != "dashboard"
-                or args.max_items != DEFAULT_MAX_ITEMS
-            ):
-                raise SourceCaptureError(
-                    "SOURCE_ARGUMENT_INVALID",
-                    "按 --source-uid 抓取时不得用 CLI 覆盖 URL、报表、筛选或行数",
-                    hint="需要改变口径时重新运行 source register，形成新的 profile revision。",
-                )
-            profile = load_profile(
-                Path(args.kb).expanduser(),
-                args.source_uid,
-            )
-            result = capture_aeolus_from_profile(
-                client=client,
-                profile=profile,
-            )
-            result["source_profile"]["path"] = str(
-                profile_relative_path(profile)
-            )
-            return result
-        if args.kb:
-            raise SourceCaptureError(
-                "SOURCE_ARGUMENT_INVALID",
-                "--kb 仅和 --source-uid 一起使用",
-            )
-        return capture_aeolus(
-            client=client,
-            url=args.url,
-            report_ids=args.report_id,
-            where_filters=_where_filters(args.where),
-            filter_mode=args.filter_mode,
-            max_items=args.max_items,
-        )
-
-    if args.report_id or args.where or args.filter_mode != "dashboard":
-        raise SourceCaptureError(
-            "SOURCE_ARGUMENT_INVALID",
-            "--report-id / --where / --filter-mode 仅用于 source_type=aeolus",
-        )
-
-    common = {
-        "runner": runner,
-        "url": args.url,
-        "view_id": args.view_id,
-    }
-    if args.source_type == "meego":
-        common["project_key"] = args.project_key
-        if args.operation == "inspect":
-            return inspect_meego(**common, fields=args.field)
-        return capture_meego(
-            **common,
-            fields=args.field,
-            max_items=args.max_items,
-        )
-
-    common.update(
-        {
-            "base_token": args.base_token,
-            "table_id": args.table_id,
-        }
-    )
-    if args.operation == "inspect":
-        return inspect_base(**common)
-    return capture_base(
-        **common,
-        fields=args.field,
-        max_items=args.max_items,
-    )
+    return run_source_operation(args, skill_root=ROOT)
 
 
 def main(argv: list[str] | None = None) -> int:
