@@ -14,6 +14,10 @@
   `references/digest-whiteboard.md`,默认读取每个白板的结构化节点 JSON 与整体预览;结构 JSON
   以独立 `kind=whiteboard` component 进入 source bundle。不能只保留占位 token 或只看截图。
   当前文档自身白板不算递归子文档;外部白板和其它文档里的白板仍走重要依赖闸门。
+- **统一交接**:正文、评论和白板 artifact 抓取完成后，调用
+  `source bundle --source-type feishu_doc --request <request.json> --out <bundle.json>`。
+  评论策略关闭或权限不可用时省略 comments component，并明确
+  `provider_metadata.comments_status=unavailable`；不得提供空文件伪装完整评论。
 - **文档来源标识与幂等键**:`lark-doc +fetch --api-version v2` 返回的 `document_id` 和
   `revision_id` 必须写入 raw frontmatter:`source_uid=<document_id>`、`source_revision=<revision_id>`。
   同一文档 URL 可能带不同 query 参数,不得用完整 URL 作为唯一判重依据;URL 只保留在

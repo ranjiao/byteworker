@@ -471,7 +471,10 @@ links: [{links}]
             json.dumps(tampered_capture, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
-        with self.assertRaisesRegex(DigestTxnError, "snapshot_hash"):
+        with self.assertRaisesRegex(
+            DigestTxnError,
+            "(?:content_hash|snapshot_hash)",
+        ):
             validate_plan(self.kb, plan_path)
         capture_path.write_text(
             json.dumps(capture, ensure_ascii=False) + "\n",

@@ -91,6 +91,12 @@ def canonical_sha256(value: Any) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def ensure_source_request_safe(value: Any) -> None:
+    """Reject credential-shaped values before provider request dispatch."""
+
+    _reject_credentials(value)
+
+
 def _error(message: str, path: str, code: str = "SOURCE_BUNDLE_INVALID") -> None:
     raise SourceBundleError(code, message, path=path)
 

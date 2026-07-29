@@ -22,21 +22,22 @@
    - `feishu_doc` → 用 `lark-doc +fetch --api-version v2 --detail with-ids` 读取文档正文,并按
      `references/digest-comments.md` 独立读取全部评论(含已解决)、完整回复链和正文锚点。
      **摄取前必读** `references/digest-doc.md` 与它路由的评论细则。
-   - `feishu_minutes` → 优先用 `lark-vc` / `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿;若只有会议号/日程,先用 `lark-vc` 定位会议产物和 minute token。若能从妙记元数据、会议名/时间、日历日程、纪要正文中的文档引用找到对应会议文档,把这些链接记为 `related_source_urls` 并写入 event「事件信息」。
+   - `feishu_minutes` → 优先用 `lark-vc` / `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿;若只有会议号/日程,先用 `lark-vc` 定位会议产物和 minute token。抓取完成后通过 `source bundle --source-type feishu_minutes` 规范化逐字稿和 segment anchors。若能从妙记元数据、会议名/时间、日历日程、纪要正文中的文档引用找到对应会议文档,把这些链接记为 `related_source_urls` 并写入 event「事件信息」。
    - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物;拿到 minute token 后再取妙记正文 / AI 产物。同步 best-effort 查找该会议的日历链接和会议文档链接,找到则写入 raw / event,找不到不臆造。
-   - `feishu_chat` → 运行 `bin/pull-chat.sh` 拉取群聊(底层调 lark-im,自动定位群 + 分页拉全 + 输出逐字转写)。**摄取前必读** `references/digest-chat.md`。
+   - `feishu_chat` → 首次运行 `bin/pull-chat.sh` 确认 chat_id/窗口并保存 v2 Profile；后续运行 `source capture --source-type feishu_chat --kb ... --source-uid ... --out ...`，它包装完整分页、增量高水位、逐字稿/locator 并直接输出 Bundle。**摄取前必读** `references/digest-chat.md`。
    - `meego` → 先通过机器协议运行 `source inspect`,基于真实字段元数据选择并说明最小稳定投影，
      首次把权威坐标和投影保存为 `byteworker-source-profile/v2`；之后按 `--kb + --source-uid`
      capture。已有同源快照时由 SnapshotStore 直接从 KB 选择上一份完整快照并运行
      `source diff` 缩小语义复核范围。**摄取前必读** `references/digest-meego.md`。
-   - `feishu_base` → 先通过机器协议运行 `source inspect`,用户确认字段后运行 `source capture`
+   - `feishu_base` → 先通过机器协议运行 `source inspect`,用户确认字段后保存 v2 Profile 并运行 `source capture`
      串行拉完明确 Base 视图。**摄取前必读** `references/digest-base.md`。
    - `aeolus` → 先通过机器协议运行 `source inspect`，确认报表、dataset 和看板 public filters；
      再用 `source register --kb ...` 把这个 dashboard sheet 的独立 selector/filter profile
      写进用户 KB，最后只按 `source_uid` capture。**摄取前必读**
      `references/digest-aeolus.md`。
    - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
-   - `local_md` → 直接读取本地文件。
+   - `local_md` → 直接读取本地文件，再通过 `source bundle --source-type local_md` 生成 Bundle。
+   - `web` → 宿主浏览器抓取正文后，通过 `source bundle --source-type web` 生成 Bundle。
    失败按 `references/error-handling.md` 中止。
 3. **幂等检查** —— 来源 adapter 把本次实际摄取的正文、评论、白板或结构化快照写成系统
    临时目录中的 `byteworker-source-bundle/v2`。bundle 是来源身份、外部 component、coverage、

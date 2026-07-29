@@ -31,7 +31,8 @@ python3 bin/byteworker-cli.py source inspect \
 python3 bin/byteworker-cli.py source capture \
   --source-type feishu_base --url "<Base 视图 URL>" \
   --field fld_title --field fld_status --field fld_owner --field fld_updated \
-  --out "<系统临时目录>/base-capture.json"
+  --out "<系统临时目录>/base-capture.json" \
+  --bundle-out "<系统临时目录>/base-bundle.json"
 
 python3 bin/byteworker-cli.py source diff \
   --previous "<上一份完整 capture.json>" \
@@ -53,6 +54,8 @@ python3 bin/byteworker-cli.py source diff \
   `source diff` 将其标为 `left_view`，不直接推断记录已删除。第一版不使用 `updated_at` 增量游标。
 - 每条记录生成 `kind=base_record` 的 exact anchor，locator 至少含
   `base_token + table_id + view_id + record_id`。
+- 首次确认 selector/fields/page_size/max_records 后保存 v2 Profile；routine 必须按
+  `source_uid` 重放 Profile，不得从最近 raw 拼接 Base 坐标。
 
 本命令解决的是“完整、可重复的原始记录快照”，不是 Base 统计分析入口。需要 TopN、全局聚合或
 跨表结论时，按 `lark-base` skill 改走 Base 云端 filter/sort/`+data-query`，不要从 digest

@@ -114,6 +114,63 @@ def feishu_doc_profile(*, period=None, comments=True, whiteboards=True):
     }
 
 
+def feishu_base_profile():
+    return {
+        "schema_version": "byteworker-source-profile/v2",
+        "source_type": "feishu_base",
+        "source_uid": "feishu_base:bascn1:tbl1:vew1",
+        "source_url": (
+            "https://bytedance.larkoffice.com/base/bascn1"
+            "?table=tbl1&view=vew1"
+        ),
+        "title": "需求 Base 视图",
+        "selector": {
+            "app_token": "bascn1",
+            "table_id": "tbl1",
+            "view_id": "vew1",
+        },
+        "capture_policy": {
+            "fields": ["fld_updated", "fld_name", "fld_status"],
+            "page_size": 200,
+            "max_records": 1000,
+        },
+        "routine": {
+            "enabled": True,
+            "cadence": "weekly",
+        },
+    }
+
+
+def feishu_chat_profile(*, since_last=True):
+    capture_policy = {
+        "since_last": since_last,
+        "page_size": 50,
+        "overlap_seconds": 30 if since_last else 0,
+    }
+    if not since_last:
+        capture_policy.update(
+            {
+                "start": "2026-07-29T09:00:00+08:00",
+                "end": "2026-07-29T18:00:00+08:00",
+            }
+        )
+    return {
+        "schema_version": "byteworker-source-profile/v2",
+        "source_type": "feishu_chat",
+        "source_uid": "oc_chat",
+        "source_url": "https://applink.feishu.cn/client/chat/oc_chat",
+        "title": "需求评审群",
+        "selector": {
+            "chat_id": "oc_chat",
+        },
+        "capture_policy": capture_policy,
+        "routine": {
+            "enabled": since_last,
+            "cadence": "daily" if since_last else None,
+        },
+    }
+
+
 class SourceProfileTests(unittest.TestCase):
     def test_two_dashboard_sheets_keep_independent_selectors_and_filters(self):
         first = validate_profile(
@@ -261,9 +318,124 @@ class SourceProfileTests(unittest.TestCase):
             caught.exception.code,
         )
 
+    def test_v2_feishu_base_is_view_scoped_and_canonical(self):
+        value = feishu_base_profile()
+        normalized = validate_profile(value)
+        self.assertEqual(
+            ["fld_name", "fld_status", "fld_updated"],
+            normalized["capture_policy"]["fields"],
+        )
+        self.assertEqual("bascn1", normalized["selector"]["app_token"])
+        self.assertEqual(200, normalized["capture_policy"]["page_size"])
+
+        invalid = feishu_base_profile()
+        del invalid["selector"]["view_id"]
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_base_profile()
+        invalid["source_uid"] = "feishu_base:bascn1:tbl1:another"
+        with self.assertRaises(SourceProfileError) as caught:
+            validate_profile(invalid)
+        self.assertEqual(
+            "SOURCE_PROFILE_IDENTITY_MISMATCH",
+            caught.exception.code,
+        )
+
+        invalid = feishu_base_profile()
+        invalid["capture_policy"]["page_size"] = 0
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_base_profile()
+        invalid["capture_policy"]["page_size"] = 501
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_base_profile()
+        invalid["selector"]["base_token"] = invalid["selector"]["app_token"]
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+    def test_v2_feishu_chat_normalizes_explicit_and_incremental_windows(self):
+        incremental = feishu_chat_profile()
+        incremental["capture_policy"]["end"] = "2026-07-29T10:00:00Z"
+        normalized = validate_profile(incremental)
+        self.assertEqual("", normalized["capture_policy"]["start"])
+        self.assertEqual(
+            "2026-07-29T10:00:00+00:00",
+            normalized["capture_policy"]["end"],
+        )
+        self.assertEqual(30, normalized["capture_policy"]["overlap_seconds"])
+
+        explicit = feishu_chat_profile(since_last=False)
+        explicit["capture_policy"]["start"] = " 2026-07-29 09:00:00+0800 "
+        normalized = validate_profile(explicit)
+        self.assertEqual(
+            "2026-07-29T01:00:00+00:00",
+            normalized["capture_policy"]["start"],
+        )
+        equivalent = feishu_chat_profile(since_last=False)
+        equivalent["capture_policy"]["start"] = "2026-07-29T01:00:00Z"
+        equivalent["capture_policy"]["end"] = "2026-07-29T10:00:00Z"
+        self.assertEqual(
+            profile_revision(explicit),
+            profile_revision(equivalent),
+        )
+
+    def test_v2_feishu_chat_rejects_ambiguous_windows(self):
+        invalid = feishu_chat_profile()
+        invalid["capture_policy"]["start"] = "2026-07-29T09:00:00+08:00"
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_chat_profile(since_last=False)
+        del invalid["capture_policy"]["end"]
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_chat_profile(since_last=False)
+        invalid["capture_policy"]["overlap_seconds"] = 1
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_chat_profile(since_last=False)
+        invalid["capture_policy"]["end"] = invalid["capture_policy"]["start"]
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_chat_profile(since_last=False)
+        invalid["capture_policy"]["start"] = "2026-07-29T09:00:00"
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_chat_profile()
+        invalid["source_uid"] = "oc_other"
+        with self.assertRaises(SourceProfileError) as caught:
+            validate_profile(invalid)
+        self.assertEqual(
+            "SOURCE_PROFILE_IDENTITY_MISMATCH",
+            caught.exception.code,
+        )
+
+        invalid = feishu_chat_profile()
+        invalid["capture_policy"]["max_pages"] = 60
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_chat_profile()
+        invalid["capture_policy"]["page_size"] = 51
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_chat_profile(since_last=False)
+        invalid["routine"] = {"enabled": True, "cadence": "daily"}
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
     def test_v2_rejects_unknown_types_fields_and_nested_credentials(self):
         invalid = meego_profile()
-        invalid["source_type"] = "feishu_base"
+        invalid["source_type"] = "feishu_minutes"
         with self.assertRaises(SourceProfileError) as caught:
             validate_profile(invalid)
         self.assertEqual("SOURCE_PROFILE_UNSUPPORTED", caught.exception.code)
@@ -289,6 +461,8 @@ class SourceProfileTests(unittest.TestCase):
             validate_profile(profile()),
             validate_profile(meego_profile()),
             validate_profile(feishu_doc_profile()),
+            validate_profile(feishu_base_profile()),
+            validate_profile(feishu_chat_profile()),
         ]
         with tempfile.TemporaryDirectory() as temporary:
             kb = Path(temporary)

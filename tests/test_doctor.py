@@ -303,9 +303,13 @@ legacy routine body
             "error",
             findings["ROUTINE_SOURCE_PROFILE_REQUIRED"].severity,
         )
+        self.assertNotIn("ROUTINE_SOURCE_PROFILE_UNSUPPORTED", findings)
         self.assertEqual(
-            "info",
-            findings["ROUTINE_SOURCE_PROFILE_UNSUPPORTED"].severity,
+            2,
+            sum(
+                item.code == "ROUTINE_SOURCE_PROFILE_REQUIRED"
+                for item in report.findings
+            ),
         )
         self.assertEqual(3, report.counts["routine_sources"])
         self.assertEqual(3, report.counts["legacy_routine_sources"])

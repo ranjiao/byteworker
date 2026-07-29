@@ -20,6 +20,7 @@ from source_capture import (  # noqa: E402
     diff_captures,
     read_capture,
     write_capture,
+    write_capture_pair,
 )
 from source_operations import (  # noqa: E402
     run_source_operation,
@@ -35,6 +36,13 @@ from source_profiles import (  # noqa: E402
     save_profile,
 )
 from snapshot_store import diff_current_against_kb  # noqa: E402
+from sources import (  # noqa: E402
+    BUNDLE_SCHEMA,
+    SourceBundleError,
+    SourceRegistryError,
+    create_default_registry,
+    ensure_source_request_safe,
+)
 
 
 def _positive_int(value: str) -> int:
@@ -53,9 +61,13 @@ def _nonnegative_int(value: str) -> int:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        description="检查 Meego / 多维表格 / 风神授权与视图，并生成只读规范快照"
+        description="统一来源授权、抓取、Profile、SourceBundle 与快照差异入口"
     )
     sub = result.add_subparsers(dest="operation", required=True)
+    sub.add_parser(
+        "capabilities",
+        help="列出当前实现的 operation、Profile 与 SourceBundle 能力",
+    )
     auth = sub.add_parser(
         "auth-status",
         help="只读检查来源登录与最小授权，不发起 OAuth",
@@ -139,6 +151,35 @@ def parser() -> argparse.ArgumentParser:
                 "--out",
                 help="完整快照输出路径；必须位于临时目录或知识库目录",
             )
+            command.add_argument(
+                "--bundle-out",
+                default="",
+                help=(
+                    "同时把完整 capture 转为 SourceBundle v2；"
+                    "必须与 --out 一起使用"
+                ),
+            )
+    bundle = sub.add_parser(
+        "bundle",
+        help="由 provider adapter 把已抓取材料规范化为 SourceBundle v2",
+    )
+    bundle.add_argument(
+        "--source-type",
+        choices=create_default_registry().source_types(),
+        required=True,
+    )
+    bundle.add_argument(
+        "--request",
+        required=True,
+        help=(
+            "provider 专属构造参数 JSON；业务文件必须位于临时目录或知识库目录"
+        ),
+    )
+    bundle.add_argument(
+        "--out",
+        required=True,
+        help="SourceBundle v2 输出路径",
+    )
     register = sub.add_parser(
         "register",
         help="验证并把一个风神 dashboard sheet 的独立配置写入 KB",
@@ -222,6 +263,64 @@ def parser() -> argparse.ArgumentParser:
 
 
 def _run(args: argparse.Namespace) -> dict:
+    if args.operation == "capabilities":
+        return {
+            "operation_source_types": list(source_operation_types()),
+            "profile_source_types": sorted(PROFILE_SOURCE_TYPES),
+            "bundle_source_types": list(create_default_registry().source_types()),
+            "contract": BUNDLE_SCHEMA,
+        }
+    if args.operation == "bundle":
+        request_path = Path(args.request).expanduser().resolve()
+        if request_path == ROOT.resolve() or ROOT.resolve() in request_path.parents:
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_PATH_IN_SKILL_REPO",
+                "业务 bundle request 不得位于 byteworker skill 仓库",
+                path=str(request_path),
+            )
+        try:
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_REQUEST_INVALID",
+                f"无法读取 bundle request JSON: {request_path}",
+                path=str(request_path),
+            ) from exc
+        if not isinstance(request, dict):
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_REQUEST_INVALID",
+                "bundle request 顶层必须是 JSON 对象",
+                path=str(request_path),
+            )
+        if "source_type" in request:
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_REQUEST_INVALID",
+                "source_type 只能由 CLI 参数声明，不得在 request 中重复",
+                path="source_type",
+            )
+        if "capture" in request:
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_REQUEST_INVALID",
+                "bundle request 不接受内联 capture；请只提供 capture_path，"
+                "避免内容与路径指向不同快照",
+                path="capture",
+            )
+        ensure_source_request_safe(request)
+        bundle = create_default_registry().build_bundle(
+            args.source_type,
+            **request,
+            skill_root=ROOT,
+        )
+        return bundle.to_dict()
+    if (
+        args.operation == "capture"
+        and args.bundle_out
+        and not args.out
+    ):
+        raise SourceCaptureError(
+            "SOURCE_ARGUMENT_INVALID",
+            "--bundle-out 必须与 --out 一起使用",
+        )
     if args.operation == "diff":
         current = read_capture(Path(args.current))
         if args.kb:
@@ -305,10 +404,72 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         result = _run(args)
-        if args.operation in {"capture", "diff"} and args.out:
+        if args.operation == "bundle":
             output = Path(args.out).expanduser().resolve()
             write_capture(output, result, skill_root=ROOT)
+            result = {
+                "schema_version": result["schema_version"],
+                "source_type": result["identity"]["source_type"],
+                "source_uid": result["identity"]["source_uid"],
+                "title": result["identity"]["title"],
+                "output": str(output),
+                "component_count": len(result["components"]),
+                "coverage": result["coverage"]["status"],
+            }
+        if args.operation in {"capture", "diff"} and args.out:
+            output = Path(args.out).expanduser().resolve()
+            if (
+                args.operation == "capture"
+                and result.get("schema_version") == BUNDLE_SCHEMA
+                and args.bundle_out
+            ):
+                raise SourceCaptureError(
+                    "SOURCE_ARGUMENT_INVALID",
+                    "该来源 capture 已直接输出 SourceBundle，"
+                    "不得再提供 --bundle-out",
+                )
             if args.operation == "capture":
+                if result.get("schema_version") == BUNDLE_SCHEMA:
+                    write_capture(output, result, skill_root=ROOT)
+                    result = {
+                        "schema_version": result["schema_version"],
+                        "source_type": result["identity"]["source_type"],
+                        "source_uid": result["identity"]["source_uid"],
+                        "title": result["identity"]["title"],
+                        "output": str(output),
+                        "component_count": len(result["components"]),
+                        "coverage": result["coverage"]["status"],
+                    }
+                    print(
+                        json.dumps(
+                            result,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                    )
+                    return 0
+                bundle = None
+                bundle_path = None
+                if args.bundle_out:
+                    bundle_path = Path(args.bundle_out).expanduser().resolve()
+                    bundle = create_default_registry().build_bundle(
+                        args.source_type,
+                        capture=result,
+                        capture_path=output,
+                        skill_root=ROOT,
+                    )
+                bundle_output = ""
+                if bundle is not None and bundle_path is not None:
+                    write_capture_pair(
+                        output,
+                        result,
+                        bundle_path,
+                        bundle.to_dict(),
+                        skill_root=ROOT,
+                    )
+                    bundle_output = str(bundle_path)
+                else:
+                    write_capture(output, result, skill_root=ROOT)
                 result = {
                     "schema_version": result["schema_version"],
                     "source_type": result["source_type"],
@@ -319,8 +480,17 @@ def main(argv: list[str] | None = None) -> int:
                     "item_count": result["pagination"]["item_count"],
                     "complete": result["pagination"]["complete"],
                     "sanitization": result.get("sanitization", {}),
+                    **(
+                        {
+                            "bundle_schema_version": BUNDLE_SCHEMA,
+                            "bundle_output": bundle_output,
+                        }
+                        if bundle_output
+                        else {}
+                    ),
                 }
             else:
+                write_capture(output, result, skill_root=ROOT)
                 result = {
                     "schema_version": result["schema_version"],
                     "source_type": result["source_type"],
@@ -331,16 +501,25 @@ def main(argv: list[str] | None = None) -> int:
                 }
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0
-    except (SourceCaptureError, SourceProfileError) as exc:
-        error = (
-            exc.as_dict()
-            if isinstance(exc, SourceCaptureError)
-            else {
+    except (
+        SourceBundleError,
+        SourceCaptureError,
+        SourceProfileError,
+        SourceRegistryError,
+    ) as exc:
+        if isinstance(exc, (SourceBundleError, SourceCaptureError)):
+            error = exc.as_dict()
+        elif isinstance(exc, SourceProfileError):
+            error = {
                 "code": exc.code,
                 "message": str(exc),
                 **({"hint": exc.hint} if exc.hint else {}),
             }
-        )
+        else:
+            error = {
+                "code": exc.code,
+                "message": str(exc),
+            }
         print(
             json.dumps(
                 {"error": error},

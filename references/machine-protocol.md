@@ -47,13 +47,15 @@ python3 bin/byteworker-cli.py provenance-backfill audit --kb "<知识库目录>"
 # 自动更新状态；只读，不触发网络检查
 python3 bin/byteworker-cli.py update-status
 
-# Meego / 多维表格 / 风神只读来源
+# 统一来源能力、Profile、capture 与 Bundle
+python3 bin/byteworker-cli.py source capabilities
 python3 bin/byteworker-cli.py source auth-status --source-type meego \
   --host project.feishu.cn
 python3 bin/byteworker-cli.py source auth-status --source-type feishu_base
 python3 bin/byteworker-cli.py source inspect --source-type meego --url "<Meego 视图 URL>"
 python3 bin/byteworker-cli.py source capture --source-type meego --url "<Meego 视图 URL>" \
-  --field name --field status --out "<临时目录>/meego-capture.json"
+  --field name --field status --out "<临时目录>/meego-capture.json" \
+  --bundle-out "<临时目录>/meego-bundle.json"
 python3 bin/byteworker-cli.py source profile-save --kb "<知识库目录>" \
   --file "<临时目录>/meego-profile.json"
 python3 bin/byteworker-cli.py source capture --source-type meego \
@@ -64,7 +66,8 @@ python3 bin/byteworker-cli.py source diff --kb "<知识库目录>" \
   --current "<本次 capture.json>" --out "<临时目录>/meego-diff.json"
 python3 bin/byteworker-cli.py source inspect --source-type feishu_base --url "<Base 视图 URL>"
 python3 bin/byteworker-cli.py source capture --source-type feishu_base --url "<Base 视图 URL>" \
-  --field fld_title --field fld_status --out "<临时目录>/base-capture.json"
+  --field fld_title --field fld_status --out "<临时目录>/base-capture.json" \
+  --bundle-out "<临时目录>/base-bundle.json"
 python3 bin/byteworker-cli.py source auth-status --source-type aeolus
 python3 bin/byteworker-cli.py source inspect --source-type aeolus --url "<风神 dashboard URL>"
 python3 bin/byteworker-cli.py source register --source-type aeolus \
@@ -74,7 +77,14 @@ python3 bin/byteworker-cli.py source profiles --kb "<知识库目录>" --source-
 python3 bin/byteworker-cli.py source capture --source-type aeolus \
   --kb "<知识库目录>" \
   --source-uid "aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>" \
-  --out "<临时目录>/aeolus-capture.json"
+  --out "<临时目录>/aeolus-capture.json" \
+  --bundle-out "<临时目录>/aeolus-bundle.json"
+python3 bin/byteworker-cli.py source capture --source-type feishu_chat \
+  --kb "<知识库目录>" --source-uid "<chat_id>" \
+  --out "<临时目录>/chat-bundle.json"
+python3 bin/byteworker-cli.py source bundle --source-type web \
+  --request "<临时目录>/web-bundle-request.json" \
+  --out "<临时目录>/web-bundle.json"
 
 # 人工可读输出
 python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
@@ -86,10 +96,14 @@ python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
 真正的 `inspect / capture` 会 fail closed 为 `SOURCE_AUTH_REQUIRED`，并把同一
 `auth_action` 放进 error details。
 
-`source inspect` 只读返回真实字段/报表元数据与规模。`source profile-save` 严格校验
-`byteworker-source-profile/v2`（当前 Meego/飞书文档）并事务写入用户 KB；风神
+`source capabilities` 分别列出 operation、Profile 与 Bundle 来源集合；三者是正交能力，
+不把“已有 Bundle adapter”误报成“也有同形网络 capture”。`source inspect` 只读返回真实
+字段/报表元数据与规模。`source profile-save` 严格校验
+`byteworker-source-profile/v2`（当前 Meego/Base/群聊/飞书文档）并事务写入用户 KB；风神
 `source register` 继续写其兼容 v1 profile。后续按 `source_uid` capture，且不接受 CLI
-覆盖该 profile。`source capture` 只在完整读取后写规范快照；`source diff --kb` 通过
+覆盖该 profile。Meego/Base/Aeolus `source capture --bundle-out` 在完整读取后同时写规范
+快照和 Bundle；群聊 Profile capture 直接输出 Bundle。飞书文档、妙记、Web、本地文件由宿主
+先抓取 artifact，再用 `source bundle --request` 规范化。`source diff --kb` 通过
 SnapshotStore 从已提交 raw 选择上一份完整快照，也可用 `--raw-id` 或 `--history-index`
 显式选择历史版本。diff 按稳定记录 ID 比较，输出
 `baseline / added / changed / left_view`。
@@ -109,7 +123,8 @@ SnapshotStore 从已提交 raw 选择上一份完整快照，也可用 `--raw-id
 ## 兼容边界
 
 - `bin/digest-txn.py`、`bin/kb-query.py`、`bin/doctor.py`、`bin/todo.py`、
-  `bin/provenance-backfill.py`、`bin/source.py` 的参数和原始输出保持不变。
+  `bin/provenance-backfill.py` 的参数和原始输出保持不变；`bin/source.py` 新增
+  `capabilities`、`bundle` 与兼容的 `--bundle-out`，旧 capture 参数保持有效。
 - Agent 与新自动化优先使用 facade；已有人工命令或外部脚本可渐进迁移。
 - facade 只适配确定性本地 CLI，不做语义判断，不接入注册表，也不改变知识库写入授权。
 - `data` 保留底层 JSON 结构；底层若输出纯文本，则 `data` 是字符串，不臆造字段。

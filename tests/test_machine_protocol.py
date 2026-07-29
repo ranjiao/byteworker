@@ -172,6 +172,111 @@ class MachineProtocolTests(unittest.TestCase):
         self.assertEqual("login", payload["data"]["action"]["kind"])
         self.assertEqual("auth-status", payload["context"]["operation"])
 
+    def test_source_capabilities_exposes_three_independent_contract_sets(self):
+        result = self.run_cli("source", "capabilities")
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        data = payload["data"]
+        self.assertIn("feishu_chat", data["operation_source_types"])
+        self.assertIn("feishu_doc", data["profile_source_types"])
+        self.assertIn("local_md", data["bundle_source_types"])
+        self.assertEqual(
+            "byteworker-source-bundle/v2",
+            data["contract"],
+        )
+
+    def test_source_bundle_materializes_local_file_through_registry(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            body = root / "source.md"
+            request = root / "request.json"
+            output = root / "bundle.json"
+            body.write_text("# 原文\n", encoding="utf-8")
+            request.write_text(
+                json.dumps(
+                    {
+                        "source_uid": "direct-user:test",
+                        "title": "用户确认原文",
+                        "local_file": {"path": str(body)},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                "source",
+                "bundle",
+                "--source-type",
+                "local_md",
+                "--request",
+                request,
+                "--out",
+                output,
+            )
+            persisted = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("success", payload["status"])
+        self.assertEqual(
+            "byteworker-source-bundle/v2",
+            persisted["schema_version"],
+        )
+        self.assertEqual("local_md", persisted["identity"]["source_type"])
+        self.assertEqual(str(output.resolve()), payload["data"]["output"])
+
+    def test_source_bundle_rejects_provider_request_shape_with_stable_error(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            request = root / "request.json"
+            request.write_text('{"unexpected":"value"}', encoding="utf-8")
+            result = self.run_cli(
+                "source",
+                "bundle",
+                "--source-type",
+                "local_md",
+                "--request",
+                request,
+                "--out",
+                root / "bundle.json",
+            )
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            "SOURCE_BUNDLE_REQUEST_INVALID",
+            payload["error"]["code"],
+        )
+
+    def test_source_bundle_rejects_inline_capture_to_avoid_dual_truth(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            request = root / "request.json"
+            request.write_text(
+                json.dumps(
+                    {
+                        "capture": {"source_uid": "inline"},
+                        "capture_path": str(root / "capture.json"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                "source",
+                "bundle",
+                "--source-type",
+                "meego",
+                "--request",
+                request,
+                "--out",
+                root / "bundle.json",
+            )
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            "SOURCE_BUNDLE_REQUEST_INVALID",
+            payload["error"]["code"],
+        )
+        self.assertIn("内联 capture", payload["error"]["message"])
+
     def test_source_diff_uses_same_envelope_and_writes_summary(self):
         def capture(records):
             return {

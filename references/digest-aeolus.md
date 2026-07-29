@@ -36,7 +36,8 @@ python3 bin/byteworker-cli.py source register \
 python3 bin/byteworker-cli.py source capture \
   --source-type aeolus --kb "<知识库目录>" \
   --source-uid "aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>" \
-  --out "<系统临时目录>/aeolus-capture.json"
+  --out "<系统临时目录>/aeolus-capture.json" \
+  --bundle-out "<系统临时目录>/aeolus-bundle.json"
 
 python3 bin/byteworker-cli.py source diff \
   --previous "<上一份完整 capture.json>" \

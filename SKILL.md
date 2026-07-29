@@ -48,7 +48,7 @@ provenance 回填时,按 [`references/machine-protocol.md`](references/machine-p
 `status / data / error / context` JSON envelope。`bin/digest-txn.py`、`bin/kb-query.py`、
 `bin/doctor.py`、`bin/todo.py` 等直接入口继续保留给人工排障和兼容旧调用。
 
-Meego / Base / 风神来源授权先用 `source auth-status` 做无副作用检查。未就绪时必须先告诉用户将发起
+Meego / Base / 风神 / 群聊来源授权先用 `source auth-status` 做无副作用检查。未就绪时必须先告诉用户将发起
 OAuth 并取得同意：Meego 走独立 `meegle` 登录；Base 走 `lark-cli` 用户登录 + 最小只读
 scopes 的 split-flow（原样 URL + 二维码，后续由 agent 用 device code 收尾）；风神由
 byteworker 原生只读客户端读取，凭据只从环境变量或仓库外 `0600` 私密文件注入。运行时
@@ -141,6 +141,11 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 `primary_source_url` 和 `## 证据`。不得为单篇业务资料在 skill 仓库生成硬编码写入脚本。
 `digest-plan/v1` 仅作为已有调用方兼容入口；新代码不得继续在 plan 内复制 provider-specific
 `source` 或 `provenance.anchors`。
+Meego/Base/Aeolus 完整 capture 使用 `source capture --bundle-out` 同步生成 Bundle；
+已保存 Profile 的群聊 capture 直接输出 Bundle；飞书文档、妙记、Web 和本地文件由宿主能力
+抓取原始 artifact 后，调用 `source bundle --source-type ... --request ... --out ...`。
+会议簇保持上层复合编排：妙记和每份投屏文档先各自产生 Bundle，不把整场会议伪装成单一
+provider capture。
 两个以上来源需要原子落库或共同更新一个节点时，使用 `digest-batch-plan/v1`；它仍只持一个短时
 写锁并产生一个 commit。所有业务 component、manifest 和候选文件都必须位于系统临时目录或
 知识库目录，事务 CLI 会拒绝 skill 仓库内路径。

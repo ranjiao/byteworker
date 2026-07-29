@@ -88,7 +88,7 @@ cd "$BYTEWORKER_ROOT"
 |---|---|---|---|
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
-| `source.py` | Agent / 维护者 | 来源授权、检查、抓取、Profile、diff | capture 写输出；Profile 操作可写 KB |
+| `source.py` | Agent / 维护者 | 来源能力、授权、抓取、Profile、Bundle、diff | capture/Bundle 写输出；Profile 操作可写 KB |
 | `kb-query.py` | Agent / 维护者 | 节点、证据和结构化 raw 查询 | 只读 |
 | `doctor.py` | Agent / 维护者 | 扫描 schema/graph/profile 漂移 | `fix` 可写 INDEX/links |
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
@@ -220,12 +220,21 @@ python3 bin/byteworker-cli.py digest-txn execute \
 - `templates/digest-plan-v1.json`
 - `templates/digest-batch-plan-v1.json`
 
-## 6. `source.py`：结构化来源入口
+## 6. `source.py`：统一来源入口
 
-用途：统一 Meego、飞书多维表格和风神的授权检查、来源检查、抓取、Profile 与快照差异。
+用途：统一来源 capability、Profile、抓取和 SourceBundle 出口。provider 的 transport
+保持异构，但进入 digest 的单来源结果都必须是 `SourceBundle v2`。
 
 ```bash
 python3 bin/byteworker-cli.py source <subcommand> ...
+```
+
+### `capabilities`
+
+列出三个正交集合：可执行 operation、可保存 Profile、可生成 Bundle 的来源类型。
+
+```bash
+python3 bin/byteworker-cli.py source capabilities
 ```
 
 ### `auth-status`
@@ -238,7 +247,8 @@ python3 bin/byteworker-cli.py source auth-status \
   --host project.feishu.cn
 ```
 
-支持 `meego`、`feishu_base`、`aeolus`。
+支持 `meego`、`feishu_base`、`aeolus`、`feishu_chat`。群聊只检查共享 Lark 用户身份，
+具体 IM scope 在 capture 时 fail closed 验证。
 
 ### `inspect`
 
@@ -262,7 +272,7 @@ python3 bin/byteworker-cli.py source inspect \
 
 ### `capture`
 
-完整分页抓取并生成规范快照。
+完整分页抓取并生成规范快照或 Bundle。
 
 按已保存 Profile 抓取：
 
@@ -271,14 +281,54 @@ python3 bin/byteworker-cli.py source capture \
   --source-type meego \
   --kb "$BYTEWORKER_KB" \
   --source-uid "<stable-source-uid>" \
-  --out /tmp/byteworker-example/current-capture.json
+  --out /tmp/byteworker-example/current-capture.json \
+  --bundle-out /tmp/byteworker-example/current-bundle.json
 ```
 
 临时检查也可直接提供 URL/坐标/字段。已有 Profile 的 routine 流程必须重放 Profile，不得从最近
 raw 猜参数。
 
-`--out` 必须位于系统临时目录或知识库目录。未提供时命令返回 capture JSON；大快照建议总是提供
-输出文件。
+Meego/Base/Aeolus 的 `--bundle-out` 必须与 `--out` 同时使用：前者保留兼容 capture，后者是
+统一 digest 交接。群聊必须按 v2 Profile capture，`--out` 直接写 Bundle，并把逐字稿/locator
+写到 Bundle 旁的业务临时目录。
+
+`--out` 必须位于系统临时目录或知识库目录。未提供时结构化命令返回 capture JSON；大快照建议
+总是提供输出文件。
+
+### `bundle`
+
+把宿主已经抓取的文档、妙记、Web、本地资料，或现有结构化 capture，通过 registry 构造成
+严格 `SourceBundle v2`：
+
+```bash
+python3 bin/byteworker-cli.py source bundle \
+  --source-type web \
+  --request /tmp/byteworker-example/web-request.json \
+  --out /tmp/byteworker-example/web-bundle.json
+```
+
+`request` 是 adapter 自己严格校验的 provider 参数，只能放临时目录或 KB，且不得重复声明
+`source_type`。结构化 capture 只传 `capture_path`；CLI 拒绝内联 `capture`，避免路径和
+内联内容成为两份互相矛盾的真相。当前 Bundle adapter：`aeolus`、`feishu_base`、`feishu_chat`、`feishu_doc`、
+`feishu_minutes`、`local_md`、`meego`、`web`。
+
+`capture --out ... --bundle-out ...` 的两个路径必须不同。命令会先完成 Bundle 校验，再暂存
+两个 JSON；若第二个文件替换失败，会恢复第一个文件的原内容。
+
+常用 request 形状：
+
+| 来源 | request 关键字段 |
+|---|---|
+| Meego / Base / Aeolus | `{"capture_path":"/abs/capture.json"}` |
+| 飞书文档 | `source_uid/source_url/title/revision/body/comments?/whiteboards?/anchors?/provider_metadata?` |
+| 群聊 | `source_uid/source_url/title/source_window/transcript/locator_artifact`；routine 优先直接用 Profile capture |
+| 妙记 | `source_uid/source_url/title/transcript/anchors?` |
+| Web | `source_uid/source_url/title/body/anchors?` |
+| 本地 Markdown | `source_uid/title/local_file/anchors?` |
+
+component 参数如 `body`、`transcript`、`local_file` 使用
+`{"path":"/absolute/business-file"}`；JSON artifact 可再声明 `json_pointer` 和
+`mode:"canonical-json"`。完整 request 示例应放系统临时目录，不能复制进 skill 仓库。
 
 ### `register`
 
@@ -293,7 +343,7 @@ python3 bin/byteworker-cli.py source register \
   --routine weekly
 ```
 
-当前 `register` 只支持 Aeolus。Meego 和飞书文档 v2 Profile 使用 `profile-save`。
+当前 `register` 只支持 Aeolus。Meego、Base、群聊和飞书文档 v2 Profile 使用 `profile-save`。
 
 ### `profile-save`
 
@@ -321,7 +371,8 @@ python3 bin/byteworker-cli.py source profiles \
   --source-type meego
 ```
 
-`profiles --source-type` 当前支持 `aeolus`、`feishu_doc`、`meego`。
+`profiles --source-type` 当前支持 `aeolus`、`feishu_base`、`feishu_chat`、`feishu_doc`、
+`meego`。
 
 ### `diff`
 
@@ -433,7 +484,7 @@ python3 bin/byteworker-cli.py doctor fix \
 去掉 `--dry-run` 才真正写入。`--autolink` 会把正文提及的已存在节点 ID 补进 links。
 
 Doctor 还会只读检查 Profile v1/v2、定期来源的 Profile 覆盖、raw/Profile identity、
-payload component/digest key 和规范记录索引。Meego/Aeolus 缺 Profile 会报 error，飞书文档
+payload component/digest key 和规范记录索引。Meego/Base/Aeolus/群聊缺 Profile 会报 error，飞书文档
 legacy routine 报 warning，尚无 Profile schema 的来源报兼容 info。
 
 Doctor 只自动处理可证明的 INDEX/links 问题；缺失 Profile、业务字段、悬空 ID、证据缺失、

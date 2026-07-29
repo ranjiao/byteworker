@@ -4,9 +4,9 @@
 
 有些来源**会定期更新**(滚动周会文档、群聊、Meego / 多维表格保存视图、风神看板等),需周期性复查增量。
 
-- **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。Meego、飞书文档、
-  风神等已有 `sources/` profile 的来源，把 enabled/cadence 写进该来源自己的 profile；群聊
-  等尚无 profile 的来源才兼容给 raw frontmatter 加 `routine: weekly`。INDEX 优先从
+- **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。Meego、Base、群聊、
+  飞书文档、风神等已有 `sources/` profile 的来源，把 enabled/cadence 写进该来源自己的
+  profile；尚无 profile schema 的来源才兼容给 raw frontmatter 加 `routine: weekly`。INDEX 优先从
   profiles 派生，同一 `source_uid` 有 profile 时，历史 raw 的 routine 不再生效。
 - **运行**(触发:不带来源的 `digest` / 用户说"跑定期摄取""检查周报更新" / 操作前必读「到期提醒」后用户确认):
   - 开始时先告知用户本次会复查 INDEX「定期摄取清单」里的多少个来源;逐源处理时用短状态说明当前来源、是否在拉取 / 比对 / digest / 跳过。来源较多或单源处理超过约 30-60 秒时,按 `SKILL.md`「长流程状态输出」发 heartbeat,不要等全部来源处理完才第一次汇报。
@@ -19,7 +19,10 @@
        比对。有新周期或任一实际 payload component 变化,都按 `references/digest-doc.md` 更新
        同一个主记录;`state=noop` 才跳过。`body_hash` / `comment_hash` /
        `whiteboard_hash` 会作为诊断字段保留,但不能只看 `revision_id` 或正文 hash。
-     - 群聊:`bin/pull-chat.sh --query "<群名>" --since-last`;有新消息则按 `references/digest-chat.md` digest 新窗口,否则跳过。
+     - 群聊:从 KB `sources/` 加载 v2 Profile，运行
+       `source capture --source-type feishu_chat --kb ... --source-uid ... --out <bundle>`；
+       operation adapter 会把 `pull-chat.sh --since-last`、KB 高水位、overlap、逐字稿和
+       locator 统一为 Bundle。有新消息则按 `references/digest-chat.md` digest 新窗口，否则跳过。
      - Meego 保存视图:从 KB `sources/` 加载 `byteworker-source-profile/v2`，按
        `source capture --source-type meego --kb ... --source-uid ...` 重放已确认坐标、字段与上限。
        不从最近 raw 拼接配置，也不接受同次 CLI 覆盖。完整快照 hash 不变则跳过；不同时用
@@ -27,10 +30,10 @@
        快照并按工作项 ID 比对，只对
        `added / changed / left_view` 做语义复核，raw 仍保存本次完整快照。`left_view` 不等于
        删除。分页不完整、权限失败或超过范围上限时中止该源且不记为复查成功。
-     - 多维表格视图:从最近 raw 读取
-       `source_url / source_base_token / source_table_id / source_view_id / source_fields`,按
-       `references/digest-base.md` 串行重新 capture。完整快照 hash 不变则跳过;不得用单页结果
-       或记录更新时间游标替代完整快照。
+     - 多维表格视图:从 KB `sources/` 加载 v2 Profile，运行
+       `source capture --source-type feishu_base --kb ... --source-uid ... --out <capture> --bundle-out <bundle>`；
+       不从最近 raw 读取或拼接 token/table/view/fields。完整快照 hash 不变则跳过;不得用单页
+       结果或记录更新时间游标替代完整快照。
      - 风神看板:INDEX 中每一行对应一个独立 dashboard-sheet `source_uid`。从 KB `sources/`
        加载该 profile，运行
        `source capture --source-type aeolus --kb "<知识库目录>" --source-uid "<source_uid>"`；

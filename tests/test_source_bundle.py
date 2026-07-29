@@ -14,6 +14,7 @@ if str(LIB) not in sys.path:
 from sources import (  # noqa: E402
     BUNDLE_SCHEMA,
     SourceAdapterRegistry,
+    SourceBundle,
     SourceBundleError,
     SourceRegistryError,
     build_feishu_document_bundle,
@@ -168,6 +169,23 @@ class SourceBundleTests(unittest.TestCase):
             build_meego_bundle(capture, capture_path=capture_path)
         self.assertEqual("SOURCE_BUNDLE_HASH_MISMATCH", caught.exception.code)
 
+    def test_reloaded_meego_bundle_revalidates_against_capture(self):
+        capture = self.meego_capture()
+        capture_path = self.write("meego-revalidate.json", capture)
+        value = build_meego_bundle(
+            capture,
+            capture_path=capture_path,
+        ).to_dict()
+        value["identity"]["source_uid"] = "meego:other:view"
+        loaded = SourceBundle.from_dict(value)
+
+        with self.assertRaises(SourceBundleError) as caught:
+            create_default_registry().to_transaction_source(loaded)
+        self.assertEqual(
+            "SOURCE_BUNDLE_PROVIDER_MISMATCH",
+            caught.exception.code,
+        )
+
     def test_feishu_document_keeps_typed_components_and_coverage(self):
         body = self.write("body.xml", "<p id=\"p1\">结论</p>")
         comments = self.write(
@@ -239,6 +257,23 @@ class SourceBundleTests(unittest.TestCase):
         bundle["coverage"]["status"] = "complete"
         with self.assertRaises(SourceBundleError):
             validate_source_bundle(bundle)
+
+    def test_feishu_document_can_truthfully_omit_unavailable_comments(self):
+        body = self.write("body.xml", "body")
+        model = build_feishu_document_bundle(
+            source_uid="doc-1",
+            source_url="https://example.test/docx/doc-1",
+            title="测试文档",
+            revision="7",
+            body={"path": str(body)},
+            provider_metadata={"comments_status": "unavailable"},
+        )
+        bundle = model.to_dict()
+        source = create_default_registry().to_transaction_source(model)
+
+        self.assertEqual(["body"], [item["kind"] for item in bundle["components"]])
+        self.assertEqual("unavailable", source["comments_status"])
+        compute_payload(source, self.root / "plan.json")
 
     def test_rejects_credentials_anywhere_in_bundle(self):
         body = self.write("body.xml", "body")
@@ -339,13 +374,60 @@ class SourceBundleTests(unittest.TestCase):
 
     def test_default_registry_exposes_capabilities_and_rejects_duplicates(self):
         registry = create_default_registry()
-        self.assertEqual(("feishu_doc", "meego"), registry.source_types())
+        self.assertEqual(
+            (
+                "aeolus",
+                "feishu_base",
+                "feishu_chat",
+                "feishu_doc",
+                "feishu_minutes",
+                "local_md",
+                "meego",
+                "web",
+            ),
+            registry.source_types(),
+        )
         self.assertTrue(registry.capabilities("meego").stable_record_ids)
+        self.assertTrue(registry.capabilities("feishu_base").record_index)
+        self.assertTrue(registry.capabilities("aeolus").record_index)
         self.assertFalse(registry.capabilities("feishu_doc").record_index)
         with self.assertRaises(SourceRegistryError):
             registry.register(registry.get("meego"))
         with self.assertRaises(SourceRegistryError):
             SourceAdapterRegistry().get("missing")
+
+    def test_registry_distinguishes_request_shape_from_adapter_type_bug(self):
+        class BrokenAdapter:
+            source_type = "broken"
+            capabilities = create_default_registry().capabilities("local_md")
+
+            @staticmethod
+            def request_builder(*, value):
+                return value
+
+            def build_bundle(self, **kwargs):
+                raise TypeError("implementation regression")
+
+            def validate_bundle(self, bundle):
+                return None
+
+            def to_transaction_source(self, bundle):
+                return {}
+
+        registry = SourceAdapterRegistry()
+        registry.register(BrokenAdapter())
+        with self.assertRaises(SourceRegistryError) as caught:
+            registry.build_bundle("broken", unexpected=True)
+        self.assertEqual(
+            "SOURCE_BUNDLE_REQUEST_INVALID",
+            caught.exception.code,
+        )
+        with self.assertRaises(SourceRegistryError) as caught:
+            registry.build_bundle("broken", value=True)
+        self.assertEqual(
+            "SOURCE_ADAPTER_INTERNAL_ERROR",
+            caught.exception.code,
+        )
 
 
 if __name__ == "__main__":

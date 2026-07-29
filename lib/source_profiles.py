@@ -27,7 +27,12 @@ PROFILE_SCHEMA_V2 = "byteworker-source-profile/v2"
 PROFILE_SCHEMA = PROFILE_SCHEMA_V1
 PROFILE_SCHEMAS = {PROFILE_SCHEMA_V1, PROFILE_SCHEMA_V2}
 PROFILE_SOURCE_TYPES_V1 = {"aeolus"}
-PROFILE_SOURCE_TYPES_V2 = {"meego", "feishu_doc"}
+PROFILE_SOURCE_TYPES_V2 = {
+    "meego",
+    "feishu_doc",
+    "feishu_base",
+    "feishu_chat",
+}
 PROFILE_SOURCE_TYPES = PROFILE_SOURCE_TYPES_V1 | PROFILE_SOURCE_TYPES_V2
 ROUTINE_CADENCES = {"daily", "weekly", "monthly"}
 SHA_PREFIX = "sha256:"
@@ -397,6 +402,27 @@ def _required_text(value: Any, field: str) -> str:
     return normalized
 
 
+def _stable_string_list(value: Any, field: str) -> list[str]:
+    if not isinstance(value, list):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            f"source profile 的 {field} 必须是非空数组",
+        )
+    normalized = sorted(
+        {
+            item.strip()
+            for item in value
+            if isinstance(item, str) and item.strip()
+        }
+    )
+    if not normalized or len(normalized) != len(value):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            f"source profile 的 {field} 必须是非空且不重复的字符串数组",
+        )
+    return normalized
+
+
 def _validate_meego_v2(
     *,
     source_uid: str,
@@ -414,24 +440,10 @@ def _validate_meego_v2(
         )
 
     _reject_unknown(capture_policy, {"fields", "max_items"}, "capture_policy")
-    raw_fields = capture_policy.get("fields")
-    if not isinstance(raw_fields, list):
-        raise SourceProfileError(
-            "SOURCE_PROFILE_INVALID",
-            "source profile.capture_policy.fields 必须是非空数组",
-        )
-    fields = sorted(
-        {
-            str(field).strip()
-            for field in raw_fields
-            if isinstance(field, str) and field.strip()
-        }
+    fields = _stable_string_list(
+        capture_policy.get("fields"),
+        "capture_policy.fields",
     )
-    if not fields or len(fields) != len(raw_fields):
-        raise SourceProfileError(
-            "SOURCE_PROFILE_INVALID",
-            "source profile.capture_policy.fields 必须是非空且不重复的字符串数组",
-        )
     max_items = _positive_int(
         capture_policy.get("max_items"),
         "capture_policy.max_items",
@@ -498,6 +510,11 @@ def _validate_feishu_doc_v2(
 
 
 def _validate_v2_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
+    from source_profile_providers import (
+        validate_feishu_base_v2,
+        validate_feishu_chat_v2,
+    )
+
     _reject_unknown(
         profile,
         {
@@ -537,6 +554,18 @@ def _validate_v2_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
             selector=selector,
             capture_policy=capture_policy,
         )
+    elif source_type == "feishu_base":
+        normalized_selector, normalized_policy = validate_feishu_base_v2(
+            source_uid=source_uid,
+            selector=selector,
+            capture_policy=capture_policy,
+        )
+    elif source_type == "feishu_chat":
+        normalized_selector, normalized_policy = validate_feishu_chat_v2(
+            source_uid=source_uid,
+            selector=selector,
+            capture_policy=capture_policy,
+        )
     elif source_type == "feishu_doc":
         normalized_selector, normalized_policy = _validate_feishu_doc_v2(
             source_uid=source_uid,
@@ -548,6 +577,16 @@ def _validate_v2_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
             "SOURCE_PROFILE_UNSUPPORTED",
             f"source profile v2 暂不支持 source_type={source_type}",
         )
+    routine = _validate_routine(profile.get("routine"))
+    if (
+        source_type == "feishu_chat"
+        and routine["enabled"]
+        and not normalized_policy["since_last"]
+    ):
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "启用 routine 的群聊 Profile 必须使用 since_last=true",
+        )
     return {
         "schema_version": PROFILE_SCHEMA_V2,
         "source_type": source_type,
@@ -556,7 +595,7 @@ def _validate_v2_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
         "title": title,
         "selector": normalized_selector,
         "capture_policy": normalized_policy,
-        "routine": _validate_routine(profile.get("routine")),
+        "routine": routine,
     }
 
 

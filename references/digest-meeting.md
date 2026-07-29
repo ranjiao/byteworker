@@ -34,6 +34,9 @@
 ## raw_data
 
 **每个物件各落一份逐字 raw**,只增不改:妙记一份(`source_type: feishu_minutes`)、每个文档各一份(`feishu_doc`)。event 节点的 `sources` 同时引用全部 raw —— 溯源不丢。
+每个物件在进入 batch 前先各自生成 SourceBundle：妙记走 `feishu_minutes` adapter，投屏文档走
+`feishu_doc` adapter。会议簇本身仍是上层编排与 `digest-batch-plan/v1`，不得把日历、妙记和
+多个文档压成一个虚构的单来源 Bundle。
 每份 raw 的 `source_url` 写该物件自己的原始链接;同一场会中其它已确认物件写入 `related_source_urls`。
 输入大(长逐字稿 / 多个长文档)→ 加读 `references/digest-large.md`,委派子 agent 在隔离上下文里摄取。
 
