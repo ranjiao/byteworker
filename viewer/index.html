@@ -866,20 +866,32 @@ body.sidebar-resizing * {
   letter-spacing: 0.02em; text-transform: uppercase;
   color: var(--ink-2); margin: 0;
 }
-.sx-body { color: var(--ink-2); }
+.sx-body {
+  color: var(--ink-2);
+  min-width: 0;
+  /* Every section starts on the title baseline. Components may reserve a
+     marker or label track inside this shared content column. */
+  padding-left: 30px;
+}
+.sx-body > * { min-width: 0; }
 .sx-muted { color: var(--ink-4); font-size: 12px; }
-.sx-prose { line-height: 1.7; color: var(--ink); font-size: 14px; }
+.sx-prose {
+  line-height: 1.7; color: var(--ink); font-size: 14px;
+  padding-left: 32px;
+}
+.sx-prose > :first-child { margin-top: 0; }
+.sx-prose > :last-child { margin-bottom: 0; }
 
 /* info: key:value grid */
 .sx-kv {
   margin: 0; padding: 0; display: grid;
-  grid-template-columns: max-content 1fr;
-  column-gap: 18px; row-gap: 6px; font-size: 13.5px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  column-gap: 16px; row-gap: 6px; font-size: 13.5px;
 }
 .sx-kv .sx-kv-row { display: contents; }
 .sx-kv dt { color: var(--ink-3); font-size: 12px; font-weight: 500; padding-top: 2px; white-space: nowrap; }
-.sx-kv dd { color: var(--ink); margin: 0; }
-.sx-kv dd.sx-kv-full { grid-column: 1 / -1; min-width: 0; }
+.sx-kv dd { color: var(--ink); margin: 0; min-width: 0; }
+.sx-kv dd.sx-kv-full { grid-column: 1 / -1; min-width: 0; padding-left: 32px; }
 .sx-kv a {
   color: var(--accent); font-weight: 600;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
@@ -888,20 +900,28 @@ body.sidebar-resizing * {
 
 /* timeline */
 .sx-tl { list-style: none; margin: 0; padding: 0; }
-.sx-tl-row { display: grid; grid-template-columns: 110px 1fr; column-gap: 18px; padding: 8px 0 10px; position: relative; }
-.sx-tl-date { position: relative; padding-left: 16px; font-family: var(--font-mono); }
+.sx-tl-row {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 10px; padding: 8px 0 10px; position: relative;
+}
+.sx-tl-rail { position: relative; min-height: 100%; }
 .sx-tl-dot {
-  position: absolute; left: 0; top: 6px;
+  position: absolute; left: 7px; top: 6px;
   width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
   box-shadow: 0 0 0 3px var(--bg-elev), 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent);
 }
-.sx-tl-row:not(:last-child) .sx-tl-date::before {
-  content: ""; position: absolute; left: 3px; top: 14px; bottom: -10px;
+.sx-tl-row:not(:last-child) .sx-tl-rail::before {
+  content: ""; position: absolute; left: 10px; top: 14px; bottom: -10px;
   width: 2px; background: var(--divider);
 }
-.sx-tl-d1 { font-size: 12px; color: var(--ink-2); font-weight: 500; }
-.sx-tl-d2 { font-size: 10.5px; color: var(--ink-4); margin-top: 2px; }
-.sx-tl-text { font-size: 13.5px; color: var(--ink); line-height: 1.55; padding-top: 2px; }
+.sx-tl-content { min-width: 0; }
+.sx-tl-meta {
+  display: flex; align-items: baseline; gap: 8px;
+  min-height: 18px; margin-bottom: 2px; font-family: var(--font-mono);
+}
+.sx-tl-d1 { font-size: 11.5px; color: var(--ink-3); font-weight: 600; }
+.sx-tl-d2 { font-size: 10.5px; color: var(--ink-4); }
+.sx-tl-text { font-size: 13.5px; color: var(--ink); line-height: 1.55; }
 
 /* stance */
 .sx-stance-list { display: flex; flex-direction: column; gap: 6px; }
@@ -966,12 +986,30 @@ body.sidebar-resizing * {
 
 /* node refs */
 .sx-refs { display: flex; flex-direction: column; gap: 6px; }
-.sx-refs-row { display: grid; grid-template-columns: 64px 1fr; column-gap: 14px; align-items: baseline; }
+.sx-refs-row {
+  display: grid; grid-template-columns: 112px minmax(0, 1fr);
+  column-gap: 16px; align-items: baseline;
+}
+.sx-refs-row-full .sx-refs-chips { grid-column: 1 / -1; padding-left: 32px; }
 .sx-refs-label {
   font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em;
   color: var(--ink-3); text-transform: uppercase; font-family: var(--font-mono);
+  white-space: nowrap;
 }
-.sx-refs-chips { display: flex; flex-wrap: wrap; gap: 5px 8px; }
+.sx-refs-chips { display: flex; flex-wrap: wrap; gap: 5px 8px; min-width: 0; }
+.sx-ref-text { color: var(--ink); font-size: 13.5px; line-height: 1.55; }
+.sx-ref-text a:not(.evidence-ref) {
+  color: var(--accent); font-weight: 500;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  overflow-wrap: anywhere;
+}
+.sx-ref-text a:not(.evidence-ref):hover {
+  background: var(--accent-tint);
+  border-bottom-color: var(--accent);
+}
+.sx-ref-text a:not(.evidence-ref)::after {
+  content: "↗"; margin-left: 4px; font-size: 0.86em;
+}
 
 /* numbered (agenda, goals, keypoints) */
 .sx-numbered, .sx-goals, .sx-keypoints {
@@ -981,12 +1019,12 @@ body.sidebar-resizing * {
 .sx-num {
   font-family: var(--font-mono); font-size: 11px; font-weight: 600;
   color: var(--ink-4); background: var(--bg-chip);
-  padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
-  min-width: 22px; text-align: center;
+  width: 22px; min-width: 22px; padding: 2px 0;
+  border-radius: 4px; flex-shrink: 0; text-align: center;
 }
 .sx-numbered li, .sx-goal { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0; font-size: 13.5px; color: var(--ink); }
 .sx-num-text, .sx-goal-text { flex: 1; line-height: 1.55; padding-top: 1px; }
-.sx-goals .sx-goal { padding: 8px 12px; background: var(--bg-chip); border-radius: 7px; }
+.sx-goals .sx-goal { padding: 4px 0; background: transparent; border-radius: 0; }
 .sx-goals .sx-num { color: var(--accent); background: var(--accent-tint); }
 
 /* keypoints */
@@ -996,26 +1034,30 @@ body.sidebar-resizing * {
 .sx-kp-lead { font-weight: 600; color: var(--ink); margin-bottom: 2px; }
 .sx-kp-rest { color: var(--ink-2); line-height: 1.55; }
 
-/* status pill */
-.sx-status { display: flex; flex-wrap: wrap; gap: 8px; }
+/* status: quiet inline rows, not attention-grabbing badges */
+.sx-status { display: flex; flex-direction: column; gap: 4px; }
 .sx-status-pill {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 12px; border-radius: 6px; font-size: 12.5px; font-weight: 500;
-  background: var(--bg-chip); color: var(--ink-2);
+  display: grid; grid-template-columns: 22px minmax(0, 1fr);
+  align-items: baseline; column-gap: 10px;
+  padding: 4px 0; border-radius: 0; font-size: 13.5px; font-weight: 400;
+  background: transparent; color: var(--ink);
 }
-.sx-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); }
-.sx-state-on    { color: oklch(0.45 0.13 150); background: color-mix(in oklch, oklch(0.62 0.14 150) 14%, transparent); }
-.sx-state-on    .sx-status-dot { background: oklch(0.62 0.14 150); box-shadow: 0 0 0 3px color-mix(in oklch, oklch(0.62 0.14 150) 22%, transparent); }
-.sx-state-stale { color: oklch(0.50 0.13 70);  background: color-mix(in oklch, oklch(0.72 0.14 70) 16%, transparent); }
+.sx-status-dot {
+  width: 7px; height: 7px; margin-left: 8px;
+  border-radius: 50%; background: var(--ink-4);
+}
+.sx-state-on    { color: var(--ink); background: transparent; }
+.sx-state-on    .sx-status-dot { background: oklch(0.62 0.14 150); }
+.sx-state-stale { color: var(--ink); background: transparent; }
 .sx-state-stale .sx-status-dot { background: oklch(0.72 0.14 70); }
-.sx-state-super { color: var(--ink-3); background: var(--bg-chip); }
-.sx-state-draft { color: var(--ink-3); background: var(--bg-chip); }
-[data-theme="dark"] .sx-state-on    { color: oklch(0.85 0.13 150); background: color-mix(in oklch, oklch(0.62 0.14 150) 26%, transparent); }
-[data-theme="dark"] .sx-state-stale { color: oklch(0.85 0.13 70);  background: color-mix(in oklch, oklch(0.72 0.14 70) 28%, transparent); }
+.sx-state-super, .sx-state-draft { color: var(--ink-3); background: transparent; }
 
 /* members */
 .sx-members { display: flex; flex-direction: column; gap: 6px; }
-.sx-member-row { display: grid; grid-template-columns: 64px 1fr; column-gap: 14px; align-items: center; }
+.sx-member-row {
+  display: grid; grid-template-columns: 112px minmax(0, 1fr);
+  column-gap: 16px; align-items: center;
+}
 .sx-member-role {
   font-size: 11.5px; font-weight: 600; color: var(--ink-3);
   font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em;
@@ -1025,12 +1067,36 @@ body.sidebar-resizing * {
 /* conclusions */
 .sx-conclusions { display: flex; flex-direction: column; gap: 8px; }
 .sx-conclusion {
-  display: grid; grid-template-columns: 120px 1fr; column-gap: 16px; align-items: baseline;
-  padding: 10px 12px; background: var(--bg-chip); border-radius: 7px;
-  border-left: 3px solid var(--accent); font-size: 13.5px;
+  display: grid; grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 10px; align-items: baseline;
+  padding: 5px 0; background: transparent; border-radius: 0;
+  font-size: 13.5px;
 }
-.sx-conclusion-lead { font-weight: 600; color: var(--ink); font-size: 12.5px; }
+.sx-conclusion-mark {
+  color: var(--accent); font-family: var(--font-mono);
+  font-size: 12px; font-weight: 700; text-align: center;
+}
+.sx-conclusion-lead { font-weight: 600; color: var(--ink); font-size: 13px; margin-right: 6px; }
 .sx-conclusion-text { color: var(--ink-2); line-height: 1.55; }
+
+/* evidence: preserve useful columns instead of squeezing the locator into
+   a tall, unreadable sliver. The section owns horizontal overflow. */
+.sx-evidence .sx-prose { padding-left: 0; overflow-x: auto; }
+.sx-evidence .prose table {
+  display: table; width: max-content; min-width: 100%; table-layout: auto;
+}
+.sx-evidence .prose th:nth-child(1),
+.sx-evidence .prose td:nth-child(1) { min-width: 64px; white-space: nowrap; }
+.sx-evidence .prose th:nth-child(2),
+.sx-evidence .prose td:nth-child(2) { min-width: 220px; }
+.sx-evidence .prose th:nth-child(3),
+.sx-evidence .prose td:nth-child(3) { min-width: 360px; }
+.sx-evidence .prose th:nth-child(4),
+.sx-evidence .prose td:nth-child(4),
+.sx-evidence .prose th:nth-child(5),
+.sx-evidence .prose td:nth-child(5),
+.sx-evidence .prose th:nth-child(6),
+.sx-evidence .prose td:nth-child(6) { white-space: nowrap; }
 
 /* warnings */
 .sx-warns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -1060,12 +1126,20 @@ body.sidebar-resizing * {
 
 /* generic bullets */
 .sx-bullets { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.sx-bullets li { display: flex; align-items: flex-start; gap: 10px; padding: 3px 0; font-size: 13.5px; line-height: 1.6; color: var(--ink); }
-.sx-bullet-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--ink-4); margin-top: 9px; flex-shrink: 0; }
+.sx-bullets li {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr);
+  align-items: flex-start; column-gap: 10px;
+  padding: 3px 0; font-size: 13.5px; line-height: 1.6; color: var(--ink);
+}
+.sx-bullet-dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--ink-4); margin: 9px auto 0;
+}
 
 @media (max-width: 640px) {
-  .sx-refs-row, .sx-member-row, .sx-conclusion { grid-template-columns: 1fr; row-gap: 4px; }
-  .sx-tl-row { grid-template-columns: 92px 1fr; column-gap: 12px; }
+  .sx-body { padding-left: 0; }
+  .sx-refs-row, .sx-member-row { grid-template-columns: 1fr; row-gap: 4px; }
+  .sx-refs-row-full .sx-refs-chips { grid-column: 1; }
 }
 
 /* ======================================================================
@@ -1083,6 +1157,7 @@ html[data-density="compact"] .sx-doc > .sx      { padding: 12px 0 14px; }
 html[data-density="compact"] .sx-h              { margin-bottom: 6px; gap: 6px; }
 html[data-density="compact"] .sx-h-icon         { width: 18px; height: 18px; border-radius: 5px; }
 html[data-density="compact"] .sx-h-title        { font-size: 12.5px; }
+html[data-density="compact"] .sx-body           { padding-left: 24px; }
 html[data-density="compact"] .sx-kv             { row-gap: 3px; font-size: 13px; }
 html[data-density="compact"] .sx-kv dt          { padding-top: 1px; font-size: 11.5px; }
 html[data-density="compact"] .sx-tl-row         { padding: 3px 0 5px; }
@@ -2997,7 +3072,11 @@ function sxParseEvidenceRefs(body) {
   return refs;
 }
 function sxInline(text) {
-  const expanded = stripWiki(text).replace(/\[(E[1-9][0-9]*)\]/g, (all, id) => {
+  const normalized = stripWiki(text).replace(
+    /(https?:\/\/[^\s<>\]]+?)([。；，！？、])(?=$|\s)/g,
+    '[$1](<$1>)$2'
+  );
+  const expanded = normalized.replace(/\[(E[1-9][0-9]*)\]/g, (all, id) => {
     const url = sxEvidenceRefs[id];
     return url ? `[${id}](<${url}>)` : all;
   });
@@ -3009,6 +3088,7 @@ function detectSectionKind(title) {
   const t = title || '';
   if (/^证据$/.test(t)) return 'evidence';
   if (/思路与视角|视角与思路|观点与思路/.test(t)) return 'perspective';
+  if (/未摄取依赖|关联来源/.test(t)) return 'dependencies';
   if (/基本信息|事件信息|来源/.test(t)) return 'info';
   if (/对接方式/.test(t)) return 'info';
   if (/协作历史|关键进展|关键交互/.test(t)) return 'timeline';
@@ -3087,6 +3167,49 @@ function nodeLinkHTML(id) {
   if (!n) return `<span class="nodelink broken">${esc(id)}</span>`;
   return `<a class="nodelink" href="#${esc(id)}" data-id="${esc(id)}"><span class="tdot ${n.type}"></span><span>${esc(n.title)}</span></a>`;
 }
+function sxKnownNodeLinks(text, type) {
+  const source = String(text == null ? '' : text);
+  const nodes = state.byType[type] || [];
+  const titleCounts = new Map();
+  for (const n of nodes) {
+    const title = String(n.title || '').trim();
+    if (title.length >= 2) titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
+  }
+  const candidates = nodes
+    .filter(n => {
+      const title = String(n.title || '').trim();
+      return title.length >= 2 && titleCounts.get(title) === 1;
+    })
+    .sort((a, b) => b.title.length - a.title.length);
+  const matches = [];
+  const asciiEdge = /[A-Za-z0-9_.-]/;
+  for (const n of candidates) {
+    const title = n.title.trim();
+    let from = 0;
+    while (from < source.length) {
+      const start = source.indexOf(title, from);
+      if (start < 0) break;
+      const end = start + title.length;
+      const before = start > 0 ? source[start - 1] : '';
+      const after = end < source.length ? source[end] : '';
+      const badLeft = asciiEdge.test(title[0]) && asciiEdge.test(before);
+      const badRight = asciiEdge.test(title[title.length - 1]) && asciiEdge.test(after);
+      if (!badLeft && !badRight) matches.push({ start, end, id: n.id });
+      from = end;
+    }
+  }
+  matches.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start));
+  if (!matches.length) return sxInline(source);
+  let html = '', cursor = 0;
+  for (const match of matches) {
+    if (match.start < cursor) continue;
+    html += sxInline(source.slice(cursor, match.start));
+    html += nodeLinkHTML(match.id);
+    cursor = match.end;
+  }
+  html += sxInline(source.slice(cursor));
+  return html;
+}
 function maybeNodeLink(text) {
   const t = String(text).trim().replace(/^\[\[|\]\]$/g, '');
   return state.byId[t] ? nodeLinkHTML(t) : sxInline(t);
@@ -3129,12 +3252,12 @@ function sxTimeline(title, lines) {
   const rows = items.map(raw => {
     let m = raw.match(/^\*\*(\d{4}-\d{2}-\d{2})\*\*\s*([\s\S]*)$/);
     if (m) return { date: m[1], rest: m[2] };
-    m = raw.match(/^(\d{4}-\d{2}-\d{2})\s+([\s\S]*)$/);
+    m = raw.match(/^(\d{4}-\d{2}-\d{2})(?:\s*[:：—]\s*|\s+)([\s\S]*)$/);
     if (m) return { date: m[1], rest: m[2] };
     return { date: '', rest: raw };
   });
   return sxShell('timeline', 'clock', title, '<ul class="sx-tl">' + rows.map(r =>
-    `<li class="sx-tl-row"><div class="sx-tl-date"><div class="sx-tl-dot"></div><div class="sx-tl-d1">${esc(r.date || '—')}</div>${r.date ? `<div class="sx-tl-d2">${esc(relTime(r.date))}</div>` : ''}</div><div class="sx-tl-text">${sxInline(r.rest)}</div></li>`
+    `<li class="sx-tl-row"><div class="sx-tl-rail"><div class="sx-tl-dot"></div></div><div class="sx-tl-content">${r.date ? `<div class="sx-tl-meta"><span class="sx-tl-d1">${esc(r.date)}</span><span class="sx-tl-d2">${esc(relTime(r.date))}</span></div>` : ''}<div class="sx-tl-text">${sxInline(r.rest)}</div></div></li>`
   ).join('') + '</ul>');
 }
 
@@ -3198,24 +3321,40 @@ function sxTodos(title, lines) {
   ).join('') + '</ul>');
 }
 
+function sxNoderefParts(raw) {
+  const ci = raw.search(/[:：]/);
+  let label = '', body = raw;
+  if (ci > -1) {
+    label = raw.slice(0, ci).trim();
+    body = raw.slice(ci + 1).trim();
+  } else {
+    // Real nodes often use "更新 project-foo、org-bar" without a colon.
+    // Keep the relationship in the label column instead of treating the
+    // linked nodes as an unlabelled, indented full-width row.
+    const relation = raw.match(
+      /^(更新|关联|新增|涉及|影响)(?:节点)?\s+(?=(?:`|\[\[)?(?:person|project|area|org|event|decision|reading)-)/
+    );
+    if (relation) {
+      label = relation[1] + '节点';
+      body = raw.slice(relation[0].length).trim();
+    }
+  }
+  return { label, ids: sxExtractIds(body), body };
+}
+
 function sxNoderefs(title, lines) {
   const items = sxBullets(lines);
   if (!items.length) {
     // plain-paragraph 关联节点 (common in real nodes) — pull ids out as chips
     const ids = sxExtractIds(lines.join('\n'));
     if (ids.length) return sxShell('noderefs', 'link', title,
-      '<div class="sx-refs"><div class="sx-refs-row"><div></div>' +
+      '<div class="sx-refs"><div class="sx-refs-row sx-refs-row-full">' +
       '<div class="sx-refs-chips">' + ids.map(nodeLinkHTML).join('') + '</div></div></div>');
     return sxShell('noderefs', 'link', title, sxProse(lines));
   }
-  const rows = items.map(raw => {
-    const ci = raw.search(/[:：]/);
-    let label = '', body = raw;
-    if (ci > -1) { label = raw.slice(0, ci).trim(); body = raw.slice(ci + 1).trim(); }
-    return { label, ids: sxExtractIds(body), body };
-  });
+  const rows = items.map(sxNoderefParts);
   return sxShell('noderefs', 'link', title, '<div class="sx-refs">' + rows.map(r =>
-    `<div class="sx-refs-row">${r.label ? `<div class="sx-refs-label">${esc(r.label)}</div>` : '<div></div>'}<div class="sx-refs-chips">${r.ids.length ? r.ids.map(nodeLinkHTML).join('') : `<span class="sx-muted">${sxInline(r.body)}</span>`}</div></div>`
+    `<div class="sx-refs-row${r.label ? '' : ' sx-refs-row-full'}">${r.label ? `<div class="sx-refs-label">${esc(r.label)}</div>` : ''}<div class="sx-refs-chips">${r.ids.length ? r.ids.map(nodeLinkHTML).join('') : `<span class="sx-ref-text">${sxInline(r.body)}</span>`}</div></div>`
   ).join('') + '</div>');
 }
 
@@ -3266,7 +3405,15 @@ function sxStatus(title, lines) {
 
 function sxMembers(title, lines) {
   const items = sxBullets(lines);
-  if (!items.length) return sxShell('members', 'people', title, sxProse(lines));
+  if (!items.length) {
+    const txt = stripWiki(lines.join('\n').trim());
+    if (!txt) return sxShell('members', 'people', title, '<div class="sx-muted">(此节为空)</div>');
+    const paragraphs = txt.split(/\n\s*\n/).map(p => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean);
+    return sxShell('members', 'people', title,
+      '<div class="sx-prose prose sx-member-prose">' +
+      paragraphs.map(p => `<p>${sxKnownNodeLinks(p, 'person')}</p>`).join('') +
+      '</div>');
+  }
   const rows = items.map(raw => {
     const ci = raw.search(/[:：]/);
     if (ci > -1) {
@@ -3277,7 +3424,7 @@ function sxMembers(title, lines) {
     return { role: '', rest: raw, ids: sxExtractIds(raw) };
   });
   return sxShell('members', 'people', title, '<div class="sx-members">' + rows.map(r =>
-    `<div class="sx-member-row"><div class="sx-member-role">${esc(r.role || '—')}</div><div class="sx-member-people">${r.ids.length ? r.ids.map(nodeLinkHTML).join(' ') : sxInline(r.rest)}</div></div>`
+    `<div class="sx-member-row"><div class="sx-member-role">${esc(r.role || '—')}</div><div class="sx-member-people">${r.ids.length ? r.ids.map(nodeLinkHTML).join(' ') : sxKnownNodeLinks(r.rest, 'person')}</div></div>`
   ).join('') + '</div>');
 }
 
@@ -3289,7 +3436,7 @@ function sxConclusions(title, lines) {
     return m ? { lead: m[1], rest: m[2] } : { lead: '', rest: raw };
   });
   return sxShell('conclusions', 'flag', title, '<div class="sx-conclusions">' + rows.map(r =>
-    `<div class="sx-conclusion">${r.lead ? `<div class="sx-conclusion-lead">${esc(r.lead)}</div>` : '<div></div>'}<div class="sx-conclusion-text">${sxInline(r.rest)}</div></div>`
+    `<div class="sx-conclusion"><span class="sx-conclusion-mark">✓</span><div class="sx-conclusion-text">${r.lead ? `<span class="sx-conclusion-lead">${esc(r.lead)}</span>` : ''}${sxInline(r.rest)}</div></div>`
   ).join('') + '</div>');
 }
 
@@ -3358,6 +3505,7 @@ function renderSection(title, lines) {
     case 'timeline': return sxTimeline(title, lines);
     case 'stance': return sxStance(title, lines);
     case 'perspective': return sxPerspective(title, lines);
+    case 'dependencies': return sxGeneric('dependencies', 'link', title, lines);
     case 'todos': return sxTodos(title, lines);
     case 'noderefs': return sxNoderefs(title, lines);
     case 'agenda': return sxAgenda(title, lines);
