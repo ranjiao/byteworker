@@ -1,0 +1,105 @@
+AGENTS.md
+  s_450f537c53b10c::t_38451b37487440 3-5,13-27
+README.md
+  s_450f537c53b10c::t_d627e2b425bd90 122
+SKILL.md
+  s_450f537c53b10c::t_9bb624ca223a27 134-136,142-143,226-230
+bin/digest-txn.py
+  s_450f537c53b10c::t_32b71e1c169106 24,31,95-110,168-179
+bin/source.py
+  s_450f537c53b10c::t_b7575317577c05 24-27,29,37,47-53,65,83,176-185,188-192,199-219,227-245,258-281,301
+lib/digest_txn.py
+  s_450f537c53b10c::t_70837094584027 16,45-56,60,64-66,273-276,335,453-561,985-993,1043,1415,1478-1497,1638-1644
+lib/kb_query.py
+  s_450f537c53b10c::t_cd944b748d4e96 15,23,270-281,409,415-416,421,424,428-443,448,467
+lib/snapshot_store.py
+  s_450f537c53b10c::t_4080a62812ed4e 1-491
+lib/source_operations.py
+  s_450f537c53b10c::t_38361378657666 1-322
+lib/source_profiles.py
+  s_9826fdfaed9596::t_1533d9360f9594 24-31,36,46-47,49,76-77,124-188,209,212,215,220,361,364,386-511,513-559,563-581,596-598,603-621,623-626,629,631,639-644
+lib/sources/__init__.py
+  s_450f537c53b10c::t_7d7bd1a41cedf5 1-82
+lib/sources/adapters/__init__.py
+  s_ff6a0246227ff7::t_fee81bdff43035 1-28
+lib/sources/adapters/base.py
+  s_ff6a0246227ff7::t_4966690e3fdd57 1-22
+lib/sources/adapters/feishu_doc.py
+  s_450f537c53b10c::t_6b5cd7b946a2aa 1-209
+lib/sources/adapters/meego.py
+  s_450f537c53b10c::t_01c96526f3549d 1-315
+lib/sources/models.py
+  s_ff6a0246227ff7::t_ebe92782cfaa14 1-774
+lib/sources/record_projection.py
+  s_450f537c53b10c::t_117208d5dacbd3 1-205
+lib/sources/registry.py
+  s_ff6a0246227ff7::t_d7c5d72071e822 1-72
+lib/sources/transaction_bridge.py
+  s_450f537c53b10c::t_a77d28d363ae86 1-270
+references/digest-core.md
+  s_450f537c53b10c::t_3962beb98a4d7b 29-31,41-44,65-68,72-73
+references/digest-doc.md
+  s_450f537c53b10c::t_72dd45170e6a4c 15,22-23,30,34-35
+references/digest-meego.md
+  s_450f537c53b10c::t_26a389868ab2c7 18-22,37-47,49-50,82-84,88-94,102-117,121,136-140
+references/digest-routine.md
+  s_450f537c53b10c::t_e36e06bfffe887 7-9,14-15,23-27
+references/digest-transaction.md
+  s_450f537c53b10c::t_b9e19ecb7dc06d 33,35-39,41-44,52-59,64-65,85
+references/machine-protocol.md
+  s_450f537c53b10c::t_d40d6d0ba7d96f 57-63,89-95
+templates/README.md
+  s_450f537c53b10c::t_7e8b007f77997e 4-5,41-45
+templates/digest-plan-v2.json
+  s_450f537c53b10c::t_42eb6c96b6d08e 1-33
+templates/source-bundle-v2.json
+  s_450f537c53b10c::t_47de635239b3b0 1-38
+tests/test_digest_txn.py
+  s_450f537c53b10c::t_c774a09e475037 20,26-31,216-497
+tests/test_install_auth_contract.py
+  s_450f537c53b10c::t_a2720fabae0185 30-31,35
+tests/test_kb_query.py
+  s_450f537c53b10c::t_8b2ba0645e6a81 111,121-136,153,258-309
+tests/test_machine_protocol.py
+  s_450f537c53b10c::t_083b75b3ecc471 247-309
+tests/test_snapshot_store.py
+  s_450f537c53b10c::t_8aa20dfee21d12 1-338
+tests/test_source_bundle.py
+  s_450f537c53b10c::t_8f5c195b6e7936 1-352
+tests/test_source_profiles.py
+  s_9826fdfaed9596::t_1e03d55ce39be7 21,71-116,206-325,377-413
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6297fa824439db12549f06a5a9832d58b3fd3cb0",
+  "prompts": {},
+  "sessions": {
+    "s_450f537c53b10c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fabe5-b08a-7fa1-8288-ffcbe0946d34",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    },
+    "s_9826fdfaed9596": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fad39-89dd-7ce2-ae82-eba26ed48d12",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    },
+    "s_ff6a0246227ff7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fad39-42a5-7ca1-8cd4-b89371c06235",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
