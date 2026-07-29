@@ -25,6 +25,10 @@ __pycache__/
 *.tmp
 .tmp/
 .gstack/
+.coverage
+.coverage.*
+coverage.json
+htmlcov/
 
 .lark-auth*
 .tmp*
