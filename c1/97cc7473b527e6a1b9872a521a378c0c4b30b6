@@ -1,0 +1,129 @@
+ARCHITECTURE.md
+  s_6822158dfada7d::t_e289df50e24b55 124-125,130,135-138,141,144-146,156-160,337-340,439,520-522,529,751,779,781-782,975,994-995
+DESIGN.md
+  s_6822158dfada7d::t_09b0b504cc556a 54-55,63-65,215-218,221-226
+INSTALL.md
+  s_6822158dfada7d::t_6646d7f5828ff9 73,80-84,90-92,111,116,118,120,161,181-183,311-313
+README.md
+  s_6822158dfada7d::t_79c3804f7f16c1 38-45,85-87,111,113
+SKILL.md
+  s_6822158dfada7d::t_5c6881bb735814 32-44,48,51-52,83-86,90-100,110-113,169,184,196,225-227,236-237,253,275
+TUTORIAL.md
+  s_6822158dfada7d::t_3a364bf2484dff 33-34,78-79
+bin/README.md
+  s_6822158dfada7d::t_b5a5fea2775c42 10,13-22,39,77-79,104-106,123,137,143,148,153,155,174,182,199,209,226,257,265,274,283,296,307,327,351,390,404,416,420,435,444,461-463,465,468,470,475,489,492-493,495,498,502,504,515-516,520,523,527,533-541,544,551,560,571,588,601,606,623,638,671,680,690,700,718,736,739,743,748-750,762,780,791,813-816,857,861,866,899-900,961-980,997-998,1012-1013,1038,1081
+bin/browse.sh
+  s_6822158dfada7d::t_142ee914993537 41-42,47,91
+bin/byteworker
+  s_6822158dfada7d::t_61d64a619e6aa0 1-50
+bin/byteworker-launcher.py
+  s_6822158dfada7d::t_75aeeabfb144a0 1-123
+bin/check-deps.sh
+  s_6822158dfada7d::t_39b9fe24dcbd1d 4,12-13
+bin/pull-chat.sh
+  s_6822158dfada7d::t_7299377880dc97 29,114
+bin/rebuild-index.sh
+  s_6822158dfada7d::t_f61e8044c754b9 42-43,48
+bin/repair-links.sh
+  s_6822158dfada7d::t_6b77f5feec48ae 48-49,55
+bin/report-automation.py
+  s_6822158dfada7d::t_d6f4f0bbf3729e 20,60-66,115-122
+bin/session-preflight.py
+  s_6822158dfada7d::t_0e1e6514711fc2 1-57
+bin/update-check.sh
+  s_6822158dfada7d::t_f04ab540a64627 38,42,86,103
+lib/report_automation.py
+  s_6822158dfada7d::t_8e6e5034b242d0 19,118,120,126,128-133,237-323,355-356,393-394,396-403,408,410,412-430,481-498,553,555,558-559,561-562
+lib/runtime_deps.py
+  s_6822158dfada7d::t_f8fcfc1d8be267 1-270
+lib/session_preflight.py
+  s_6822158dfada7d::t_732587b09d89e1 1-302
+references/commands.md
+  s_6822158dfada7d::t_d2bf772e394314 11,17,19,35
+references/digest-aeolus.md
+  s_6822158dfada7d::t_d065e5c4105694 22,25,28,36,42
+references/digest-base.md
+  s_6822158dfada7d::t_cd7108a9865c9f 10,25,28,31,37
+references/digest-chat.md
+  s_6822158dfada7d::t_a5c62b44752203 8,11,26
+references/digest-comments.md
+  s_6822158dfada7d::t_50024816ff4f15 11,46
+references/digest-core.md
+  s_6822158dfada7d::t_f1c13ba15ab978 30,98
+references/digest-doc.md
+  s_6822158dfada7d::t_cf3dcee866c99e 9,50
+references/digest-meego.md
+  s_6822158dfada7d::t_6a36aa8315f1d2 32,35,39,42,49,54,60
+references/digest-meeting.md
+  s_6822158dfada7d::t_591ae999dda8a6 59-60,84,101,113,117,141,145
+references/digest-transaction.md
+  s_6822158dfada7d::t_0cab2a39bb21aa 5,90,110,118,129
+references/digest-wiki-space.md
+  s_6822158dfada7d::t_1439476a7a57c8 27-28,36,57,59,74,82,93,108
+references/doctor.md
+  s_6822158dfada7d::t_59de69783512fc 40,43-44,47-48,51
+references/error-handling.md
+  s_6822158dfada7d::t_46e78084d52c4e 9
+references/help.md
+  s_6822158dfada7d::t_feeebd56781fb6 37
+references/im-inbox-summary.md
+  s_6822158dfada7d::t_ebe7c527cd32c3 14,19,21,41,47,53,59,66-67,70-71,74-75,79,81,83,114,136,223
+references/machine-protocol.md
+  s_6822158dfada7d::t_cac757fdedb1ba 8-10,25-30,35-37,40-42,44,46,50-52,55-56,59,61-65,67,72-73,75-77,79,82,84,87,90-91,94-96,99-100,105,108-110,115-118,120,122,127,129-130,132,137,153,220
+references/maintenance.md
+  s_6822158dfada7d::t_30e91d40830bad 18
+references/periodic-report.md
+  s_6822158dfada7d::t_4081b657d36ec1 17-19
+references/provenance.md
+  s_6822158dfada7d::t_1d890b39d35a75 47-50
+references/report-scheduling.md
+  s_6822158dfada7d::t_6a045839469e84 11-12,19-20,27,68-69,71-72,106,111,119-121,127-148
+references/session-preflight.md
+  s_6822158dfada7d::t_c60b27f7ec01b7 1-76
+references/todo.md
+  s_6822158dfada7d::t_50261cb3492c2f 16-18,43
+references/wiki-digest-jobs.md
+  s_6822158dfada7d::t_69bcf750a2c502 11-12,14,26,34,57
+templates/README.md
+  s_6822158dfada7d::t_214e8ff74ca65e 63
+templates/report-automation-daily.md
+  s_6822158dfada7d::t_77a6ddb4db28cf 7-12
+templates/report-automation-recovery.md
+  s_6822158dfada7d::t_47d4b28ccdd747 1-25
+templates/report-automation-weekly.md
+  s_6822158dfada7d::t_8398be9d7d2e88 7-12
+tests/test_architecture_contract.py
+  s_6822158dfada7d::t_fd8a6099c9ddb9 42-44,50-51
+tests/test_byteworker_launcher.py
+  s_6822158dfada7d::t_e3105da2ae68e3 1-129
+tests/test_install_auth_contract.py
+  s_6822158dfada7d::t_9f54d100da685d 19-20
+tests/test_report_automation.py
+  s_6822158dfada7d::t_2022a342300e35 18,86-87,92-96,111-115,185-188,237-386,425-455
+tests/test_report_scheduling_contract.py
+  s_6822158dfada7d::t_2974837bb153e5 40,64-81,89
+tests/test_runtime_deps.py
+  s_6822158dfada7d::t_08e20e84e06cb9 1-170
+tests/test_session_preflight.py
+  s_6822158dfada7d::t_0972c61a903793 1-390
+tests/test_session_preflight_contract.py
+  s_6822158dfada7d::t_627c1913510926 1-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c197cc7473b527e6a1b9872a521a378c0c4b30b6",
+  "prompts": {},
+  "sessions": {
+    "s_6822158dfada7d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb288-0f3a-7270-beef-f9b9a0b76785",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
