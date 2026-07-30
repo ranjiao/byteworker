@@ -69,15 +69,25 @@ DEFAULT_SKILL_ROOT = Path(__file__).resolve().parents[2]
 class SourceBundleError(ValueError):
     """Stable validation failure at the source/digest boundary."""
 
-    def __init__(self, code: str, message: str, *, path: str = "") -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        path: str = "",
+        hint: str = "",
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.path = path
+        self.hint = hint
 
     def as_dict(self) -> dict[str, str]:
         result = {"code": self.code, "message": str(self)}
         if self.path:
             result["path"] = self.path
+        if self.hint:
+            result["hint"] = self.hint
         return result
 
 
@@ -345,11 +355,6 @@ class SourceComponent:
         if json_pointer is not None and not json_pointer.startswith("/"):
             _error(
                 f"{path_prefix}.json_pointer 必须以 / 开头",
-                f"{path_prefix}.json_pointer",
-            )
-        if json_pointer is not None and mode != "canonical-json":
-            _error(
-                f"{path_prefix}.json_pointer 只允许 canonical-json component",
                 f"{path_prefix}.json_pointer",
             )
         return cls(

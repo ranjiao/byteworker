@@ -701,6 +701,17 @@ def list_profiles(
                 "SOURCE_PROFILE_INVALID",
                 f"无法读取 source profile: {path}",
             ) from exc
+        if (
+            isinstance(value, Mapping)
+            and value.get("schema_version") not in PROFILE_SCHEMAS
+            and str(value.get("source_type", "")).strip()
+            not in PROFILE_SOURCE_TYPES
+        ):
+            # sources/ historically also hosted non-capture schedule configs.
+            # They are not Source Profiles and must not break capture/profile
+            # enumeration; malformed documents claiming a supported source
+            # type still fail closed below.
+            continue
         normalized = validate_profile(value)
         expected = profile_relative_path(normalized).name
         if path.name != expected:

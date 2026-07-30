@@ -25,6 +25,8 @@ from digest_txn import (  # noqa: E402
 from frontmatter import parse_file  # noqa: E402
 from kb_query import source_records  # noqa: E402
 from sources import (  # noqa: E402
+    build_feishu_document_bundle,
+    build_feishu_minutes_bundle,
     build_meego_bundle,
     canonical_sha256,
     create_default_registry,
@@ -784,6 +786,256 @@ links: []
         self.assertEqual(int(before) + 1, int(after))
         self.assertTrue((self.kb / "raw_data/test-a.md").exists())
         self.assertTrue((self.kb / "raw_data/test-b.md").exists())
+
+    def test_meeting_batch_v2_commits_minutes_and_document_bundles_atomically(self):
+        transcript = self.inputs / "minutes.txt"
+        transcript.write_text(
+            "[00:12.000] 负责人：采用方案 A。\n",
+            encoding="utf-8",
+        )
+        document = self.inputs / "meeting-doc.xml"
+        document.write_text(
+            "<title>方案 A</title>\n<p>投屏材料说明约束。</p>\n",
+            encoding="utf-8",
+        )
+        minutes_bundle = build_feishu_minutes_bundle(
+            source_uid="obcn_meeting",
+            source_url="https://example.test/minutes/obcn_meeting",
+            title="方案评审会",
+            transcript={"path": str(transcript)},
+        )
+        document_bundle = build_feishu_document_bundle(
+            source_uid="doc-meeting",
+            source_url="https://example.test/docx/doc-meeting",
+            title="方案评审材料",
+            revision="9",
+            body={"path": str(document)},
+            provider_metadata={"comments_status": "unavailable"},
+        )
+        minutes_bundle_path = self.inputs / "minutes-bundle.json"
+        document_bundle_path = self.inputs / "document-bundle.json"
+        minutes_bundle_path.write_text(
+            json.dumps(minutes_bundle.to_dict(), ensure_ascii=False, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
+        document_bundle_path.write_text(
+            json.dumps(document_bundle.to_dict(), ensure_ascii=False, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
+        raw_minutes = "raw-2026-07-30-meeting-minutes"
+        raw_document = "raw-2026-07-30-meeting-document"
+        candidate = self.inputs / "meeting-event.md"
+        candidate.write_text(
+            """---
+id: event-2026-07-30-solution-review
+title: 方案评审会
+type: event
+tags: [test]
+status: current
+created: 2026-07-30
+updated: 2026-07-30
+last_verified: 2026-07-30
+sources:
+  - raw-2026-07-30-meeting-minutes
+  - raw-2026-07-30-meeting-document
+links: []
+---
+
+# 方案评审会
+
+> **TL;DR:** 会议决定采用方案 A。
+
+## 事件信息
+- 妙记：https://example.test/minutes/obcn_meeting
+- 会议文档：https://example.test/docx/doc-meeting
+
+## 议程与讨论
+- 负责人在会上提出采用方案 A。[E1]
+
+## 结论
+- 投屏材料补充了方案约束。[E2]
+
+## 参与方立场分析
+
+## 重点事项
+
+## 待办事项
+
+## 衍生与关联
+""",
+            encoding="utf-8",
+        )
+        plan = {
+            "schema_version": "digest-batch-plan/v2",
+            "inputs": [
+                {
+                    "source_bundle": str(minutes_bundle_path),
+                    "raw": {
+                        "raw_id": raw_minutes,
+                        "path": "raw_data/meeting-minutes.md",
+                    },
+                    "provenance": {"enrichment": "live"},
+                },
+                {
+                    "source_bundle": str(document_bundle_path),
+                    "raw": {
+                        "raw_id": raw_document,
+                        "path": "raw_data/meeting-document.md",
+                    },
+                    "provenance": {"enrichment": "live"},
+                },
+            ],
+            "nodes": [
+                {
+                    "op": "create",
+                    "path": (
+                        "knowledge/events/"
+                        "event-2026-07-30-solution-review.md"
+                    ),
+                    "candidate": str(candidate),
+                    "source_raw_ids": [raw_minutes, raw_document],
+                    "primary_source": raw_minutes,
+                    "evidence": [
+                        {
+                            "id": "E1",
+                            "raw_id": raw_minutes,
+                            "anchor_id": "source",
+                        },
+                        {
+                            "id": "E2",
+                            "raw_id": raw_document,
+                            "anchor_id": "source",
+                        },
+                    ],
+                }
+            ],
+            "journal": {"summary": "方案评审会"},
+            "commit": {"message": "digest 方案评审会"},
+        }
+        plan_path = self.inputs / "meeting-batch-v2.json"
+        plan_path.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        copied_anchors = json.loads(json.dumps(plan))
+        copied_anchors["inputs"][0]["provenance"]["anchors"] = [
+            {
+                "anchor_id": "source",
+                "kind": "source",
+                "precision": "source_only",
+                "locator": {"source_uid": "obcn_meeting"},
+            }
+        ]
+        copied_anchors_path = self.inputs / "meeting-batch-v2-anchors.json"
+        copied_anchors_path.write_text(
+            json.dumps(copied_anchors, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(DigestTxnError, "anchors 由 source bundle"):
+            validate_batch_plan(self.kb, copied_anchors_path)
+
+        validated = validate_batch_plan(self.kb, plan_path)
+        self.assertEqual(2, len(validated.inputs))
+        self.assertEqual(
+            ["feishu_minutes", "feishu_doc"],
+            [item.plan["source"]["type"] for item in validated.inputs],
+        )
+        cli_validation = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "bin" / "byteworker-cli.py"),
+                "digest-txn",
+                "validate",
+                "--kb",
+                str(self.kb),
+                "--plan",
+                str(plan_path),
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        validation_payload = json.loads(cli_validation.stdout)
+        self.assertEqual(0, cli_validation.returncode)
+        self.assertEqual("success", validation_payload["status"])
+        self.assertEqual("valid", validation_payload["data"]["status"])
+        before = run_git(self.kb, "rev-list", "--count", "HEAD")
+        cli_execute = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "bin" / "byteworker-cli.py"),
+                "digest-txn",
+                "execute",
+                "--kb",
+                str(self.kb),
+                "--plan",
+                str(plan_path),
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        execute_payload = json.loads(cli_execute.stdout)
+        self.assertEqual(0, cli_execute.returncode)
+        self.assertEqual("success", execute_payload["status"])
+        receipt = execute_payload["data"]
+        after = run_git(self.kb, "rev-list", "--count", "HEAD")
+
+        self.assertEqual("committed", receipt["status"])
+        self.assertEqual(2, receipt["batch_size"])
+        self.assertEqual(int(before) + 1, int(after))
+        self.assertEqual(
+            ["event-2026-07-30-solution-review"],
+            receipt["created"],
+        )
+        minutes_raw = (self.kb / "raw_data/meeting-minutes.md").read_text(
+            encoding="utf-8"
+        )
+        document_raw = (self.kb / "raw_data/meeting-document.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("采用方案 A", minutes_raw)
+        self.assertIn("投屏材料说明约束", document_raw)
+        event = (
+            self.kb
+            / "knowledge/events/event-2026-07-30-solution-review.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("## 证据", event)
+        self.assertIn(raw_minutes, event)
+        self.assertIn(raw_document, event)
+
+    def test_batch_v2_rejects_copied_source_before_loading_bundle(self):
+        plan_path = self.inputs / "invalid-batch-v2.json"
+        base_input = {
+            "source_bundle": "/tmp/missing-bundle.json",
+            "raw": {
+                "raw_id": "raw-2026-07-30-a",
+                "path": "raw_data/a.md",
+            },
+            "provenance": {"enrichment": "live"},
+        }
+        plan = {
+            "schema_version": "digest-batch-plan/v2",
+            "inputs": [
+                {**base_input, "source": {}},
+                {
+                    **base_input,
+                    "raw": {
+                        "raw_id": "raw-2026-07-30-b",
+                        "path": "raw_data/b.md",
+                    },
+                },
+            ],
+            "nodes": [],
+        }
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        with self.assertRaisesRegex(DigestTxnError, "不允许复制 source"):
+            validate_batch_plan(self.kb, plan_path)
 
     def test_new_link_requires_reverse_candidate(self):
         project = self.kb / "knowledge/projects/project-existing.md"

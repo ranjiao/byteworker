@@ -353,6 +353,14 @@ def build_feishu_minutes_bundle(
     skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> SourceBundle:
     """Normalize an already-fetched minutes transcript with segment anchors."""
+    if str(source_uid).strip().startswith("feishu_minutes:"):
+        raise SourceBundleError(
+            "SOURCE_BUNDLE_SOURCE_UID_INVALID",
+            "feishu_minutes source_uid 应直接使用 minute token，"
+            "不得添加 feishu_minutes: 前缀",
+            path="source_uid",
+            hint="去掉 feishu_minutes: 前缀后重试。",
+        )
     _require_source_url(source_url, source_type="feishu_minutes")
     component, coverage = _component(
         transcript,

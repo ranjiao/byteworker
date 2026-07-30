@@ -60,6 +60,7 @@ from sources import (
 PLAN_SCHEMA = "digest-plan/v1"
 PLAN_SCHEMA_V2 = "digest-plan/v2"
 BATCH_PLAN_SCHEMA = "digest-batch-plan/v1"
+BATCH_PLAN_SCHEMA_V2 = "digest-batch-plan/v2"
 PAYLOAD_SCHEMA = "byteworker-payload-v1"
 SHA_PREFIX = "sha256:"
 # Compatibility export for doctor and external callers; ownership moved to
@@ -1249,10 +1250,11 @@ def validate_batch_plan(kb: Path, manifest_path: Path) -> BatchValidationResult:
     kb = kb.resolve()
     manifest_path = manifest_path.resolve()
     plan = load_manifest(manifest_path)
-    if plan.get("schema_version") != BATCH_PLAN_SCHEMA:
+    schema = plan.get("schema_version")
+    if schema not in {BATCH_PLAN_SCHEMA, BATCH_PLAN_SCHEMA_V2}:
         raise DigestTxnError(
-            f"不支持的 schema_version: {plan.get('schema_version')!r}; "
-            f"需要 {BATCH_PLAN_SCHEMA}"
+            f"不支持的 schema_version: {schema!r}; "
+            f"需要 {BATCH_PLAN_SCHEMA} 或 {BATCH_PLAN_SCHEMA_V2}"
         )
     input_configs = plan.get("inputs")
     if not isinstance(input_configs, list) or len(input_configs) < 2:
@@ -1271,19 +1273,75 @@ def validate_batch_plan(kb: Path, manifest_path: Path) -> BatchValidationResult:
     for index, config in enumerate(input_configs):
         if not isinstance(config, dict):
             raise DigestTxnError(f"batch inputs[{index}] 必须是对象")
-        source = config.get("source")
         raw = config.get("raw")
-        provenance_config = config.get("provenance")
+        provenance_config = config.get("provenance", {})
+        bundle: Optional[SourceBundle] = None
+        if schema == BATCH_PLAN_SCHEMA_V2:
+            if "source" in config:
+                raise DigestTxnError(
+                    f"batch inputs[{index}] 不允许复制 source；请只引用 source_bundle"
+                )
+            unknown_input = set(config) - {
+                "source_bundle",
+                "raw",
+                "provenance",
+            }
+            if unknown_input:
+                raise DigestTxnError(
+                    f"batch inputs[{index}] 含未知字段: "
+                    + ", ".join(sorted(unknown_input))
+                )
+            bundle_path = _resolve_bundle_path(
+                config.get("source_bundle"),
+                manifest_path,
+            )
+            bundle, source = _load_bundle_source(bundle_path)
+            source_path = bundle_path
+            if not isinstance(provenance_config, dict):
+                raise DigestTxnError(
+                    f"batch inputs[{index}].provenance 必须是对象"
+                )
+            if provenance_config.get("anchors"):
+                raise DigestTxnError(
+                    f"batch inputs[{index}] 的 anchors 由 source bundle 提供，"
+                    "不允许在 plan 中复制"
+                )
+            unknown_provenance = set(provenance_config) - {
+                "enrichment",
+                "anchors",
+            }
+            if unknown_provenance:
+                raise DigestTxnError(
+                    f"batch inputs[{index}].provenance 含未知字段: "
+                    + ", ".join(sorted(unknown_provenance))
+                )
+            effective_provenance = {
+                "enrichment": str(
+                    provenance_config.get("enrichment", "live")
+                ).strip()
+                or "live",
+                "anchors": copy.deepcopy(list(bundle.anchors)),
+            }
+        else:
+            source = config.get("source")
+            source_path = manifest_path
+            effective_provenance = provenance_config
         if not isinstance(source, dict) or not isinstance(raw, dict):
             raise DigestTxnError(
-                f"batch inputs[{index}] 必须包含 source/raw 对象"
+                (
+                    f"batch inputs[{index}] 必须包含 source_bundle/raw"
+                    if schema == BATCH_PLAN_SCHEMA_V2
+                    else f"batch inputs[{index}] 必须包含 source/raw 对象"
+                )
             )
-        if not isinstance(provenance_config, dict):
+        if not isinstance(effective_provenance, dict):
             raise DigestTxnError(
                 f"batch inputs[{index}].provenance 必须是对象"
             )
-        payload = compute_payload(source, manifest_path)
-        flight = preflight(kb, source, manifest_path)
+        payload = compute_payload(source, source_path)
+        if bundle is not None:
+            _verify_bundle_payload(bundle, payload)
+        flight = preflight(kb, source, source_path)
         if flight["state"] in {"noop", "resume_failed"}:
             raise DigestTxnError(
                 f"批量输入 {index} 状态为 {flight['state']}；"
@@ -1294,7 +1352,7 @@ def validate_batch_plan(kb: Path, manifest_path: Path) -> BatchValidationResult:
             raise DigestTxnError(f"batch inputs[{index}].raw_id 必须以 raw- 开头")
         raw_path = _safe_relative_path(kb, str(raw.get("path", "")), ("raw_data",))
         if raw_path.suffix != ".md" or raw_path.parent != kb / "raw_data":
-            raise DigestTxnError("batch 第一版仅允许 raw_data/<name>.md")
+            raise DigestTxnError("batch 仅允许 raw_data/<name>.md")
         if raw_id in existing_raw_ids or raw_id in raw_ids_seen:
             raise DigestTxnError(f"raw_id 已存在或在 batch 中重复: {raw_id}")
         if raw_path.exists() or raw_path in raw_paths_seen:
@@ -1304,16 +1362,20 @@ def validate_batch_plan(kb: Path, manifest_path: Path) -> BatchValidationResult:
         raw_ids_seen.add(raw_id)
         raw_paths_seen.add(raw_path)
         synthetic_plan = {
-            "schema_version": PLAN_SCHEMA,
+            "schema_version": (
+                PLAN_SCHEMA_V2
+                if schema == BATCH_PLAN_SCHEMA_V2
+                else PLAN_SCHEMA
+            ),
             "source": source,
             "raw": raw,
-            "provenance": provenance_config,
+            "provenance": effective_provenance,
             "nodes": [],
         }
         inputs.append(
             ValidationResult(
                 plan=synthetic_plan,
-                source_path=manifest_path,
+                source_path=source_path,
                 payload=payload,
                 preflight=flight,
                 raw_id=raw_id,

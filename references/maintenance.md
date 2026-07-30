@@ -14,14 +14,18 @@
 
 **重建 INDEX(一等操作)** —— 不只在「文件数 ≠ 行数」时兜底触发;任何时候用户说「重建索引」「INDEX 不对」,或你怀疑 INDEX 与节点不一致,都可直接执行:
 
-1. 在本 skill 目录运行 `bin/rebuild-index.sh`(先看不写加 `--dry-run`;测试 / 指定库加 `--kb <数据目录>`)。
+1. Agent / 自动化通过机器协议运行
+   `python3 bin/byteworker-cli.py index rebuild --kb <数据目录> --dry-run` 预演，确认后去掉
+   `--dry-run` 执行；人工排障仍可运行 `bin/rebuild-index.sh`。
 2. 脚本扫 `knowledge/` 下全部 7 类节点的 frontmatter + body 首行 TL;DR,按 DESIGN.md §6 的分节格式重新生成整个 `INDEX.md`。
 3. 「定期摄取清单」优先由 `sources/` profiles 的 routine 派生；没有 profile 的旧来源才兼容
    `raw_data/` 的 `routine`。同一 `source_uid` 有 profile 时，profile 的启用/禁用和 cadence
    覆盖历史 raw。「群聊摄取进度」仍由 `feishu_chat` raw 的
    `source_chat_id` / `source_window` 派生。中断 raw(`digest_status: pending/failed`)不进入
    INDEX 表格,需要排障时直接扫 `raw_data/`。
-4. 脚本原子写入(temp-then-move),只改 `INDEX.md`;由调用方按 `references/write-rules.md` 追加 journal 并精确暂存本次改动后提交。
+4. 脚本原子写入(temp-then-move),只改 `INDEX.md`;机器 receipt 明确返回
+   `journal_written=false/git_commit_created=false`。由调用方按 `references/write-rules.md`
+   追加 journal 并精确暂存本次改动后提交。
 
 ## 校验 / 修复双向链接
 

@@ -548,6 +548,48 @@ class SourceProfileTests(unittest.TestCase):
                 list_profiles(kb, source_type="unknown")
             self.assertEqual("SOURCE_PROFILE_UNSUPPORTED", caught.exception.code)
 
+    def test_list_profiles_ignores_unrelated_legacy_schedule_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = Path(temporary)
+            sources = kb / "sources"
+            sources.mkdir()
+            sources.joinpath("calendar-schedule.json").write_text(
+                json.dumps(
+                    {
+                        "source_type": "feishu_calendar",
+                        "source_uid": "calendar:weekly",
+                        "schedule": {"cadence": "weekly"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            value = validate_profile(feishu_doc_profile())
+            path = kb / profile_relative_path(value)
+            path.write_text(json.dumps(value), encoding="utf-8")
+
+            self.assertEqual(
+                ["docx123"],
+                [item["source_uid"] for item in list_profiles(kb)],
+            )
+
+    def test_list_profiles_still_rejects_malformed_supported_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = Path(temporary)
+            sources = kb / "sources"
+            sources.mkdir()
+            sources.joinpath("feishu_doc-invalid.json").write_text(
+                json.dumps(
+                    {
+                        "source_type": "feishu_doc",
+                        "source_uid": "docx123",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(SourceProfileError) as caught:
+                list_profiles(kb)
+            self.assertEqual("SOURCE_PROFILE_INVALID", caught.exception.code)
+
     def test_save_profile_commits_only_kb_configuration(self):
         with tempfile.TemporaryDirectory() as temporary:
             kb = Path(temporary)

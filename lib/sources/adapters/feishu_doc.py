@@ -46,6 +46,14 @@ def build_feishu_document_bundle(
 ) -> SourceBundle:
     """Build a bundle from already fetched body/comments/whiteboard artifacts."""
 
+    if str(source_uid).strip().startswith("feishu_doc:"):
+        raise SourceBundleError(
+            "SOURCE_BUNDLE_SOURCE_UID_INVALID",
+            "feishu_doc source_uid 应直接使用 document_id 或 wiki token，"
+            "不得添加 feishu_doc: 前缀",
+            path="source_uid",
+            hint="去掉 feishu_doc: 前缀后重试。",
+        )
     body_component, body_coverage = _component(
         body,
         default_name="body",

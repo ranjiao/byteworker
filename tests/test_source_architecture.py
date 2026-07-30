@@ -48,6 +48,7 @@ class SourceArchitectureTests(unittest.TestCase):
         for contract in (
             "`byteworker-source-bundle/v2`",
             "`digest-plan/v2`",
+            "`digest-batch-plan/v2`",
             "`byteworker-record-index/v1`",
             "`lib/sources/transaction_bridge.py`",
             "`lib/sources/record_projection.py`",

@@ -24,6 +24,7 @@ python3 bin/byteworker-cli.py <tool> [tool arguments...]
 - `wiki`
 - `digest-job`
 - `report-automation`
+- `index`
 - `update-status`
 
 统一入口总是输出 `byteworker-cli/v1` JSON envelope：
@@ -63,8 +64,8 @@ python3 bin/doctor.py scan --format text
 
 ### Shell 集成
 
-抓取群聊、浏览知识库、重建 INDEX、修复 links、检查依赖和自动更新等操作保留独立 shell
-入口。这些脚本不经过 `byteworker-cli.py`。
+抓取群聊、浏览知识库、修复 links、检查依赖和自动更新等操作保留独立 shell 入口。
+INDEX 重建已有 `index rebuild` 机器入口，`rebuild-index.sh` 继续供人工排障。
 
 ## 2. 公共约定与安全边界
 
@@ -99,6 +100,7 @@ cd "$BYTEWORKER_ROOT"
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
 | `todo.py` | Agent | Todo 初始化、查询和状态维护 | 部分子命令写 `todo.md` |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
+| `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 只写 `INDEX.md` |
 | `pull_doc_comments.py` | Agent / 维护者 | 拉取飞书文档全部评论和回复 | 只向 stdout 输出 JSON |
 | `pull-chat.sh` | Agent / 维护者 | 拉取群聊窗口逐字稿和 locator | 写临时或显式输出文件 |
 | `im-inbox-summary.sh` | Agent | IM 高信号 thread 本地粗筛 | 写输出和运行标记，不写 raw |
@@ -219,14 +221,17 @@ python3 bin/byteworker-cli.py digest-txn execute \
 
 - manifest、Bundle、component 和 candidate 不得位于 skill 仓库。
 - KB 配有 remote、有预先 staged 变更、baseline 变化或路径越界时拒绝写入。
-- 支持 `digest-plan/v1`、`digest-plan/v2` 和 `digest-batch-plan/v1`。
+- 支持 `digest-plan/v1`、`digest-plan/v2`、`digest-batch-plan/v1` 和
+  `digest-batch-plan/v2`。
 - 新的单来源流程使用 `SourceBundle v2 + DigestPlan v2`。
+- 新的多来源流程使用多个 `SourceBundle v2 + digest-batch-plan/v2`；v1 只兼容历史调用。
 
 模板：
 
 - `templates/source-bundle-v2.json`
 - `templates/digest-plan-v2.json`
 - `templates/digest-plan-v1.json`
+- `templates/digest-batch-plan-v2.json`
 - `templates/digest-batch-plan-v1.json`
 
 ## 6. `source.py`：统一来源入口
@@ -244,6 +249,16 @@ python3 bin/byteworker-cli.py source <subcommand> ...
 
 ```bash
 python3 bin/byteworker-cli.py source capabilities
+```
+
+### `bundle-spec`
+
+输出 adapter 的机器可读 request 契约；字段由实际 builder 签名推导，另含 artifact/component
+形状、source UID 规则和最小示例：
+
+```bash
+python3 bin/byteworker-cli.py source bundle-spec \
+  --source-type feishu_minutes
 ```
 
 ### `auth-status`
@@ -325,7 +340,8 @@ python3 bin/byteworker-cli.py source bundle \
   --out /tmp/byteworker-example/web-bundle.json
 ```
 
-`request` 是 adapter 自己严格校验的 provider 参数，只能放临时目录或 KB，且不得重复声明
+`--request` 只接受 request JSON **文件路径**，不接受内联 JSON。request 是 adapter 自己严格
+校验的 provider 参数，只能放临时目录或 KB，且不得重复声明
 `source_type`。结构化 capture 只传 `capture_path`；CLI 拒绝内联 `capture`，避免路径和
 内联内容成为两份互相矛盾的真相。当前 Bundle adapter：`aeolus`、`feishu_base`、`feishu_chat`、`feishu_doc`、
 `feishu_minutes`、`local_md`、`meego`、`web`。
@@ -339,14 +355,17 @@ python3 bin/byteworker-cli.py source bundle \
 |---|---|
 | Meego / Base / Aeolus | `{"capture_path":"/abs/capture.json"}` |
 | 飞书文档 | `source_uid/source_url/title/revision/body/comments?/whiteboards?/anchors?/provider_metadata?` |
-| 群聊 | `source_uid/source_url/title/source_window/transcript/locator_artifact`；routine 优先直接用 Profile capture |
+| 群聊 | `source_uid/title/source_window/transcript`；`source_url/locator_artifact` 可选，routine 优先直接用 Profile capture |
 | 妙记 | `source_uid/source_url/title/transcript/anchors?` |
 | Web | `source_uid/source_url/title/body/anchors?` |
 | 本地 Markdown | `source_uid/title/local_file/anchors?` |
 
 component 参数如 `body`、`transcript`、`local_file` 使用
-`{"path":"/absolute/business-file"}`；JSON artifact 可再声明 `json_pointer` 和
-`mode:"canonical-json"`。完整 request 示例应放系统临时目录，不能复制进 skill 仓库。
+`{"path":"/absolute/business-file"}`；合法 request 字段是
+`name/kind/path/mode/json_pointer/heading/uid/media_type/coverage`。JSON wrapper 中的文本可用
+`mode:"verbatim" + json_pointer`，结构化值用 `mode:"canonical-json" + json_pointer`。
+完整契约以 `references/machine-protocol.md`「SourceBundle request 快速参考」和
+`source bundle-spec` 输出为准。
 
 ### `register`
 
@@ -851,6 +870,16 @@ bin/im-inbox-summary.sh \
 - 兼容的 raw routine
 - 群聊摄取高水位
 
+Agent / 自动化优先使用机器协议：
+
+```bash
+python3 bin/byteworker-cli.py index rebuild --kb "$BYTEWORKER_KB" --dry-run
+python3 bin/byteworker-cli.py index rebuild --kb "$BYTEWORKER_KB"
+```
+
+receipt 会显式说明是否变化，以及该操作不写 journal、不创建 Git commit。下面的 shell wrapper
+继续用于人工排障。
+
 先预演：
 
 ```bash
@@ -867,7 +896,8 @@ bin/rebuild-index.sh --kb "$BYTEWORKER_KB"
 
 ### `rebuild_index.py`
 
-`rebuild-index.sh` 的内部 Python 执行器。普通用户和 Agent 应调用 shell wrapper。
+`rebuild-index.sh` 的内部 Python 执行器。Agent / 自动化应调用 `index rebuild` facade；
+人工排障调用 shell wrapper。
 
 ```bash
 python3 bin/rebuild_index.py "$BYTEWORKER_KB" [--dry-run]

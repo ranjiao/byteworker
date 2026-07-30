@@ -35,10 +35,121 @@
 
 **每个物件各落一份逐字 raw**,只增不改:妙记一份(`source_type: feishu_minutes`)、每个文档各一份(`feishu_doc`)。event 节点的 `sources` 同时引用全部 raw —— 溯源不丢。
 每个物件在进入 batch 前先各自生成 SourceBundle：妙记走 `feishu_minutes` adapter，投屏文档走
-`feishu_doc` adapter。会议簇本身仍是上层编排与 `digest-batch-plan/v1`，不得把日历、妙记和
+`feishu_doc` adapter。会议簇本身仍是上层编排与 `digest-batch-plan/v2`，不得把日历、妙记和
 多个文档压成一个虚构的单来源 Bundle。
 每份 raw 的 `source_url` 写该物件自己的原始链接;同一场会中其它已确认物件写入 `related_source_urls`。
 输入大(长逐字稿 / 多个长文档)→ 加读 `references/digest-large.md`,委派子 agent 在隔离上下文里摄取。
+
+## 端到端执行参考
+
+下面是「已有 meeting_id / 日程 → 会议簇原子落库」的最短成功路径。业务 artifact、request、
+Bundle、plan 和候选节点必须全部放系统临时目录或知识库目录。
+
+### 1. 定位并确认会议物件
+
+1. 用 `lark-vc` 根据 meeting_id 读取会议详情和产物，取得 minute token；再用
+   `lark-minutes` 取得妙记元数据、总结/待办/章节和逐字稿。
+2. 用日历描述/附件、会议产物和妙记里的文档引用定位投屏文档；用 `lark-doc +fetch
+   --api-version v2 --detail with-ids` 抓取正文，并按 `digest-doc.md` 另抓评论/白板。
+3. 把找到和没找到的物件一次列给用户确认。只有确认后的妙记与文档进入本次 batch。
+
+不要猜 provider request。先查询实际契约：
+
+```bash
+python3 bin/byteworker-cli.py source bundle-spec --source-type feishu_minutes
+python3 bin/byteworker-cli.py source bundle-spec --source-type feishu_doc
+```
+
+`feishu_minutes.source_uid` 直接写 minute token；`feishu_doc.source_uid` 直接写
+document_id/wiki token，二者都不添加 source type 前缀。
+
+### 2. 生成各自的 request 与 Bundle
+
+以下示例假设妙记逐字稿已保存为纯文本，文档 fetch 的完整 JSON 保存在临时目录。lark-cli 的
+文档正文位于 `data.document.content` 时，直接使用 `verbatim + json_pointer`，无需额外提取
+纯文本：
+
+```bash
+BYTEWORKER_MEETING_TMP=$(mktemp -d)
+
+jq -n \
+  --arg uid "<minute_token>" \
+  --arg url "<minutes_url>" \
+  --arg title "<meeting_title>" \
+  --arg transcript "$BYTEWORKER_MEETING_TMP/minutes-transcript.txt" \
+  '{source_uid:$uid,source_url:$url,title:$title,
+    transcript:{path:$transcript}}' \
+  > "$BYTEWORKER_MEETING_TMP/minutes-request.json"
+
+python3 bin/byteworker-cli.py source bundle \
+  --source-type feishu_minutes \
+  --request "$BYTEWORKER_MEETING_TMP/minutes-request.json" \
+  --out "$BYTEWORKER_MEETING_TMP/minutes-bundle.json"
+
+jq -n \
+  --arg uid "<document_id_or_wiki_token>" \
+  --arg url "<document_url>" \
+  --arg title "<document_title>" \
+  --arg revision "<revision_id>" \
+  --arg fetch "$BYTEWORKER_MEETING_TMP/doc-fetch.json" \
+  '{source_uid:$uid,source_url:$url,title:$title,revision:$revision,
+    body:{path:$fetch,mode:"verbatim",
+          json_pointer:"/data/document/content"},
+    provider_metadata:{comments_status:"unavailable"}}' \
+  > "$BYTEWORKER_MEETING_TMP/doc-request.json"
+
+python3 bin/byteworker-cli.py source bundle \
+  --source-type feishu_doc \
+  --request "$BYTEWORKER_MEETING_TMP/doc-request.json" \
+  --out "$BYTEWORKER_MEETING_TMP/doc-bundle.json"
+```
+
+示例把评论标成 unavailable 只是展示最小形状。真实摄取必须按 `digest-doc.md` 拉取评论；可用时
+在 request 加 `comments` component 和真实 coverage，不得沿用示例伪装未读取内容。
+
+### 3. 逐来源 preflight
+
+```bash
+python3 bin/byteworker-cli.py digest-txn preflight \
+  --kb "<知识库目录>" \
+  --source "$BYTEWORKER_MEETING_TMP/minutes-bundle.json"
+
+python3 bin/byteworker-cli.py digest-txn preflight \
+  --kb "<知识库目录>" \
+  --source "$BYTEWORKER_MEETING_TMP/doc-bundle.json"
+```
+
+任一来源为 `noop/resume_failed` 时，先按 receipt 处理，不把它悄悄混进新 batch。
+
+### 4. 生成 batch v2 plan
+
+以 [`templates/digest-batch-plan-v2.json`](../templates/digest-batch-plan-v2.json) 为字段参考，
+在临时目录生成 plan：
+
+- `inputs[0].source_bundle` 指向妙记 Bundle；
+- `inputs[1].source_bundle` 指向文档 Bundle；更多文档继续追加 input；
+- 每个 input 分配唯一 `raw_id/raw.path`，`provenance` 只写 `enrichment`；
+- event 完整候选的 `sources` 包含全部本批 raw id；
+- `source_raw_ids`、`primary_source` 和每条 evidence 的 `raw_id/anchor_id` 显式填写。
+
+不得在 batch v2 复制 `source` 或 `provenance.anchors`。`digest-batch-plan/v1` 只兼容历史
+调用，不用于新会议簇。
+
+### 5. 校验并一次执行
+
+```bash
+python3 bin/byteworker-cli.py digest-txn validate \
+  --kb "<知识库目录>" \
+  --plan "$BYTEWORKER_MEETING_TMP/meeting-batch-plan.json"
+
+python3 bin/byteworker-cli.py digest-txn execute \
+  --kb "<知识库目录>" \
+  --plan "$BYTEWORKER_MEETING_TMP/meeting-batch-plan.json"
+```
+
+只有 execute 返回 `data.status=committed` 和 commit hash，且 receipt 显示全部 raw 与同一个
+event target，才算会议簇完成。正确结果是 N 份不可变 raw、1 个 event、一次 INDEX 重建和一个
+本地 commit。
 
 ## 扇出与去重
 
