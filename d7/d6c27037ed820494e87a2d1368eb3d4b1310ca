@@ -1,0 +1,79 @@
+ARCHITECTURE.md
+  s_0f49c5ffb9eb6f::t_bc8be8ef7c375a 414-415,450-451,461-465,498-499,559,633-670,696,730-731,941-942
+DESIGN.md
+  s_0f49c5ffb9eb6f::t_a45ad17f96971c 49-50,79-80,86-87,104-106,115,127-128,131-132,167-195
+SKILL.md
+  s_0f49c5ffb9eb6f::t_3e9866dbce570e 118-122,134-135
+bin/README.md
+  s_0f49c5ffb9eb6f::t_03f2ff8bd7be1e 92-93,413-471
+bin/byteworker-cli.py
+  s_3c2c4b41051b06::t_3e2c3ee8ddeba1 31-32
+bin/digest-job.py
+  s_0f49c5ffb9eb6f::t_dab42ceb53e083 1-197
+bin/wiki.py
+  s_0f49c5ffb9eb6f::t_3668c00826e82e 1-335
+lib/constants.py
+  s_3c2c4b41051b06::t_50573d8a062f54 23
+lib/digest_jobs.py
+  s_3c2c4b41051b06::t_9e484fe029d6c6 1-597
+lib/source_profile_providers.py
+  s_3c2c4b41051b06::t_5c567298859cf8 245-332
+lib/source_profiles.py
+  s_3c2c4b41051b06::t_12a2b0e1640070 35,517,577-582
+lib/wiki_explorer.py
+  s_3c2c4b41051b06::t_53fe73e017824b 1-862
+references/digest-core.md
+  s_0f49c5ffb9eb6f::t_3b26573df8f767 21-23,140
+references/digest-routine.md
+  s_3c2c4b41051b06::t_2fd52c262cbe54 5-6,45-50
+references/digest-wiki-space.md
+  s_3c2c4b41051b06::t_6a86a268d85c48 1-134
+references/error-handling.md
+  s_3c2c4b41051b06::t_7533d6d5d6cb5e 9,19-20
+references/machine-protocol.md
+  s_3c2c4b41051b06::t_078f73c82f708d 91-112,128,138-142
+references/wiki-digest-jobs.md
+  s_3c2c4b41051b06::t_2dd3f35d92b3e6 1-68
+tests/test_architecture_contract.py
+  s_3c2c4b41051b06::t_225a55e61a0657 54-57
+tests/test_byteworker_cli_direct.py
+  s_0f49c5ffb9eb6f::t_51eb9f3e18e58c 1-134
+tests/test_digest_jobs.py
+  s_3c2c4b41051b06::t_aec75bbd8c5a35 1-291
+tests/test_source_architecture.py
+  s_3c2c4b41051b06::t_56c26c0a61a19d 13
+tests/test_source_profiles.py
+  s_3c2c4b41051b06::t_85d52e0f79e5a5 174-197,483-508,516
+tests/test_wiki_cli.py
+  s_3c2c4b41051b06::t_d04ec6f46204b0 1-344
+tests/test_wiki_cold_path.py
+  s_3c2c4b41051b06::t_eb9fba24371f7c 1-46
+tests/test_wiki_explorer.py
+  s_3c2c4b41051b06::t_a975c67c28940c 1-440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d7d6c27037ed820494e87a2d1368eb3d4b1310ca",
+  "prompts": {},
+  "sessions": {
+    "s_0f49c5ffb9eb6f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb243-ee0c-70a0-b60d-39458f511334",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    },
+    "s_3c2c4b41051b06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb134-4420-7783-9036-8a95d43ceeec",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
