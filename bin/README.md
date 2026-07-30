@@ -7,10 +7,19 @@
 
 ### Agent 或自动化调用
 
-以下工具必须优先通过统一机器协议入口调用：
+每个新 session 先调用一次：
 
 ```bash
-python3 bin/byteworker-cli.py <tool> [tool arguments...]
+bin/byteworker preflight
+```
+
+健康时完全无输出；有输出时只处理 `byteworker-session-preflight/v1.notices`。飞书任务可显式加
+`--require feishu`，Meego 任务加 `--require meego`；已登记来源会自动推导。
+
+之后所有确定性工具通过同一个 runtime-safe launcher 调用：
+
+```bash
+bin/byteworker <tool> [tool arguments...]
 ```
 
 支持的 `<tool>`：
@@ -27,7 +36,7 @@ python3 bin/byteworker-cli.py <tool> [tool arguments...]
 - `index`
 - `update-status`
 
-统一入口总是输出 `byteworker-cli/v1` JSON envelope：
+这些 tool 调用总是输出 `byteworker-cli/v1` JSON envelope：
 
 ```json
 {
@@ -65,7 +74,9 @@ python3 bin/doctor.py scan --format text
 ### Shell 集成
 
 抓取群聊、浏览知识库、修复 links、检查依赖和自动更新等操作保留独立 shell 入口。
-INDEX 重建已有 `index rebuild` 机器入口，`rebuild-index.sh` 继续供人工排障。
+需要保证与 preflight 相同的 Python/Node/PATH 时，用
+`bin/byteworker run <command> ...`；直接飞书 CLI 用 `bin/byteworker lark ...`，不要猜 NVM
+路径。INDEX 重建已有 `index rebuild` 机器入口，`rebuild-index.sh` 继续供人工排障。
 
 ## 2. 公共约定与安全边界
 
@@ -90,6 +101,9 @@ cd "$BYTEWORKER_ROOT"
 
 | 文件 | 主要使用者 | 用途 | 写入影响 |
 |---|---|---|---|
+| `byteworker` | Agent / 自动化 | 稳定 Python bootstrap 与 runtime-safe launcher | 取决于子命令 |
+| `byteworker-launcher.py` | 内部入口 | preflight、机器 CLI、lark/meegle/run 分发 | 取决于子命令 |
+| `session-preflight.py` | Agent / 自动化 | 每 session 一次合并启动检查 | 更新 skill 状态、Todo/报告本地状态检查 |
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
 | `source.py` | Agent / 维护者 | 来源能力、授权、抓取、Profile、Bundle、diff | capture/Bundle 写输出；Profile 操作可写 KB |
@@ -106,7 +120,7 @@ cd "$BYTEWORKER_ROOT"
 | `im-inbox-summary.sh` | Agent | IM 高信号 thread 本地粗筛 | 写输出和运行标记，不写 raw |
 | `resolve-users.sh` | Agent / 维护者 | open_id 批量解析为身份与当前通讯录画像 | 只读外部通讯录 |
 | `browse.sh` | 用户 | 启动本地只读 Viewer | 只写临时服务目录 |
-| `check-deps.sh` | 用户 / 安装流程 | 检查运行依赖 | 只读 |
+| `check-deps.sh` | 用户 / 安装流程 | 用同一 resolver 检查运行依赖 | 只读 |
 | `rebuild-index.sh` | Agent / 维护者 | 从真相源重建 INDEX | 默认写 `INDEX.md` |
 | `rebuild_index.py` | 内部执行器 | INDEX 重建核心实现 | 同上 |
 | `repair-links.sh` | Agent / 维护者 | 修复双向 links、自链接和重复项 | 默认写节点 frontmatter |
@@ -120,25 +134,25 @@ cd "$BYTEWORKER_ROOT"
 用途：把确定性 Python 工具包装为稳定的单行 JSON envelope，统一成功、需关注和错误状态。
 
 ```bash
-python3 bin/byteworker-cli.py [--pretty] <tool> [tool arguments...]
+bin/byteworker [--pretty] <tool> [tool arguments...]
 ```
 
 常用示例：
 
 ```bash
-python3 bin/byteworker-cli.py --pretty \
+bin/byteworker --pretty \
   kb-query search \
   --kb "$BYTEWORKER_KB" \
   --query "OCR 2.0"
 
-python3 bin/byteworker-cli.py \
+bin/byteworker \
   source auth-status \
   --source-type meego \
   --host project.feishu.cn
 
-python3 bin/byteworker-cli.py update-status
+bin/byteworker update-status
 
-python3 bin/byteworker-cli.py report-automation status \
+bin/byteworker report-automation status \
   --kb "$BYTEWORKER_KB"
 ```
 
@@ -157,7 +171,7 @@ python3 bin/byteworker-cli.py report-automation status \
 推荐通过机器协议调用：
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn <subcommand> ...
+bin/byteworker digest-txn <subcommand> ...
 ```
 
 ### `preflight`
@@ -165,7 +179,7 @@ python3 bin/byteworker-cli.py digest-txn <subcommand> ...
 读取 SourceBundle 或 DigestPlan，计算 payload/hash，并判断同源状态；不写知识库。
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn preflight \
+bin/byteworker digest-txn preflight \
   --kb "$BYTEWORKER_KB" \
   --manifest /tmp/byteworker-example/digest-plan.json
 ```
@@ -182,7 +196,7 @@ python3 bin/byteworker-cli.py digest-txn preflight \
 读取已有节点并返回 `base_sha256`，供 update candidate 做乐观并发保护；只读。
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn snapshot-node \
+bin/byteworker digest-txn snapshot-node \
   --kb "$BYTEWORKER_KB" \
   --path knowledge/projects/project-ocr.md
 ```
@@ -192,7 +206,7 @@ python3 bin/byteworker-cli.py digest-txn snapshot-node \
 完整校验 plan、Bundle、候选节点、links、evidence、baseline 和路径安全；不写知识库。
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn validate \
+bin/byteworker digest-txn validate \
   --kb "$BYTEWORKER_KB" \
   --manifest /tmp/byteworker-example/digest-plan.json
 ```
@@ -209,7 +223,7 @@ python3 bin/byteworker-cli.py digest-txn validate \
 - 本地 Git commit
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn execute \
+bin/byteworker digest-txn execute \
   --kb "$BYTEWORKER_KB" \
   --manifest /tmp/byteworker-example/digest-plan.json
 ```
@@ -240,7 +254,7 @@ python3 bin/byteworker-cli.py digest-txn execute \
 保持异构，但进入 digest 的单来源结果都必须是 `SourceBundle v2`。
 
 ```bash
-python3 bin/byteworker-cli.py source <subcommand> ...
+bin/byteworker source <subcommand> ...
 ```
 
 ### `capabilities`
@@ -248,7 +262,7 @@ python3 bin/byteworker-cli.py source <subcommand> ...
 列出三个正交集合：可执行 operation、可保存 Profile、可生成 Bundle 的来源类型。
 
 ```bash
-python3 bin/byteworker-cli.py source capabilities
+bin/byteworker source capabilities
 ```
 
 ### `bundle-spec`
@@ -257,7 +271,7 @@ python3 bin/byteworker-cli.py source capabilities
 形状、source UID 规则和最小示例：
 
 ```bash
-python3 bin/byteworker-cli.py source bundle-spec \
+bin/byteworker source bundle-spec \
   --source-type feishu_minutes
 ```
 
@@ -266,7 +280,7 @@ python3 bin/byteworker-cli.py source bundle-spec \
 无副作用检查登录和最小授权，不主动发起 OAuth。
 
 ```bash
-python3 bin/byteworker-cli.py source auth-status \
+bin/byteworker source auth-status \
   --source-type meego \
   --host project.feishu.cn
 ```
@@ -279,7 +293,7 @@ python3 bin/byteworker-cli.py source auth-status \
 读取来源元数据并验证 URL、项目、表、视图、字段、报表和筛选坐标；不抓完整业务快照。
 
 ```bash
-python3 bin/byteworker-cli.py source inspect \
+bin/byteworker source inspect \
   --source-type meego \
   --url "<meego-view-url>" \
   --field name \
@@ -290,7 +304,7 @@ python3 bin/byteworker-cli.py source inspect \
 Meego 空间主页只做 URL 类型识别，并提示提供具体 Story View URL：
 
 ```bash
-python3 bin/byteworker-cli.py source inspect \
+bin/byteworker source inspect \
   --source-type meego \
   --url "<meego-project-home-url>"
 ```
@@ -310,7 +324,7 @@ python3 bin/byteworker-cli.py source inspect \
 按已保存 Profile 抓取：
 
 ```bash
-python3 bin/byteworker-cli.py source capture \
+bin/byteworker source capture \
   --source-type meego \
   --kb "$BYTEWORKER_KB" \
   --source-uid "<stable-source-uid>" \
@@ -334,7 +348,7 @@ Meego/Base/Aeolus 的 `--bundle-out` 必须与 `--out` 同时使用：前者保�
 严格 `SourceBundle v2`：
 
 ```bash
-python3 bin/byteworker-cli.py source bundle \
+bin/byteworker source bundle \
   --source-type web \
   --request /tmp/byteworker-example/web-request.json \
   --out /tmp/byteworker-example/web-bundle.json
@@ -373,7 +387,7 @@ component 参数如 `body`、`transcript`、`local_file` 使用
 知识库本地 commit。
 
 ```bash
-python3 bin/byteworker-cli.py source register \
+bin/byteworker source register \
   --source-type aeolus \
   --kb "$BYTEWORKER_KB" \
   --url "<aeolus-sheet-url>" \
@@ -387,7 +401,7 @@ python3 bin/byteworker-cli.py source register \
 严格校验临时 Profile JSON，原子写入 `sources/`，重建 INDEX，并创建本地 commit。
 
 ```bash
-python3 bin/byteworker-cli.py source profile-save \
+bin/byteworker source profile-save \
   --kb "$BYTEWORKER_KB" \
   --file /tmp/byteworker-example/source-profile.json
 ```
@@ -399,11 +413,11 @@ Profile 不得包含 token、cookie、JWT、密码或抓取结果。
 读取一个 Profile，或列出全部 Profile；只读。
 
 ```bash
-python3 bin/byteworker-cli.py source profile \
+bin/byteworker source profile \
   --kb "$BYTEWORKER_KB" \
   --source-uid "<stable-source-uid>"
 
-python3 bin/byteworker-cli.py source profiles \
+bin/byteworker source profiles \
   --kb "$BYTEWORKER_KB" \
   --source-type meego
 ```
@@ -418,7 +432,7 @@ python3 bin/byteworker-cli.py source profiles \
 显式提供两份 capture：
 
 ```bash
-python3 bin/byteworker-cli.py source diff \
+bin/byteworker source diff \
   --previous /tmp/byteworker-example/previous.json \
   --current /tmp/byteworker-example/current.json \
   --out /tmp/byteworker-example/diff.json
@@ -427,7 +441,7 @@ python3 bin/byteworker-cli.py source diff \
 从 KB 自动选择上一份已提交快照：
 
 ```bash
-python3 bin/byteworker-cli.py source diff \
+bin/byteworker source diff \
   --kb "$BYTEWORKER_KB" \
   --source-uid "<stable-source-uid>" \
   --current /tmp/byteworker-example/current.json
@@ -444,21 +458,21 @@ python3 bin/byteworker-cli.py source diff \
 `wiki.py` 的主要操作：
 
 ```bash
-python3 bin/byteworker-cli.py wiki auth-status
-python3 bin/byteworker-cli.py wiki inspect --url "<Wiki URL>"
-python3 bin/byteworker-cli.py wiki scan \
+bin/byteworker wiki auth-status
+bin/byteworker wiki inspect --url "<Wiki URL>"
+bin/byteworker wiki scan \
   --kb "$BYTEWORKER_KB" --url "<Wiki URL>" --max-nodes 20000
-python3 bin/byteworker-cli.py wiki scan \
+bin/byteworker wiki scan \
   --kb "$BYTEWORKER_KB" \
   --source-uid "feishu_wiki:<space_id>:<root_node_token>"
-python3 bin/byteworker-cli.py wiki topics \
+bin/byteworker wiki topics \
   --kb "$BYTEWORKER_KB" --space-id "<space_id>" --limit 30
-python3 bin/byteworker-cli.py wiki candidates \
+bin/byteworker wiki candidates \
   --kb "$BYTEWORKER_KB" --space-id "<space_id>" \
   --root-node-token "<node_token>" \
   --updated-after "2026-01-01T00:00:00+08:00" \
   --out "<临时目录>/wiki-selection.json"
-python3 bin/byteworker-cli.py wiki profile-create \
+bin/byteworker wiki profile-create \
   --kb "$BYTEWORKER_KB" --url "<Wiki URL>" \
   --root-node-token "<node_token>" \
   --routine weekly --change-detection structure_only
@@ -472,22 +486,22 @@ stdout 返回有限预览。子树 Profile 使用 `feishu_wiki:<space_id>:<root_
 用户确认候选文件后，用 `digest-job.py` 创建任务并分批领取：
 
 ```bash
-python3 bin/byteworker-cli.py digest-job create \
+bin/byteworker digest-job create \
   --kb "$BYTEWORKER_KB" --selection "<临时目录>/wiki-selection.json" \
   --title "检索知识库" --batch-size 5
-python3 bin/byteworker-cli.py digest-job list --kb "$BYTEWORKER_KB" --active
-python3 bin/byteworker-cli.py digest-job status \
+bin/byteworker digest-job list --kb "$BYTEWORKER_KB" --active
+bin/byteworker digest-job status \
   --kb "$BYTEWORKER_KB" --job-id "<job_id>" --limit 20
-python3 bin/byteworker-cli.py digest-job next \
+bin/byteworker digest-job next \
   --kb "$BYTEWORKER_KB" --job-id "<job_id>" \
   --limit 5 --lease-owner "<session_id>" --lease-seconds 1800
-python3 bin/byteworker-cli.py digest-job mark \
+bin/byteworker digest-job mark \
   --kb "$BYTEWORKER_KB" --job-id "<job_id>" \
   --document-id "<document_id>" --status committed \
   --raw-id "<raw_id>" --commit "<commit>"
-python3 bin/byteworker-cli.py digest-job reconcile \
+bin/byteworker digest-job reconcile \
   --kb "$BYTEWORKER_KB" --job-id "<job_id>"
-python3 bin/byteworker-cli.py digest-job cancel \
+bin/byteworker digest-job cancel \
   --kb "$BYTEWORKER_KB" --job-id "<job_id>"
 ```
 
@@ -498,35 +512,43 @@ python3 bin/byteworker-cli.py digest-job cancel \
 ## 6B. `report-automation.py`：自动报告状态与执行租约
 
 该工具不创建、唤醒或删除 Codex / Claude / TRAE 任务。它只在知识库
-`state/report_automation.json` 中记录一次性设置选择、当前 prompt 版本、跨日报/周报单租约和
-真实运行结果；宿主任务列表始终是真相源。
+`state/report_automation.json` 中记录一次性设置选择、当前 prompt 版本、跨日报/周报单租约、
+`last_attempt/last_run/last_success` 和真实运行结果；宿主任务列表始终是真相源。
 
 ```bash
 # 首次安装或升级迁移是否需要询问
-python3 bin/byteworker-cli.py report-automation status --kb "$BYTEWORKER_KB"
+bin/byteworker report-automation status --kb "$BYTEWORKER_KB"
 
 # 展示问题前先标记已询问；用户拒绝或稍后再改为对应值
-python3 bin/byteworker-cli.py report-automation decision \
+bin/byteworker report-automation decision \
   --kb "$BYTEWORKER_KB" --value prompted
 
 # 任务真实创建且 Run now 通过后才记录
-python3 bin/byteworker-cli.py report-automation configure \
+bin/byteworker report-automation configure \
   --kb "$BYTEWORKER_KB" \
   --harness codex \
   --timezone Asia/Shanghai \
   --environment local \
   --daily-schedule "工作日 20:30" \
-  --weekly-schedule "周一 09:30"
+  --weekly-schedule "周一 09:30" \
+  --recovery-schedule "每天 08:30/12:30/18:30/22:30" \
+  --recovery-task-id "<recovery_task_id>"
+
+# 补偿任务先检查指定 period；只有 due + should_run=true 才补跑
+bin/byteworker report-automation check \
+  --kb "$BYTEWORKER_KB" \
+  --kind daily \
+  --period 2026-07-30
 
 # 每次运行先领取租约；日报 period 用 YYYY-MM-DD，周报用 YYYY-Www
-python3 bin/byteworker-cli.py report-automation lease \
+bin/byteworker report-automation lease \
   --kb "$BYTEWORKER_KB" \
   --kind daily \
   --period 2026-07-30 \
   --owner codex
 
 # 成功必须提供 reports/<kind>/ 下的报告路径；失败必须提供稳定错误码
-python3 bin/byteworker-cli.py report-automation complete \
+bin/byteworker report-automation complete \
   --kb "$BYTEWORKER_KB" \
   --token "<lease token>" \
   --run-status success \
@@ -535,6 +557,7 @@ python3 bin/byteworker-cli.py report-automation complete \
 
 状态目录会加入知识库 `.git/info/exclude`。自动报告只允许 `local` 环境；租约过期后可恢复，
 有效租约存在时返回 `REPORT_AUTOMATION_BUSY`，调用方必须安全退出，不能并发写同一 KB。
+`check` 返回 `due/complete/busy/disabled`，不会写报告或领取租约。
 
 ## 7. `kb-query.py`：确定性知识查询
 
@@ -545,7 +568,7 @@ python3 bin/byteworker-cli.py report-automation complete \
 对节点正文、frontmatter 和 INDEX 做有限召回，并最多扩展一跳 links。
 
 ```bash
-python3 bin/byteworker-cli.py kb-query search \
+bin/byteworker kb-query search \
   --kb "$BYTEWORKER_KB" \
   --query "OCR 2.0" \
   --limit 12 \
@@ -562,7 +585,7 @@ python3 bin/byteworker-cli.py kb-query search \
 解析节点中的 `[E1]` 等标记，返回对应 raw、anchor、open URL 和 source metadata。
 
 ```bash
-python3 bin/byteworker-cli.py kb-query evidence \
+bin/byteworker kb-query evidence \
   --kb "$BYTEWORKER_KB" \
   --node event-2026-07-29-ocr-weekly \
   --markers E1,E2
@@ -575,12 +598,12 @@ python3 bin/byteworker-cli.py kb-query evidence \
 从 Meego、Base、Aeolus 最新完整 raw 快照中按稳定 ID 或标题查普通结构化记录。
 
 ```bash
-python3 bin/byteworker-cli.py kb-query source-record \
+bin/byteworker kb-query source-record \
   --kb "$BYTEWORKER_KB" \
   --source-type meego \
   --record-id "<work-item-id>"
 
-python3 bin/byteworker-cli.py kb-query source-record \
+bin/byteworker kb-query source-record \
   --kb "$BYTEWORKER_KB" \
   --source-uid "<stable-source-uid>" \
   --title "安全审核基座" \
@@ -597,7 +620,7 @@ python3 bin/byteworker-cli.py kb-query source-record \
 ### 只读扫描
 
 ```bash
-python3 bin/byteworker-cli.py doctor scan \
+bin/byteworker doctor scan \
   --kb "$BYTEWORKER_KB"
 ```
 
@@ -612,7 +635,7 @@ python3 bin/doctor.py scan \
 ### 确定性修复
 
 ```bash
-python3 bin/byteworker-cli.py doctor fix \
+bin/byteworker doctor fix \
   --kb "$BYTEWORKER_KB" \
   --only index,links \
   --dry-run
@@ -645,7 +668,7 @@ Doctor 只自动处理可证明的 INDEX/links 问题；缺失 Profile、业务�
 只读扫描缺少 provenance/primary source/evidence 的历史 raw 和节点。
 
 ```bash
-python3 bin/byteworker-cli.py provenance-backfill audit \
+bin/byteworker provenance-backfill audit \
   --kb "$BYTEWORKER_KB"
 ```
 
@@ -654,7 +677,7 @@ python3 bin/byteworker-cli.py provenance-backfill audit \
 生成候选回填计划，不应用。
 
 ```bash
-python3 bin/byteworker-cli.py provenance-backfill plan \
+bin/byteworker provenance-backfill plan \
   --kb "$BYTEWORKER_KB" \
   --output /tmp/byteworker-example/provenance-backfill.json
 ```
@@ -664,7 +687,7 @@ python3 bin/byteworker-cli.py provenance-backfill plan \
 检查经 Agent 或用户复核后的计划；不写知识库。
 
 ```bash
-python3 bin/byteworker-cli.py provenance-backfill validate \
+bin/byteworker provenance-backfill validate \
   --kb "$BYTEWORKER_KB" \
   --plan /tmp/byteworker-example/provenance-backfill.json
 ```
@@ -674,7 +697,7 @@ python3 bin/byteworker-cli.py provenance-backfill validate \
 加锁并写入 sidecar、候选节点和 journal，精确暂存后创建知识库本地 commit；失败整体回滚。
 
 ```bash
-python3 bin/byteworker-cli.py provenance-backfill apply \
+bin/byteworker provenance-backfill apply \
   --kb "$BYTEWORKER_KB" \
   --plan /tmp/byteworker-example/provenance-backfill.json
 ```
@@ -692,7 +715,7 @@ python3 bin/todo.py "$BYTEWORKER_KB" <subcommand> ...
 通过机器协议时保持相同参数顺序：
 
 ```bash
-python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" <subcommand> ...
+bin/byteworker todo "$BYTEWORKER_KB" <subcommand> ...
 ```
 
 | 子命令 | 用途 | 是否写入 |
@@ -710,21 +733,21 @@ python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" <subcommand> ...
 示例：
 
 ```bash
-python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" init \
+bin/byteworker todo "$BYTEWORKER_KB" init \
   --template templates/todo.md
 
-python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" parse-time \
+bin/byteworker todo "$BYTEWORKER_KB" parse-time \
   "明天下午三点" \
   --kind remind
 
-python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" add \
+bin/byteworker todo "$BYTEWORKER_KB" add \
   --title "提交周报" \
   --due "2026-07-31T18:00:00+08:00" \
   --remind "2026-07-31T15:00:00+08:00"
 
-python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" list --scope active
-python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" status <todo-id> done
-python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" snooze <todo-id> "明天上午十点"
+bin/byteworker todo "$BYTEWORKER_KB" list --scope active
+bin/byteworker todo "$BYTEWORKER_KB" status <todo-id> done
+bin/byteworker todo "$BYTEWORKER_KB" snooze <todo-id> "明天上午十点"
 ```
 
 用户不需要记忆或输入内部 Todo ID；Agent 应根据标题和当前对话定位 ID。
@@ -736,7 +759,7 @@ python3 bin/byteworker-cli.py todo "$BYTEWORKER_KB" snooze <todo-id> "明天上�
 抓取飞书文档的全部评论、已解决评论、完整回复链和正文锚点，输出 canonical JSON。
 
 ```bash
-python3 bin/pull_doc_comments.py \
+bin/byteworker run bin/pull_doc_comments.py \
   --url "<feishu-doc-or-wiki-url>" \
   --as user \
   --pretty \
@@ -754,7 +777,7 @@ python3 bin/pull_doc_comments.py \
 首次显式窗口：
 
 ```bash
-bin/pull-chat.sh \
+bin/byteworker run bin/pull-chat.sh \
   --query "<exact-chat-name>" \
   --start "2026-07-29T00:00:00+08:00" \
   --end "2026-07-29T18:00:00+08:00" \
@@ -765,7 +788,7 @@ bin/pull-chat.sh \
 已有历史 raw 后增量续拉：
 
 ```bash
-bin/pull-chat.sh \
+bin/byteworker run bin/pull-chat.sh \
   --chat-id "<oc_xxx>" \
   --since-last \
   --out /tmp/byteworker-example/chat.txt
@@ -787,10 +810,10 @@ stdout 末尾输出 `chat_id/messages/pages/window/transcript/locators` 等摘�
 把 `ou_...` open_id 批量解析为姓名、企业 `feishu_id`、邮箱和当前部门路径。
 
 ```bash
-bin/resolve-users.sh --from-doc /tmp/byteworker-example/chat.txt
-bin/resolve-users.sh --ids ou_xxx,ou_yyy
-printf '%s\n' ou_xxx ou_yyy | bin/resolve-users.sh
-bin/resolve-users.sh --ids ou_xxx,ou_yyy --format json
+bin/byteworker run bin/resolve-users.sh --from-doc /tmp/byteworker-example/chat.txt
+bin/byteworker run bin/resolve-users.sh --ids ou_xxx,ou_yyy
+printf '%s\n' ou_xxx ou_yyy | bin/byteworker run bin/resolve-users.sh
+bin/byteworker run bin/resolve-users.sh --ids ou_xxx,ou_yyy --format json
 ```
 
 默认 stdout 保留旧三列 TSV，供已有调用继续使用：
@@ -831,16 +854,16 @@ person 新建/更新必须使用 JSON 模式：`resolved_at` 写入 `directory_v
 LLM 精判。它不会自动把全天 IM 原文写入 `raw_data/`。
 
 ```bash
-bin/im-inbox-summary.sh --today \
+bin/byteworker run bin/im-inbox-summary.sh --today \
   --kb "$BYTEWORKER_KB" \
   --out /tmp/byteworker-example/im-candidates.json
 
-bin/im-inbox-summary.sh \
+bin/byteworker run bin/im-inbox-summary.sh \
   --last-hours 24 \
   --keyword "OCR" \
   --keyword "风险"
 
-bin/im-inbox-summary.sh \
+bin/byteworker run bin/im-inbox-summary.sh \
   --start "2026-07-28T09:00:00+08:00" \
   --end "2026-07-29T09:00:00+08:00" \
   --chat-id "<oc_xxx>"
@@ -873,8 +896,8 @@ bin/im-inbox-summary.sh \
 Agent / 自动化优先使用机器协议：
 
 ```bash
-python3 bin/byteworker-cli.py index rebuild --kb "$BYTEWORKER_KB" --dry-run
-python3 bin/byteworker-cli.py index rebuild --kb "$BYTEWORKER_KB"
+bin/byteworker index rebuild --kb "$BYTEWORKER_KB" --dry-run
+bin/byteworker index rebuild --kb "$BYTEWORKER_KB"
 ```
 
 receipt 会显式说明是否变化，以及该操作不写 journal、不创建 Git commit。下面的 shell wrapper
@@ -935,6 +958,26 @@ python3 bin/repair_links.py "$BYTEWORKER_KB" [--dry-run] [--autolink]
 
 ## 13. 浏览与安装检查
 
+### `byteworker` / `session-preflight.py`
+
+Agent 日常只需：
+
+```bash
+bin/byteworker preflight
+bin/byteworker preflight --require feishu
+```
+
+- 默认健康路径 stdout/stderr 均为空，退出码 `0`。
+- 有 Todo、自动更新、自动报告迁移或依赖问题时，输出一行
+  `byteworker-session-preflight/v1` JSON；只有 blocking 返回非零。
+- `--json` 仅供排障，健康时也展示 KB、resolved runtime 与完整检查结果。
+- preflight 自动从 `sources/*.json` 推导已经配置的飞书/Meego runtime；`--require` 用于本次
+  即将访问但尚未登记的来源。
+- `bin/byteworker lark ...`、`bin/byteworker meegle ...` 和
+  `bin/byteworker run <command> ...` 继承同一 runtime resolver。显式设置的
+  `BYTEWORKER_PYTHON_BIN/BYTEWORKER_NODE_BIN/BYTEWORKER_LARK_CLI_BIN/BYTEWORKER_MEEGLE_BIN`
+  若无效会直接报错，不静默换成另一套身份或版本。
+
 ### `browse.sh`
 
 在本机启动只读静态 Viewer。
@@ -951,7 +994,8 @@ bin/browse.sh 8765
 
 ### `check-deps.sh`
 
-检查 byteworker 自身依赖和各内部来源依赖。
+检查 byteworker 自身依赖和各内部来源依赖。它委托给 `bin/byteworker deps`，因此安装检查与
+运行期 preflight 使用同一套版本探测和 NVM/PATH 发现逻辑。
 
 ```bash
 bin/check-deps.sh
@@ -965,7 +1009,8 @@ bin/check-deps.sh
 | `1` | Tier 1 必需依赖缺失 |
 | `2` | byteworker 基础可用，但内部来源依赖不完整 |
 
-Tier 1 包括 `git/jq/bash/python3>=3.9`；Tier 2 包括 `lark-cli`、`meegle` 和对应来源 skills。
+Tier 1 包括 `git/jq/bash/python>=3.9 + zoneinfo`；Tier 2 包括可启动的 Node、`lark-cli` 与
+`meegle`。登录状态仍由具体来源的 `source auth-status` 检查，依赖检查不发起 OAuth。
 登录状态另用 `source auth-status` 检查。
 
 ## 14. 自动更新内部命令
@@ -990,7 +1035,7 @@ bin/update-check.sh --force
 查询当前状态：
 
 ```bash
-python3 bin/byteworker-cli.py update-status
+bin/byteworker update-status
 ```
 
 ### `update-postflight.py`
@@ -1033,7 +1078,7 @@ status
 状态文件默认是根目录 `.update-state.json`，由脚本原子维护。人工查看状态应使用：
 
 ```bash
-python3 bin/byteworker-cli.py update-status
+bin/byteworker update-status
 ```
 
 ## 15. 修改或新增命令时

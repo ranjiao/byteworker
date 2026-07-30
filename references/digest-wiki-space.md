@@ -24,8 +24,8 @@
 先问用户是否愿意处理 Wiki 读取权限；用户确认后运行：
 
 ```bash
-python3 bin/byteworker-cli.py wiki auth-status
-python3 bin/byteworker-cli.py wiki inspect --url "<Wiki URL>"
+bin/byteworker wiki auth-status
+bin/byteworker wiki inspect --url "<Wiki URL>"
 ```
 
 必须确认 `identity=user`、`ready=true` 和 `wiki_node_read_scope=true`。若返回
@@ -33,7 +33,7 @@ python3 bin/byteworker-cli.py wiki inspect --url "<Wiki URL>"
 
 ```bash
 security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
-lark-cli config keychain-downgrade
+bin/byteworker lark config keychain-downgrade
 ```
 
 第二条只在解锁后仍无法从宿主进程读取凭据时使用。不得显示、复制或记录 token。
@@ -54,9 +54,9 @@ lark-cli config keychain-downgrade
 只有用户明确同意探索整个空间时才运行：
 
 ```bash
-python3 bin/byteworker-cli.py wiki scan \
+bin/byteworker wiki scan \
   --kb "<KB>" --url "<Wiki 空间 URL>" --max-nodes 20000
-python3 bin/byteworker-cli.py wiki topics \
+bin/byteworker wiki topics \
   --kb "<KB>" --space-id "<space_id>" --limit 30
 ```
 
@@ -71,7 +71,7 @@ python3 bin/byteworker-cli.py wiki topics \
 用户选择一个方向后，用其真实 `node_token` 单独扫描子树：
 
 ```bash
-python3 bin/byteworker-cli.py wiki scan \
+bin/byteworker wiki scan \
   --kb "<KB>" --url "<Wiki 空间 URL>" \
   --root-node-token "<node_token>" --max-nodes 20000
 ```
@@ -79,7 +79,7 @@ python3 bin/byteworker-cli.py wiki scan \
 需要定期关注时，经用户确认创建子树 Profile；默认只比较结构，不自动全量读取页面正文：
 
 ```bash
-python3 bin/byteworker-cli.py wiki profile-create \
+bin/byteworker wiki profile-create \
   --kb "<KB>" --url "<Wiki 空间 URL>" \
   --root-node-token "<node_token>" \
   --routine weekly --change-detection structure_only
@@ -90,7 +90,7 @@ python3 bin/byteworker-cli.py wiki profile-create \
 目录或 KB，不写 skill 仓库：
 
 ```bash
-python3 bin/byteworker-cli.py wiki candidates \
+bin/byteworker wiki candidates \
   --kb "<KB>" --space-id "<space_id>" \
   --root-node-token "<node_token>" \
   --updated-after "<ISO8601>" --max-pages 500 \
@@ -105,7 +105,7 @@ python3 bin/byteworker-cli.py wiki candidates \
 页面数较多时，先估算输入 token 范围；明显较大时提醒用户成本，得到确认后创建持久任务：
 
 ```bash
-python3 bin/byteworker-cli.py digest-job create \
+bin/byteworker digest-job create \
   --kb "<KB>" --selection "<selection.json>" \
   --title "<用户可识别标题>" --batch-size 5
 ```

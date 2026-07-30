@@ -29,35 +29,35 @@
 - 默认只读当前视图返回的字段。不递归读取工作项详情、评论、附件、群聊、关联工作项或正文链接。
 
 ```bash
-python3 bin/byteworker-cli.py source auth-status \
+bin/byteworker source auth-status \
   --source-type meego --host project.feishu.cn
 
-python3 bin/byteworker-cli.py source inspect \
+bin/byteworker source inspect \
   --source-type meego --url "<Meego 保存视图 URL>"
 
 # 空间主页：返回 SOURCE_SELECTION_REQUIRED，提示提供具体 Story View URL
-python3 bin/byteworker-cli.py source inspect \
+bin/byteworker source inspect \
   --source-type meego --url "<Meego 空间主页 URL>"
 
-python3 bin/byteworker-cli.py source capture \
+bin/byteworker source capture \
   --source-type meego --url "<Meego 保存视图 URL>" \
   --field name --field status --field owner --field updated_at \
   --out "<系统临时目录>/meego-capture.json" \
   --bundle-out "<系统临时目录>/meego-bundle.json"
 
 # 首次确认后，在系统临时目录准备 byteworker-source-profile/v2 并保存
-python3 bin/byteworker-cli.py source profile-save \
+bin/byteworker source profile-save \
   --kb "<知识库目录>" \
   --file "<系统临时目录>/meego-profile.json"
 
 # 后续按稳定 source UID 重放 profile
-python3 bin/byteworker-cli.py source capture \
+bin/byteworker source capture \
   --source-type meego --kb "<知识库目录>" \
   --source-uid "meego:<project_key>:<view_id>" \
   --out "<系统临时目录>/meego-capture.json" \
   --bundle-out "<系统临时目录>/meego-bundle.json"
 
-python3 bin/byteworker-cli.py source diff \
+bin/byteworker source diff \
   --kb "<知识库目录>" \
   --source-uid "meego:<project_key>:<view_id>" \
   --current "<本次完整 capture.json>" \

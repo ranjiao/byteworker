@@ -26,6 +26,7 @@ PAGE_SIZE=50; OVERLAP_SECONDS=0
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 KBCONFIG="$SELF_DIR/../.kbconfig"
 LARK_CLI_BIN="${BYTEWORKER_LARK_CLI_BIN:-lark-cli}"
+PYTHON_BIN="${BYTEWORKER_PYTHON_BIN:-python3}"
 usage() { sed -n '2,21p' "$0"; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -110,7 +111,7 @@ if [ -n "$SINCE_LAST" ]; then
     fi
     START="$LAST_END"
     if [ "$OVERLAP_SECONDS" -gt 0 ]; then
-      START=$(python3 - "$START" "$OVERLAP_SECONDS" <<'PY'
+      START=$("$PYTHON_BIN" - "$START" "$OVERLAP_SECONDS" <<'PY'
 from datetime import datetime, timedelta
 import sys
 

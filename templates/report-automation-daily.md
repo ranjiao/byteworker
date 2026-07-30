@@ -4,8 +4,12 @@
 skill 自己的 `.kbconfig`、`context.md`、`references/report-scheduling.md` 和
 `references/periodic-report.md` 执行。
 
-1. 按 `context.md` 时区确定今天的 `YYYY-MM-DD`，通过机器协议为 kind=daily、period=今天获取
-   自动报告租约；若已有有效租约，安全退出，不并发写知识库。
+启动前只运行一次 `bin/byteworker preflight`；无输出则继续，blocking 则安全失败并记录错误，
+不要再分别检查更新、依赖、Todo 或自动报告设置。
+
+1. 按 `context.md` 时区确定今天的 `YYYY-MM-DD`，先运行
+   `report-automation check --kind daily --period <今天>`。`complete/disabled/busy` 安全退出；
+   只有 `should_run=true` 才获取自动报告租约，不并发写知识库。
 2. **每次都先运行完整 routine digest**：重放所有已登记且启用的 routine 来源，不受
    `.last-routine-digest` 的七天提醒阈值限制。没有增量也要完成例程回执。不得自动新增来源、
    扩大摄取范围、发起 OAuth、切换身份或在权限失败后继续。

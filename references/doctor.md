@@ -37,18 +37,18 @@
 
 ```bash
 # 默认读取 .kbconfig
-python3 bin/byteworker-cli.py doctor scan
+bin/byteworker doctor scan
 
 # 先预演，再执行确定性修复
-python3 bin/byteworker-cli.py doctor fix --dry-run
-python3 bin/byteworker-cli.py doctor fix
+bin/byteworker doctor fix --dry-run
+bin/byteworker doctor fix
 
 # 只修一个维度；正文 auto-link 必须显式开启
-python3 bin/byteworker-cli.py doctor fix --only index
-python3 bin/byteworker-cli.py doctor fix --only links --autolink
+bin/byteworker doctor fix --only index
+bin/byteworker doctor fix --only links --autolink
 
 # 测试或其它知识库
-python3 bin/byteworker-cli.py doctor scan --kb /absolute/path/to/kb
+bin/byteworker doctor scan --kb /absolute/path/to/kb
 ```
 
 统一 envelope 中 `status=attention` 表示扫描完成但仍有 finding。退出码仍为：`0` 没有

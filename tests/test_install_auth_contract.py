@@ -16,8 +16,8 @@ class InstallAuthContractTests(unittest.TestCase):
         self.assertIn("BYTEWORKER_AEOLUS_CLIENT_ID", install)
         self.assertNotIn("bytedcli", install.lower())
         self.assertIn("--no-wait --json", install)
-        self.assertIn("lark-cli auth qrcode", install)
-        self.assertIn("lark-cli auth login --device-code", install)
+        self.assertIn('"$TARGET/bin/byteworker" lark auth qrcode', install)
+        self.assertIn('"$TARGET/bin/byteworker" lark auth login --device-code', install)
         self.assertIn("不要重复登录或自动改用 bot", install)
 
     def test_runtime_skill_uses_the_same_auth_guard(self):

@@ -38,12 +38,13 @@ KBDIR=$(head -n1 "$KBCONFIG" | tr -d '[:space:]')
 [ -n "$KBDIR" ] && [ -d "$KBDIR" ] || { echo "错误:知识库数据目录不存在:$KBDIR" >&2; exit 1; }
 [ -f "$KBDIR/INDEX.md" ] || { echo "错误:$KBDIR 下没有 INDEX.md,似乎不是知识库数据目录" >&2; exit 1; }
 [ -d "$SKILL_DIR/viewer" ] || { echo "错误:未找到 $SKILL_DIR/viewer(skill 不完整)" >&2; exit 1; }
-command -v python3 >/dev/null 2>&1 || { echo "错误:未找到 python3" >&2; exit 1; }
+PYTHON_BIN="${BYTEWORKER_PYTHON_BIN:-python3}"
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || { echo "错误:未找到可用 Python" >&2; exit 1; }
 
 # 从请求端口开始寻找可绑定的端口;到 65535 后从 1024 继续查找。
 # 用 Python 探测以避免依赖 lsof / nc(不同系统的参数并不一致)。
 REQUESTED_PORT="$PORT"
-PORT=$(python3 - "$REQUESTED_PORT" <<'PY'
+PORT=$("$PYTHON_BIN" - "$REQUESTED_PORT" <<'PY'
 import socket
 import sys
 
@@ -87,4 +88,4 @@ echo "(静态服务器,纯本地;Ctrl-C 停止)"
 
 # 不用 exec —— 保留 trap,python 退出后能清理临时目录
 cd "$SERVE_ROOT"
-python3 -m http.server "$PORT" --bind 127.0.0.1
+"$PYTHON_BIN" -m http.server "$PORT" --bind 127.0.0.1

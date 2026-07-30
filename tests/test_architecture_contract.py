@@ -39,11 +39,16 @@ class ArchitectureContractTests(unittest.TestCase):
 
     def test_architecture_names_current_core_modules(self):
         core_paths = (
+            "bin/byteworker",
+            "bin/byteworker-launcher.py",
+            "bin/session-preflight.py",
             "bin/byteworker-cli.py",
             "bin/digest-txn.py",
             "bin/source.py",
             "bin/kb-query.py",
             "lib/machine_protocol.py",
+            "lib/runtime_deps.py",
+            "lib/session_preflight.py",
             "lib/digest_txn.py",
             "lib/doctor_sources.py",
             "lib/kb_query.py",

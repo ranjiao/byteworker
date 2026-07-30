@@ -8,21 +8,23 @@
 - skill 定义执行方法，Codex / Claude / TRAE 等 harness 定义时间。
 - 任务必须在**知识库数据目录**本地运行；不得使用云端环境、临时 worktree 或 skill 仓库作为
   写入项目。
-- 日报和周报各用一个独立任务。创建前按任务名、知识库路径与既有 prompt 查重；找到同用途任务
-  时更新或接管，不新建重复任务。
+- 日报和周报各用一个独立任务，并增加一个只做缺口检查、每次最多补跑一期的补偿任务。创建前按
+  任务名、知识库路径与既有 prompt 查重；找到同用途任务时更新或接管，不新建重复任务。
 - 任务只重放已经登记的 routine 来源，不在无人值守运行中扩大摄取范围、创建来源 Profile、
   发起 OAuth、切换身份、发送消息或 push。
 - 自动日报**每次都先完整运行一次 routine digest**，不使用 `.last-routine-digest` 的七天提醒
   阈值跳过。自动周报同样先运行 routine digest。
 - 默认时间：工作日 20:30 生成当天日报；周一 09:30 生成上一完整 ISO 周周报。安装时以
   `context.md` 时区解释，并允许用户修改日期、时间与通知偏好。
+- 默认补偿检查为每天 08:30、12:30、18:30、22:30。它不是另一份报告计划：已成功的 period
+  会由 `report-automation check` 确定性跳过，只有缺失或失败的 period 才进入补跑。
 
 ## 2. 设置状态与一次性迁移
 
 通过机器协议读取：
 
 ```bash
-python3 bin/byteworker-cli.py report-automation status --kb "<知识库绝对路径>"
+bin/byteworker report-automation status --kb "<知识库绝对路径>"
 ```
 
 状态保存在知识库 `state/report_automation.json`，`state/` 已加入知识库本地
@@ -63,8 +65,11 @@ python3 bin/byteworker-cli.py report-automation status --kb "<知识库绝对路
 - 项目选择知识库数据目录，`executionEnvironment=local`，不能选择 worktree。
 - 创建前查找同名 automation；存在则读取完整配置后更新。
 - 任务需要本地文件时，电脑必须开机且 Codex 桌面应用运行。
+- 官方调度器不承诺错过触发或离线失败后的自动补跑；必须创建 Byteworker 补偿任务，不能把
+  harness 的未知 retry 行为当成功边界。
 
-建议名称：`byteworker · 自动日报`、`byteworker · 自动周报`。
+建议名称：`byteworker · 自动日报`、`byteworker · 自动周报`、
+`byteworker · 自动报告补偿`。
 
 ### Claude
 
@@ -98,11 +103,12 @@ python3 bin/byteworker-cli.py report-automation status --kb "<知识库绝对路
 
 - `templates/report-automation-daily.md`
 - `templates/report-automation-weekly.md`
+- `templates/report-automation-recovery.md`
 
 任务真实创建并首跑通过后记录：
 
 ```bash
-python3 bin/byteworker-cli.py report-automation configure \
+bin/byteworker report-automation configure \
   --kb "<知识库绝对路径>" \
   --harness "<codex|claude-desktop|trae-work>" \
   --timezone "<context.md 时区>" \
@@ -110,13 +116,36 @@ python3 bin/byteworker-cli.py report-automation configure \
   --daily-schedule "<用户确认的日报时间>" \
   --weekly-schedule "<用户确认的周报时间>" \
   --daily-task-id "<宿主可提供时填写>" \
-  --weekly-task-id "<宿主可提供时填写>"
+  --weekly-task-id "<宿主可提供时填写>" \
+  --recovery-schedule "每天 08:30/12:30/18:30/22:30" \
+  --recovery-task-id "<宿主可提供时填写>"
 ```
 
 `configured` 只表示最近一次核验时真实任务存在，不保证它永远未被用户在宿主 UI 中删除。以后
 重配、排障或 prompt 升级时必须重新查看宿主任务。
 
-## 6. 无人值守失败边界
+## 6. 补偿检查与 last run
+
+`report-automation` 为日报和周报分别维护：
+
+- `last_attempt`：领取 lease 时立即写 `running`，即使进程随后崩溃也留下启动证据；
+- `last_run`：最近一次有完整 success/failed 回执的执行；
+- `last_success`：最近一次成功；后续失败不会覆盖它。
+
+补偿任务按模板建立有限候选，并对每个候选调用：
+
+```bash
+bin/byteworker report-automation check \
+  --kb "<知识库绝对路径>" \
+  --kind daily \
+  --period "2026-07-30"
+```
+
+结果只有四种：`complete` 已成功、`busy` 有有效租约、`disabled` 未配置、`due` 尚无该 period
+的成功回执。只有 `due + should_run=true` 可以补跑。补偿任务每次最多处理最新的一期；如果电脑
+整天离线，后续唤醒会逐次追平有限候选，不在一轮里长时间占用 KB。
+
+## 7. 无人值守失败边界
 
 - 开始报告前获取 `report-automation lease`；若返回 `REPORT_AUTOMATION_BUSY`，本次安全退出，
   不与另一份报告或补跑并发写 KB。

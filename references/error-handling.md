@@ -6,7 +6,7 @@
 |------|------|----------|
 | Meego 未登录 | 中止来源读取,不写 raw；从 URL host 或用户选择得到站点,取得同意后运行 `meegle auth login --host <host>` | "Meego 使用独立 OAuth；请先连接对应站点" |
 | Base 用户未登录 / 缺只读 scope | 中止来源读取,不写 raw；运行 `source auth-status`，按 `auth_action` 发起 split-flow，展示原样 URL + 二维码，用户完成后由 agent 收尾；不得自动切 bot | "需要登录飞书用户身份并补齐列出的 Base 只读权限" |
-| Wiki 用户授权 / Keychain 不可读 | 中止树扫描,不覆盖状态；先确认用户愿意处理权限，再让用户在 Terminal.app / iTerm 运行 `security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"`；仍受限才运行 `lark-cli config keychain-downgrade` | "当前宿主进程读不到 lark-cli 用户凭据，需要你在交互式终端解锁" |
+| Wiki 用户授权 / Keychain 不可读 | 中止树扫描,不覆盖状态；先确认用户愿意处理权限，再让用户在 Terminal.app / iTerm 运行 `security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"`；仍受限才运行 `bin/byteworker lark config keychain-downgrade` | "当前宿主进程读不到 lark-cli 用户凭据，需要你在交互式终端解锁" |
 | 风神凭据未配置 / 过期 | 中止来源读取,不写 raw；运行 `source auth-status --source-type aeolus`；更新环境变量或仓库外 `0600` 凭据文件，routine 不自动登录 | "风神读取授权未就绪,请更新 byteworker 的只读凭据" |
 | Meego / Base 资源级 Permission Denied / `91403` | 中止,不写 raw；让资源所有者给当前用户共享权限,不要重复登录 | "登录正常,但当前用户无权读取这个空间/Base/表/视图,请检查共享设置" |
 | 无权限 | 中止,不写 raw_data | "无权限访问该文档/会议,请检查共享设置" |

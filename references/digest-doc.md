@@ -6,7 +6,7 @@
 
 - **正文与评论必须双路读取**:先读 `references/digest-comments.md`。正文用
   `lark-doc +fetch --api-version v2 --detail with-ids`;评论用
-  `python3 bin/pull_doc_comments.py --url "<URL>"`,固定拉取全部评论(含已解决)、完整回复链与
+  `bin/byteworker run bin/pull_doc_comments.py --url "<URL>"`,固定拉取全部评论(含已解决)、完整回复链与
   relation 锚点。正文 fetch 成功不代表评论已读取;评论状态必须在 raw frontmatter 明示。
   同时按 `references/provenance.md` 把 `with-ids` 的正文 block id、评论 / 回复 id 转成
   provenance anchors;关键事实节点正文用 `[E<n>]` 绑定到相应 anchor。
@@ -47,7 +47,7 @@
   - 同一 `document_id` 的内部资料型文档重复 digest 时,默认更新已有 `reading` 主记录;只有用户
     明确要求把不同版本作为独立资料归档,才新建带版本后缀的 `reading`。
 - **人员 @ 提及解析**:`lark-doc` 返回的 `<cite type="user">` 是裸 `open_id`。digest 前运行
-  `bin/resolve-users.sh --from-doc <原文文件> --format json`(或 `--ids ou_x,ou_y`)取得
+  `bin/byteworker run bin/resolve-users.sh --from-doc <原文文件> --format json`(或 `--ids ou_x,ou_y`)取得
   `open_id / 姓名 / feishu_id / enterprise_email / department_path` 与顶层 `resolved_at`。
   建 / 更新 `person` 时按 `references/digest-core.md` 同步身份和当前通讯录画像：
   `resolved_at` 写为 `directory_verified_at`，可见的企业邮箱/部门写进 frontmatter 与「基本信息」。

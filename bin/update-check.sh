@@ -35,10 +35,11 @@ POSTFLIGHT_RETRY_BASE="${BYTEWORKER_POSTFLIGHT_RETRY_BASE_SECONDS:-300}"
 POSTFLIGHT_RETRY_MAX="${BYTEWORKER_POSTFLIGHT_RETRY_MAX_SECONDS:-3600}"
 NOW="${BYTEWORKER_UPDATE_NOW:-$(date +%s)}"
 NOTICE=""
+PYTHON_BIN="${BYTEWORKER_PYTHON_BIN:-python3}"
 
 [ "${BYTEWORKER_NO_AUTO_UPDATE:-0}" = "1" ] && exit 0
 
-if ! command -v python3 >/dev/null 2>&1 || [ ! -f "$DIR/bin/update-state.py" ]; then
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1 || [ ! -f "$DIR/bin/update-state.py" ]; then
   echo "byteworker:更新状态工具不可用,自动更新已停用。"
   exit 0
 fi
@@ -82,7 +83,7 @@ acquire_lock || exit 0
 trap release_lock EXIT INT TERM
 
 STATE_CMD=(
-  python3 "$DIR/bin/update-state.py"
+  "$PYTHON_BIN" "$DIR/bin/update-state.py"
   --state "$STATE"
   --legacy-stamp "$STAMP"
   --now "$NOW"
@@ -99,7 +100,7 @@ attempt_postflight() {
     POSTFLIGHT_MESSAGE="doctor:更新后兼容检查不可用。请决定是否立即检查。"
     return 1
   fi
-  POSTFLIGHT_MESSAGE=$(python3 "$DIR/bin/update-postflight.py" 2>/dev/null)
+  POSTFLIGHT_MESSAGE=$("$PYTHON_BIN" "$DIR/bin/update-postflight.py" 2>/dev/null)
   POSTFLIGHT_STATUS=$?
   if [ "$POSTFLIGHT_STATUS" -eq 0 ]; then
     "${STATE_CMD[@]}" postflight-success >/dev/null 2>&1 || true

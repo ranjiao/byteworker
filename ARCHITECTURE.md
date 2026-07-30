@@ -121,23 +121,29 @@ flowchart LR
 
 ### 2.1 每次调用的公共前置流程
 
-所有业务子命令共享同一个准备阶段：
+每个新 session 第一次调用 Byteworker 时共享同一个确定性准备阶段。Agent 只调用一个入口；
+健康路径没有输出，也不需要理解内部检查分支：
 
 ```mermaid
 flowchart TD
     I["用户调用 byteworker"]
+    B["bin/byteworker preflight<br/>解析 Python 与来源 runtime"]
     U["静默运行 update-check"]
     G{"代码是否真实 fast-forward？"}
     P["运行 post-update doctor<br/>只修白名单内确定性问题"]
     K["读取 .kbconfig<br/>定位私有知识库"]
-    C["读取 context.md<br/>作为相关性和身份透镜"]
-    T["Todo init + check<br/>检查到期与临期事项"]
+    C["验证 context.md / todo.md"]
+    T["Todo check + report status"]
+    N{"有 notice 或 blocking？"}
+    Z["健康静默退出"]
     R{"意图路由"}
 
-    I --> U --> G
+    I --> B --> U --> G
     G -->|"是"| P --> K
     G -->|"否"| K
-    K --> C --> T --> R
+    K --> C --> T --> N
+    N -->|"否"| Z --> R
+    N -->|"是"| R
 
     R -->|"digest / routine"| D["摄取流程"]
     R -->|"search / update / brief / dashboard"| Q["知识查询与派生流程"]
@@ -147,7 +153,11 @@ flowchart TD
     R -->|"help"| H["只读帮助文档"]
 ```
 
-公共阶段的目的不是“加载所有数据”，而是建立本次工作的安全边界、用户语境和确定性入口。
+`lib/runtime_deps.py` 从显式 override、当前 PATH、常见本地目录和 NVM installations 中解析
+可执行文件，实际执行仍由 `bin/byteworker` 注入同一组环境。`lib/session_preflight.py` 合并
+更新、KB 定位、依赖、Todo 和自动报告设置检查；只输出需要 Agent 行动的 notice。它不读取
+`context.md` 正文进入模型：语义任务在路由后才读取一次，help/纯维护任务不承担这部分 context。
+公共阶段的目的不是“加载所有数据”，而是以稳定协议建立安全边界。
 
 ### 2.2 单来源 digest 主流程
 
@@ -324,8 +334,10 @@ flowchart TB
 自动日报和周报的调度归宿主管理，byteworker 不另起常驻服务，也不把系统 cron 当兼容兜底。
 任务必须在知识库目录、宿主 `local` 环境中运行；云端 routine 和隔离 worktree 无法可靠访问或
 写回私有知识库。两类自动报告每次都完整运行已登记且启用来源的 routine digest，不使用
-`.last-routine-digest` 的七天交互提醒阈值跳过。`report_automation` 的单租约只防止同一知识库
-重叠运行，不承担任务唤醒。
+`.last-routine-digest` 的七天交互提醒阈值跳过。`report_automation` 记录
+`last_attempt/last_run/last_success` 并确定性判断指定 period 是否缺口；单租约只防止同一知识库
+重叠运行。周期性补偿仍由第三个宿主原生任务唤醒，应用服务不承担任务唤醒、不常驻、不使用
+系统 cron。
 
 ## 3. 数据生命周期
 
@@ -424,7 +436,7 @@ flowchart TB
         SCO["lib/source_chat_operations.py"]
         WX["lib/wiki_explorer.py<br/>惰性 Wiki 树探索"]
         DJ["lib/digest_jobs.py<br/>持久批次与租约"]
-        RA["lib/report_automation.py<br/>自动报告设置状态与单租约"]
+        RA["lib/report_automation.py<br/>自动报告状态、单租约与缺口判定"]
         DOC["lib/doctor.py"]
         DS["lib/doctor_sources.py<br/>来源契约只读审计"]
         PB["lib/provenance_backfill.py"]
@@ -505,13 +517,16 @@ flowchart TB
 
 | 模块 | 职责 | 输出 |
 |---|---|---|
+| `bin/byteworker` + `bin/byteworker-launcher.py` | 先定位 Python >=3.9，再以统一 runtime 执行 preflight、机器 CLI 或外部工具 | 静默健康路径、机器 envelope 或下游输出 |
+| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排更新、KB、runtime、Todo 与自动报告设置检查 | `byteworker-session-preflight/v1`；默认仅异常输出 |
+| `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
 | `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI | `byteworker-cli/v1` envelope |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
 | `bin/source.py` | capabilities / auth / inspect / capture / bundle-spec / bundle / profile / diff 参数入口 | request 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
-| `bin/report-automation.py` | 自动报告 status/decision/configure/lease/complete；不创建宿主任务 | 设置状态、租约与真实运行回执 |
+| `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-query.py` | search / evidence / source-record | 有覆盖信息的有限候选 |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
@@ -733,7 +748,7 @@ flowchart TD
 | `bin/index.py` | INDEX 预演/执行 facade；显式声明不写 journal/commit | apply 只写 INDEX |
 | `bin/repair_links.py` | 修复明确、可证明的双向 links/autolink | 是，受保护 |
 | `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
-| `lib/report_automation.py` | 自动报告一次性引导状态、local-only 配置记录、跨日报/周报租约与运行结果 | 仅写 Git 排除的 `state/report_automation.json` |
+| `lib/report_automation.py` | 自动报告一次性引导、local-only 配置、运行轨迹、缺口判定与跨报告租约 | 仅写 Git 排除的 `state/report_automation.json` |
 
 ## 5. 跨层契约
 
@@ -761,8 +776,10 @@ flowchart LR
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
-| `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；一次性引导；单租约防重叠；完整 routine digest 后才生成报告 |
+| `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
 | `byteworker-resolved-users/v1` | `bin/resolve-users.sh` | 精确 open_id 输入；身份失败不创建 person；部门为空不表示调动；`resolved_at` 带时区 |
+| `byteworker-runtime-check/v1` | `runtime_deps.py` | 绝对 executable、可执行探测与同源 PATH；显式 override 无效时不静默 fallback |
+| `byteworker-session-preflight/v1` | `session_preflight.py` | 健康无 notice；blocking 阻止依赖业务；Todo/迁移/更新只返回有限行动项 |
 | `byteworker-cli/v1` | `machine_protocol.py` | 稳定 `status/data/error/context`，不泄漏完整 argv 或正文 |
 | transaction receipt | `digest_txn.py` | `committed/noop` 语义明确；写入和 commit 同成同败 |
 
@@ -955,6 +972,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | Transaction | plan v1/v2、batch v1/v2、no-op、新版本、rollback、并发、provenance、raw rendering |
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
 | Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
+| Session preflight | 健康静默、blocking、更新 notice、Todo notice、报告一次性迁移、PATH/NVM/显式 override |
 | 自动报告 | 首次/升级只询问一次、local-only 配置、宿主真相源、跨日报/周报租约、过期恢复、成功/失败回执、每次完整 routine digest |
 | End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle、会议妙记 + 文档 Bundles → batch 单 commit，以及 Bundle → commit → query/diff 闭环 |
 
@@ -973,6 +991,8 @@ byteworker/
 ├── templates/            # 节点、报告、plan、bundle 骨架
 ├── bin/                  # CLI facade、直接入口和 shell 集成
 ├── lib/                  # 确定性 Python 实现
+│   ├── runtime_deps.py   # Python/Node/内部 CLI 发现、探测与运行环境
+│   ├── session_preflight.py # 每 session 一次的静默公共准备
 │   ├── doctor_sources.py # Profile/routine/raw 来源契约只读审计
 │   ├── source_chat_operations.py # 群聊 Profile capture 与高水位 transport 编排
 │   ├── source_profile_providers.py # v2 provider selector/capture-policy 校验

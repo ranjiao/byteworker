@@ -11,14 +11,14 @@
   权限不稳定,不能默默加入所有报告。
 - **默认产物**:把最终精判后的 IM 摘要保存到知识库数据目录 `reports/im/`;不把全量聊天原文写入 `raw_data/`。只有某个 thread 被判定为应沉淀进知识库时,再按现有 `feishu_chat` 窗口规则抓取该 thread 所在小窗口并 digest。
 - **本地处理**:所有临时 transcript / candidate JSON 写 `/tmp`;长期保存的只有 `reports/im/` 摘要,或被提升的标准 raw/event。业务数据不进 skill 仓库。
-- **首次运行说明**:第一次运行 `bin/im-inbox-summary.sh` 时,必须先向用户说明它会扫描什么、如何本地降噪、不会默认归档全量 IM,并提醒用户补充重点项目 / 人名 / 组织 / 群名 / 指标 / 风险词。脚本会把说明写到 stderr,并在 JSON 的 `first_run_notice` 字段标记;agent 看到 `first_run_notice.shown=true` 时要把说明摘要转述给用户。
+- **首次运行说明**:第一次运行 `bin/byteworker run bin/im-inbox-summary.sh` 时,必须先向用户说明它会扫描什么、如何本地降噪、不会默认归档全量 IM,并提醒用户补充重点项目 / 人名 / 组织 / 群名 / 指标 / 风险词。脚本会把说明写到 stderr,并在 JSON 的 `first_run_notice` 字段标记;agent 看到 `first_run_notice.shown=true` 时要把说明摘要转述给用户。
 - **运行频率**:这个命令比较重,建议一天最多运行一次。脚本会记录最近一次真实运行时间;若同一天或短时间内再次运行,会在 stderr 与 JSON 的 `repeat_run_notice` 字段提醒「重复运行通常没有额外收益」。agent 看到 `repeat_run_notice.shown=true` 时要把提醒转述给用户,但不要阻断用户显式要求的重跑。
 
 ## 2. 何时调用脚本
 
-`references/im-inbox-summary.md` 是执行规则;真正扫描 IM 时必须调用 `bin/im-inbox-summary.sh`。不要绕过脚本直接让 LLM 读取大量聊天消息。
+`references/im-inbox-summary.md` 是执行规则;真正扫描 IM 时必须调用 `bin/byteworker run bin/im-inbox-summary.sh`。不要绕过脚本直接让 LLM 读取大量聊天消息。
 
-### 必须调用 `bin/im-inbox-summary.sh`
+### 必须调用 `bin/byteworker run bin/im-inbox-summary.sh`
 
 - 用户明确要求「分析最近一天 / 今天 IM 里最重要的事」「最近一天聊天重点」「飞书消息里有什么需要关注」。
 - 用户调用 `/byteworker inbox`,包括 `/byteworker inbox`、`/byteworker inbox 昨天`、`/byteworker inbox 2026-06-01` 等。
@@ -38,47 +38,49 @@
 `/byteworker inbox` 不带参数时默认扫描今天:
 
 ```bash
-bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
+bin/byteworker run bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
 ```
 
 `/byteworker inbox 昨天` 或 `/byteworker inbox <YYYY-MM-DD>` 使用自然日窗口:
 
 ```bash
-bin/im-inbox-summary.sh --start "<YYYY-MM-DD>T00:00:00+08:00" --end "<YYYY-MM-DD>T23:59:59+08:00" --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
+bin/byteworker run bin/im-inbox-summary.sh --start "<YYYY-MM-DD>T00:00:00+08:00" --end "<YYYY-MM-DD>T23:59:59+08:00" --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
 ```
 
 若用户说「最近一天」而不是「今天」:
 
 ```bash
-bin/im-inbox-summary.sh --last-hours 24 --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
+bin/byteworker run bin/im-inbox-summary.sh --last-hours 24 --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
 ```
 
 用户给了额外关注词时,重复追加:
 
 ```bash
-bin/im-inbox-summary.sh --today --kb "$KBDIR" --keyword "<项目名>" --keyword "<人名>" --out /tmp/byteworker-im-inbox.json
+bin/byteworker run bin/im-inbox-summary.sh --today --kb "$KBDIR" --keyword "<项目名>" --keyword "<人名>" --out /tmp/byteworker-im-inbox.json
 ```
 
 脚本输出的是候选 threads JSON。后续必须由 agent/LLM 对 `threads` 做精判,再决定 `should_include_report` 与 `should_digest_kb`;精判后的摘要写入 `reports/im/`。
 
 ## 3. 可用 CLI 能力
 
-使用当前环境 `PATH` 中可执行的 `lark-cli`. 执行前先检查:
+先运行本 session 的统一 `bin/byteworker preflight --require feishu`。实际 IM 脚本和飞书命令
+都通过 runtime-safe launcher 执行：
 
 ```bash
-command -v lark-cli
-lark-cli --version
+bin/byteworker run bin/im-inbox-summary.sh <参数>
+bin/byteworker lark --version
 ```
 
-若找不到 `lark-cli` 或认证失效,按 `lark-shared` / 本地安装说明提示用户安装、更新或重新登录;不要擅自假设安装位置。
+若 preflight 返回 `RUNTIME_DEPENDENCY_INVALID` 或认证失效,按 `lark-shared` / 本地安装说明
+提示用户安装、更新或重新登录；不要自行猜 NVM、PATH 或 Python 位置。
 
 可用入口:
 
-- `lark-cli im +chat-list --as user --sort-type ByActiveTimeDesc --exclude-muted`
+- `bin/byteworker lark im +chat-list --as user --sort-type ByActiveTimeDesc --exclude-muted`
   - 列出当前用户可见群聊,按活跃度排序;用于发现最近活跃群。
-- `lark-cli im +chat-messages-list --as user --chat-id <oc_xxx> --start <ISO> --end <ISO> --sort asc`
+- `bin/byteworker lark im +chat-messages-list --as user --chat-id <oc_xxx> --start <ISO> --end <ISO> --sort asc`
   - 拉指定群 / P2P 会话窗口消息;分页上限由脚本控制。
-- `lark-cli im +messages-search --as user --start <ISO> --end <ISO> --page-all`
+- `bin/byteworker lark im +messages-search --as user --start <ISO> --end <ISO> --page-all`
   - 跨聊天搜索消息;可加 `--is-at-me`、`--chat-type group|p2p`、`--sender`、`--query` 等过滤。
 
 注意:`+messages-search` 是否允许无关键词全量时间窗搜索取决于当前 CLI / 权限表现。若 queryless 搜索失败,降级为「活跃群列表 + @我搜索 + 关键词搜索」。
@@ -109,7 +111,7 @@ lark-cli --version
 
 ## 5. 处理流水线
 
-本节描述 agent 如何使用 `bin/im-inbox-summary.sh` 的输出。采集、分页、预算控制、本地打分、降噪、thread 聚类等实现细节以脚本为准,文档不再重复维护一份伪实现。
+本节描述 agent 如何使用 `bin/byteworker run bin/im-inbox-summary.sh` 的输出。采集、分页、预算控制、本地打分、降噪、thread 聚类等实现细节以脚本为准,文档不再重复维护一份伪实现。
 
 状态输出:IM Inbox 是重扫描命令,运行前先告诉用户会扫描候选会话、做本地降噪、再只精判高信号 threads。脚本运行期间若超过约 30-60 秒未结束,发 heartbeat 说明仍在扫描 / 拉取 / 聚类候选;读取 JSON 后立刻回显 `stats` 摘要。后续 LLM 精判和写 `reports/im/` 也要分别发短状态。
 
@@ -131,7 +133,7 @@ lark-cli --version
 运行示例:
 
 ```bash
-bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
+bin/byteworker run bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.json
 ```
 
 脚本 stdout 若为 `output=<path>`,从该路径读取 JSON;否则从 stdout 读取 JSON。stderr 只作为用户提醒和诊断,不要当结构化数据解析。
@@ -218,7 +220,7 @@ bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.jso
 
 1. 对该 thread 所在 chat 重新按小窗口拉取原文,窗口通常为 thread 起止时间前后各 5 分钟。
 2. 走 `references/digest-chat.md` 的标准流程:
-   - `bin/resolve-users.sh --from-doc <transcript> --format json`;
+   - `bin/byteworker run bin/resolve-users.sh --from-doc <transcript> --format json`;
    - raw_data 使用 `feishu_chat` frontmatter;
    - 产出一个 event 或更新相关 project/person/org;
    - 更新 INDEX 与 journal。

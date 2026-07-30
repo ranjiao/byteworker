@@ -51,6 +51,8 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index，主 doctor 编排 INDEX/links 的确定性修复 |
+| `bin/byteworker` + `bin/byteworker-launcher.py` + `lib/runtime_deps.py` | 无需 Agent 猜路径的稳定启动入口；解析 Python >=3.9、Node、lark-cli、meegle 并向子进程注入同一 runtime |
+| `bin/session-preflight.py` + `lib/session_preflight.py` | 每个新 session 一次合并自动更新、KB、依赖、Todo 与自动报告设置检查；健康路径静默 |
 | `bin/byteworker-cli.py` + `lib/machine_protocol.py` | 为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
@@ -58,8 +60,9 @@ byteworker 由**两个物理隔离**的部分组成。
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
-机器协议只统一执行边界，不构成工具注册表：可调用工具仍由代码中的小型白名单明确列出，
-避免在当前规模下引入发现、版本解析和远程分发复杂度。协议细则见
+launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不切换登录身份，也不构成远程工具
+注册表。`byteworker-session-preflight/v1` 与 `byteworker-runtime-check/v1` 都是瞬时只读回执，
+不新增知识库持久化 schema；可调用工具仍由代码中的小型白名单明确列出。协议细则见
 `references/machine-protocol.md`。
 
 ### B. 知识库数据目录(业务数据,用户指定,**绝不进 skill 仓库的 git**)
@@ -209,12 +212,18 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
   本地知识库不得交给 Web、云端沙箱或隔离 worktree 运行。
 - `prompt_version` 表示任务 prompt 所遵循的当前执行契约。只有宿主任务已真实创建、立即试跑
   成功且报告、journal、本地 Git 回滚点均完成，才可把 `decision` 记为 `configured`。
-- `daily/weekly` 分别记录用户确认的 schedule、宿主可提供时的 opaque task id 和
-  `last_run`。task id 可以为空，不得为没有公开管理 API 的宿主伪造。
+- `daily/weekly` 分别记录用户确认的 schedule、宿主可提供时的 opaque task id、
+  `last_attempt/last_run/last_success`。task id 可以为空，不得为没有公开管理 API 的宿主伪造。
+- `recovery` 记录周期性缺口检查任务的 enabled、schedule 和 opaque task id；它不持有报告
+  内容，也不自行唤醒，只描述已核验的宿主补偿任务。
 - `active_lease` 是日报、周报和人工补跑共享的单租约，保存随机 token、kind、period、owner、
   获取时间和过期时间。未过期租约阻止同一知识库并发生成两份报告；过期后允许恢复。
-- `last_run.status` 可为 `success/failed`。失败也必须清租约并保留 error code；成功回执不是
-  digest 或报告事务本身，只记录上层流程已经检查过其真实产物。
+- 领取 lease 时立即写 `last_attempt.status=running`；完整结束后 `last_run.status` 为
+  `success/failed`，并覆盖 `last_attempt`。失败也必须清租约并保留 error code，但不得覆盖
+  `last_success`；成功回执不是 digest 或报告事务本身，只记录上层流程已经检查过其真实产物。
+- 补偿检查以 `kind + period` 对比 `last_success`，返回
+  `due/complete/busy/disabled + should_run`。旧状态没有 `last_success` 时，最近成功
+  `last_run` 作为兼容值；不得仅凭报告文件存在推断成功。
 - 自动日报和自动周报每次都必须先完整执行所有已登记且启用来源的 routine digest，再生成报告；
   这条执行契约不受 `.last-routine-digest` 的七天交互提醒阈值限制。
 

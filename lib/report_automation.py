@@ -16,7 +16,7 @@ from typing import Any, Iterator, Mapping
 
 STATE_SCHEMA = "byteworker-report-automation/v1"
 ONBOARDING_VERSION = 1
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
 KINDS = {"daily", "weekly"}
 RUN_STATUSES = {"success", "failed"}
 DAILY_PERIOD_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -115,13 +115,22 @@ def _empty_state(now: datetime) -> dict[str, Any]:
             "enabled": False,
             "schedule": "",
             "native_task_id": "",
+            "last_attempt": None,
             "last_run": None,
+            "last_success": None,
         },
         "weekly": {
             "enabled": False,
             "schedule": "",
             "native_task_id": "",
+            "last_attempt": None,
             "last_run": None,
+            "last_success": None,
+        },
+        "recovery": {
+            "enabled": False,
+            "schedule": "",
+            "native_task_id": "",
         },
         "active_lease": None,
         "updated_at": _iso(now),
@@ -225,6 +234,93 @@ def status(kb: Path, *, now: datetime | None = None) -> dict[str, Any]:
     return result
 
 
+def _kind_state(value: Mapping[str, Any], kind: str) -> Mapping[str, Any]:
+    candidate = value.get(kind)
+    return candidate if isinstance(candidate, Mapping) else {}
+
+
+def _last_success(kind_state: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    success = kind_state.get("last_success")
+    if isinstance(success, Mapping) and success.get("status") == "success":
+        return success
+    legacy = kind_state.get("last_run")
+    if isinstance(legacy, Mapping) and legacy.get("status") == "success":
+        return legacy
+    return None
+
+
+def check_period(
+    kb: Path,
+    *,
+    kind: str,
+    period: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return whether one configured report period needs a recovery run."""
+
+    if kind not in KINDS:
+        raise ReportAutomationError(
+            "REPORT_AUTOMATION_CHECK_INVALID",
+            "kind 必须是 daily 或 weekly。",
+        )
+    normalized_period = _validate_period(kind, period)
+    current = now or _now()
+    with _state_lock(kb):
+        value = _load_unlocked(kb, current)
+    configured = value.get("decision") == "configured"
+    kind_state = _kind_state(value, kind)
+    active = value.get("active_lease")
+    active_now = _lease_is_active(active, current)
+    last_run = kind_state.get("last_run")
+    last_success = _last_success(kind_state)
+
+    if not configured or not kind_state.get("enabled"):
+        check_status = "disabled"
+        should_run = False
+        reason = "report_not_configured"
+    elif active_now:
+        check_status = "busy"
+        should_run = False
+        reason = "active_lease"
+    elif (
+        isinstance(last_success, Mapping)
+        and last_success.get("period") == normalized_period
+    ):
+        check_status = "complete"
+        should_run = False
+        reason = "period_succeeded"
+    else:
+        check_status = "due"
+        should_run = True
+        reason = (
+            "period_failed"
+            if isinstance(last_run, Mapping)
+            and last_run.get("period") == normalized_period
+            and last_run.get("status") == "failed"
+            else "period_not_succeeded"
+        )
+    return {
+        "schema_version": STATE_SCHEMA,
+        "status": check_status,
+        "should_run": should_run,
+        "reason": reason,
+        "kind": kind,
+        "period": normalized_period,
+        "checked_at": _iso(current),
+        "last_attempt": kind_state.get("last_attempt"),
+        "last_run": last_run,
+        "last_success": last_success,
+        "active_lease": (
+            {
+                key: active.get(key)
+                for key in ("kind", "period", "owner", "acquired_at", "expires_at")
+            }
+            if active_now and isinstance(active, Mapping)
+            else None
+        ),
+    }
+
+
 def record_decision(
     kb: Path,
     *,
@@ -256,6 +352,8 @@ def configure(
     weekly_schedule: str,
     daily_task_id: str = "",
     weekly_task_id: str = "",
+    recovery_schedule: str = "",
+    recovery_task_id: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if not harness.strip() or not timezone_name.strip():
@@ -292,17 +390,44 @@ def configure(
             ("weekly", weekly_schedule, weekly_task_id),
         ):
             previous_kind = previous.get(kind)
-            last_run = (
-                previous_kind.get("last_run")
-                if isinstance(previous_kind, Mapping)
-                else None
+            previous_kind = (
+                previous_kind if isinstance(previous_kind, Mapping) else {}
             )
+            last_run = previous_kind.get("last_run")
+            last_success = previous_kind.get("last_success")
+            if (
+                last_success is None
+                and isinstance(last_run, Mapping)
+                and last_run.get("status") == "success"
+            ):
+                last_success = last_run
             value[kind] = {
                 "enabled": True,
                 "schedule": schedule.strip(),
                 "native_task_id": task_id.strip(),
+                "last_attempt": previous_kind.get("last_attempt"),
                 "last_run": last_run,
+                "last_success": last_success,
             }
+        previous_recovery = previous.get("recovery")
+        previous_recovery = (
+            previous_recovery
+            if isinstance(previous_recovery, Mapping)
+            else {}
+        )
+        effective_recovery_schedule = (
+            recovery_schedule.strip()
+            or str(previous_recovery.get("schedule", "")).strip()
+        )
+        effective_recovery_task_id = (
+            recovery_task_id.strip()
+            or str(previous_recovery.get("native_task_id", "")).strip()
+        )
+        value["recovery"] = {
+            "enabled": bool(effective_recovery_schedule),
+            "schedule": effective_recovery_schedule,
+            "native_task_id": effective_recovery_task_id,
+        }
         value["active_lease"] = previous.get("active_lease")
         _atomic_write(state_path(kb), value)
     return status(kb, now=current)
@@ -352,6 +477,24 @@ def acquire_lease(
             "owner": owner.strip(),
             "acquired_at": _iso(current),
             "expires_at": _iso(current + timedelta(seconds=lease_seconds)),
+        }
+        kind_state = value.get(kind)
+        if not isinstance(kind_state, dict):
+            kind_state = {
+                "enabled": False,
+                "schedule": "",
+                "native_task_id": "",
+                "last_attempt": None,
+                "last_run": None,
+                "last_success": None,
+            }
+            value[kind] = kind_state
+        kind_state["last_attempt"] = {
+            "status": "running",
+            "period": normalized_period,
+            "owner": owner.strip(),
+            "started_at": _iso(current),
+            "lease_expires_at": lease["expires_at"],
         }
         value["active_lease"] = lease
         value["updated_at"] = _iso(current)
@@ -407,10 +550,16 @@ def complete_run(
                 "enabled": False,
                 "schedule": "",
                 "native_task_id": "",
+                "last_attempt": None,
                 "last_run": None,
+                "last_success": None,
             }
             value[kind] = kind_state
+        run["started_at"] = lease.get("acquired_at", "")
+        kind_state["last_attempt"] = run
         kind_state["last_run"] = run
+        if run_status == "success":
+            kind_state["last_success"] = run
         value["active_lease"] = None
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)

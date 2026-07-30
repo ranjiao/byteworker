@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Stable Byteworker launcher. It locates a compatible Python before loading any
+# Python entrypoint, so callers do not need to know the active pyenv/venv path.
+set -uo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || exit 1
+
+python_ready() {
+  [ -n "${1:-}" ] &&
+    [ -x "$1" ] &&
+    "$1" -c 'import sys, zoneinfo; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
+      >/dev/null 2>&1
+}
+
+PYTHON_BIN=""
+VENV_PYTHON=""
+USER_HOME="${HOME:-}"
+[ -n "${VIRTUAL_ENV:-}" ] && VENV_PYTHON="$VIRTUAL_ENV/bin/python"
+if [ -n "${BYTEWORKER_PYTHON_BIN:-}" ]; then
+  if python_ready "$BYTEWORKER_PYTHON_BIN"; then
+    PYTHON_BIN="$BYTEWORKER_PYTHON_BIN"
+  else
+    echo "byteworker: BYTEWORKER_PYTHON_BIN 不可用或低于 Python 3.9: $BYTEWORKER_PYTHON_BIN" >&2
+    exit 1
+  fi
+fi
+
+if [ -z "$PYTHON_BIN" ]; then
+  for candidate in \
+    "$VENV_PYTHON" \
+    "$(command -v python3 2>/dev/null || true)" \
+    "${USER_HOME:+$USER_HOME/.local/bin/python3}" \
+    "/opt/homebrew/bin/python3" \
+    "/usr/local/bin/python3" \
+    "/usr/bin/python3"
+  do
+    if python_ready "$candidate"; then
+      PYTHON_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -z "$PYTHON_BIN" ]; then
+  echo "byteworker: 未找到带 zoneinfo 的 Python >= 3.9；请先运行 bin/check-deps.sh 排障。" >&2
+  exit 1
+fi
+
+export BYTEWORKER_PYTHON_BIN="$PYTHON_BIN"
+exec "$PYTHON_BIN" "$ROOT/bin/byteworker-launcher.py" "$@"

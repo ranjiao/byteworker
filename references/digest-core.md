@@ -27,7 +27,7 @@
      **摄取前必读** `references/digest-doc.md` 与它路由的评论细则。
    - `feishu_minutes` → 优先用 `lark-vc` / `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿;若只有会议号/日程,先用 `lark-vc` 定位会议产物和 minute token。抓取完成后通过 `source bundle --source-type feishu_minutes` 规范化逐字稿和 segment anchors。若能从妙记元数据、会议名/时间、日历日程、纪要正文中的文档引用找到对应会议文档,把这些链接记为 `related_source_urls` 并写入 event「事件信息」。
    - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物;拿到 minute token 后再取妙记正文 / AI 产物。同步 best-effort 查找该会议的日历链接和会议文档链接,找到则写入 raw / event,找不到不臆造。
-   - `feishu_chat` → 首次运行 `bin/pull-chat.sh` 确认 chat_id/窗口并保存 v2 Profile；后续运行 `source capture --source-type feishu_chat --kb ... --source-uid ... --out ...`，它包装完整分页、增量高水位、逐字稿/locator 并直接输出 Bundle。**摄取前必读** `references/digest-chat.md`。
+   - `feishu_chat` → 首次运行 `bin/byteworker run bin/pull-chat.sh` 确认 chat_id/窗口并保存 v2 Profile；后续运行 `source capture --source-type feishu_chat --kb ... --source-uid ... --out ...`，它包装完整分页、增量高水位、逐字稿/locator 并直接输出 Bundle。**摄取前必读** `references/digest-chat.md`。
    - `meego` → 先通过机器协议运行 `source inspect`,基于真实字段元数据选择并说明最小稳定投影，
      首次把权威坐标和投影保存为 `byteworker-source-profile/v2`；之后按 `--kb + --source-uid`
      capture。已有同源快照时由 SnapshotStore 直接从 KB 选择上一份完整快照并运行
@@ -95,7 +95,7 @@
    - 创建或更新涉及的实体节点(`person`/`project`/`org`/`area`)。
    - **实体消解与通讯录补全**(DESIGN.md §4.3):建实体前在 INDEX 比对,命中则更新而非新建。
      `person` 必须把文档/群聊里的 open_id 交给
-     `bin/resolve-users.sh --format json`，按 `feishu_id` 消解，并消费同一次查询返回的
+     `bin/byteworker run bin/resolve-users.sh --format json`，按 `feishu_id` 消解，并消费同一次查询返回的
      `enterprise_email`、`department_path` 与顶层 `resolved_at`。新建 person 必须写
      `feishu_id` 和 `directory_verified_at`;可见的邮箱/部门同步写入 frontmatter 与「基本信息」。
      更新已有 person 时也刷新通讯录字段：部门非空且变化则更新当前值，并在「协作历史与关键交互」

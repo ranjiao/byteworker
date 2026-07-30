@@ -14,8 +14,9 @@ byteworker skill 负责报告方法，Codex / Claude / TRAE 等 harness 负责�
 宿主运行记录中写有限元信息，不输出业务原文。
 
 1. **获取执行租约**
-   - 通过机器协议调用 `report-automation lease`，日报用 `kind=daily` 和 `YYYY-MM-DD`，
-     周报用 `kind=weekly` 和 `YYYY-Www`。
+   - 先通过机器协议调用 `report-automation check`；日报用 `kind=daily` 和 `YYYY-MM-DD`，
+     周报用 `kind=weekly` 和 `YYYY-Www`。只有 `should_run=true` 才获取 lease；
+     `complete/disabled/busy` 安全退出。
    - `REPORT_AUTOMATION_BUSY` 表示另一个自动报告或人工补跑正在处理同一 KB；本次安全退出。
    - 取得 token 后必须在成功或失败路径调用 `report-automation complete`，租约意外遗留则等
      TTL 到期后恢复。

@@ -7,7 +7,7 @@
 ## 1. 范围与前置
 
 - 用户给 URL 时先通过机器协议运行 `source inspect`；底层必须使用
-  `lark-cli base +url-resolve --as user`，不得把 wiki token 或完整 URL 猜成 base token。
+  `bin/byteworker lark base +url-resolve --as user`，不得把 wiki token 或完整 URL 猜成 base token。
 - Base 复用 `lark-cli` 用户登录，但摄取前还必须具备
   `base:app:read / base:table:read / base:field:read / base:view:read / base:record:read`。
   `source auth-status` 会一次列全缺失 scope 和 split-flow 命令；取得用户同意后再发起 OAuth，
@@ -22,19 +22,19 @@
   field schema，不能把计算结果反推成来源事实。
 
 ```bash
-python3 bin/byteworker-cli.py source auth-status \
+bin/byteworker source auth-status \
   --source-type feishu_base
 
-python3 bin/byteworker-cli.py source inspect \
+bin/byteworker source inspect \
   --source-type feishu_base --url "<Base 视图 URL>"
 
-python3 bin/byteworker-cli.py source capture \
+bin/byteworker source capture \
   --source-type feishu_base --url "<Base 视图 URL>" \
   --field fld_title --field fld_status --field fld_owner --field fld_updated \
   --out "<系统临时目录>/base-capture.json" \
   --bundle-out "<系统临时目录>/base-bundle.json"
 
-python3 bin/byteworker-cli.py source diff \
+bin/byteworker source diff \
   --previous "<上一份完整 capture.json>" \
   --current "<本次完整 capture.json>" \
   --out "<系统临时目录>/base-diff.json"
