@@ -18,6 +18,9 @@
    `feishu_chat` / `meego` / `feishu_base` / `aeolus` / `web` / `local_md`。**若输入是一整场会议**
    (日历会议链接 / 日程,或同属一场会的投屏文档 + 妙记多个 URL)→ 这是「会议簇」,整体摄取成
    一个 event,见下方场景细则。
+   飞书 Wiki **单页**仍归 `feishu_doc`；空间首页、整库探索或子树选择属于前置
+   `feishu_wiki` 探索，先按 `references/digest-wiki-space.md` 得到用户确认的页面列表，
+   不把整棵树当成一篇来源。
 2. **摄取原文**:
    - `feishu_doc` → 用 `lark-doc +fetch --api-version v2 --detail with-ids` 读取文档正文,并按
      `references/digest-comments.md` 独立读取全部评论(含已解决)、完整回复链和正文锚点。
@@ -134,6 +137,7 @@
 | 摄取多维表格视图(`feishu_base`) | `references/digest-base.md` |
 | 摄取风神看板(`aeolus`) | `references/digest-aeolus.md` |
 | 摄取飞书文档(`feishu_doc`) | `references/digest-doc.md` |
+| 探索飞书知识库空间、选择待 digest 页面 | `references/digest-wiki-space.md` |
 | 飞书文档含内嵌白板 | 加读 `references/digest-whiteboard.md` |
 | 摄取外部读物(`web`) / 内部资料型文档(`feishu_doc`) | `references/digest-reading.md` |
 | 摄取一场会议(日历会议 / 投屏文档 + 妙记 同属一场会) | `references/digest-meeting.md` |

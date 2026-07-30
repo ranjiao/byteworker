@@ -32,6 +32,7 @@ PROFILE_SOURCE_TYPES_V2 = {
     "feishu_doc",
     "feishu_base",
     "feishu_chat",
+    "feishu_wiki",
 }
 PROFILE_SOURCE_TYPES = PROFILE_SOURCE_TYPES_V1 | PROFILE_SOURCE_TYPES_V2
 ROUTINE_CADENCES = {"daily", "weekly", "monthly"}
@@ -513,6 +514,7 @@ def _validate_v2_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
     from source_profile_providers import (
         validate_feishu_base_v2,
         validate_feishu_chat_v2,
+        validate_feishu_wiki_v2,
     )
 
     _reject_unknown(
@@ -568,6 +570,12 @@ def _validate_v2_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
         )
     elif source_type == "feishu_doc":
         normalized_selector, normalized_policy = _validate_feishu_doc_v2(
+            source_uid=source_uid,
+            selector=selector,
+            capture_policy=capture_policy,
+        )
+    elif source_type == "feishu_wiki":
+        normalized_selector, normalized_policy = validate_feishu_wiki_v2(
             source_uid=source_uid,
             selector=selector,
             capture_policy=capture_policy,

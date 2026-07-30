@@ -171,6 +171,30 @@ def feishu_chat_profile(*, since_last=True):
     }
 
 
+def feishu_wiki_profile():
+    return {
+        "schema_version": "byteworker-source-profile/v2",
+        "source_type": "feishu_wiki",
+        "source_uid": "feishu_wiki:space-1:node-1",
+        "source_url": "https://tenant.larkoffice.com/wiki/node-1",
+        "title": "检索知识库子树",
+        "selector": {
+            "space_id": "space-1",
+            "root_node_token": "node-1",
+        },
+        "capture_policy": {
+            "max_depth": None,
+            "max_nodes": 20000,
+            "include_types": ["docx", "doc"],
+            "change_detection": "structure_only",
+        },
+        "routine": {
+            "enabled": True,
+            "cadence": "weekly",
+        },
+    }
+
+
 class SourceProfileTests(unittest.TestCase):
     def test_two_dashboard_sheets_keep_independent_selectors_and_filters(self):
         first = validate_profile(
@@ -456,6 +480,32 @@ class SourceProfileTests(unittest.TestCase):
             caught.exception.code,
         )
 
+    def test_v2_feishu_wiki_is_subtree_scoped_and_strict(self):
+        normalized = validate_profile(feishu_wiki_profile())
+        self.assertEqual(
+            "feishu_wiki:space-1:node-1",
+            normalized["source_uid"],
+        )
+        self.assertEqual(
+            ["doc", "docx"],
+            normalized["capture_policy"]["include_types"],
+        )
+        invalid = feishu_wiki_profile()
+        invalid["selector"]["root_node_token"] = "other"
+        with self.assertRaises(SourceProfileError) as caught:
+            validate_profile(invalid)
+        self.assertEqual("SOURCE_PROFILE_IDENTITY_MISMATCH", caught.exception.code)
+
+        invalid = feishu_wiki_profile()
+        invalid["capture_policy"]["change_detection"] = "full_refresh"
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
+        invalid = feishu_wiki_profile()
+        invalid["capture_policy"]["include_types"] = ["docx", "sheet"]
+        with self.assertRaises(SourceProfileError):
+            validate_profile(invalid)
+
     def test_load_and_list_support_v1_and_v2_stable_paths(self):
         values = [
             validate_profile(profile()),
@@ -463,6 +513,7 @@ class SourceProfileTests(unittest.TestCase):
             validate_profile(feishu_doc_profile()),
             validate_profile(feishu_base_profile()),
             validate_profile(feishu_chat_profile()),
+            validate_profile(feishu_wiki_profile()),
         ]
         with tempfile.TemporaryDirectory() as temporary:
             kb = Path(temporary)

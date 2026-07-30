@@ -10,6 +10,7 @@ PROVIDER_NAMES = {
     "feishu_meeting",
     "feishu_chat",
     "feishu_base",
+    "feishu_wiki",
     "meego",
     "aeolus",
     "web",

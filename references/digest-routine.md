@@ -2,7 +2,8 @@
 
 > 由 `SKILL.md`「digest」一节路由到这里。**不带来源**的 `digest`、或用户说"跑定期摄取""检查周报更新"时,读本文件。
 
-有些来源**会定期更新**(滚动周会文档、群聊、Meego / 多维表格保存视图、风神看板等),需周期性复查增量。
+有些来源**会定期更新**(滚动周会文档、群聊、Meego / 多维表格保存视图、风神看板、用户明确
+选择的 Wiki 子树等),需周期性复查增量。
 
 - **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。Meego、Base、群聊、
   飞书文档、风神等已有 `sources/` profile 的来源，把 enabled/cadence 写进该来源自己的
@@ -41,6 +42,12 @@
        profile 缺失的旧来源先按 `references/digest-aeolus.md` 显式迁移，不能静默猜配置。
        完整快照 hash 不变则跳过；不同时按稳定 `report:<report_id>` diff，只复核 changed reports。
        授权过期、筛选解析失败、任一报表查询失败或规范化不确定时中止该源，不写部分 raw。
+     - Wiki 子树:只运行用户已确认并保存的 `feishu_wiki:<space_id>:<root_node_token>`
+       Profile，不刷新整空间 baseline。默认 `structure_only` 比对目录；只有 Profile 明确选择
+       `new_pages/new_and_updated` 才增加节点元数据请求。用
+       `wiki scan --kb ... --source-uid ...` 原样重放 Profile；发现变化先展示，不自动创建
+       批量 digest 任务。细则见
+       `references/digest-wiki-space.md`。
      - 各源增量 digest 走标准扇出并通过 `digest-txn validate / execute` 写入。群聊/会议等时间流
        可产新 `event`；Meego / Base / 风神保存视图更新同一 `reading`，普通记录/数字变化只留 raw +
        provenance，达到晋升门槛才更新 `project` / `decision` / `event` / `area`。

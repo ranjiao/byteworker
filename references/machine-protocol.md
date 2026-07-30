@@ -88,6 +88,28 @@ python3 bin/byteworker-cli.py source bundle --source-type web \
   --request "<临时目录>/web-bundle-request.json" \
   --out "<临时目录>/web-bundle.json"
 
+# 按需 Wiki 空间探索（普通 Wiki 文档仍走 feishu_doc）
+python3 bin/byteworker-cli.py wiki auth-status
+python3 bin/byteworker-cli.py wiki inspect --url "<Wiki URL>"
+python3 bin/byteworker-cli.py wiki scan --kb "<知识库目录>" --url "<Wiki URL>"
+python3 bin/byteworker-cli.py wiki scan --kb "<知识库目录>" \
+  --source-uid "feishu_wiki:<space_id>:<root_node_token>"
+python3 bin/byteworker-cli.py wiki topics --kb "<知识库目录>" \
+  --space-id "<space_id>" --limit 30
+python3 bin/byteworker-cli.py wiki candidates --kb "<知识库目录>" \
+  --space-id "<space_id>" --root-node-token "<node_token>" \
+  --out "<临时目录>/wiki-selection.json"
+
+# 已确认页面的可恢复批量任务
+python3 bin/byteworker-cli.py digest-job create --kb "<知识库目录>" \
+  --selection "<临时目录>/wiki-selection.json" --batch-size 5
+python3 bin/byteworker-cli.py digest-job list --kb "<知识库目录>" --active
+python3 bin/byteworker-cli.py digest-job next --kb "<知识库目录>" \
+  --job-id "<job_id>" --limit 5 --lease-owner "<session_id>"
+python3 bin/byteworker-cli.py digest-job mark --kb "<知识库目录>" \
+  --job-id "<job_id>" --document-id "<document_id>" \
+  --status committed --raw-id "<raw_id>" --commit "<commit>"
+
 # 人工可读输出
 python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
 ```
@@ -103,7 +125,7 @@ python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
 字段/报表元数据与规模；Meego 空间主页在 URL decode 后返回
 `SOURCE_SELECTION_REQUIRED`，提示提供具体 Story View URL，不发起候选搜索、页面自动化或
 工作项读取。`source profile-save` 严格校验
-`byteworker-source-profile/v2`（当前 Meego/Base/群聊/飞书文档）并事务写入用户 KB；风神
+`byteworker-source-profile/v2`（当前 Meego/Base/群聊/飞书文档/Wiki 子树）并事务写入用户 KB；风神
 `source register` 继续写其兼容 v1 profile。后续按 `source_uid` capture，且不接受 CLI
 覆盖该 profile。Meego/Base/Aeolus `source capture --bundle-out` 在完整读取后同时写规范
 快照和 Bundle；群聊 Profile capture 直接输出 Bundle。飞书文档、妙记、Web、本地文件由宿主
@@ -112,6 +134,11 @@ SnapshotStore 从已提交 raw 选择上一份完整快照，也可用 `--raw-id
 显式选择历史版本。diff 按稳定记录 ID 比较，输出
 `baseline / added / changed / left_view`。
 其中 `left_view` 明确不代表来源记录已删除，diff 是可重算派生物，不替代 raw 中的完整快照。
+
+`wiki` 和 `digest-job` 是独立的惰性应用服务：普通命令不会导入其模块、检查授权、扫描状态或
+创建目录。Wiki 完整树只写 `<KB>/state/wiki/`，facade 只返回有限摘要；任务只在用户确认页面后
+创建于 `<KB>/state/digest_jobs/`，通过小批租约和逐页 receipt 标记跨 session 恢复。树探索不生成
+SourceBundle；被选页面仍逐个走 `feishu_doc` 标准事务。
 
 `kb-query source-record` 只读本地 `raw_data/`：先轻量扫描 frontmatter，再默认选择每个
 `source_uid` 的最新完整 Meego / Base / 风神快照并解析 JSON。`--record-id` 是稳定 ID 精确匹配；

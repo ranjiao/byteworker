@@ -89,6 +89,8 @@ cd "$BYTEWORKER_ROOT"
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
 | `source.py` | Agent / 维护者 | 来源能力、授权、抓取、Profile、Bundle、diff | capture/Bundle 写输出；Profile 操作可写 KB |
+| `wiki.py` | Agent / 维护者 | 按需探索 Wiki 空间/子树并筛选页面 | 写可重建树状态、候选文件或子树 Profile |
+| `digest-job.py` | Agent / 维护者 | 管理已确认多页 digest 的可恢复任务 | 写本地任务 checkpoint，不写 raw/节点 |
 | `kb-query.py` | Agent / 维护者 | 节点、证据和结构化 raw 查询 | 只读 |
 | `doctor.py` | Agent / 维护者 | 扫描 schema/graph/profile 漂移 | `fix` 可写 INDEX/links |
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
@@ -407,6 +409,65 @@ python3 bin/byteworker-cli.py source diff \
 
 可用 `--raw-id` 或 `--history-index` 显式选择历史版本。`left_view` 仅表示记录离开当前视图，
 不等于删除或取消。
+
+## 6A. `wiki.py` 与 `digest-job.py`：按需 Wiki 工作流
+
+两个入口只在用户探索飞书知识库空间或恢复多页 digest 时使用。`byteworker-cli.py` 以子进程
+调用它们，普通 digest/query/todo 路径不会 import Wiki 模块、检查授权、扫描状态或创建目录。
+
+`wiki.py` 的主要操作：
+
+```bash
+python3 bin/byteworker-cli.py wiki auth-status
+python3 bin/byteworker-cli.py wiki inspect --url "<Wiki URL>"
+python3 bin/byteworker-cli.py wiki scan \
+  --kb "$BYTEWORKER_KB" --url "<Wiki URL>" --max-nodes 20000
+python3 bin/byteworker-cli.py wiki scan \
+  --kb "$BYTEWORKER_KB" \
+  --source-uid "feishu_wiki:<space_id>:<root_node_token>"
+python3 bin/byteworker-cli.py wiki topics \
+  --kb "$BYTEWORKER_KB" --space-id "<space_id>" --limit 30
+python3 bin/byteworker-cli.py wiki candidates \
+  --kb "$BYTEWORKER_KB" --space-id "<space_id>" \
+  --root-node-token "<node_token>" \
+  --updated-after "2026-01-01T00:00:00+08:00" \
+  --out "<临时目录>/wiki-selection.json"
+python3 bin/byteworker-cli.py wiki profile-create \
+  --kb "$BYTEWORKER_KB" --url "<Wiki URL>" \
+  --root-node-token "<node_token>" \
+  --routine weekly --change-detection structure_only
+```
+
+API 始终显式 `--as user`。全空间从真实 `space_id` 根节点列表开始；完整树仅保存到
+`<KB>/state/wiki/`，没有 TTL，失败或深度截断时不替换旧状态。`topics` 与 `candidates` 只在
+stdout 返回有限预览。子树 Profile 使用 `feishu_wiki:<space_id>:<root_node_token>`，只描述目录
+监控；被选页面仍分别按 `feishu_doc` digest。
+
+用户确认候选文件后，用 `digest-job.py` 创建任务并分批领取：
+
+```bash
+python3 bin/byteworker-cli.py digest-job create \
+  --kb "$BYTEWORKER_KB" --selection "<临时目录>/wiki-selection.json" \
+  --title "检索知识库" --batch-size 5
+python3 bin/byteworker-cli.py digest-job list --kb "$BYTEWORKER_KB" --active
+python3 bin/byteworker-cli.py digest-job status \
+  --kb "$BYTEWORKER_KB" --job-id "<job_id>" --limit 20
+python3 bin/byteworker-cli.py digest-job next \
+  --kb "$BYTEWORKER_KB" --job-id "<job_id>" \
+  --limit 5 --lease-owner "<session_id>" --lease-seconds 1800
+python3 bin/byteworker-cli.py digest-job mark \
+  --kb "$BYTEWORKER_KB" --job-id "<job_id>" \
+  --document-id "<document_id>" --status committed \
+  --raw-id "<raw_id>" --commit "<commit>"
+python3 bin/byteworker-cli.py digest-job reconcile \
+  --kb "$BYTEWORKER_KB" --job-id "<job_id>"
+python3 bin/byteworker-cli.py digest-job cancel \
+  --kb "$BYTEWORKER_KB" --job-id "<job_id>"
+```
+
+任务写在 `<KB>/state/digest_jobs/`，保存页面身份、状态、有限时租约和 receipt 定位，不保存正文
+或凭据。租约过期可由新 session 领取；`reconcile` 只读 committed raw，恢复事务已成功但任务
+尚未标记的页面。
 
 ## 7. `kb-query.py`：确定性知识查询
 

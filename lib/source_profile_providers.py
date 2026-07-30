@@ -242,3 +242,91 @@ def validate_feishu_chat_v2(
             "overlap_seconds": overlap_seconds,
         },
     )
+
+
+def validate_feishu_wiki_v2(
+    *,
+    source_uid: str,
+    selector: Mapping[str, Any],
+    capture_policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Validate a monitored Wiki subtree, not a captured document source."""
+
+    _reject_unknown(
+        selector,
+        {"space_id", "root_node_token"},
+        "selector",
+    )
+    space_id = _required_text(selector.get("space_id"), "selector.space_id")
+    root_node_token = _required_text(
+        selector.get("root_node_token"),
+        "selector.root_node_token",
+    )
+    expected_uid = f"feishu_wiki:{space_id}:{root_node_token}"
+    if source_uid != expected_uid:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_IDENTITY_MISMATCH",
+            "source profile 的 source_uid 与 Wiki selector 不一致",
+        )
+
+    _reject_unknown(
+        capture_policy,
+        {
+            "max_depth",
+            "max_nodes",
+            "include_types",
+            "change_detection",
+        },
+        "capture_policy",
+    )
+    max_depth_value = capture_policy.get("max_depth")
+    max_depth = (
+        None
+        if max_depth_value in (None, "")
+        else _nonnegative_int(max_depth_value, "capture_policy.max_depth")
+    )
+    max_nodes = _positive_int(
+        capture_policy.get("max_nodes"),
+        "capture_policy.max_nodes",
+    )
+    if max_nodes > 100_000:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "Wiki source profile.capture_policy.max_nodes 不得超过 100000",
+        )
+    include_types = _stable_string_list(
+        capture_policy.get("include_types"),
+        "capture_policy.include_types",
+    )
+    unsupported = sorted(set(include_types) - {"doc", "docx"})
+    if unsupported:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "Wiki include_types 暂只支持 doc、docx",
+        )
+    change_detection = _required_text(
+        capture_policy.get("change_detection"),
+        "capture_policy.change_detection",
+    )
+    if change_detection not in {
+        "structure_only",
+        "new_pages",
+        "new_and_updated",
+    }:
+        raise SourceProfileError(
+            "SOURCE_PROFILE_INVALID",
+            "Wiki change_detection 必须是 structure_only、new_pages 或 "
+            "new_and_updated",
+        )
+    return (
+        {
+            "space_id": space_id,
+            "root_node_token": root_node_token,
+        },
+        {
+            "max_depth": max_depth,
+            "max_nodes": max_nodes,
+            "include_types": include_types,
+            "change_detection": change_detection,
+        },
+    )

@@ -28,6 +28,8 @@ TOOLS = {
     "todo": "todo.py",
     "provenance-backfill": "provenance-backfill.py",
     "source": "source.py",
+    "wiki": "wiki.py",
+    "digest-job": "digest-job.py",
 }
 ATTENTION_EXIT_CODES = {"doctor": {2}}
 
