@@ -1,0 +1,83 @@
+ARCHITECTURE.md
+  s_6822158dfada7d::t_f2360378d30f83 511,515,538,559,592-595,616-619,641-643,701,733,745,751,759,931,953,955,959
+DESIGN.md
+  s_6822158dfada7d::t_c1119e94f5a672 378-379,386-388,772-773,865-867
+SKILL.md
+  s_6822158dfada7d::t_df114e61ad9807 173-176,262-264
+bin/README.md
+  s_6822158dfada7d::t_1c88e2e33b3c0e 27,67-68,103,224-225,227,234,254-263,343-344,358,364-368,873-882,899-900
+bin/byteworker-cli.py
+  s_6822158dfada7d::t_877470e3ea290a 34
+bin/digest-txn.py
+  s_6822158dfada7d::t_6414e39b689918 18,89,92,96-97,99-109,121-128,134,198-201,206-209
+bin/index.py
+  s_6822158dfada7d::t_94710d59ee61f8 1-156
+bin/source.py
+  s_6822158dfada7d::t_626229c1ba16bd 71-79,184-185,283-284,286-297,299-308
+lib/digest_txn.py
+  s_6822158dfada7d::t_d0a35be67e6858 63,1253-1254,1256-1257,1277-1328,1331-1335,1337,1341-1344,1355,1365-1369,1372,1378
+lib/source_profiles.py
+  s_6822158dfada7d::t_2ab17590b6d6c5 704-714
+lib/sources/adapters/feishu_doc.py
+  s_6822158dfada7d::t_e1b5e8e63a2fc4 49-56
+lib/sources/adapters/text.py
+  s_6822158dfada7d::t_2034d57975c1df 356-363
+lib/sources/models.py
+  s_6822158dfada7d::t_3f9caf11154fe6 72-79,83,89-90
+lib/sources/registry.py
+  s_6822158dfada7d::t_7f7eaf4167f2b9 14,70-73
+lib/sources/request_specs.py
+  s_6822158dfada7d::t_3c2833c3dd83a6 1-141
+references/digest-core.md
+  s_6822158dfada7d::t_5d9e1416e5c647 123-124
+references/digest-doc.md
+  s_6822158dfada7d::t_6a1ed44144f2c1 19-23,28
+references/digest-meeting.md
+  s_6822158dfada7d::t_87d21d4036f98e 38,43-153
+references/digest-transaction.md
+  s_6822158dfada7d::t_7d093df48080ff 39-40,47-48,50-51,75-83
+references/error-handling.md
+  s_6822158dfada7d::t_80995d4cdfa412 23-24
+references/machine-protocol.md
+  s_6822158dfada7d::t_c2b4a845ac3820 47-50,99-100,137-177,206-209,217
+references/maintenance.md
+  s_6822158dfada7d::t_d9aa2ae62f32e9 17-19,26-28
+templates/README.md
+  s_6822158dfada7d::t_7f3980805d94e3 5-6,44-46
+templates/digest-batch-plan-v2.json
+  s_6822158dfada7d::t_bd2fc8be3b5853 1-55
+tests/test_architecture_contract.py
+  s_6822158dfada7d::t_0a6325c6b84ee1 60,65,113
+tests/test_digest_transaction_contract.py
+  s_6822158dfada7d::t_de4e16f6f0611c 25,28-36,96-144
+tests/test_digest_txn.py
+  s_6822158dfada7d::t_6fb922e21444c4 28-29,790-1039
+tests/test_index_maintenance.py
+  s_6822158dfada7d::t_268561f3ebcd8f 1-102
+tests/test_machine_protocol.py
+  s_6822158dfada7d::t_15c45bd4888bdc 188-213,275-314,418-447
+tests/test_source_architecture.py
+  s_6822158dfada7d::t_1917f86f2be0c3 51
+tests/test_source_bundle.py
+  s_6822158dfada7d::t_b2d1c7364fa885 21,245-299,455-483
+tests/test_source_profiles.py
+  s_6822158dfada7d::t_f734b8e4a882a4 551-592
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0ce25351cdd740f2da5d391ea0674cce2101357d",
+  "prompts": {},
+  "sessions": {
+    "s_6822158dfada7d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb288-0f3a-7270-beef-f9b9a0b76785",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
