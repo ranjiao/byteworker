@@ -47,6 +47,14 @@ python3 bin/byteworker-cli.py provenance-backfill audit --kb "<知识库目录>"
 # 自动更新状态；只读，不触发网络检查
 python3 bin/byteworker-cli.py update-status
 
+# 自动报告设置状态、跨任务租约和真实运行回执
+python3 bin/byteworker-cli.py report-automation status --kb "<知识库目录>"
+python3 bin/byteworker-cli.py report-automation lease --kb "<知识库目录>" \
+  --kind daily --period "2026-07-30" --owner codex
+python3 bin/byteworker-cli.py report-automation complete --kb "<知识库目录>" \
+  --token "<lease token>" --run-status success \
+  --report-path "reports/daily/2026-07-30.md"
+
 # 统一来源能力、Profile、capture 与 Bundle
 python3 bin/byteworker-cli.py source capabilities
 python3 bin/byteworker-cli.py source auth-status --source-type meego \

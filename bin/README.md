@@ -21,6 +21,9 @@ python3 bin/byteworker-cli.py <tool> [tool arguments...]
 - `todo`
 - `provenance-backfill`
 - `source`
+- `wiki`
+- `digest-job`
+- `report-automation`
 - `update-status`
 
 统一入口总是输出 `byteworker-cli/v1` JSON envelope：
@@ -95,6 +98,7 @@ cd "$BYTEWORKER_ROOT"
 | `doctor.py` | Agent / 维护者 | 扫描 schema/graph/profile 漂移 | `fix` 可写 INDEX/links |
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
 | `todo.py` | Agent | Todo 初始化、查询和状态维护 | 部分子命令写 `todo.md` |
+| `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
 | `pull_doc_comments.py` | Agent / 维护者 | 拉取飞书文档全部评论和回复 | 只向 stdout 输出 JSON |
 | `pull-chat.sh` | Agent / 维护者 | 拉取群聊窗口逐字稿和 locator | 写临时或显式输出文件 |
 | `im-inbox-summary.sh` | Agent | IM 高信号 thread 本地粗筛 | 写输出和运行标记，不写 raw |
@@ -131,6 +135,9 @@ python3 bin/byteworker-cli.py \
   --host project.feishu.cn
 
 python3 bin/byteworker-cli.py update-status
+
+python3 bin/byteworker-cli.py report-automation status \
+  --kb "$BYTEWORKER_KB"
 ```
 
 细节：
@@ -468,6 +475,47 @@ python3 bin/byteworker-cli.py digest-job cancel \
 任务写在 `<KB>/state/digest_jobs/`，保存页面身份、状态、有限时租约和 receipt 定位，不保存正文
 或凭据。租约过期可由新 session 领取；`reconcile` 只读 committed raw，恢复事务已成功但任务
 尚未标记的页面。
+
+## 6B. `report-automation.py`：自动报告状态与执行租约
+
+该工具不创建、唤醒或删除 Codex / Claude / TRAE 任务。它只在知识库
+`state/report_automation.json` 中记录一次性设置选择、当前 prompt 版本、跨日报/周报单租约和
+真实运行结果；宿主任务列表始终是真相源。
+
+```bash
+# 首次安装或升级迁移是否需要询问
+python3 bin/byteworker-cli.py report-automation status --kb "$BYTEWORKER_KB"
+
+# 展示问题前先标记已询问；用户拒绝或稍后再改为对应值
+python3 bin/byteworker-cli.py report-automation decision \
+  --kb "$BYTEWORKER_KB" --value prompted
+
+# 任务真实创建且 Run now 通过后才记录
+python3 bin/byteworker-cli.py report-automation configure \
+  --kb "$BYTEWORKER_KB" \
+  --harness codex \
+  --timezone Asia/Shanghai \
+  --environment local \
+  --daily-schedule "工作日 20:30" \
+  --weekly-schedule "周一 09:30"
+
+# 每次运行先领取租约；日报 period 用 YYYY-MM-DD，周报用 YYYY-Www
+python3 bin/byteworker-cli.py report-automation lease \
+  --kb "$BYTEWORKER_KB" \
+  --kind daily \
+  --period 2026-07-30 \
+  --owner codex
+
+# 成功必须提供 reports/<kind>/ 下的报告路径；失败必须提供稳定错误码
+python3 bin/byteworker-cli.py report-automation complete \
+  --kb "$BYTEWORKER_KB" \
+  --token "<lease token>" \
+  --run-status success \
+  --report-path reports/daily/2026-07-30.md
+```
+
+状态目录会加入知识库 `.git/info/exclude`。自动报告只允许 `local` 环境；租约过期后可恢复，
+有效租约存在时返回 `REPORT_AUTOMATION_BUSY`，调用方必须安全退出，不能并发写同一 KB。
 
 ## 7. `kb-query.py`：确定性知识查询
 

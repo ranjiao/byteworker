@@ -30,6 +30,7 @@ TOOLS = {
     "source": "source.py",
     "wiki": "wiki.py",
     "digest-job": "digest-job.py",
+    "report-automation": "report-automation.py",
 }
 ATTENTION_EXIT_CODES = {"doctor": {2}}
 

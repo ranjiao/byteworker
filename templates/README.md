@@ -55,8 +55,10 @@ schema 以 `DESIGN.md` 为唯一真相源。
 
 | 模板 | 用于 | 输出位置 |
 |------|------|----------|
-| `report-daily.md` | `/byteworker daily` 日报 | `reports/daily/<YYYY-MM-DD>.md` |
-| `report-weekly.md` | `/byteworker weekly` 周报 | `reports/weekly/<YYYY>-W<WW>.md` |
+| `report-daily.md` | 自动日报 / 自然语言补跑 | `reports/daily/<YYYY-MM-DD>.md` |
+| `report-weekly.md` | 自动周报 / 自然语言补跑 | `reports/weekly/<YYYY>-W<WW>.md` |
+| `report-automation-daily.md` | 宿主本地自动日报 prompt | harness 定时任务配置 |
+| `report-automation-weekly.md` | 宿主本地自动周报 prompt | harness 定时任务配置 |
 | `report-im.md` | `/byteworker inbox` IM 摘要 | `reports/im/<YYYY-MM-DD>.md` 或 `reports/im/<start>__<end>.md` |
 
 报告模板只定义结构,不含业务数据。生成报告时复制结构到知识库数据目录,填入从节点 / raw /

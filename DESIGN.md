@@ -39,7 +39,7 @@ byteworker 由**两个物理隔离**的部分组成。
 
 | 文件/目录 | 存什么 |
 |-----------|--------|
-| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/daily/weekly/inbox/doctor/help) |
+| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/todo/inbox/context/doctor/help + 自动日报/周报) |
 | `ARCHITECTURE.md` | 信息处理流程、代码分层、模块边界、依赖方向与演进约束 |
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 7 类节点骨架模板 |
@@ -54,6 +54,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/byteworker-cli.py` + `lib/machine_protocol.py` | 为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
+| `bin/report-automation.py` + `lib/report_automation.py` | 自动报告首次设置状态、prompt 版本、跨日报/周报执行租约与真实运行回执；不创建宿主任务 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
@@ -70,7 +71,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `provenance/` | 每个 raw 的原始定位 sidecar:文档 block / 评论 / 消息 / 妙记片段等 | digest 事务写入;受控回填可补充 | 只随对应 raw 增补/升级 |
 | `knowledge/{people,projects,areas,orgs,events,decisions,readings}/` | 7 类节点笔记,按类型分子目录(固定 7 个,不漂移) | skill 写入/更新 | 实体可更新;记录定型 |
 | `journal/` | 摄取/更新/扫描事件的**时间线日志** | skill 追加 | 只追加 |
-| `reports/daily/`, `reports/weekly/`, `reports/im/` | 日报 / 周报 / IM Inbox 摘要归档快照,由 `daily` / `weekly` / `inbox` 流程生成 | skill 写入,用户可手改 | 可覆盖同周期 |
+| `reports/daily/`, `reports/weekly/`, `reports/im/` | 日报 / 周报 / IM Inbox 摘要归档快照；前两者由宿主本地定时任务或自然语言补跑生成，后者由 `inbox` 流程生成 | skill 写入,用户可手改 | 可覆盖同周期 |
 | `INDEX.md` | 主索引:7 类节点登记表 + 定期摄取清单 + 群聊高水位 | skill 维护,可全量重建 | 高频更新 |
 | `dashboard.md` | 工作看板 —— 实时视图(长期关注 / 需关注 / 今日进展) | skill 维护/渲染 | 高频刷新 |
 | `context.md` | 格式化全局工作上下文 —— 身份 / 职责 / 重点 / 约束 / 提醒偏好 / 背景 | 用户通过 agent 维护 | 手维护 |
@@ -78,13 +79,14 @@ byteworker 由**两个物理隔离**的部分组成。
 | `.last-routine-digest` | 上次「定期摄取」例程运行日期(一行 `YYYY-MM-DD`)—— 到期提醒据此判断 | skill 写入 | 每次定期摄取覆盖 |
 | `state/wiki/` | 可重新扫描得到的 Wiki baseline / 子树目录状态；完整 JSON 不进入 Agent context | `wiki scan` 按需原子写入 | 无 TTL；仅显式扫描替换 |
 | `state/digest_jobs/` | 用户已确认页面的批量 digest 运行 checkpoint、租约与逐页 receipt 定位 | `digest-job` 按需原子写入 | 跨 session 更新；可由 raw 部分 reconcile |
+| `state/report_automation.json` | 自动报告的一次性设置选择、宿主线索、prompt 版本、跨任务租约和最近真实运行回执 | `report-automation` 按需原子写入 | 本机运行状态；宿主任务系统仍是真相源 |
 
 数据目录路径由用户首次使用时指定(默认目录名 `byteworker_kb`,路径可配置),
 记于 skill 仓库的 `.kbconfig`(已 gitignore)。数据目录是**它自己的独立本地 git 仓库**
 (作误删/错改的回滚网,**永不配 remote**),与 skill 仓库的 git 互不相干。
 数据目录含**公司机密内容**,绝不外传、绝不纳入 skill 仓库的 git。
 `state/` 是本地运行状态：首次使用 Wiki 功能时才创建，并加入知识库 Git 的本地
-`.git/info/exclude`；普通 Byteworker 操作不创建、不扫描该目录。
+`.git/info/exclude`；首次检查自动报告设置时也可创建。普通知识检索不扫描该目录。
 
 ### C. 真相源 vs 派生 —— 数据不变量
 
@@ -192,6 +194,32 @@ retryable_error/permanent_error/skipped`。只有 `digest-txn execute` 的 commi
 
 Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle，被选择的页面继续逐个使用
 `feishu_doc`。因此不得给 `lib/digest_txn.py` 或 `lib/kb_query.py` 增加 Wiki 私有格式。
+
+### F. 自动报告设置状态与执行租约
+
+`state/report_automation.json` 使用 `byteworker-report-automation/v1`，由
+`lib/report_automation.py` 原子维护。它只保存 byteworker 对设置流程与真实运行结果的本地认知，
+**不替代 Codex、Claude 或 TRAE 自己的任务列表**；宿主任务系统始终是是否存在、是否启用和下次
+何时运行的真相源。
+
+- `onboarding_version` 与 `decision` 共同保证首次安装和既有安装升级后只询问一次。
+  `decision` 为 `unasked/prompted/configured/declined/deferred`；展示问题前先写 `prompted`，
+  拒绝或稍后再覆盖为对应选择，避免每轮打扰。
+- `owner_harness/environment/timezone` 记录已核验的运行宿主。`environment` 只能为 `local`；
+  本地知识库不得交给 Web、云端沙箱或隔离 worktree 运行。
+- `prompt_version` 表示任务 prompt 所遵循的当前执行契约。只有宿主任务已真实创建、立即试跑
+  成功且报告、journal、本地 Git 回滚点均完成，才可把 `decision` 记为 `configured`。
+- `daily/weekly` 分别记录用户确认的 schedule、宿主可提供时的 opaque task id 和
+  `last_run`。task id 可以为空，不得为没有公开管理 API 的宿主伪造。
+- `active_lease` 是日报、周报和人工补跑共享的单租约，保存随机 token、kind、period、owner、
+  获取时间和过期时间。未过期租约阻止同一知识库并发生成两份报告；过期后允许恢复。
+- `last_run.status` 可为 `success/failed`。失败也必须清租约并保留 error code；成功回执不是
+  digest 或报告事务本身，只记录上层流程已经检查过其真实产物。
+- 自动日报和自动周报每次都必须先完整执行所有已登记且启用来源的 routine digest，再生成报告；
+  这条执行契约不受 `.last-routine-digest` 的七天交互提醒阈值限制。
+
+状态目录继续遵守 §1.B 的本地排除规则：写入前把 `/state/` 加到知识库
+`.git/info/exclude`，不得提交、push 或进入报告事实来源。
 
 ---
 
@@ -801,8 +829,9 @@ templates/
 13. **定期摄取到期判断改用状态文件** — 「到期提醒」不再扫 journal 散文找上次运行日期,
    改读数据目录的 `.last-routine-digest`(§1.B)。定期摄取例程每次运行后写当天日期 ——
    **空手而归也写**(「复查过」≠「有新增」);journal 行降为纯审计。见 §1.B、SKILL.md。
-14. **报告归档快照** — 新增 `reports/daily/`、`reports/weekly/` 与 `reports/im/`。`daily` / `weekly`
-   每次先跑定期摄取,再从 journal / raw / nodes 召回事实生成报告;`inbox` 从脚本候选 threads
+14. **报告归档快照** — 新增 `reports/daily/`、`reports/weekly/` 与 `reports/im/`。自动日报 /
+   周报或自然语言补跑每次先完整跑定期摄取,再从 journal / raw / nodes 召回事实生成报告;
+   `inbox` 从脚本候选 threads
    精判后生成摘要。报告不进入 INDEX,但每条事实必须能回溯到节点 / raw / journal 或 chat/message
    来源。同周期 / 同窗口再次生成可覆盖,但保留用户手动备注。见 §12、SKILL.md。
 15. **digest 幂等与 raw 不覆盖** — raw frontmatter 增加 `source_uid` / `source_revision` /
@@ -982,7 +1011,9 @@ reports/
 ```
 
 - **生成来源**:
-  - `daily` / `weekly`:范围内 `journal/`、`raw_data/` frontmatter、`knowledge/` 节点及其 links。
+  - 自动日报 / 周报或自然语言补跑:先完整运行全部已登记且启用来源的 routine digest，再召回
+    范围内 `journal/`、`raw_data/` frontmatter、`knowledge/` 节点及其 links。自动运行不受
+    `.last-routine-digest` 七天交互提醒阈值限制。
   - `im`: `bin/im-inbox-summary.sh` 的候选 threads JSON 经 LLM 精判后的最终摘要;候选 JSON 默认保留在 `/tmp`,不长期落盘。
 - **模板**:skill 目录 `templates/report-daily.md`、`templates/report-weekly.md`、`templates/report-im.md`。
 - **覆盖规则**:同一日期 / 周 / IM 窗口再次生成可覆盖报告正文;若旧报告有 `## 手动补充 / 备注`,必须保留该章节内容。

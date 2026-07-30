@@ -4,7 +4,7 @@
 > 人工安装见末尾「人工安装」。
 
 byteworker 是一个 agent skill —— 一个含 `SKILL.md` 的目录。安装 = 把这个目录放到
-**宿主 agent 能发现 skill 的位置**,并装好依赖。本文件让 agent 一步步完成,并且
+**宿主 agent 能发现 skill 的位置**,装好依赖并完成首次引导。本文件让 agent 一步步完成,并且
 **能修复之前没装好的残留**(可重复运行,幂等)。
 
 ---
@@ -144,11 +144,54 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
 ### 6. 验证并收尾
 
 - 确认 `"$TARGET/SKILL.md"` 存在。
-- 告诉用户装好了 —— skill 首次使用时会问「知识库数据目录放在哪」。
+- **不要把知识库设置推迟到“第一次使用”**。安装助手现在就读取 `"$TARGET/TUTORIAL.md"`，
+  按其中首次引导完成：
+  1. 设置并初始化持久、私密的知识库数据目录，写入 `"$TARGET/.kbconfig"`。
+  2. 填写 `context.md` 的用户姓名 / 别名 / feishu_id / 时区、职责范围、团队边界。
+  3. 填写重点人物、重点项目、主管方向和其它关注重点。
+  4. 摄取 / 查询演示可以跳过，但前三项不能因为没有示例文档而跳过。
+- 初始化完成后，读取 `"$TARGET/references/report-scheduling.md"`，通过机器协议检查：
+
+  ```bash
+  python3 "$TARGET/bin/byteworker-cli.py" report-automation status \
+    --kb "<知识库绝对路径>"
+  ```
+
+- `needs_onboarding=true` 时询问：
+
+  展示问题前先调用 `report-automation decision --value prompted`，保证这次提示即使未获回答也
+  不会在之后每轮重复出现。
+
+  > 是否现在创建自动日报和周报？默认在本地知识库运行：工作日 20:30 先检查并 digest 所有
+  > 已登记的定期来源，再生成当天日报；周一 09:30 同样先 digest，再生成上一完整 ISO 周周报。
+  > 你可以修改日期、时间和通知偏好，也可以选择稍后。
+
+- 用户拒绝或稍后时，把 `prompted` 分别更新为 `declined` / `deferred`；不创建任务，也不在
+  之后每次打扰。
+- 用户同意时：
+  1. 核对 `context.md` 时区和 routine 来源的无人值守授权。
+  2. 选择知识库数据目录作为任务项目，且只能用**本地**运行环境。
+  3. 创建前搜索同名 / 同 prompt 任务，优先更新，不重复创建。
+  4. 日报使用 `templates/report-automation-daily.md`，周报使用
+     `templates/report-automation-weekly.md`。
+  5. 立即 Run now 验证一次；只有报告、journal 和知识库本地 commit 真实完成后才调用
+     `report-automation configure` 记录 configured。
+- 当前宿主的具体设置：
+  - **Codex 桌面端**：创建 standalone cron automation，知识库作为 project，
+    `executionEnvironment=local`；不用 heartbeat、不用 worktree。需要电脑开机且应用运行。
+  - **Claude Code Desktop**：创建 Local scheduled task，folder 选择知识库。不要用 `/loop`
+    或云端 `/schedule` Routine。
+  - **TRAE Work 桌面端**：在“自动化”中选择本地环境和知识库目录；可在对话中创建或手工创建。
+    不使用 Web / 云端任务。当前没有可依赖的公开稳定管理 API 时，以“已配置”和执行历史核验，
+    不伪造 task ID。
+  - **其它宿主**：没有经核实的原生定时能力时，只展示 prompt 和缺口；不要擅自改用系统
+    cron / launchd。
 - 若用户选择“稍后再说”,明确告诉他:第一次摄取 Meego / Base / 风神时 skill 会再次给出同样的
-  登录或最小 scope 授权引导。
+  登录或最小 scope 授权引导；以后说“设置自动报告”可重新进入定时任务配置。
 - **提醒用户**:知识库数据目录要选一个**持久、私密**的路径,别放进会被回收的
   沙箱临时目录(原因见下)。
+- 最后告诉用户安装和首次设置已完成；列出真实创建的任务、绝对执行时间、运行环境和首次验证
+  结果。未创建或验证失败必须明确说明，不能只说“已配置”。
 
 ---
 
@@ -160,6 +203,8 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
 - `SKILL.md` frontmatter 只保留 `name` 与 `description`,这是 Codex 的触发依据。
 - `agents/openai.yaml` 是 Codex 推荐的 UI 元数据;缺失不影响执行,但装好后会让 skill 列表展示更友好。
 - 不需要额外修改 Codex 配置。安装或更新后,新开一个 Codex 会话即可加载最新 skill。
+- 自动日报 / 周报只能用 Codex 桌面端的 local scheduled task。Codex CLI / IDE 没有 Scheduled
+  管理界面；知识库是 Git 仓库也仍要选择 local，不能让默认 worktree 隔离掉报告写入。
 
 ---
 
@@ -263,7 +308,8 @@ python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --sour
 
 若 `data.ready=false`,按上面第 5 步的相应流程授权；不打算摄取该来源可直接跳过。
 
-之后 skill 在成功检查后 7 天内静默跳过重复检查(`bin/update-check.sh`)；失败会按短周期指数
+完成上述命令后仍需按“验证并收尾”运行首次引导和自动报告设置。之后 skill 在成功检查后
+7 天内静默跳过重复检查(`bin/update-check.sh`)；失败会按短周期指数
 退避重试，不再把失败时间当作成功时间。代码确实更新后会自动运行 doctor，修复确定性低成本
 兼容问题并创建知识库本地回滚提交；doctor 未完成会记录 pending 并单独重试。无法自动处理的
 严重错误会请求用户决策，warning/info 只给简短摘要。固定版本环境可设置

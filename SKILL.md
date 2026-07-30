@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、会议妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 摄取(digest)并消化成结构化实体图笔记(人员/项目/主题领域/组织/事件/决策/读物),支持对话式查询(search)、更新(update)、会前简报(brief)、工作看板(dashboard)、自然语言待办与提醒(todo)、日报(daily)、周报(weekly)、IM Inbox 摘要(inbox)、对话式维护全局工作上下文(context),以及扫描/修复知识库与当前 skill/schema 不兼容问题(doctor)。当用户要把资料存入知识库、定期复查 Meego / 多维表格视图 / 风神看板、查询或更新工作知识、要会前简报/日报/周报、分析飞书 IM、查看工作看板、检查/修复知识库、升级 skill 后排查数据兼容性,或说“记个待办”“明天/后天/下周六提醒我”“刚才那个做完了”“延期/取消提醒”“看看还有什么没做”时使用;支持 /byteworker digest/search/update/brief/dashboard/todo/daily/weekly/inbox/context/doctor/help 子命令,但 todo 日常以自然语言为主。
+description: 个人飞书工作知识库。把飞书文档、会议妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 摄取(digest)并消化成结构化实体图笔记(人员/项目/主题领域/组织/事件/决策/读物),支持对话式查询(search)、更新(update)、会前简报(brief)、工作看板(dashboard)、自然语言待办与提醒(todo)、由宿主定时任务自动生成日报/周报、IM Inbox 摘要(inbox)、对话式维护全局工作上下文(context),以及扫描/修复知识库与当前 skill/schema 不兼容问题(doctor)。当用户要把资料存入知识库、定期复查 Meego / 多维表格视图 / 风神看板、查询或更新工作知识、设置或补跑自动日报/周报、分析飞书 IM、查看工作看板、检查/修复知识库、升级 skill 后排查数据兼容性,或说“记个待办”“明天/后天/下周六提醒我”“刚才那个做完了”“延期/取消提醒”“看看还有什么没做”时使用;支持 /byteworker digest/search/update/brief/dashboard/todo/inbox/context/doctor/help 子命令,但 todo 日常以自然语言为主。
 ---
 
 # byteworker 个人知识库
@@ -20,8 +20,6 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 | `brief` | 会前简报 | 开会前拉相关上下文 | `/byteworker brief` |
 | `dashboard` | 工作看板 | 看当下该关注什么 | `/byteworker dashboard` |
 | `todo` | 待办提醒 | 用自然语言增加、完成、延期、取消或查看待办 | `明天下午三点提醒我提交周报` |
-| `daily` | 日报 | 自动跑定期摄取,总结当天重要事项并生成日报 | `/byteworker daily` |
-| `weekly` | 周报 | 自动跑定期摄取,总结本周重要事项并生成周报 | `/byteworker weekly` |
 | `inbox` | IM摘要 | 扫描飞书 IM 高信号消息并生成摘要 | `/byteworker inbox 昨天` |
 | `context` | 全局上下文 | 对话式增删改你的工作上下文 | `/byteworker context 我的当前重点改成X` |
 | `doctor` | 兼容诊断 | 扫描知识库与当前 schema 的不匹配并做确定性修复 | `/byteworker doctor` |
@@ -43,7 +41,7 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 - **显式停用**:托管或固定版本环境可设置 `BYTEWORKER_NO_AUTO_UPDATE=1`;此时脚本静默退出且不改状态。
 
 **机器协议(确定性 CLI 必用)**:Agent 或其它程序调用 digest 事务、查询、doctor、Todo、
-provenance 回填时,按 [`references/machine-protocol.md`](references/machine-protocol.md)
+自动报告状态/租约、provenance 回填时,按 [`references/machine-protocol.md`](references/machine-protocol.md)
 通过 `python3 bin/byteworker-cli.py <tool> ...` 调用并解析统一的
 `status / data / error / context` JSON envelope。`bin/digest-txn.py`、`bin/kb-query.py`、
 `bin/doctor.py`、`bin/todo.py` 等直接入口继续保留给人工排障和兼容旧调用。
@@ -68,13 +66,30 @@ inspect / capture。Meego / Base / 风神大视图统一采用“完整快照 +
 
 - 读本 skill 目录下的 `.kbconfig`(已 gitignore),其中一行是知识库数据目录的绝对路径。
 - 若 `.kbconfig` 不存在(**首次使用**):
-  - **先问用户要不要走「上手引导」** —— 一句话:「看来是第一次用 byteworker,要不要花 1-2 分钟过一遍上手流程(建库 → 摄取一篇文档 → 查询一次)?回复『跳过』可直接开始。」
+  - **先问用户要不要走「上手引导」** —— 一句话:「看来是第一次用 byteworker,要不要花
+    2-4 分钟完成建库、个人信息与关注重点，并设置自动日报 / 周报？摄取和查询演示可以跳过。」
     - **同意** → 读本 skill 目录下的 [`TUTORIAL.md`](TUTORIAL.md),按其剧本带用户走;引导**内含建库**那一步,走完即转入正常使用,不必再走下面的「常规首次设置」。
     - **跳过** → 走「常规首次设置」。
   - **常规首次设置**:**主动询问用户**知识库数据目录放在哪里 —— 让用户给一个父目录,目录名默认 `byteworker_kb`(用户可改);拼出绝对路径后写入 `.kbconfig`。
 - 用户之后想再看引导(说「跑一下上手引导」「重看教程」等)→ 读 `TUTORIAL.md` 重走一遍(`.kbconfig` 已存在则跳过其中的建库步骤)。
 - 若该数据目录不存在或为空:按 DESIGN.md §1.B 初始化 —— 创建 `knowledge/` 的 7 个子目录、`sources/`、`raw_data/`、`provenance/`、`journal/`、`reports/daily/`、`reports/weekly/`、`reports/im/`、空 `INDEX.md`,并把 skill 目录的 `templates/context.md` / `templates/todo.md` 整份复制为数据目录的 `context.md` / `todo.md`;再对该数据目录执行 `git init`(**仅本地、永不配 remote**,作误删/错改的回滚网)。
 - **下文所有 `knowledge/`、`raw_data/`、`provenance/`、`journal/`、`reports/`、`INDEX.md`、`dashboard.md`、`context.md`、`todo.md` 路径,一律指知识库数据目录下的对应路径;`templates/` 与 `DESIGN.md` 在本 skill 目录下。**
+
+**自动报告设置与升级迁移**:定位知识库后,通过机器协议运行
+`report-automation status --kb <知识库路径>`。`needs_onboarding=true` 时:
+
+- `.kbconfig` 刚创建 → 把自动日报 / 周报设置纳入本次首次引导,读
+  [`references/report-scheduling.md`](references/report-scheduling.md)。
+- `.kbconfig` 早已存在 → 这是本版本给老用户的一次性迁移提示;先完成用户当前业务请求,再问一句
+  是否现在用当前 harness 创建本地自动日报 / 周报。不得在更新脚本里直接创建任务。
+- 真正展示问题前先记录 `decision=prompted`,确保用户没有回答时也不会在后续请求中重复提示。
+- 用户拒绝或说稍后 → 分别记录 `declined` / `deferred`,之后不反复打扰;用户主动说“设置自动
+  报告”时可重新配置。
+- 用户同意 → 按调度细则完成预检、查重、创建和 Run now 验证;只有宿主任务真实存在且首次运行
+  成功后才记录 `configured`。
+
+自动报告只能在知识库目录的本地环境运行。不得把本地 KB 上传到 Codex/Claude/TRAE 云端,
+不得选择 worktree,不得用系统 cron/launchd 冒充用户要求的 harness 原生调度。
 
 **定期摄取到期提醒**:本次操作若会读 `INDEX.md`,顺带看「定期摄取清单」—— 若清单非空、且数据目录的 `.last-routine-digest`(记上次「定期摄取」运行日期;文件不存在 = 从未运行)距今 ≥7 天 → 用一句话提醒用户「定期摄取清单有 N 项可能该查更新了,需要就说『跑定期摄取』」。**只提醒,不打断当前请求、不自动跑。**
 
@@ -90,7 +105,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 
 **Todo 状态检查(每次必做)**:完成上面的 `context.md` 读取后,按 `references/todo.md` 通过机器协议运行 Todo 的 `init --template templates/todo.md` 与 `check`。没有到期 / 临期事项则静默;有则在当前回答开头提醒,真正展示后调用 `mark-reminded` 限频。检查不等于后台推送:只能保证每次 byteworker 被宿主加载并运行时执行,不能保证未加载本 skill 的无关对话或无对话时主动提醒。
 
-**长流程状态输出**:digest / 跑定期摄取 / daily / weekly / IM Inbox / 大输入摄取等可能耗时较久的多步操作,必须给用户阶段性状态,避免长时间沉默。规则:
+**长流程状态输出**:digest / 跑定期摄取 / 交互式报告补跑 / IM Inbox / 大输入摄取等可能耗时较久的多步操作,必须给用户阶段性状态,避免长时间沉默。规则:
 - 开始长流程时先发一句说明本次会做哪几步,例如「我先拉取原文,再做幂等检查和节点写入」。
 - 每完成一个关键阶段都回显一行短状态:已定位来源、已拉取原文、已完成幂等检查、正在实体消解、正在写入节点、正在生成报告、正在创建本地回滚点等。
 - 单个阶段若超过约 30-60 秒仍未完成,发一条 heartbeat:说明仍在处理哪个阶段、目前已处理到什么数量/哪类来源;不要编造预计剩余时间。
@@ -191,25 +206,30 @@ provider capture。
 `bin/todo.py`
 结合 `context.md` 解析,写入后回显绝对时间供用户纠正。
 
-## daily — 日报
+## 自动日报 / 周报
 
-**触发**:子命令 `daily`;或自然语言 —— "生成今天日报""今天工作总结""更新日报"。
+**触发**:宿主 harness 的本地定时任务;或用户明确要求设置、修改、暂停自动报告,以及补生成 /
+重跑指定日期或 ISO 周。没有 `daily` / `weekly` 用户子命令。
 
-执行细则见 `references/periodic-report.md`。日报文件写到知识库数据目录 `reports/daily/<YYYY-MM-DD>.md`;先自动跑定期摄取,再按当天材料生成工作总结快照。
+设置、迁移和无人值守边界见 `references/report-scheduling.md`;报告内容细则见
+`references/periodic-report.md`。定时任务 prompt 使用
+`templates/report-automation-daily.md` / `templates/report-automation-weekly.md`。
 
-若用户明确要求「分析最近一天 IM / 聊天重点 / 日报包含 IM」,加读 `references/im-inbox-summary.md`:先用本地规则、预算和 thread 聚类降噪,再只对高信号候选做 LLM 精判;默认把最终摘要保存到 `reports/im/`,不全量归档 IM 原文。
-
-## weekly — 周报
-
-**触发**:子命令 `weekly`;或自然语言 —— "生成本周周报""更新周报""这周工作总结"。
-
-执行细则见 `references/periodic-report.md`。周报文件写到知识库数据目录 `reports/weekly/<YYYY>-W<WW>.md`;默认当前 ISO 周,用户说"上周"则取上一完整 ISO 周。
+- 自动日报每次运行都先执行**完整 routine digest**,不受 `.last-routine-digest` 七天提醒阈值
+  限制;随后生成当天 00:00 到当前时刻的 `reports/daily/<YYYY-MM-DD>.md`。
+- 自动周报同样先执行完整 routine digest,随后生成上一完整 ISO 周的
+  `reports/weekly/<YYYY>-W<WW>.md`。
+- 只重放已登记且启用的 routine 来源;自动报告不授权新增来源、扩大摄取范围、发起 OAuth、
+  切换身份、发送消息或 push。
+- 开始前通过 `report-automation lease` 获取跨报告租约,结束后按真实结果记录 success / failed。
+- 用户明确要求「分析最近一天 IM / 聊天重点 / 日报包含 IM」时才加读
+  `references/im-inbox-summary.md`;默认自动报告不全量扫描 IM。
 
 ## inbox — IM Inbox 摘要
 
 **触发**:子命令 `inbox`;或自然语言 —— "分析今天飞书 IM 重要消息""昨天聊天里有什么要关注""最近一天 IM 重点"。
 
-执行细则见 `references/im-inbox-summary.md`。默认扫描今天;用户说"昨天"取上一自然日;用户说"最近一天 / 过去 24 小时"取滚动 24 小时;用户给 `YYYY-MM-DD` 取该日 00:00-23:59:59。输出写到知识库数据目录 `reports/im/<YYYY-MM-DD>.md` 或非自然日窗口文件;不跑定期摄取,不生成 daily / weekly,不把全量 IM 原文写入 `raw_data/`。
+执行细则见 `references/im-inbox-summary.md`。默认扫描今天;用户说"昨天"取上一自然日;用户说"最近一天 / 过去 24 小时"取滚动 24 小时;用户给 `YYYY-MM-DD` 取该日 00:00-23:59:59。输出写到知识库数据目录 `reports/im/<YYYY-MM-DD>.md` 或非自然日窗口文件;不跑定期摄取,不生成日报 / 周报,不把全量 IM 原文写入 `raw_data/`。
 
 ## doctor — 兼容性检查与修复
 
