@@ -102,7 +102,8 @@
 `context.md`(DESIGN.md §10)是使用者维护的全局工作上下文。**完全通过 Codex、OpenClaw 等对话式 agent 使用本 skill 的用户没法直接编辑文件 —— 必须由 agent 代为维护。**
 
 **铁律 —— 区分「自动」与「受命」**:
-- digest / search / brief / dashboard / daily / weekly 等流程中,agent **永不擅自改动 `context.md`**(它只被当「透镜」读)。
+- digest / search / brief / dashboard / 自动报告与自然语言补跑等流程中,agent **永不擅自改动
+  `context.md`**(它只被当「透镜」读)。
 - 仅当用户**明确要求**增 / 改 / 删某条上下文时,agent 才按本节代为编辑。
 
 **查看**:用户只想看 → 读 `context.md`,把内容回显给用户(对话式用户看不到文件)。

@@ -3,7 +3,7 @@
 # 发现最近一个时间窗内 IM 里的高信号 discussion threads,输出 JSON 候选集。
 #
 # 这个脚本只做本地粗筛:拉取候选会话、规范化消息、按关键词/context/INDEX 轻量打分、
-# 聚合成候选 thread。LLM 精判、日报/周报写入、必要时 digest 入库由 skill 层继续处理。
+# 聚合成候选 thread。LLM 精判、自动报告写入、必要时 digest 入库由 skill 层继续处理。
 #
 # 用法:
 #   bin/im-inbox-summary.sh [--last-hours 24] [--kb <dir>] [--out <file>]

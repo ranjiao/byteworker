@@ -31,13 +31,10 @@ todo       待办提醒 —— 直接说自然语言,不用记命令或编号
   "刚才那个做完了" / "把评测结果那个延期到下周六" / "我还有什么没做?"
   → 自动解析相对时间 → 写 todo.md → 每次使用 byteworker 时检查到期 / 临期事项
 
-daily      日报 —— 自动跑定期摄取,总结当天重要事项
-  /byteworker daily / /byteworker daily 2026-05-25
-  → 复查定期来源 → 消化新增 → 生成 reports/daily/<YYYY-MM-DD>.md
-
-weekly     周报 —— 自动跑定期摄取,总结本周重要事项
-  /byteworker weekly / /byteworker weekly 上周
-  → 复查定期来源 → 消化新增 → 生成 reports/weekly/<YYYY>-W<WW>.md
+自动报告   日报 / 周报 —— 安装时引导创建宿主原生本地定时任务,不用每天记命令
+  默认工作日 20:30 自动日报;周一 09:30 自动生成上一完整 ISO 周周报(均可修改)
+  → 每次先检查并 digest 全部已登记的定期来源 → 生成 reports/daily/ 或 reports/weekly/
+  → 说“设置 / 修改 / 暂停自动报告”可管理;说“补生成 2026-05-25 日报”可人工补跑
 
 inbox      IM摘要 —— 扫描飞书 IM 高信号消息,生成当天 / 指定窗口摘要
   /byteworker inbox / /byteworker inbox 昨天 / /byteworker inbox 2026-06-01
@@ -56,8 +53,8 @@ help       用法说明
 
 更新 skill 不是子命令 —— 说"更新 skill""检查更新"可立即触发自动更新检查(成功检查后 7 天内静默跳过；失败按短周期退避重试；无需 GitHub 账号/SSH key)。代码确实更新后会自动运行 doctor；未完成会单独重试，不重复拉取代码。严重错误请求你决策，warning/info 只给一行摘要供你选择忽略或立即处理。固定版本环境可设置 BYTEWORKER_NO_AUTO_UPDATE=1。
 
-上手引导   不是子命令 —— 首次使用时自动询问是否走一遍(可跳过);
-           想重看说「跑一下上手引导」—— 带你走 建库 → 摄取 → 查询
+上手引导   不是子命令 —— 安装完成后直接进入;摄取 / 查询演示可跳过;
+           想重看说「跑一下上手引导」—— 带你走 建库 → 个性化 → 摄取 → 查询 → 自动报告
 
 浏览       不是子命令 —— 在 byteworker skill 目录下运行 bin/browse.sh 起本地纯前端、只读
            viewer 浏览全部 md 节点(需 python3 + 本地有浏览器的环境;沙箱 / 云端 agent

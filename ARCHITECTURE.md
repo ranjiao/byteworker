@@ -17,6 +17,7 @@ Markdown 知识库共同组成：
 ```mermaid
 flowchart LR
     U["用户<br/>自然语言或子命令"]
+    H["宿主本地定时任务<br/>Codex / Claude / TRAE"]
     A["Agent 语义层<br/>分类、依赖判断、冲突裁决、实体消解、写候选"]
     C["确定性工具层<br/>Python / Shell CLI"]
     K["私有知识库目录<br/>Markdown + JSON + 本地 Git"]
@@ -24,6 +25,7 @@ flowchart LR
     V["只读 Viewer<br/>浏览实体图"]
 
     U --> A
+    H --> A
     A -->|"auth / inspect / capture"| E
     E -->|"原文、快照、locator"| A
     A -->|"机器协议调用"| C
@@ -139,7 +141,7 @@ flowchart TD
 
     R -->|"digest / routine"| D["摄取流程"]
     R -->|"search / update / brief / dashboard"| Q["知识查询与派生流程"]
-    R -->|"daily / weekly / inbox"| W["报告流程"]
+    R -->|"自动报告 / 自然语言补跑 / inbox"| W["报告流程"]
     R -->|"todo / context"| L["本地用户状态流程"]
     R -->|"doctor / maintenance"| M["维护与恢复流程"]
     R -->|"help"| H["只读帮助文档"]
@@ -285,16 +287,19 @@ flowchart LR
 `record_index` 存在时，`source-record` 优先读取 provider-neutral 的
 `byteworker-record-index/v1`；旧 raw 才通过兼容投影解析 Meego/Base/Aeolus 原始结构。
 
-### 2.5 报告、Todo 与维护流程
+### 2.5 自动报告、Todo 与维护流程
 
 ```mermaid
 flowchart TB
-    subgraph Reports["日报 / 周报 / IM Inbox"]
+    subgraph Reports["自动日报 / 周报与 IM Inbox"]
+        H1["宿主本地定时任务<br/>或自然语言补跑"]
+        R0["获取跨日报 / 周报单租约"]
         R1["确定时间范围"]
-        R2["按需运行 routine digest"]
+        R2["完整运行全部启用的<br/>routine digest"]
         R3["查询 nodes / raw / journal / IM 候选"]
-        R4["生成带出处的报告快照"]
-        R1 --> R2 --> R3 --> R4
+        R4["生成带出处的报告快照<br/>journal + 本地 Git"]
+        R5["记录成功 / 失败并释放租约"]
+        H1 --> R0 --> R1 --> R2 --> R3 --> R4 --> R5
     end
 
     subgraph State["用户状态"]
@@ -315,6 +320,12 @@ flowchart TB
         M3 -->|"否"| M5
     end
 ```
+
+自动日报和周报的调度归宿主管理，byteworker 不另起常驻服务，也不把系统 cron 当兼容兜底。
+任务必须在知识库目录、宿主 `local` 环境中运行；云端 routine 和隔离 worktree 无法可靠访问或
+写回私有知识库。两类自动报告每次都完整运行已登记且启用来源的 routine digest，不使用
+`.last-routine-digest` 的七天交互提醒阈值跳过。`report_automation` 的单租约只防止同一知识库
+重叠运行，不承担任务唤醒。
 
 ## 3. 数据生命周期
 
@@ -413,6 +424,7 @@ flowchart TB
         SCO["lib/source_chat_operations.py"]
         WX["lib/wiki_explorer.py<br/>惰性 Wiki 树探索"]
         DJ["lib/digest_jobs.py<br/>持久批次与租约"]
+        RA["lib/report_automation.py<br/>自动报告设置状态与单租约"]
         DOC["lib/doctor.py"]
         DS["lib/doctor_sources.py<br/>来源契约只读审计"]
         PB["lib/provenance_backfill.py"]
@@ -449,6 +461,7 @@ flowchart TB
     DIRECT --> SO
     DIRECT --> WX
     DIRECT --> DJ
+    DIRECT --> RA
     SO --> SCO
     DIRECT --> DOC
     DIRECT --> PB
@@ -463,6 +476,7 @@ flowchart TB
     WX --> KB
     DJ --> FM
     DJ --> KB
+    RA --> KB
     SP --> SPP
     SO --> SC
     SS --> SC
@@ -497,6 +511,7 @@ flowchart TB
 | `bin/source.py` | capabilities / auth / inspect / capture / bundle / profile / diff 参数入口 | capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
+| `bin/report-automation.py` | 自动报告 status/decision/configure/lease/complete；不创建宿主任务 | 设置状态、租约与真实运行回执 |
 | `bin/kb-query.py` | search / evidence / source-record | 有覆盖信息的有限候选 |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
 | `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
@@ -705,6 +720,7 @@ flowchart TD
 | `bin/rebuild_index.py` | 从真相源重建 INDEX | 是，可确定重建 |
 | `bin/repair_links.py` | 修复明确、可证明的双向 links/autolink | 是，受保护 |
 | `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
+| `lib/report_automation.py` | 自动报告一次性引导状态、local-only 配置记录、跨日报/周报租约与运行结果 | 仅写 Git 排除的 `state/report_automation.json` |
 
 ## 5. 跨层契约
 
@@ -729,6 +745,7 @@ flowchart LR
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
+| `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；一次性引导；单租约防重叠；完整 routine digest 后才生成报告 |
 | `byteworker-resolved-users/v1` | `bin/resolve-users.sh` | 精确 open_id 输入；身份失败不创建 person；部门为空不表示调动；`resolved_at` 带时区 |
 | `byteworker-cli/v1` | `machine_protocol.py` | 稳定 `status/data/error/context`，不泄漏完整 argv 或正文 |
 | transaction receipt | `digest_txn.py` | `committed/noop` 语义明确；写入和 commit 同成同败 |
@@ -769,6 +786,10 @@ flowchart TD
 
 任何“不确定但继续写”的实现都违反本架构。权限不足、分页不完整、身份不一致、凭据污染、
 hash 不一致、重复 ID、目标文件并发变化和 KB remote 都必须 fail closed。
+
+自动报告另有三条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
+digest 事务失败时不得继续生成“看似完整”的报告；报告、journal 或本地 Git 回滚点未完成时
+不得记录成功。获取到其他运行中的有效租约时应安静退出并保留现有租约，不能并发写同一 KB。
 
 ## 7. 怎样扩展而不让架构失控
 
@@ -918,6 +939,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | Transaction | plan v1/v2、no-op、新版本、rollback、并发、provenance、raw rendering |
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
 | Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
+| 自动报告 | 首次/升级只询问一次、local-only 配置、宿主真相源、跨日报/周报租约、过期恢复、成功/失败回执、每次完整 routine digest |
 | End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle，以及 Bundle → commit → query/diff 闭环 |
 
 `tests/test_architecture_contract.py` 固化文档入口和核心模块清单；
@@ -940,6 +962,7 @@ byteworker/
 │   ├── source_profile_providers.py # v2 provider selector/capture-policy 校验
 │   ├── wiki_explorer.py # 按需 Wiki 树状态、主题与页面候选
 │   ├── digest_jobs.py # 已确认多页 digest 的租约 checkpoint
+│   ├── report_automation.py # 自动报告设置状态与跨任务租约
 │   └── sources/          # SourceBundle、adapter、provider conformance、registry、兼容投影
 ├── viewer/               # 纯前端只读知识库浏览器
 └── tests/                # 单元、集成和架构防漂移契约

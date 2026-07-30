@@ -55,6 +55,8 @@ class ArchitectureContractTests(unittest.TestCase):
             "lib/wiki_explorer.py",
             "bin/digest-job.py",
             "lib/digest_jobs.py",
+            "bin/report-automation.py",
+            "lib/report_automation.py",
             "lib/snapshot_store.py",
             "lib/source_capture.py",
             "lib/sources/models.py",

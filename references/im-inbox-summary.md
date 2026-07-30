@@ -1,11 +1,14 @@
 # byteworker · IM Inbox 摘要
 
-> 用于 `/byteworker inbox`,或用户要求「看最近一天 IM 里最重要的事」「从聊天里生成今日重点」「日报包含 IM」时。目标是**发现重要事项**,不是全量归档聊天。
+> 用于 `/byteworker inbox`,或用户要求「看最近一天 IM 里最重要的事」「从聊天里生成今日重点」
+> 「日报包含 IM」时。目标是**发现重要事项**,不是全量归档聊天。
 
 ## 1. 触发与边界
 
-- **触发**:子命令 `/byteworker inbox`;或用户明确说「最近一天聊天 / IM / 消息 / inbox / 飞书聊天里最重要的事」;或 `daily` 请求里明确要求包含 IM。
-- **默认不启用**:普通 `daily` / `weekly` 仍只跑定期摄取清单。IM 全量扫描可能量大、噪音高、权限不稳定,不能默默加入所有报告。
+- **触发**:子命令 `/byteworker inbox`;或用户明确说「最近一天聊天 / IM / 消息 / inbox /
+  飞书聊天里最重要的事」;或日报请求里明确要求包含 IM。
+- **默认不启用**:普通自动日报 / 周报仍只跑定期摄取清单。IM 全量扫描可能量大、噪音高、
+  权限不稳定,不能默默加入所有报告。
 - **默认产物**:把最终精判后的 IM 摘要保存到知识库数据目录 `reports/im/`;不把全量聊天原文写入 `raw_data/`。只有某个 thread 被判定为应沉淀进知识库时,再按现有 `feishu_chat` 窗口规则抓取该 thread 所在小窗口并 digest。
 - **本地处理**:所有临时 transcript / candidate JSON 写 `/tmp`;长期保存的只有 `reports/im/` 摘要,或被提升的标准 raw/event。业务数据不进 skill 仓库。
 - **首次运行说明**:第一次运行 `bin/im-inbox-summary.sh` 时,必须先向用户说明它会扫描什么、如何本地降噪、不会默认归档全量 IM,并提醒用户补充重点项目 / 人名 / 组织 / 群名 / 指标 / 风险词。脚本会把说明写到 stderr,并在 JSON 的 `first_run_notice` 字段标记;agent 看到 `first_run_notice.shown=true` 时要把说明摘要转述给用户。
@@ -19,13 +22,13 @@
 
 - 用户明确要求「分析最近一天 / 今天 IM 里最重要的事」「最近一天聊天重点」「飞书消息里有什么需要关注」。
 - 用户调用 `/byteworker inbox`,包括 `/byteworker inbox`、`/byteworker inbox 昨天`、`/byteworker inbox 2026-06-01` 等。
-- 用户要求 `daily` / 日报「包含 IM / 聊天 / 消息 / inbox」。
+- 用户要求日报「包含 IM / 聊天 / 消息 / inbox」。
 - 用户要求从飞书 IM 里发现当天重要事项、待办、风险、决策,且没有指定某一个小群聊窗口作为常规 `digest chat`。
 - 用户已经补充关键词 / 更新 `context.md`,并要求重新看今天或最近一天 IM。
 
 ### 不调用脚本
 
-- 普通 `daily` / `weekly` 没有明确要求包含 IM:只跑定期摄取与知识库报告流程。
+- 普通自动日报 / 周报没有明确要求包含 IM:只跑定期摄取与知识库报告流程。
 - 用户给定某个群名 / chat_id / 明确时间窗,要求「消化这个群聊」或沉淀成知识库节点:走 `references/digest-chat.md`,不是 IM Inbox 全局扫描。
 - 用户只是询问知识库里已有事实,例如「X 最近在关注什么」:走 `search`,不要主动扫描 IM。
 - 用户只是问这个能力怎么工作、要 review 规则、或调整 prompt / 脚本逻辑:只读本文件和脚本,不要运行扫描。
@@ -205,7 +208,7 @@ bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.jso
 - 汇总采集统计:扫描会话数、原始消息数、候选 thread 数、LLM 精判数、是否截断。
 - 向当天 journal 追加一行,说明生成了哪个 IM 报告、参考了哪些主要 chat / thread、是否截断;在知识库数据目录本地 git 精确暂存本次报告与 journal 后创建回滚点。
 
-若作为 `daily` 的一部分:
+若作为日报的一部分:
 
 - 先生成 / 更新对应 `reports/im/` 报告,再把高置信项写进日报相关章节;日报可注明经由该 IM
   报告,但仍须展开 chat / window / message_ids / 扫描时间,或已生成 raw 的原始出处与收录时间。
