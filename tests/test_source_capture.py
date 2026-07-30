@@ -542,6 +542,46 @@ class MeegoCaptureTests(unittest.TestCase):
         self.assertEqual("project1", value_after(view_call, "--project-key"))
         self.assertEqual("view1", value_after(view_call, "--view-id"))
 
+    def test_project_home_inspect_requires_specific_story_view_url(self):
+        def handle(args):
+            if args[:2] == ["url", "decode"]:
+                return {
+                    "url_kind": "project_overview",
+                    "host": "project.feishu.cn",
+                    "simple_name": "demo",
+                }
+            raise AssertionError(f"unexpected command: {args}")
+
+        runner = FakeRunner(handle)
+        with self.assertRaises(SourceCaptureError) as caught:
+            inspect_meego(
+                runner=runner,
+                url="https://project.feishu.cn/demo/overview",
+            )
+
+        self.assertEqual("SOURCE_SELECTION_REQUIRED", caught.exception.code)
+        self.assertIn(
+            "/storyView/<view_id>",
+            caught.exception.hint,
+        )
+        self.assertEqual(1, len(runner.calls))
+
+    def test_capture_project_home_requires_view_selection(self):
+        runner = FakeRunner(
+            lambda args: {
+                "url_kind": "project_home",
+                "host": "project.feishu.cn",
+                "simple_name": "demo",
+            }
+        )
+        with self.assertRaises(SourceCaptureError) as caught:
+            capture_meego(
+                runner=runner,
+                url="https://project.feishu.cn/demo",
+                fields=["name"],
+            )
+        self.assertEqual("SOURCE_SELECTION_REQUIRED", caught.exception.code)
+
     def test_meego_uses_required_flags_and_real_response_key(self):
         def handle(args):
             if args[:2] == ["auth", "status"]:

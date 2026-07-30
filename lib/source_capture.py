@@ -49,6 +49,10 @@ SUPPORTED_MEEGO_VIEW_KINDS = {
     "view_issue",
     "view_workitem",
 }
+SUPPORTED_MEEGO_PROJECT_KINDS = {
+    "project_home",
+    "project_overview",
+}
 SENSITIVE_QUERY_KEYS = {
     "access_token",
     "auth_token",
@@ -807,10 +811,11 @@ def _resolve_meego(
     url: str,
     project_key: str,
     view_id: str,
+    decoded: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, str], Mapping[str, Any]]:
-    decoded: Mapping[str, Any] = {}
+    decoded = decoded or {}
     simple_name = ""
-    if url:
+    if url and not decoded:
         value = runner.run(
             ["url", "decode", "--url", url, "--format", "json"],
             provider="Meego",
@@ -821,15 +826,25 @@ def _resolve_meego(
                 "Meego URL 解析结果不是对象",
             )
         decoded = value
-        url_kind = str(value.get("url_kind", ""))
+    if decoded:
+        url_kind = str(decoded.get("url_kind", ""))
+        if url_kind in SUPPORTED_MEEGO_PROJECT_KINDS:
+            raise SourceCaptureError(
+                "SOURCE_SELECTION_REQUIRED",
+                "Meego 空间主页不能用于 digest",
+                hint=(
+                    "请提供具体的 Story View 页面 URL，"
+                    "例如包含 /storyView/<view_id> 的链接。"
+                ),
+            )
         if url_kind not in SUPPORTED_MEEGO_VIEW_KINDS:
             raise SourceCaptureError(
                 "SOURCE_UNSUPPORTED_URL",
                 "第一版只支持项目内需求 / 缺陷 / 通用工作项保存视图，"
                 f"当前 url_kind={url_kind or 'unknown'}",
             )
-        view_id = view_id or str(value.get("view_id", "")).strip()
-        simple_name = str(value.get("simple_name", "")).strip()
+        view_id = view_id or str(decoded.get("view_id", "")).strip()
+        simple_name = str(decoded.get("simple_name", "")).strip()
     if not view_id:
         raise SourceCaptureError("SOURCE_COORDINATES_MISSING", "缺少 Meego view_id")
 
@@ -969,11 +984,24 @@ def inspect_meego(
     fields: Sequence[str] = (),
 ) -> dict[str, Any]:
     fields = _normalized_fields(fields)
+    decoded: Mapping[str, Any] = {}
+    if url:
+        value = runner.run(
+            ["url", "decode", "--url", url, "--format", "json"],
+            provider="Meego",
+        ).data
+        if not isinstance(value, Mapping):
+            raise SourceCaptureError(
+                "SOURCE_INVALID_RESPONSE",
+                "Meego URL 解析结果不是对象",
+            )
+        decoded = value
     coordinates, decoded = _resolve_meego(
         runner=runner,
         url=url,
         project_key=project_key,
         view_id=view_id,
+        decoded=decoded,
     )
     work_item_type = _meego_work_item_type(decoded)
     field_schema = _meego_fields(
