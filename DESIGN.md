@@ -375,13 +375,17 @@ feishu_doc 随后附 canonical 文档评论原始快照>
 新增单来源优先使用 `byteworker-source-bundle/v2` + `digest-plan/v2`：plan 只引用 bundle，
 不得复制 `source` 或 `provenance.anchors`；bundle 是来源身份、外部 component、覆盖度、锚点、
 provider metadata 和可选 record index 的唯一交接契约。`digest-plan/v1` 保持只读兼容；
-`digest-batch-plan/v1` 继续处理多来源原子摄取与跨来源节点。batch
+新增多来源使用 `digest-batch-plan/v2`，每个 input 只引用一个 Bundle，不复制 source 或
+anchors；`digest-batch-plan/v1` 保持只读兼容。batch
 不引入事务数据库：仍用 `base_sha256` 乐观基线 + Git 内短时写锁，拿锁后复验，一次重建 INDEX
 并生成一个本地 commit。标准事务强制 provenance；update 默认保留既有来源、证据和正文语义，
 有意删除必须在临时 plan 中显式授权并说明理由。
 
 `SourceBundle` 不定义统一正文 AST，也不要求飞书文档、群聊、妙记、Web、本地资料、
 Meego、Base、风神共享抓取代码结构。
+component 使用 `verbatim` 或 `canonical-json`：`verbatim + json_pointer` 只能选择 JSON
+字符串并把其 UTF-8 bytes 逐字写入 raw；`canonical-json + json_pointer` 对选中值做规范 JSON
+序列化。这样 lark-cli 等 wrapper 可以原样留在临时 artifact，而不要求 Agent 手工提取正文。
 operation adapter 或宿主工具负责 transport；Bundle adapter 负责 provider 输入、覆盖度和
 identity 校验，只需输出同一 bundle envelope。事务核心只处理 component bytes、hash、幂等和写入；旧 transaction source 的
 provider 特例集中在 `lib/sources/transaction_bridge.py`，不得重新散回 `digest_txn.py`。
@@ -765,7 +769,8 @@ templates/
   README.md            模板使用说明
   digest-plan-v1.json  单来源 digest 临时 manifest 结构参考(填业务内容后只能放系统临时目录)
   digest-plan-v2.json  新单来源 plan；只引用 source bundle，不复制来源/锚点
-  digest-batch-plan-v1.json  多来源原子 digest 临时 manifest 结构参考
+  digest-batch-plan-v2.json  新多来源原子 plan；每个 input 只引用 source bundle
+  digest-batch-plan-v1.json  旧多来源原子 digest 兼容模板
   source-bundle-v2.json  来源适配器输出契约结构参考
   node-person.md       \
   node-project.md       \
@@ -857,8 +862,9 @@ templates/
    `primary_source_url`;节点关键事实用持久 `[E<n>]` 映射到 anchor,查询回答再生成动态
    `[S<n>]`。历史库通过默认不执行的 audit/plan/validate/apply 流程保守回填,不自动猜测
    多来源节点。见 §3.2、§4、`references/provenance.md`。
-20. **轻量批量事务 + 确定性查询入口** — 多来源原子 digest 使用
-   `digest-batch-plan/v1`,仍以乐观基线、短时文件锁和单次本地 commit 实现,不引入数据库。
+20. **轻量批量事务 + 确定性查询入口** — 新的多来源原子 digest 使用
+   `digest-batch-plan/v2`，每个 input 只引用 SourceBundle；v1 只兼容历史调用。事务仍以
+   乐观基线、短时文件锁和单次本地 commit 实现,不引入数据库。
    `bin/kb-query.py` 每次运行直接扫描节点,统一输出召回覆盖、一跳图扩展和 evidence 解析；
    不保存索引、不承担语义判断。见 §3、§6、`references/digest-transaction.md`。
 21. **结构化视图采用快照 + 差异 + 晋升门槛** — Meego / Base / 风神每次保存完整规范快照并为

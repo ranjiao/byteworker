@@ -1,0 +1,55 @@
+{
+  "schema_version": "digest-batch-plan/v2",
+  "inputs": [
+    {
+      "source_bundle": "<system_temporary_source_bundle_a>",
+      "raw": {
+        "raw_id": "raw-<YYYY-MM-DD>-<slug-a>",
+        "path": "raw_data/<YYYY-MM-DD>-<slug-a>.md"
+      },
+      "provenance": {
+        "enrichment": "live"
+      }
+    },
+    {
+      "source_bundle": "<system_temporary_source_bundle_b>",
+      "raw": {
+        "raw_id": "raw-<YYYY-MM-DD>-<slug-b>",
+        "path": "raw_data/<YYYY-MM-DD>-<slug-b>.md"
+      },
+      "provenance": {
+        "enrichment": "live"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "op": "create",
+      "path": "knowledge/events/event-<YYYY-MM-DD>-<slug>.md",
+      "candidate": "<system_temporary_complete_candidate>",
+      "source_raw_ids": [
+        "raw-<YYYY-MM-DD>-<slug-a>",
+        "raw-<YYYY-MM-DD>-<slug-b>"
+      ],
+      "primary_source": "raw-<YYYY-MM-DD>-<slug-a>",
+      "evidence": [
+        {
+          "id": "E1",
+          "raw_id": "raw-<YYYY-MM-DD>-<slug-a>",
+          "anchor_id": "source"
+        },
+        {
+          "id": "E2",
+          "raw_id": "raw-<YYYY-MM-DD>-<slug-b>",
+          "anchor_id": "source"
+        }
+      ]
+    }
+  ],
+  "journal": {
+    "summary": "<batch_summary>"
+  },
+  "commit": {
+    "message": "digest <batch summary>"
+  }
+}

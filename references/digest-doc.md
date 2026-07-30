@@ -16,10 +16,16 @@
   当前文档自身白板不算递归子文档;外部白板和其它文档里的白板仍走重要依赖闸门。
 - **统一交接**:正文、评论和白板 artifact 抓取完成后，调用
   `source bundle --source-type feishu_doc --request <request.json> --out <bundle.json>`。
+  `--request` 是临时 JSON 文件路径，不是内联 JSON；不清楚字段时先运行
+  `source bundle-spec --source-type feishu_doc`。若 lark-cli fetch 保存的是完整 JSON wrapper，
+  body 可直接用
+  `{"path":"<fetch.json>","mode":"verbatim","json_pointer":"/data/document/content"}`，
+  不必另写脚本提取纯文本。
   评论策略关闭或权限不可用时省略 comments component，并明确
   `provider_metadata.comments_status=unavailable`；不得提供空文件伪装完整评论。
 - **文档来源标识与幂等键**:`lark-doc +fetch --api-version v2` 返回的 `document_id` 和
   `revision_id` 必须写入 raw frontmatter:`source_uid=<document_id>`、`source_revision=<revision_id>`。
+  `source_uid` 不添加 `feishu_doc:` 前缀；adapter 会拒绝这种重复命名空间。
   同一文档 URL 可能带不同 query 参数,不得用完整 URL 作为唯一判重依据;URL 只保留在
   `source_url` 便于回溯。`source_url` 必须是用户可打开的原始文档链接;后续生成的 `event` /
   `reading` 主记录正文也必须在「事件信息」或「来源」写出该链接,不能只引用 `raw_id`。

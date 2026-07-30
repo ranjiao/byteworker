@@ -185,6 +185,32 @@ class MachineProtocolTests(unittest.TestCase):
             data["contract"],
         )
 
+    def test_source_bundle_spec_exposes_adapter_contract(self):
+        result = self.run_cli(
+            "source",
+            "bundle-spec",
+            "--source-type",
+            "feishu_minutes",
+        )
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        data = payload["data"]
+        self.assertEqual("feishu_minutes", data["source_type"])
+        self.assertEqual(
+            ["source_uid", "source_url", "title", "transcript"],
+            data["required_fields"],
+        )
+        self.assertFalse(data["transport"]["inline_json_supported"])
+        self.assertEqual(["transcript"], data["artifact_fields"])
+        self.assertIn("minute token", data["source_uid_rule"])
+
+    def test_source_bundle_help_says_request_is_a_file_path(self):
+        result = self.run_cli("source", "bundle", "--help")
+        self.assertEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertIn("request JSON 文件路径", payload["data"])
+        self.assertIn("不接受内联", payload["data"])
+
     def test_source_bundle_materializes_local_file_through_registry(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             root = Path(temporary)
@@ -245,6 +271,46 @@ class MachineProtocolTests(unittest.TestCase):
             "SOURCE_BUNDLE_REQUEST_INVALID",
             payload["error"]["code"],
         )
+
+    def test_source_bundle_rejects_inline_json_with_actionable_error(self):
+        result = self.run_cli(
+            "source",
+            "bundle",
+            "--source-type",
+            "feishu_minutes",
+            "--request",
+            '{"source_uid":"obcn_test"}',
+            "--out",
+            "/tmp/byteworker-inline-bundle.json",
+        )
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            "SOURCE_BUNDLE_REQUEST_INLINE_UNSUPPORTED",
+            payload["error"]["code"],
+        )
+        self.assertIn("临时目录", payload["error"]["hint"])
+
+    def test_source_bundle_missing_request_has_specific_error(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            missing = Path(temporary) / "missing-request.json"
+            result = self.run_cli(
+                "source",
+                "bundle",
+                "--source-type",
+                "feishu_doc",
+                "--request",
+                missing,
+                "--out",
+                Path(temporary) / "bundle.json",
+            )
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            "SOURCE_BUNDLE_REQUEST_NOT_FOUND",
+            payload["error"]["code"],
+        )
+        self.assertIn("bundle-spec", payload["error"]["hint"])
 
     def test_source_bundle_rejects_inline_capture_to_avoid_dual_truth(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
@@ -348,6 +414,36 @@ class MachineProtocolTests(unittest.TestCase):
         self.assertEqual("diff", payload["context"]["operation"])
         self.assertEqual(1, payload["data"]["summary"]["changed"])
         self.assertEqual(["status"], diff["changes"][0]["changed_paths"])
+
+    def test_index_rebuild_has_dry_run_and_apply_machine_receipts(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = Path(temporary)
+            (kb / "knowledge").mkdir()
+            (kb / "raw_data").mkdir()
+            (kb / "sources").mkdir()
+            (kb / "INDEX.md").write_text("# stale\n", encoding="utf-8")
+
+            preview = self.run_cli(
+                "index",
+                "rebuild",
+                "--kb",
+                kb,
+                "--dry-run",
+            )
+            self.assertEqual("# stale\n", (kb / "INDEX.md").read_text(encoding="utf-8"))
+            applied = self.run_cli("index", "rebuild", "--kb", kb)
+
+            preview_payload = json.loads(preview.stdout)
+            applied_payload = json.loads(applied.stdout)
+            self.assertEqual(0, preview.returncode)
+            self.assertEqual("would_change", preview_payload["data"]["status"])
+            self.assertFalse(preview_payload["data"]["git_commit_created"])
+            self.assertEqual(0, applied.returncode)
+            self.assertEqual("rebuilt", applied_payload["data"]["status"])
+            self.assertIn(
+                "# 知识库索引",
+                (kb / "INDEX.md").read_text(encoding="utf-8"),
+            )
 
     def test_source_diff_can_load_previous_snapshot_from_kb(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

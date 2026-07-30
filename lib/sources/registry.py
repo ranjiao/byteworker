@@ -11,6 +11,7 @@ from typing import Any
 
 from .adapters.base import Capabilities, SourceAdapter
 from .models import SourceBundle, SourceBundleError
+from .request_specs import request_spec
 
 
 class SourceRegistryError(LookupError):
@@ -65,6 +66,10 @@ class SourceAdapterRegistry:
 
     def capabilities(self, source_type: str) -> Capabilities:
         return self.get(source_type).capabilities
+
+    def request_spec(self, source_type: str) -> dict[str, Any]:
+        adapter = self.get(source_type)
+        return request_spec(source_type, adapter.request_builder)
 
     def build_bundle(self, source_type: str, **kwargs: Any) -> SourceBundle:
         adapter = self.get(source_type)

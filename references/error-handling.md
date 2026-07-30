@@ -20,6 +20,8 @@
 | Wiki 候选页面超过上限 | 不读取正文、不自动提高上限；让用户选择更小子树或确认新的成本边界 | "候选页面过多，请继续缩小范围" |
 | Meego / Base capture 超过默认 1000 条 | 中止并报告规模;让用户缩小保存视图或明确同意提高 `--max-items` | "视图超过默认摄取上限,需要确认新的范围" |
 | 风神筛选无法映射、任一报表查询失败或 rows 不能精确规范化 | 整次中止,不生成部分快照、不写 raw；重新 inspect 检查报表/字段/口径 | "风神看板未能完整、确定地读取,知识库未更新" |
+| `source bundle --request` 传了内联 JSON / 文件不存在 | 中止，不写 Bundle；按 `SOURCE_BUNDLE_REQUEST_INLINE_UNSUPPORTED` / `SOURCE_BUNDLE_REQUEST_NOT_FOUND` 的 hint 把 request JSON 写入临时文件；先运行 `source bundle-spec` 查契约 | "Bundle request 必须是临时 JSON 文件路径" |
+| 文档/妙记 `source_uid` 错加 source type 前缀 | 中止，不生成 Bundle；文档改用 document_id/wiki token，妙记改用 minute token | "source_uid 重复添加了命名空间，请直接使用 provider token" |
 | 输入类型无法判定 | 实体类倾向 `area`、记录类倾向 `event` 兜底,journal 标注 | "未识别输入类型,已用兜底处理" |
 | 写入中断 | temp-then-move 保证原子性,清理残留 `.tmp` | "写入失败,知识库未改动" |
 | INDEX 文件数 ≠ 行数 | 全量重建 | "检测到索引不一致,已重建" |

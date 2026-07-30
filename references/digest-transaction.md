@@ -36,16 +36,19 @@
 `templates/digest-plan-v2.json`。来源 adapter 先在系统临时目录生成
 `byteworker-source-bundle/v2`，Agent 的 `digest-plan/v2` 只引用这个 bundle；不得复制
 `plan.source` 或 `plan.provenance.anchors`。两个以上必须原子落库、或一个节点同时综合多份
-原文时暂继续使用 `templates/digest-batch-plan-v1.json`。
+原文时使用 `templates/digest-batch-plan-v2.json`，每个 `inputs[]` 只引用各自
+`source_bundle`。`digest-batch-plan/v1` 只兼容历史调用。
 
 `digest-plan/v1` 保留给已有调用方和未迁移来源，不是新增 adapter 的目标格式。所有 bundle、
 manifest、候选节点和 component 文件都可能包含公司机密，**不得写进 skill 仓库**。
 
 `SourceBundle.components` 是本次实际摄取 payload，按原始资料中的顺序排列：
 
-- `mode=verbatim`：逐字读取文件 bytes；正文必须用此模式。
+- `mode=verbatim`：逐字读取文件 bytes；正文必须用此模式。若同时提供 `json_pointer`，指针
+  必须定位到 JSON 字符串，事务把该字符串 UTF-8 bytes 作为逐字正文，不保留 wrapper。
 - `mode=canonical-json`：解析 JSON、按 key 排序并去掉无意义空白后 hash；评论和白板用此模式。
-- `json_pointer`：可从抓取 wrapper 中选择真正纳入 raw 的部分，如 `/comments`。
+- `json_pointer`：可从抓取 wrapper 中选择真正纳入 raw 的部分，如
+  `/data/document/content` 或 `/comments`。
 - 每个 component 的 `name` 在一次摄取内唯一且稳定；白板建议
   `whiteboard:<token>`。
 
@@ -69,11 +72,15 @@ v2 plan 顶层 `provenance` 只允许本次 raw 的 `enrichment`；anchors 自�
 
 ### 批量 plan
 
-`digest-batch-plan/v1` 顶层使用 `inputs[] + nodes[]`。每个 input 都有独立
-`source/raw/provenance`;每个 node 用 `source_raw_ids` 声明实际依赖的本批 raw，多来源 evidence
-必须显式写 `raw_id`。batch 采用一个短时锁、一次 INDEX 重建、一条 journal 和一个 commit；
-任一输入已是 `noop/resume_failed` 时整批拒绝，Agent 重新排除已完成项后再规划，不做隐式部分提交。
-`preflight` 仍按每个 source 单独运行；确认都需摄取后再组 batch plan，随后执行 `validate/execute`。
+`digest-batch-plan/v2` 顶层使用 `inputs[] + nodes[]`。每个 input 都有独立
+`source_bundle/raw/provenance`，其中 provenance 只写 `enrichment`；source identity、
+components 和 anchors 全部从对应 Bundle 注入，禁止在 plan 复制。每个 node 用
+`source_raw_ids` 声明实际依赖的本批 raw，多来源 evidence 必须显式写 `raw_id`。
+
+batch 采用一个短时锁、一次 INDEX 重建、一条 journal 和一个 commit；任一输入已是
+`noop/resume_failed` 时整批拒绝，Agent 重新排除已完成项后再规划，不做隐式部分提交。
+`preflight` 仍对每个 Bundle 单独运行；确认都需摄取后再组 batch plan，随后执行
+`validate/execute`。v1 的 `inputs[].source` 仅为兼容入口，新流程不得继续使用。
 
 ## 三段命令
 

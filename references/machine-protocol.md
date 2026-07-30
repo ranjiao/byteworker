@@ -44,6 +44,10 @@ python3 bin/byteworker-cli.py doctor scan --kb "<知识库目录>"
 python3 bin/byteworker-cli.py todo "<知识库目录>" check
 python3 bin/byteworker-cli.py provenance-backfill audit --kb "<知识库目录>"
 
+# INDEX 确定性维护；先预演再执行
+python3 bin/byteworker-cli.py index rebuild --kb "<知识库目录>" --dry-run
+python3 bin/byteworker-cli.py index rebuild --kb "<知识库目录>"
+
 # 自动更新状态；只读，不触发网络检查
 python3 bin/byteworker-cli.py update-status
 
@@ -92,6 +96,8 @@ python3 bin/byteworker-cli.py source capture --source-type aeolus \
 python3 bin/byteworker-cli.py source capture --source-type feishu_chat \
   --kb "<知识库目录>" --source-uid "<chat_id>" \
   --out "<临时目录>/chat-bundle.json"
+python3 bin/byteworker-cli.py source bundle-spec --source-type feishu_minutes
+python3 bin/byteworker-cli.py source bundle-spec --source-type feishu_doc
 python3 bin/byteworker-cli.py source bundle --source-type web \
   --request "<临时目录>/web-bundle-request.json" \
   --out "<临时目录>/web-bundle.json"
@@ -128,6 +134,47 @@ python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
 真正的 `inspect / capture` 会 fail closed 为 `SOURCE_AUTH_REQUIRED`，并把同一
 `auth_action` 放进 error details。
 
+### SourceBundle request 快速参考
+
+`source bundle --request` 的值是 **request JSON 文件路径**，不是内联 JSON。该文件以及它
+引用的业务 artifact 只能放系统临时目录或知识库目录。不要把 request JSON 放进命令参数、skill
+仓库或 Git。拿不准时先运行：
+
+```bash
+python3 bin/byteworker-cli.py source bundle-spec \
+  --source-type "<source_type>"
+```
+
+该命令返回 adapter 实际签名推导出的 `required_fields/optional_fields`（排除内部直传字段
+`capture/skill_root`）、artifact 字段、`source_uid_rule`、component 契约和最小示例。常用类型：
+
+| `source_type` | 必填 request 字段 | `source_uid` |
+|---|---|---|
+| `feishu_minutes` | `source_uid/source_url/title/transcript` | 直接使用 minute token；不要加 `feishu_minutes:` |
+| `feishu_doc` | `source_uid/source_url/title/revision/body` | 直接使用 document_id 或 wiki token；不要加 `feishu_doc:` |
+| `web` | `source_uid/source_url/title/body` | 规范 URL |
+| `local_md` | `source_uid/title/local_file` | 稳定调用方命名或绝对路径 |
+| Meego / Base | `capture_path` | 由 capture 中的稳定坐标校验 |
+| Aeolus | `capture_path`；`profile_path` 可选 | 由 capture/profile 稳定坐标校验 |
+
+`body/transcript/local_file/comments/whiteboards[]` 等 request component 最少提供
+`{"path":"/absolute/business-file"}`。合法 request 字段为
+`name/kind/path/mode/json_pointer/heading/uid/media_type/coverage`；其中 `coverage` 在
+规范化时移入 `bundle.coverage`，最终 `SourceBundle.components[]` 只保留前八项。禁止猜
+`content` 或 `content_path`。
+
+- `mode=verbatim`：直接读取文件；若带 `json_pointer`，目标必须是字符串。例如
+  lark-cli 文档抓取 wrapper 可用
+  `{"path":"<fetch.json>","mode":"verbatim","json_pointer":"/data/document/content"}`，
+  无需再人工提取纯文本文件。
+- `mode=canonical-json`：选择 JSON 值后做规范序列化，适合评论、白板和结构化快照。
+- `feishu_minutes.transcript` 默认 `name=body/kind=body/mode=verbatim`；
+  `feishu_doc.body` 默认 `name=body/kind=body/mode=verbatim`。
+
+误把内联 JSON 传给 `--request` 时返回
+`SOURCE_BUNDLE_REQUEST_INLINE_UNSUPPORTED`；文件不存在返回
+`SOURCE_BUNDLE_REQUEST_NOT_FOUND`；错误都带可执行 hint。
+
 `source capabilities` 分别列出 operation、Profile 与 Bundle 来源集合；三者是正交能力，
 不把“已有 Bundle adapter”误报成“也有同形网络 capture”。`source inspect` 只读返回真实
 字段/报表元数据与规模；Meego 空间主页在 URL decode 后返回
@@ -156,6 +203,10 @@ SourceBundle；被选页面仍逐个走 `feishu_doc` 标准事务。
 `raw_id / raw_path / ingested / source_url / anchor_id / anchor / is_latest_snapshot`。默认不搜索旧快照；
 用户明确需要历史记录时加 `--history`。调用方不得把大 raw 的 `rg` / `grep` 输出当作替代品。
 
+`index rebuild` 是独立维护工具，不属于只读 `kb-query`。`--dry-run` 只比较将生成的
+`INDEX.md`；执行时只原子替换 INDEX，不写 journal、不创建 Git commit，receipt 会显式返回
+`journal_written=false/git_commit_created=false`，调用方随后按写入规范收尾。
+
 若底层参数需要与 facade 自身参数隔离，可在 tool 后加 `--`；例如
 `python3 bin/byteworker-cli.py doctor -- scan --kb "<知识库目录>"`。
 
@@ -163,7 +214,7 @@ SourceBundle；被选页面仍逐个走 `feishu_doc` 标准事务。
 
 - `bin/digest-txn.py`、`bin/kb-query.py`、`bin/doctor.py`、`bin/todo.py`、
   `bin/provenance-backfill.py` 的参数和原始输出保持不变；`bin/source.py` 新增
-  `capabilities`、`bundle` 与兼容的 `--bundle-out`，旧 capture 参数保持有效。
+  `capabilities`、`bundle-spec`、`bundle` 与兼容的 `--bundle-out`，旧 capture 参数保持有效。
 - Agent 与新自动化优先使用 facade；已有人工命令或外部脚本可渐进迁移。
 - facade 只适配确定性本地 CLI，不做语义判断，不接入注册表，也不改变知识库写入授权。
 - `data` 保留底层 JSON 结构；底层若输出纯文本，则 `data` 是字符串，不臆造字段。

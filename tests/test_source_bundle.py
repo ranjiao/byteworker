@@ -18,6 +18,7 @@ from sources import (  # noqa: E402
     SourceBundleError,
     SourceRegistryError,
     build_feishu_document_bundle,
+    build_feishu_minutes_bundle,
     build_meego_bundle,
     canonical_sha256,
     create_default_registry,
@@ -241,6 +242,61 @@ class SourceBundleTests(unittest.TestCase):
             set(payload["component_hashes"]),
         )
 
+    def test_verbatim_json_pointer_extracts_wrapped_text_artifact(self):
+        wrapper = self.write(
+            "doc-fetch.json",
+            {"data": {"document": {"content": "<p>逐字正文</p>\n"}}},
+        )
+        model = build_feishu_document_bundle(
+            source_uid="doc-1",
+            source_url="https://example.test/docx/doc-1",
+            title="测试文档",
+            revision="7",
+            body={
+                "path": str(wrapper),
+                "mode": "verbatim",
+                "json_pointer": "/data/document/content",
+            },
+            provider_metadata={"comments_status": "unavailable"},
+        )
+        source = create_default_registry().to_transaction_source(model)
+        payload = compute_payload(source, self.root / "plan.json")
+
+        self.assertEqual(
+            b"<p>\xe9\x80\x90\xe5\xad\x97\xe6\xad\xa3\xe6\x96\x87</p>\n",
+            payload["components"][0].data,
+        )
+        self.assertEqual(
+            "/data/document/content",
+            model.components[0].json_pointer,
+        )
+
+    def test_text_source_uid_rejects_redundant_type_prefixes(self):
+        body = self.write("body.xml", "body")
+        with self.assertRaises(SourceBundleError) as caught:
+            build_feishu_document_bundle(
+                source_uid="feishu_doc:doc-1",
+                source_url="https://example.test/docx/doc-1",
+                title="测试文档",
+                revision="7",
+                body={"path": str(body)},
+            )
+        self.assertEqual(
+            "SOURCE_BUNDLE_SOURCE_UID_INVALID",
+            caught.exception.code,
+        )
+        with self.assertRaises(SourceBundleError) as caught:
+            build_feishu_minutes_bundle(
+                source_uid="feishu_minutes:obcn_test",
+                source_url="https://example.test/minutes/obcn_test",
+                title="项目周会",
+                transcript={"path": str(body)},
+            )
+        self.assertEqual(
+            "SOURCE_BUNDLE_SOURCE_UID_INVALID",
+            caught.exception.code,
+        )
+
     def test_partial_component_coverage_must_match_overall_status(self):
         body = self.write("body.xml", "body")
         comments = self.write("comments.json", {"comments": []})
@@ -395,6 +451,35 @@ class SourceBundleTests(unittest.TestCase):
             registry.register(registry.get("meego"))
         with self.assertRaises(SourceRegistryError):
             SourceAdapterRegistry().get("missing")
+
+    def test_registry_exposes_machine_readable_request_specs(self):
+        registry = create_default_registry()
+        for source_type in registry.source_types():
+            with self.subTest(source_type=source_type):
+                spec = registry.request_spec(source_type)
+                self.assertEqual(source_type, spec["source_type"])
+                self.assertTrue(spec["required_fields"])
+                self.assertTrue(spec["example"])
+                self.assertNotIn("capture", spec["optional_fields"])
+        document = registry.request_spec("feishu_doc")
+        minutes = registry.request_spec("feishu_minutes")
+
+        self.assertEqual("JSON file path", document["transport"]["request_argument"])
+        self.assertFalse(document["transport"]["inline_json_supported"])
+        self.assertEqual(
+            ["source_uid", "source_url", "title", "revision", "body"],
+            document["required_fields"],
+        )
+        self.assertIn("coverage", document["request_component"]["fields"])
+        self.assertNotIn(
+            "coverage",
+            document["normalized_component"]["fields"],
+        )
+        self.assertIn("minute token", minutes["source_uid_rule"])
+        self.assertEqual(
+            ["source_uid", "source_url", "title", "transcript"],
+            minutes["required_fields"],
+        )
 
     def test_registry_distinguishes_request_shape_from_adapter_type_bug(self):
         class BrokenAdapter:

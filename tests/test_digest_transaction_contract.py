@@ -22,7 +22,17 @@ class DigestTransactionContractTests(unittest.TestCase):
         core = self.read("references/digest-core.md")
         self.assertIn("status=committed", core)
         self.assertIn("base_sha256", core)
+        self.assertIn("digest-batch-plan/v2", core)
         self.assertIn("不得仅凭 Agent已生成候选就声称落库", core)
+
+    def test_meeting_flow_links_bundle_contract_and_batch_v2_template(self):
+        meeting = self.read("references/digest-meeting.md")
+        machine = self.read("references/machine-protocol.md")
+        self.assertIn("source bundle-spec --source-type feishu_minutes", meeting)
+        self.assertIn("templates/digest-batch-plan-v2.json", meeting)
+        self.assertIn("mode:\"verbatim\"", meeting)
+        self.assertIn("SourceBundle request 快速参考", machine)
+        self.assertTrue((ROOT / "templates/digest-batch-plan-v2.json").is_file())
 
     def test_schema_keeps_old_raw_compatible(self):
         design = self.read("DESIGN.md")
@@ -82,6 +92,55 @@ class DigestTransactionContractTests(unittest.TestCase):
             )
         self.assertEqual(2, completed.returncode)
         self.assertIn("source component", completed.stdout)
+
+    def test_cli_rejects_batch_v2_bundle_inside_skill_repo(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "batch.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "digest-batch-plan/v2",
+                        "inputs": [
+                            {
+                                "source_bundle": str(
+                                    ROOT / "templates/source-bundle-v2.json"
+                                ),
+                                "raw": {
+                                    "raw_id": "raw-a",
+                                    "path": "raw_data/a.md",
+                                },
+                            },
+                            {
+                                "source_bundle": str(
+                                    ROOT / "templates/source-bundle-v2.json"
+                                ),
+                                "raw": {
+                                    "raw_id": "raw-b",
+                                    "path": "raw_data/b.md",
+                                },
+                            },
+                        ],
+                        "nodes": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [
+                    "python3",
+                    str(ROOT / "bin/digest-txn.py"),
+                    "validate",
+                    "--kb",
+                    directory,
+                    "--plan",
+                    str(manifest),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        self.assertEqual(2, completed.returncode)
+        self.assertIn("source bundle", completed.stdout)
 
 
 if __name__ == "__main__":

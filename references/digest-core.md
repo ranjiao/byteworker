@@ -120,7 +120,8 @@
    journal,精确暂存本次路径并在知识库本地 git 创建 commit。只有 receipt
    `status=committed` 才算完成;`status=noop` 不得重复写。详见
    `references/digest-transaction.md` 与 `references/write-rules.md`。多份来源需要共同更新节点
-   或必须同成同败时，使用 `digest-batch-plan/v1`，不得拆成多个可能留下半成品的提交。
+   或必须同成同败时，使用只引用各 SourceBundle 的 `digest-batch-plan/v2`，不得拆成多个可能
+   留下半成品的提交；v1 只兼容历史调用。
 9. **汇报** —— 以事务 receipt 为准告诉用户 commit、raw_id、新建/更新节点、warning、是否因幂等检查跳过或合并了重复来源;不得仅凭 Agent已生成候选就声称落库。若发现重要依赖,还要说明哪些已随本次摄取、哪些未摄取及其影响。若命中「重点高亮」内容(重大事故 / 指标剧变 / 涉及你或你关注的人的重要指令等)→ 单独、显眼地提醒。若有 Todo 候选,末尾一次性列最多 5 项“事项 / 与你相关的依据 / 时间 / 来源”,询问哪些加入;用户回复序号 / 全部后再写 `todo.md`。最终汇报前不要让用户等到最后才第一次看到进展。
 
 ## 规模预估

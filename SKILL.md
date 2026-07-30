@@ -170,9 +170,10 @@ Meego/Base/Aeolus 完整 capture 使用 `source capture --bundle-out` 同步生�
 抓取原始 artifact 后，调用 `source bundle --source-type ... --request ... --out ...`。
 会议簇保持上层复合编排：妙记和每份投屏文档先各自产生 Bundle，不把整场会议伪装成单一
 provider capture。
-两个以上来源需要原子落库或共同更新一个节点时，使用 `digest-batch-plan/v1`；它仍只持一个短时
-写锁并产生一个 commit。所有业务 component、manifest 和候选文件都必须位于系统临时目录或
-知识库目录，事务 CLI 会拒绝 skill 仓库内路径。
+两个以上来源需要原子落库或共同更新一个节点时，使用只引用各自 Bundle 的
+`digest-batch-plan/v2`；`digest-batch-plan/v1` 仅兼容旧调用。batch 仍只持一个短时写锁并
+产生一个 commit。所有业务 component、manifest 和候选文件都必须位于系统临时目录或知识库
+目录，事务 CLI 会拒绝 skill 仓库内路径。
 新建或更新 `person` 时必须用 `bin/resolve-users.sh --format json` 同次取得身份与通讯录画像：
 按 `feishu_id` 消解，记录 `directory_verified_at`，并在可见时同步企业邮箱和当前部门路径；
 部门变化保留历史，空结果不清除旧值。完整规则见 `references/digest-core.md`。
@@ -258,7 +259,9 @@ finding，绝不由 doctor 自动迁移或拼接 capture policy。
 
 - **写入前必读**:`references/write-rules.md` —— 原子写入、双向 links、auto-link、INDEX、journal、本地 git 回滚点、时间格式、时间倒序。
 - **兼容性诊断**:`references/doctor.md` —— 先只读扫描当前 schema/profile,再按用户授权做确定性修复。
-- **维护 / 恢复按需读**:`references/maintenance.md` —— 运行 `bin/rebuild-index.sh` 重建 INDEX、运行 `bin/repair-links.sh --autolink` 修复双链 / 正文提及连边、灾难恢复。
+- **维护 / 恢复按需读**:`references/maintenance.md` —— 通过机器协议 `index rebuild` 重建
+  INDEX（shell wrapper 仅供人工排障）、运行 `bin/repair-links.sh --autolink` 修复双链 /
+  正文提及连边、灾难恢复。
 
 核心不变量:知识库数据目录是唯一业务数据位置;`raw_data/` + `provenance/` + `knowledge/` + `reports/` + `todo.md` + `context.md` + `dashboard.md` 手动项是真相源,`INDEX.md` 和 dashboard 派生段可重建。
 

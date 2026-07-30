@@ -57,10 +57,12 @@ class ArchitectureContractTests(unittest.TestCase):
             "lib/digest_jobs.py",
             "bin/report-automation.py",
             "lib/report_automation.py",
+            "bin/index.py",
             "lib/snapshot_store.py",
             "lib/source_capture.py",
             "lib/sources/models.py",
             "lib/sources/registry.py",
+            "lib/sources/request_specs.py",
             "lib/sources/transaction_bridge.py",
             "lib/sources/record_projection.py",
         )
@@ -108,6 +110,7 @@ class ArchitectureContractTests(unittest.TestCase):
             "`SnapshotStore`",
             "`ChangeSet`",
             "`DigestPlan`",
+            "`digest-batch-plan/v2`",
             "### 8.4 架构验证矩阵",
         ):
             with self.subTest(term=term):

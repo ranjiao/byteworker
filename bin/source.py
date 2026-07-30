@@ -68,6 +68,15 @@ def parser() -> argparse.ArgumentParser:
         "capabilities",
         help="列出当前实现的 operation、Profile 与 SourceBundle 能力",
     )
+    bundle_spec = sub.add_parser(
+        "bundle-spec",
+        help="输出指定 SourceBundle adapter 的机器可读 request 契约",
+    )
+    bundle_spec.add_argument(
+        "--source-type",
+        choices=create_default_registry().source_types(),
+        required=True,
+    )
     auth = sub.add_parser(
         "auth-status",
         help="只读检查来源登录与最小授权，不发起 OAuth",
@@ -172,7 +181,8 @@ def parser() -> argparse.ArgumentParser:
         "--request",
         required=True,
         help=(
-            "provider 专属构造参数 JSON；业务文件必须位于临时目录或知识库目录"
+            "provider 专属 request JSON 文件路径；不接受内联 JSON，"
+            "文件必须位于临时目录或知识库目录"
         ),
     )
     bundle.add_argument(
@@ -270,8 +280,32 @@ def _run(args: argparse.Namespace) -> dict:
             "bundle_source_types": list(create_default_registry().source_types()),
             "contract": BUNDLE_SCHEMA,
         }
+    if args.operation == "bundle-spec":
+        return create_default_registry().request_spec(args.source_type)
     if args.operation == "bundle":
+        request_argument = str(args.request).strip()
+        if request_argument.startswith(("{", "[")):
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_REQUEST_INLINE_UNSUPPORTED",
+                "source bundle --request 只接受 request JSON 文件路径，"
+                "不接受内联 JSON",
+                path="--request",
+                hint=(
+                    "先把 request JSON 写入系统临时目录或知识库目录，"
+                    "再把该文件路径传给 --request。"
+                ),
+            )
         request_path = Path(args.request).expanduser().resolve()
+        if not request_path.is_file():
+            raise SourceBundleError(
+                "SOURCE_BUNDLE_REQUEST_NOT_FOUND",
+                f"bundle request JSON 文件不存在: {request_path}",
+                path=str(request_path),
+                hint=(
+                    "运行 source bundle-spec --source-type "
+                    f"{args.source_type} 查看契约，并把 request 写入临时文件。"
+                ),
+            )
         if request_path == ROOT.resolve() or ROOT.resolve() in request_path.parents:
             raise SourceBundleError(
                 "SOURCE_BUNDLE_PATH_IN_SKILL_REPO",

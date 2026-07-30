@@ -508,10 +508,11 @@ flowchart TB
 | `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI | `byteworker-cli/v1` envelope |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
-| `bin/source.py` | capabilities / auth / inspect / capture / bundle / profile / diff 参数入口 | capture、SourceBundle、profile receipt、ChangeSet |
+| `bin/source.py` | capabilities / auth / inspect / capture / bundle-spec / bundle / profile / diff 参数入口 | request 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/lease/complete；不创建宿主任务 | 设置状态、租约与真实运行回执 |
+| `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-query.py` | search / evidence / source-record | 有覆盖信息的有限候选 |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
 | `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
@@ -534,6 +535,7 @@ flowchart LR
     PROF["lib/source_profiles.py<br/>CaptureProfile 生命周期"]
     PROFV["lib/source_profile_providers.py<br/>provider v2 validator"]
     ADP["lib/sources/adapters/*<br/>Provider -> Bundle"]
+    SPEC["lib/sources/request_specs.py<br/>机器可读 request 契约"]
     CONF["adapters/conformance.py<br/>重载后的 provider 一致性复验"]
     MODEL["lib/sources/models.py<br/>严格 SourceBundle schema"]
     REG["lib/sources/registry.py<br/>Bundle adapter registry"]
@@ -554,6 +556,7 @@ flowchart LR
     HOST -->|"已抓取 artifacts"| ADP
     CLI -->|"bundle request / bundle-out"| REG
     REG --> ADP
+    REG --> SPEC
     ADP --> MODEL
     REG --> CONF
     CONF --> ADP
@@ -586,6 +589,10 @@ Bundle”误认为“也必须有同形态网络 capture”：
   高水位、transcript/locator 编排继续堆进结构化 `source_operations.py`。
 - 飞书文档、妙记、Web 和本地文件由宿主能力先抓取原始 artifact，再用
   `source bundle --source-type ... --request ... --out ...` 进入同一边界。
+- `source bundle-spec --source-type ...` 从 adapter builder 实际签名生成顶层必填/可选字段
+  （排除仅供内部 capture 直传的 `capture/skill_root`），并附 adapter 层维护的
+  artifact/component/source UID 规则；调用方不得靠猜测构造 request。
+  `--request` 只接受临时或 KB 内 JSON 文件路径，内联 JSON 和不存在路径使用不同稳定错误码。
 - `feishu_meeting` 是日历、妙记、投屏文档组成的复合编排，不注册伪造的单来源 adapter；
   各物件先各自产生 Bundle，再由 meeting/batch 流程组合。
 - `source_capture.py` 暂时是结构化来源兼容实现，不应继续吸收
@@ -606,8 +613,10 @@ Source 子系统统一的是交接契约，不是 provider 的内容结构：
 | `DigestPlan` | Agent 对节点、evidence、journal 和 commit 的完整写入决策 | v2 只引用 Bundle，不复制 source identity 或 anchors |
 
 `SourceBundle.components` 保留 provider 自身形态：文档可以是 body/comments/whiteboard，
-群聊和妙记是 transcript，Web/本地资料是 body，结构化来源是 canonical records snapshot。component 使用 `verbatim` 或
-`canonical-json` 模式；不为了“统一”而把飞书文档、Meego、Base、风神压成同一个内容 AST。
+群聊和妙记是 transcript，Web/本地资料是 body，结构化来源是 canonical records snapshot。
+component 使用 `verbatim` 或 `canonical-json` 模式；两者都可用 JSON Pointer 选择 wrapper
+内值，但 verbatim 目标必须是字符串，canonical-json 则规范序列化选中值。不为了“统一”而把
+飞书文档、Meego、Base、风神压成同一个内容 AST。
 
 通用 schema 校验只证明 envelope 合法，不证明字段仍然忠于 provider。Bundle 从磁盘重载并
 进入事务前，registry 必须调用 adapter 的 `validate_bundle`：结构化来源从唯一的
@@ -629,6 +638,9 @@ Hash 语义必须区分：
 - v2 Profile 的公共生命周期由 `lib/source_profiles.py` 管理，当前覆盖 Meego、Base、
   群聊和飞书文档；provider validator 严格校验
   selector 和 capture policy；未知字段、未知 provider、凭据字段全部拒绝。
+- `sources/` 历史上还可能含不属于 CaptureProfile 的日历/调度配置；枚举时只忽略“无 Profile
+  schema 且 source_type 不受 Profile 支持”的明确异类文件。任何声称为受支持 source type 的
+  畸形 Profile 仍 fail closed，不能借兼容过滤隐藏。
 - Base/群聊等新增 provider 规则放在 `lib/source_profile_providers.py`，避免 Profile 的
   持久化、revision 和 Git 生命周期继续吸收 provider 分支。
 - 群聊的一次性显式窗口与 routine 增量 Profile 分开：启用 routine 必须使用
@@ -686,7 +698,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    LOAD["加载 plan v1 或 plan v2 + Bundle"]
+    LOAD["加载单来源 plan v1/v2<br/>或 batch plan v1/v2 + Bundles"]
     PAY["逐 component 读取<br/>verbatim 或 canonical JSON"]
     HASH["重算 component hash / content_hash / digest_key"]
     PREF["扫描同源 raw<br/>new_source / new_version / noop / resume_failed"]
@@ -718,6 +730,7 @@ flowchart TD
 | `lib/doctor.py` | 编排布局、节点、raw、provenance、links、报告、INDEX 与来源契约扫描 | scan 否；fix 受白名单限制 |
 | `lib/doctor_sources.py` | 只读检测 Profile/routine 覆盖、raw/Profile 绑定、payload component/digest key 与 record index 漂移 | 否 |
 | `bin/rebuild_index.py` | 从真相源重建 INDEX | 是，可确定重建 |
+| `bin/index.py` | INDEX 预演/执行 facade；显式声明不写 journal/commit | apply 只写 INDEX |
 | `bin/repair_links.py` | 修复明确、可证明的双向 links/autolink | 是，受保护 |
 | `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
 | `lib/report_automation.py` | 自动报告一次性引导状态、local-only 配置记录、跨日报/周报租约与运行结果 | 仅写 Git 排除的 `state/report_automation.json` |
@@ -729,11 +742,13 @@ flowchart LR
     CP["CaptureProfile<br/>怎样读取"]
     SB["SourceBundle v2<br/>本次读到了什么"]
     DP["DigestPlan v2<br/>Agent 决定怎样写知识"]
+    BP["DigestBatchPlan v2<br/>多个 Bundle 原子写入"]
     PV["Provenance v1<br/>事实在哪里"]
     RAW["Raw + payload metadata<br/>实际保存了什么"]
     RC["Receipt<br/>事务实际完成了什么"]
 
     CP --> SB --> DP --> PV --> RAW --> RC
+    SB --> BP --> PV
 ```
 
 | 契约 | 所有者 | 关键不变量 |
@@ -741,6 +756,7 @@ flowchart LR
 | `byteworker-source-profile/v2` | `source_profiles.py` + 对应 adapter | 无凭据；selector 与 source UID 一致；revision 可重算 |
 | `byteworker-source-bundle/v2` | `sources/models.py` | identity、components、coverage、anchors 唯一交接；业务路径不在 skill 仓库 |
 | `digest-plan/v2` | Agent + `digest_txn.py` | 只引用 Bundle，不复制 source/anchors；节点候选必须完整 |
+| `digest-batch-plan/v2` | Agent + `digest_txn.py` | `inputs[]` 各引用一个 Bundle；禁止复制 source/anchors；全部输入同成同败 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
@@ -912,7 +928,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | 兼容项 | 当前原因 | 删除条件 |
 |---|---|---|
 | `digest-plan/v1` | 旧单来源调用仍需读取 | 连续版本无 v1-only 调用且用户结束兼容窗口 |
-| `digest-batch-plan/v1` | 多来源 batch 尚无 v2 | 设计并验证 batch v2 后迁移 |
+| `digest-batch-plan/v1` | 旧多来源调用仍内联 legacy source | 连续版本无 v1-only 调用且用户结束兼容窗口 |
 | Aeolus Profile v1 | 已部署 profile 使用旧结构 | doctor 可识别且真实旧 KB 验证通过 |
 | `lib/source_capture.py` 单文件 | 保持旧 import 和成熟 capture 测试 | provider operation/transport 拆分完成且旧入口有兼容 facade |
 | `transaction_bridge.py` | 为旧 raw/frontmatter 物化 provider 字段 | 新 raw/query 不再依赖 legacy 字段 |
@@ -934,13 +950,13 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 |---|---|
 | Adapter / operation | auth、inspect、capture、完整分页、顺序稳定、URL 脱敏、稳定 ID |
 | Bundle | schema、credential/path 防护、component、anchor、coverage、canonical hash、重载后的 provider 派生一致性 |
-| Profile | v1/v2 兼容、revision、unknown field、credential rejection |
+| Profile | v1/v2 兼容、revision、unknown field、credential rejection、非 Profile legacy 配置共存 |
 | SnapshotStore | latest/history、坏 raw fail closed、source mismatch、baseline/diff |
-| Transaction | plan v1/v2、no-op、新版本、rollback、并发、provenance、raw rendering |
+| Transaction | plan v1/v2、batch v1/v2、no-op、新版本、rollback、并发、provenance、raw rendering |
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
 | Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
 | 自动报告 | 首次/升级只询问一次、local-only 配置、宿主真相源、跨日报/周报租约、过期恢复、成功/失败回执、每次完整 routine digest |
-| End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle，以及 Bundle → commit → query/diff 闭环 |
+| End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle、会议妙记 + 文档 Bundles → batch 单 commit，以及 Bundle → commit → query/diff 闭环 |
 
 `tests/test_architecture_contract.py` 固化文档入口和核心模块清单；
 `tests/test_source_architecture.py` 固化 core 不含 provider 分支以及本节最终契约。
