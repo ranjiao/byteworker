@@ -115,7 +115,11 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 ## digest — 摄取
 
 **触发**:子命令 `digest`;或自然语言 —— 用户给出飞书文档/妙记 URL、会议、群、Meego /
-多维表格视图、风神看板、外部文章或本地 md,说"存入知识库""消化这个""记一下"等。
+多维表格视图、风神看板、飞书知识库空间、外部文章或本地 md,说"存入知识库""消化这个"
+"探索知识库""记一下"等。
+
+若目标是**探索一整个飞书知识库空间、挑选页面或恢复批量 Wiki digest**，先且只读
+`references/digest-wiki-space.md`；用户确认具体页面后，才按普通飞书文档加载标准 digest 细则。
 
 完整主流程已拆到 `references/digest-core.md`。执行 digest 前必须先读它和
 `references/digest-dependencies.md`(识别重要依赖、必要时向用户确认扩展范围)以及
@@ -127,6 +131,8 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 - `feishu_chat` → `references/digest-chat.md`
 - `meego` → `references/digest-meego.md`(第一版只读保存视图)
 - `feishu_base` → `references/digest-base.md`(第一版只读明确 Base 视图)
+- `feishu_wiki` 空间探索 → `references/digest-wiki-space.md`(只扫描树与选择页面；页面仍按
+  `feishu_doc` digest)
 - `aeolus` → `references/digest-aeolus.md`(一 sheet 一 KB profile、只读筛选重放与规范快照)
 - `web` / 内部资料型文档 → `references/digest-reading.md`
 - 会议簇(日历 / 投屏文档 / 妙记同属一场会) → `references/digest-meeting.md`

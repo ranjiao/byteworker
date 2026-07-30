@@ -411,6 +411,8 @@ flowchart TB
         KQ["lib/kb_query.py"]
         SO["lib/source_operations.py"]
         SCO["lib/source_chat_operations.py"]
+        WX["lib/wiki_explorer.py<br/>惰性 Wiki 树探索"]
+        DJ["lib/digest_jobs.py<br/>持久批次与租约"]
         DOC["lib/doctor.py"]
         DS["lib/doctor_sources.py<br/>来源契约只读审计"]
         PB["lib/provenance_backfill.py"]
@@ -445,6 +447,8 @@ flowchart TB
     DIRECT --> DT
     DIRECT --> KQ
     DIRECT --> SO
+    DIRECT --> WX
+    DIRECT --> DJ
     SO --> SCO
     DIRECT --> DOC
     DIRECT --> PB
@@ -454,6 +458,11 @@ flowchart TB
     KQ --> SRC
     KQ --> PR
     SO --> SP
+    WX --> SP
+    WX --> EXT
+    WX --> KB
+    DJ --> FM
+    DJ --> KB
     SP --> SPP
     SO --> SC
     SS --> SC
@@ -486,6 +495,8 @@ flowchart TB
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
 | `bin/source.py` | capabilities / auth / inspect / capture / bundle / profile / diff 参数入口 | capture、SourceBundle、profile receipt、ChangeSet |
+| `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
+| `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/kb-query.py` | search / evidence / source-record | 有覆盖信息的有限候选 |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
 | `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
@@ -545,7 +556,7 @@ Bundle”误认为“也必须有同形态网络 capture”：
 | 能力 | 当前来源 | 边界 |
 |---|---|---|
 | operation | `meego`、`feishu_base`、`aeolus`、`feishu_chat` | 前三类提供结构化 auth/inspect/capture；群聊用 Profile 包装 `pull-chat.sh` 完整分页 |
-| Profile | `meego`、`feishu_base`、`feishu_chat`、`feishu_doc`；兼容 `aeolus` v1 | Base/Chat/Doc/Meego 使用 v2；Aeolus 保留 v1 |
+| Profile | `meego`、`feishu_base`、`feishu_chat`、`feishu_doc`、`feishu_wiki`；兼容 `aeolus` v1 | Base/Chat/Doc/Meego/Wiki 使用 v2；Wiki 仅描述监控子树；Aeolus 保留 v1 |
 | Bundle adapter | `meego`、`feishu_base`、`aeolus`、`feishu_chat`、`feishu_doc`、`feishu_minutes`、`web`、`local_md` | 所有单来源统一输出 `SourceBundle v2` |
 
 - Meego/Base/Aeolus 可用 `capture --bundle-out` 从完整 capture 同步产生 Bundle。
@@ -619,7 +630,44 @@ Hash 语义必须区分：
 - 迁移期 legacy frontmatter/source 字段仅由 `lib/sources/transaction_bridge.py` 物化；
   provider 规则不得重新散回 transaction core。
 
-### 4.4 Digest transaction
+### 4.4 Wiki 探索与批量任务
+
+Wiki 空间探索是独立应用服务，不是假装成正文 capture provider：
+
+```mermaid
+flowchart LR
+    USER["用户提供 Wiki 空间 URL"]
+    WCLI["bin/wiki.py"]
+    AUTH["lark-cli --as user"]
+    TREE["lib/wiki_explorer.py<br/>完整树 / 选定子树"]
+    STATE["KB state/wiki/<br/>无 TTL、完整才替换"]
+    TOPIC["有限 topics / candidates"]
+    CONFIRM["用户确认具体页面"]
+    JOB["lib/digest_jobs.py<br/>租约批次 checkpoint"]
+    DOC["逐页 feishu_doc Bundle"]
+    TXN["provider-neutral digest transaction"]
+
+    USER --> WCLI --> AUTH --> TREE --> STATE
+    TREE --> TOPIC --> CONFIRM --> JOB
+    JOB --> DOC --> TXN
+```
+
+职责与边界：
+
+- `lib/wiki_explorer.py` 负责 lark-cli user adapter、真实 `space_id/node_token` 解析、BFS、
+  coverage/tree hash、原子状态替换、有限主题汇总和候选页元数据筛选。
+- 全空间必须列 `space_id` 根节点，不能用首页 `has_child` 决定是否有树；子树根则至少尝试一次
+  child list。分页或任一节点请求失败、超过 `max_nodes`、被 `max_depth` 截断都不替换完整状态。
+- baseline 没有 TTL，普通启动与 routine 都不自动刷新整空间。`feishu_wiki` Profile 只监控用户
+  确认的 `space_id + root_node_token` 子树；默认只比较结构。
+- `lib/digest_jobs.py` 只保存用户确认的页面身份、状态、租约和事务 receipt 定位。它不读取 Wiki
+  正文、不写知识节点；事务提交和任务标记之间的崩溃窗口由 committed raw reconcile。
+- 页面仍逐个进入既有 `feishu_doc` adapter 与事务。因此 Wiki 不进入 operation/Bundle 集合，
+  也不允许修改 `lib/digest_txn.py` 或 `lib/kb_query.py` 解析树/job 私有格式。
+- `bin/byteworker-cli.py` 仅通过子进程映射暴露 `wiki` / `digest-job`。普通路径不 import 这两个
+  模块，不检查 auth、不扫描状态、不创建目录；这是冷路径兼容契约。
+
+### 4.5 Digest transaction
 
 ```mermaid
 flowchart TD
@@ -645,7 +693,7 @@ flowchart TD
 事务成功的唯一证明是 `status=committed` 和 commit hash。Agent 已生成候选、validate 成功或文件
 看起来存在，都不等于事务完成。
 
-### 4.5 查询与维护
+### 4.6 查询与维护
 
 | 模块 | 核心职责 | 允许写入 |
 |---|---|---|
@@ -679,6 +727,8 @@ flowchart LR
 | `digest-plan/v2` | Agent + `digest_txn.py` | 只引用 Bundle，不复制 source/anchors；节点候选必须完整 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
+| `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
+| `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
 | `byteworker-resolved-users/v1` | `bin/resolve-users.sh` | 精确 open_id 输入；身份失败不创建 person；部门为空不表示调动；`resolved_at` 带时区 |
 | `byteworker-cli/v1` | `machine_protocol.py` | 稳定 `status/data/error/context`，不泄漏完整 argv 或正文 |
 | transaction receipt | `digest_txn.py` | `committed/noop` 语义明确；写入和 commit 同成同败 |
@@ -888,6 +938,8 @@ byteworker/
 │   ├── doctor_sources.py # Profile/routine/raw 来源契约只读审计
 │   ├── source_chat_operations.py # 群聊 Profile capture 与高水位 transport 编排
 │   ├── source_profile_providers.py # v2 provider selector/capture-policy 校验
+│   ├── wiki_explorer.py # 按需 Wiki 树状态、主题与页面候选
+│   ├── digest_jobs.py # 已确认多页 digest 的租约 checkpoint
 │   └── sources/          # SourceBundle、adapter、provider conformance、registry、兼容投影
 ├── viewer/               # 纯前端只读知识库浏览器
 └── tests/                # 单元、集成和架构防漂移契约

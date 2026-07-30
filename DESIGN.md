@@ -46,6 +46,8 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
 | `lib/sources/` | 来源适配器注册表、`SourceBundle` 契约及 provider → transaction 兼容边界；provider payload 保持异构 |
 | `bin/source.py` + `lib/source_profiles.py` + `lib/snapshot_store.py` | 统一来源 capability、Profile、capture、Bundle 构造及历史完整快照选择/差异；实例参数只在用户 KB |
+| `bin/wiki.py` + `lib/wiki_explorer.py` | 按需解析飞书 Wiki 空间、完整扫描目录或选定子树、生成有限主题/页面候选；不读取页面正文、不生成 Bundle |
+| `bin/digest-job.py` + `lib/digest_jobs.py` | 已确认 Wiki 页面列表的持久批次、租约、逐页 receipt 状态与崩溃恢复；不参与单页 digest transaction |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index，主 doctor 编排 INDEX/links 的确定性修复 |
@@ -74,11 +76,15 @@ byteworker 由**两个物理隔离**的部分组成。
 | `context.md` | 格式化全局工作上下文 —— 身份 / 职责 / 重点 / 约束 / 提醒偏好 / 背景 | 用户通过 agent 维护 | 手维护 |
 | `todo.md` | 用户确认过的行动项、截止 / 提醒时间与完成状态 | 用户通过 agent 维护 | 高频更新 |
 | `.last-routine-digest` | 上次「定期摄取」例程运行日期(一行 `YYYY-MM-DD`)—— 到期提醒据此判断 | skill 写入 | 每次定期摄取覆盖 |
+| `state/wiki/` | 可重新扫描得到的 Wiki baseline / 子树目录状态；完整 JSON 不进入 Agent context | `wiki scan` 按需原子写入 | 无 TTL；仅显式扫描替换 |
+| `state/digest_jobs/` | 用户已确认页面的批量 digest 运行 checkpoint、租约与逐页 receipt 定位 | `digest-job` 按需原子写入 | 跨 session 更新；可由 raw 部分 reconcile |
 
 数据目录路径由用户首次使用时指定(默认目录名 `byteworker_kb`,路径可配置),
 记于 skill 仓库的 `.kbconfig`(已 gitignore)。数据目录是**它自己的独立本地 git 仓库**
 (作误删/错改的回滚网,**永不配 remote**),与 skill 仓库的 git 互不相干。
 数据目录含**公司机密内容**,绝不外传、绝不纳入 skill 仓库的 git。
+`state/` 是本地运行状态：首次使用 Wiki 功能时才创建，并加入知识库 Git 的本地
+`.git/info/exclude`；普通 Byteworker 操作不创建、不扫描该目录。
 
 ### C. 真相源 vs 派生 —— 数据不变量
 
@@ -95,6 +101,9 @@ byteworker 由**两个物理隔离**的部分组成。
   重新消化(LLM digest,非确定性),但 `raw_data` 本身丢了就无源可回。
 - `reports/` —— 日报 / 周报 / IM Inbox 摘要是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
 - `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
+- 活动中的 `state/digest_jobs/` —— 保存用户已确认的多页处理范围与未完成状态。它是本机
+  session 恢复 checkpoint，不进入实体图或 Git；已成功页面仍以 committed raw/transaction
+  receipt 为最终事实，任务可据此 reconcile。
 
 ### D. `sources/` — 可重放来源配置
 
@@ -103,7 +112,7 @@ skill 仓库。profile 有两个兼容 schema：
 
 - `byteworker-source-profile/v2` 是通用结构：顶层固定为
   `source_type/source_uid/source_url/title/selector/capture_policy/routine`。当前支持
-  `meego`、`feishu_base`、`feishu_chat` 与 `feishu_doc`；selector 必须与
+  `meego`、`feishu_base`、`feishu_chat`、`feishu_doc` 与 `feishu_wiki`；selector 必须与
   `source_uid` 相互校验，capture policy 只保存可重放的字段投影、上限、窗口/高水位策略、
   评论/白板策略和周期，不保存抓取结果。
 - `byteworker-source-profile/v1` 仅作为现有 `aeolus` profile 的兼容 schema，保留其
@@ -115,9 +124,12 @@ skill 仓库。profile 有两个兼容 schema：
 - `profile_revision` 是规范化 profile JSON 的 canonical SHA-256；
 - Meego/Base/群聊/飞书文档 profile 可由 `source profile-save --kb ... --file ...`
   校验并写入；风神仍由
-  `source register` 在实时 inspect 后写入；
+  `source register` 在实时 inspect 后写入；Wiki 子树由 `wiki profile-create` 在
+  `node-get` 解析真实坐标后写入；
 - `source capture --kb ... --source-uid ...` 必须原样加载 profile，不接受同次 CLI 覆盖；
   变更口径必须显式保存新 profile revision 并创建 KB 本地 Git 回滚点。
+- Wiki 没有 `source capture` / Bundle；其 Profile 由
+  `wiki scan --kb ... --source-uid ...` 原样重放，结果只更新目录状态。
 - 群聊显式 `start/end` Profile 只用于一次性窗口；`routine.enabled=true` 时必须使用
   `since_last=true`，高水位由已提交 raw 推导，可配置非负 overlap 防边界漏读。
 
@@ -151,6 +163,35 @@ doctor 对 `sources/*.json` 逐文件复用当前 Profile validator，并按唯�
 - 「重建 `INDEX.md`」是一等操作,不是兜底:任何时候怀疑 INDEX 不对 → 直接全量重建。
 - 灾难恢复:数据目录有独立本地 git。误删/错改 → `git restore` / `git checkout` 回滚;
   仅 `INDEX.md` 损坏/丢失 → 重建即可,无需动 git。
+
+### E. Wiki 探索状态与 digest job
+
+`state/wiki/<space_id>/baseline.json` 与
+`state/wiki/<space_id>/subtrees/<sha256(root_node_token)>.json` 使用
+`byteworker-wiki-tree-state/v1`：
+
+- 保存 `space/scope/captured_at/coverage/tree_hash/nodes`；
+- `coverage.complete=true` 才可替换旧状态；达到 `max_nodes`、被 `max_depth` 截断或任一 API
+  请求失败均不覆盖；
+- baseline 必须从 `space_id` 根节点列表开始，不能相信首页节点的 `has_child`；
+- `added/changed/left_subtree` 是状态间可重算差异，`left_subtree` 不等于删除；
+- 状态无 `expires_at`，routine 只能重扫用户保存为 Profile 的具体子树。
+
+`state/digest_jobs/WJ-YYYYMMDD-NNN.json` 使用 `byteworker-digest-job/v1`。一个任务保存：
+
+- 来源空间、根节点、确认时的 `tree_hash/selection_hash`；
+- 页面稳定 `document_id/node_token/url/title`，不保存正文或凭据；
+- 页面状态、attempt、有限时租约、`raw_id/commit/error`；
+- 批大小与输入 token 粗估范围。
+
+页面状态为 `pending/in_progress/noop/committed/blocked_dependency/blocked_conflict/
+retryable_error/permanent_error/skipped`。只有 `digest-txn execute` 的 committed receipt 才能标记
+`committed`；相同版本 preflight 命中才标记 `noop`。租约过期可重新领取；事务提交后、任务标记
+前崩溃时，`reconcile` 只读 `raw_data` 中相同 `source_uid` 且
+`digest_status=digested` 的记录恢复任务状态。
+
+Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle，被选择的页面继续逐个使用
+`feishu_doc`。因此不得给 `lib/digest_txn.py` 或 `lib/kb_query.py` 增加 Wiki 私有格式。
 
 ---
 
