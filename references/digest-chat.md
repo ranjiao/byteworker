@@ -22,7 +22,12 @@
   `source capture --source-type feishu_chat --kb <KB> --source-uid <chat_id> --out <bundle.json>`。
   operation adapter 重放 Profile、显式传入 KB 高水位、包装 `pull-chat.sh`，并直接生成
   SourceBundle；不得从最近 raw 猜测 selector 或窗口策略。
-- **人员解析(必须)**:群聊 digest 前,对 transcript 运行 `bin/resolve-users.sh --from-doc <transcript>`。新建 / 更新 `person` 节点时必须使用解析出的 `feishu_id`;不要仅凭中文名新建 `feishu_id: ?` 的 person。若某个发言人解析失败,事件正文可保留其姓名和 open_id,但不要新建 person 节点;在汇报里列为「待解析人物」,等用户补充或权限恢复后再建。
+- **人员解析(必须)**:群聊 digest 前,对 transcript 运行
+  `bin/resolve-users.sh --from-doc <transcript> --format json`。新建 / 更新 `person` 节点时
+  必须使用解析出的 `feishu_id`，并按 `references/digest-core.md` 同步可见的企业邮箱、当前
+  `department_path` 与 `directory_verified_at`;不要仅凭中文名新建 `feishu_id: ?` 的 person。
+  若某个发言人解析失败,事件正文可保留其姓名和 open_id,但不要新建 person 节点;在汇报里列为
+  「待解析人物」,等用户补充或权限恢复后再建。
 - **落原文**:raw_data 用 `feishu_chat` 变体 frontmatter(`source_chat_id` / `source_chat_name` / `source_window`,见 DESIGN.md §3)。**`source_window` 必须写本次窗口的完整 ISO8601 起止** —— 它是下次 `--since-last` 的续拉点,务必准确。每窗口一个独立 raw,只增不改。
 - **登记进度**:raw frontmatter 准确写 `source_chat_id` / `source_chat_name` / `source_window`;
   `digest-txn execute` 重建 INDEX 后会据此派生「群聊摄取进度」行(群名 + `chat_id` + 已摄取至

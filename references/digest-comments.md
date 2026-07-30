@@ -42,8 +42,9 @@
 
 ## 人员优先级
 
-先读 `context.md`,再把评论 / 回复里的 `user_id` 批量交给 `bin/resolve-users.sh --ids ...`
-解析为姓名与 `feishu_id`;新建 person 的限制仍按 `references/digest-doc.md`。
+先读 `context.md`,再把评论 / 回复里的 `user_id` 批量交给
+`bin/resolve-users.sh --ids ... --format json`，解析姓名、`feishu_id` 与当前通讯录画像;
+新建 / 更新 person 的规则仍按 `references/digest-doc.md`。
 
 - **P0 必看**:
   - `context.md` 明确记录的直属上司 / 汇报对象;

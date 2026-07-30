@@ -90,7 +90,17 @@ def render_node_section(kb, dir_name, node_type, label):
         status = fm.get("status", "")
         last_verified = fm.get("last_verified", fm.get("updated", ""))
         if node_type == "person":
-            rows.append((node_id, title, fm.get("feishu_id", "?"), tldr, status, last_verified))
+            rows.append(
+                (
+                    node_id,
+                    title,
+                    fm.get("feishu_id", "?"),
+                    fm.get("department_path", "?"),
+                    tldr,
+                    status,
+                    last_verified,
+                )
+            )
         else:
             rows.append((node_id, title, tldr, status, last_verified))
     rows.sort(key=lambda x: x[0])
@@ -98,8 +108,11 @@ def render_node_section(kb, dir_name, node_type, label):
     out = [f"## {label} ({node_type})"]
     if node_type == "person":
         out += [
-            "| id | 标题 | feishu_id | TL;DR | status | last_verified |",
-            "|----|------|-----------|-------|--------|----------------|",
+            (
+                "| id | 标题 | feishu_id | department_path | "
+                "TL;DR | status | last_verified |"
+            ),
+            "|----|------|-----------|-----------------|-------|--------|----------------|",
         ]
         for row in rows:
             out.append("| " + " | ".join(esc(x) for x in row) + " |")

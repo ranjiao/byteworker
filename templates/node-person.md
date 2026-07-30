@@ -3,6 +3,9 @@ id: person-<slug>
 title: <姓名>
 type: person
 feishu_id: <飞书英文 id;= 企业邮箱 @ 前缀,全局唯一;实体消解主键;不参与 id;新建前必须解析出来>
+enterprise_email: <通讯录返回的企业邮箱;无或不可见时省略>
+department_path: <飞书通讯录当前部门路径;无或不可见时省略>
+directory_verified_at: <本次通讯录核验时间;ISO8601,新建/更新 person 必填>
 tags: []
 status: current
 created: <YYYY-MM-DD>
@@ -22,7 +25,8 @@ links: []
 <!-- 关键事实句尾写 [E1] 等;不要手写“证据”章节,由 digest 事务生成。 -->
 
 ## 基本信息
-<!-- 角色 / 所属团队 / 对接方式(飞书、邮箱等) -->
+<!-- 角色 / 当前所属团队 / 对接方式。通讯录字段按 directory_verified_at 标注核验时间；
+     department_path 变化时更新“当前所属团队”，并在“协作历史与关键交互”保留带日期的原团队。 -->
 
 ## 负责什么
 <!-- ta 负责的项目、领域、职责 -->

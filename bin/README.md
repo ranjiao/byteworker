@@ -96,7 +96,7 @@ cd "$BYTEWORKER_ROOT"
 | `pull_doc_comments.py` | Agent / 维护者 | 拉取飞书文档全部评论和回复 | 只向 stdout 输出 JSON |
 | `pull-chat.sh` | Agent / 维护者 | 拉取群聊窗口逐字稿和 locator | 写临时或显式输出文件 |
 | `im-inbox-summary.sh` | Agent | IM 高信号 thread 本地粗筛 | 写输出和运行标记，不写 raw |
-| `resolve-users.sh` | Agent / 维护者 | open_id 批量解析为姓名/feishu_id | 只读外部通讯录 |
+| `resolve-users.sh` | Agent / 维护者 | open_id 批量解析为身份与当前通讯录画像 | 只读外部通讯录 |
 | `browse.sh` | 用户 | 启动本地只读 Viewer | 只写临时服务目录 |
 | `check-deps.sh` | 用户 / 安装流程 | 检查运行依赖 | 只读 |
 | `rebuild-index.sh` | Agent / 维护者 | 从真相源重建 INDEX | 默认写 `INDEX.md` |
@@ -656,21 +656,46 @@ stdout 末尾输出 `chat_id/messages/pages/window/transcript/locators` 等摘�
 
 ### `resolve-users.sh`
 
-把 `ou_...` open_id 批量解析为姓名和企业 `feishu_id`。
+把 `ou_...` open_id 批量解析为姓名、企业 `feishu_id`、邮箱和当前部门路径。
 
 ```bash
 bin/resolve-users.sh --from-doc /tmp/byteworker-example/chat.txt
 bin/resolve-users.sh --ids ou_xxx,ou_yyy
 printf '%s\n' ou_xxx ou_yyy | bin/resolve-users.sh
+bin/resolve-users.sh --ids ou_xxx,ou_yyy --format json
 ```
 
-stdout 每行：
+默认 stdout 保留旧三列 TSV，供已有调用继续使用：
 
 ```text
 <open_id>    <姓名>    <feishu_id>
 ```
 
-解析不到的字段为 `?`；进度写 stderr。需要 `lark-cli`、`jq` 和用户态通讯录授权。
+`--format json` 输出版本化的 `byteworker-resolved-users/v1`：
+
+```json
+{
+  "schema_version": "byteworker-resolved-users/v1",
+  "resolved_at": "2026-07-30T17:20:00+08:00",
+  "users": [
+    {
+      "open_id": "ou_xxx",
+      "name": "姓名",
+      "feishu_id": "email-prefix",
+      "email": "email-prefix@example.com",
+      "enterprise_email": "email-prefix@example.com",
+      "department_path": "一级部门-二级团队",
+      "is_activated": true,
+      "is_cross_tenant": false
+    }
+  ]
+}
+```
+
+person 新建/更新必须使用 JSON 模式：`resolved_at` 写入 `directory_verified_at`，可见的
+`enterprise_email` / `department_path` 同步到节点。部门为空不代表调动，不得清空已有非空值。
+身份字段解析不到时使用 `?`；可选通讯录字段不可见时为空字符串；进度写 stderr。需要
+`lark-cli`、`jq` 和用户态通讯录授权。
 
 ### `im-inbox-summary.sh`
 

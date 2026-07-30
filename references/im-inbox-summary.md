@@ -215,7 +215,7 @@ bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byteworker-im-inbox.jso
 
 1. 对该 thread 所在 chat 重新按小窗口拉取原文,窗口通常为 thread 起止时间前后各 5 分钟。
 2. 走 `references/digest-chat.md` 的标准流程:
-   - `bin/resolve-users.sh --from-doc <transcript>`;
+   - `bin/resolve-users.sh --from-doc <transcript> --format json`;
    - raw_data 使用 `feishu_chat` frontmatter;
    - 产出一个 event 或更新相关 project/person/org;
    - 更新 INDEX 与 journal。

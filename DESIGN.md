@@ -453,6 +453,9 @@ links:                                        # 图的边,双向维护(写 A→B
 | `primary_source_url` | 有可打开来源时 ✓ | 由 `primary_source` 对应 raw 的 `source_url` 物化 |
 | `links` | ✗ | 关联节点 id,**双向维护**;id 前缀即对端类型;body 中提及的已存在节点 id 自动纳入(auto-link,见 SKILL.md 写入规范) |
 | `feishu_id` | △ | **仅 `person`**:该人飞书英文 id(企业邮箱 `@` 前缀),全局唯一 —— person 实体消解的主键、用于消歧同名。**只是一个字段,不参与 id / slug**(id 规则见 §2)。新建 person 前必须由 `bin/resolve-users.sh` / lark-contact 解析;解析不到就先不建 person,只在事件正文保留姓名 / open_id 并报告待解析。历史遗留的 `?` 允许后续回填,但不得再新增 |
+| `enterprise_email` | ✗ | **仅 `person`**:本次用户态通讯录查询返回的企业邮箱；不可见或为空时省略，不用个人邮箱冒充 |
+| `department_path` | ✗ | **仅 `person`**:飞书通讯录返回的当前部门路径字符串。它是可变的当前目录属性，不是稳定 org id；为空时省略，不据姓名或正文猜写 |
+| `directory_verified_at` | 新建/更新 `person` ✓ / 未触达历史节点兼容 ✗ | **仅 `person`**:本次 `lark-contact` 核验时间，使用带时区 ISO8601。person 候选每次写入都必填；未被本次事务触达的历史节点可缺失，等后续真实查询再回填 |
 
 > 不再有 `topic` 字段——领域结构由 `area`/`org` 节点 + `links` 承载,topic 治理问题消解。
 
@@ -484,15 +487,25 @@ links:                                        # 图的边,双向维护(写 A→B
 - 纯结构标题、链接关系、明确标注的 Agent 建议不强制 `[E]`;推断仍需引用其事实依据并保留
   【推断】标签。
 
-**`person`(实体)** —— 在 §4.1 通用 frontmatter 之外额外带 `feishu_id`(飞书英文 id,§4.1)。
+**`person`(实体)** —— 在 §4.1 通用 frontmatter 之外额外带 `feishu_id`，并保存可选的
+`enterprise_email`、`department_path` 与每次通讯录核验时间 `directory_verified_at`。
 ```markdown
-## 基本信息        <!-- 角色 / 所属团队 / 对接方式 -->
+## 基本信息        <!-- 角色 / 当前所属团队 / 对接方式；注明通讯录核验日期 -->
 ## 负责什么
-## 协作历史与关键交互  <!-- 带时间条目按事件发生时间倒序 -->
+## 协作历史与关键交互  <!-- 带时间条目按事件发生时间倒序；组织变化保留旧归属 -->
 ## 立场 / 利益 / 动机   <!-- 跨讨论沉淀的立场倾向 / 核心诉求 / 行为逻辑;须有证据,见 §4.5 -->
 ## 偏好 / 风格 / 注意点
 ## 关联节点
 ```
+
+`department_path` 表示“查询时的当前通讯录部门”，不是永恒事实。重复 digest 再次解析到同一人时：
+
+- 查询结果不为空且与节点一致 → 只刷新 `directory_verified_at`；
+- 查询结果不为空且发生变化 → 更新当前 `department_path`，在「协作历史与关键交互」追加一条
+  带变更日期的旧部门 → 新部门记录；
+- 查询结果为空或跨租户字段不可见 → 不清空已有非空值，不把空值解释为离职或调动；
+- 只有 `department_path` 能明确映射到已有 `org` 节点时才建立 link；不得按路径片段自动批量
+  创建组织树。
 
 **`project`(实体,广义专项/事项)**
 ```markdown
@@ -636,8 +649,8 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 # 知识库索引
 
 ## 人员 (person)
-| id | 标题 | feishu_id | TL;DR | status | last_verified |
-|----|------|-----------|-------|--------|----------------|
+| id | 标题 | feishu_id | department_path | TL;DR | status | last_verified |
+|----|------|-----------|-----------------|-------|--------|----------------|
 
 ## 项目 (project)
 | id | 标题 | TL;DR | status | last_verified |
@@ -665,7 +678,9 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
   「标题 + 摘要」而非仅标题上,大幅提升语义召回 —— 这是 byteworker 不引入向量库
   也能做语义检索的关键:检索器是当前 agent/模型本身,只需把语义面在 INDEX 里铺够。
   摘要过长则截断到一行。
-- **人员表的 `feishu_id` 列** —— 支持按飞书邮箱英文 id 直接检索到对应的人(node id 已与 `feishu_id` 解耦,见 §2;此列补回「按 id 找人」的便利)。若历史 INDEX 暂未带该列,重建脚本必须按本节格式补齐。
+- **人员表的 `feishu_id` / `department_path` 列** —— 前者支持按飞书邮箱英文 id 直接检索到
+  对应的人，后者支持按当前通讯录部门路由人员。二者都从 person frontmatter 确定性重建；
+  历史节点没有 `department_path` 时显示 `?`，不得从 TL;DR 或正文猜填。
 - 查询先运行无状态 `bin/kb-query.py search`，得到字面/全文候选、覆盖回执和预算内一跳 links；
   Agent 再按语义补召回并定向读取。节点有 `[E]` 时用 `kb-query.py evidence` 解析精确 sidecar。
 - 一致性兜底:某类 `knowledge/<类型>/` 文件数 ≠ INDEX 该节行数 → 触发全量重建。
@@ -793,6 +808,11 @@ templates/
    record index。plan 不复制来源或 anchors；事务核心不新增 provider 分支。
    `digest-plan/v1`、Aeolus profile v1 和既有 raw/query 解析作为迁移期兼容层保留，达到
    `ARCHITECTURE.md` §8.3 的删除条件后再移除。
+24. **person 通讯录画像随身份解析补全** — `bin/resolve-users.sh --format json` 除姓名 /
+   `feishu_id` 外返回企业邮箱、当前部门路径和核验时间；新建 person 必须记录
+   `directory_verified_at`，可见时同步 `enterprise_email` / `department_path`。部门是可变的
+   当前目录属性：变化保留历史，空结果不清除旧值；仅明确命中已有 org 时连边。默认三列 TSV
+   暂作旧调用兼容。见 §4.1、§4.2、§6 与 `references/digest-core.md`。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 

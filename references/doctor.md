@@ -58,7 +58,9 @@ error/warning；`2` 扫描完成但仍有问题；`1` 参数、目录或执行�
 ## 检查范围
 
 - 目录、不可派生真相源文件、本地 Git/remote、事务临时残留；
-- 7 类节点的 frontmatter、type/path/id、日期、必需章节、TL;DR、person `feishu_id`；
+- 7 类节点的 frontmatter、type/path/id、日期、必需章节、TL;DR、person `feishu_id`，以及已有
+  通讯录字段的 `directory_verified_at` / 企业邮箱格式；历史 person 完全没有通讯录字段时保持兼容，
+  等真实查询后再补，不由 doctor 猜写；
 - raw 的 id、当前/历史 payload schema、状态、hash、digest targets；
 - `sources/*.json` 的 Profile v1/v2 schema、凭据、规范路径、重复 `source_uid`；
 - 定期来源的 Profile 覆盖和稳定 identity：Meego/Aeolus 缺 Profile 为 error，飞书文档

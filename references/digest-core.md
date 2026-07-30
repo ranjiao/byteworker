@@ -90,7 +90,17 @@
    - **资料型 `reading` 扇出规则**:若 `reading` 是外部读物,默认只产 `reading`,一般不抽 `decision`、不更新实体;若是内部路线思考 / 方法论 / 调研 / 白皮书,则 `reading` 是"这篇资料本身"的主记录,同时可按内容抽取明确决策、更新相关 `project`/`area`/`person`/`org`。不要把整篇资料硬塞进某个 `project` 或 `event`;项目节点只摘项目相关事实,决策节点只摘真正生效的决定。
    - 抽取 N 个 `decision`:输入中每个明确决策一节点。
    - 创建或更新涉及的实体节点(`person`/`project`/`org`/`area`)。
-   - **实体消解**(DESIGN.md §4.3):建实体前在 INDEX 比对,命中则更新而非新建。`person` **必须先解析 `feishu_id`**(飞书英文 id、全局唯一;文档/群聊里的 open_id 用 `bin/resolve-users.sh` 解析,写进 person frontmatter `feishu_id`)。**新建 person 不允许写 `feishu_id: ?`**;解析失败时先不要建 person,在主记录正文保留姓名 / open_id 并汇报「待解析人物」。**同名陷阱** —— 中文名相同但 `feishu_id` 不同 = 不同的人,**不合并**、**向用户确认后**各自建节点;`project`/`org`/`area` 按名比对,有歧义问用户。
+   - **实体消解与通讯录补全**(DESIGN.md §4.3):建实体前在 INDEX 比对,命中则更新而非新建。
+     `person` 必须把文档/群聊里的 open_id 交给
+     `bin/resolve-users.sh --format json`，按 `feishu_id` 消解，并消费同一次查询返回的
+     `enterprise_email`、`department_path` 与顶层 `resolved_at`。新建 person 必须写
+     `feishu_id` 和 `directory_verified_at`;可见的邮箱/部门同步写入 frontmatter 与「基本信息」。
+     更新已有 person 时也刷新通讯录字段：部门非空且变化则更新当前值，并在「协作历史与关键交互」
+     保留带日期的旧部门 → 新部门；查询为空不清除旧值。`department_path` 只有明确命中已有
+     `org` 才连边，不按路径片段自动建组织。**新建 person 不允许写 `feishu_id: ?`**;解析失败时
+     先不要建 person,在主记录正文保留姓名 / open_id 并汇报「待解析人物」。**同名陷阱** ——
+     中文名相同但 `feishu_id` 不同 = 不同的人,**不合并**、**向用户确认后**各自建节点;
+     `project`/`org`/`area` 按名比对,有歧义问用户。
    - **参与方立场分析**(细则 `references/digest-analysis.md`):`event` 除字面结论外,对每个关键参与方分析其立场、利益/动机、对决策的态度,并沉淀进对应 `person` 节点。**必须基于发言证据**,区分【观察】与【推断】,证据不足标「证据有限」,**不做无证据的发散猜测**。
    - **思路与视角沉淀**(细则 `references/digest-analysis.md`):摄取时若有人(使用者/主管/同事)陈述了对某 `project`/`area` 的思路、想法、打法或意图 → 在该节点「思路与视角」章节追加一条带日期、带作者、带【主张】/【意图】标记的条目(按事件发生时间倒序)。第一方陈述用【主张】/【意图】,从发言推断仍用【推断】;**绝不把主观意图当成客观结论**。跨主题、不挂某个项目的工作底色不进节点,留给使用者维护 `context.md`。
    - **结合 `context.md` 重点关注**(操作前必读已把 `context.md` 当透镜加载):凡正文或评论涉及
