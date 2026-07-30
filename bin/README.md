@@ -263,10 +263,19 @@ python3 bin/byteworker-cli.py source inspect \
   --field updated_at
 ```
 
+Meego 空间主页只做 URL 类型识别，并提示提供具体 Story View URL：
+
+```bash
+python3 bin/byteworker-cli.py source inspect \
+  --source-type meego \
+  --url "<meego-project-home-url>"
+```
+
 主要参数：
 
 - 通用：`--source-type`、`--url`、`--timeout`
-- Meego：`--project-key`、`--view-id`、可重复 `--field`
+- Meego：`--project-key`、`--view-id`、可重复 `--field`；空间主页返回
+  `SOURCE_SELECTION_REQUIRED`
 - Base：`--base-token`、`--table-id`、`--view-id`、可重复 `--field`
 - Aeolus：可重复 `--report-id`、`--filter-mode`、可重复 `--where`
 

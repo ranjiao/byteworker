@@ -55,8 +55,11 @@ byteworker 原生只读客户端读取，凭据只从环境变量或仓库外 `0
 `source inspect / capture` 也会执行同一 Auth Guard。资源级 Permission Denied / `91403`
 应请求所有者共享，禁止用重复登录或静默切 bot 掩盖。
 
-Meego / Base / 风神大视图统一采用“完整快照 + 稳定记录 ID 差异 + 知识晋升门槛”：raw 保留完整
-snapshot，`source diff` 只缩小语义复核范围；普通行不建节点，`left_view` 不等于删除，只有长期
+Meego 空间主页 URL 不直接 digest、不遍历空间，也不尝试搜索或用页面自动化发现视图；直接提醒
+用户提供包含 `/storyView/<view_id>` 的具体 Story View 页面 URL，收到明确视图后才进入
+inspect / capture。Meego / Base / 风神大视图统一采用“完整快照 +
+稳定记录 ID 差异 + 知识晋升门槛”：raw 保留完整 snapshot，`source diff` 只缩小语义复核范围；
+普通行不建节点，`left_view` 不等于删除，只有长期
 项目、明确决策、时间事件或稳定跨记录主题才进入实体图。查询其中的具体记录时必须用机器协议
 调用 `kb-query source-record`，禁止 Agent 直接扫描完整大 raw。细则见对应
 `references/digest-*.md` 与 `references/commands.md`。

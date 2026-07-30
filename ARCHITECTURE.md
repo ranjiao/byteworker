@@ -249,6 +249,12 @@ flowchart TD
     classDef warn fill:#fef3c7,stroke:#d97706,color:#78350f
 ```
 
+Meego 空间主页不是可持久化来源。operation adapter 只执行 `url decode` 判断 URL 类型，确认
+`project_home / project_overview` 后立即以 `SOURCE_SELECTION_REQUIRED` fail closed，提示用户
+提供包含 `/storyView/<view_id>` 的具体 Story View URL。该路径不触发 Auth Guard，不调用
+`project search / view search / view get`，也不使用页面自动化。收到明确保存视图后，流程才进入
+上图的 Profile / capture / Bundle。
+
 ### 2.4 查询与引用流程
 
 查询不是让 Agent 盲扫整个知识库，而是先确定性召回，再回到原始证据：
@@ -536,6 +542,8 @@ Bundle”误认为“也必须有同形态网络 capture”：
 | Bundle adapter | `meego`、`feishu_base`、`aeolus`、`feishu_chat`、`feishu_doc`、`feishu_minutes`、`web`、`local_md` | 所有单来源统一输出 `SourceBundle v2` |
 
 - Meego/Base/Aeolus 可用 `capture --bundle-out` 从完整 capture 同步产生 Bundle。
+- Meego `inspect / capture` 对空间主页返回 `SOURCE_SELECTION_REQUIRED`，不生成 Bundle 或
+  Profile，也不发起网络业务读取；用户提供具体 Story View URL 后才进入标准 inspect / capture。
 - `capture --bundle-out` 必须先在内存中完成 Bundle 校验，再预检并暂存两个不同的输出路径；
   第二个替换失败时恢复第一个文件，且拒绝 `--out` 与 `--bundle-out` 指向同一路径。通用
   `bundle request` 只接受 `capture_path`，拒绝同时存在的内联 capture，避免两份内容真相。

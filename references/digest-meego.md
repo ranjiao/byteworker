@@ -6,6 +6,12 @@
 
 ## 1. 范围与前置
 
+- 用户传入 `project_home` / `project_overview` 空间级 URL 时，不直接 digest、不遍历空间工作项，
+  也不调用 `project search` / `view search` 或页面自动化尝试发现视图。URL 解析确认是空间主页后，
+  立即返回 `SOURCE_SELECTION_REQUIRED`，提醒用户提供包含 `/storyView/<view_id>` 的具体
+  Story View 页面 URL。
+- 空间主页本身不作为来源，不创建 Profile、不写 raw，也不触发 OAuth。只有收到明确 Story View
+  URL 后才运行标准 `source inspect`，再进入下面的保存视图流程。
 - 仅接受 `meegle url decode` 识别为 `view_story / view_issue / view_workitem` 且返回稳定
   `view_id` 的项目内保存视图 URL；禁止手拆 URL。跨项目视图、甘特、图表暂不纳入第一版。
 - 先用机器协议运行 `source inspect`。它执行 Meego Auth Guard、把 `simple_name` 转为权威
@@ -28,6 +34,10 @@ python3 bin/byteworker-cli.py source auth-status \
 
 python3 bin/byteworker-cli.py source inspect \
   --source-type meego --url "<Meego 保存视图 URL>"
+
+# 空间主页：返回 SOURCE_SELECTION_REQUIRED，提示提供具体 Story View URL
+python3 bin/byteworker-cli.py source inspect \
+  --source-type meego --url "<Meego 空间主页 URL>"
 
 python3 bin/byteworker-cli.py source capture \
   --source-type meego --url "<Meego 保存视图 URL>" \

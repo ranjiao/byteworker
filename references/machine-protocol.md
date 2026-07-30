@@ -53,6 +53,8 @@ python3 bin/byteworker-cli.py source auth-status --source-type meego \
   --host project.feishu.cn
 python3 bin/byteworker-cli.py source auth-status --source-type feishu_base
 python3 bin/byteworker-cli.py source inspect --source-type meego --url "<Meego 视图 URL>"
+python3 bin/byteworker-cli.py source inspect --source-type meego \
+  --url "<Meego 空间主页 URL>"
 python3 bin/byteworker-cli.py source capture --source-type meego --url "<Meego 视图 URL>" \
   --field name --field status --out "<临时目录>/meego-capture.json" \
   --bundle-out "<临时目录>/meego-bundle.json"
@@ -98,7 +100,9 @@ python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
 
 `source capabilities` 分别列出 operation、Profile 与 Bundle 来源集合；三者是正交能力，
 不把“已有 Bundle adapter”误报成“也有同形网络 capture”。`source inspect` 只读返回真实
-字段/报表元数据与规模。`source profile-save` 严格校验
+字段/报表元数据与规模；Meego 空间主页在 URL decode 后返回
+`SOURCE_SELECTION_REQUIRED`，提示提供具体 Story View URL，不发起候选搜索、页面自动化或
+工作项读取。`source profile-save` 严格校验
 `byteworker-source-profile/v2`（当前 Meego/Base/群聊/飞书文档）并事务写入用户 KB；风神
 `source register` 继续写其兼容 v1 profile。后续按 `source_uid` capture，且不接受 CLI
 覆盖该 profile。Meego/Base/Aeolus `source capture --bundle-out` 在完整读取后同时写规范
