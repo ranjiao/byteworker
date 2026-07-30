@@ -1,0 +1,33 @@
+ARCHITECTURE.md
+  s_3c2c4b41051b06::t_4820060b1aa457 252-257,545-546
+SKILL.md
+  s_3c2c4b41051b06::t_16a4bb19364cc3 58-62
+bin/README.md
+  s_3c2c4b41051b06::t_254b53285c41ec 266-273,277-278
+lib/source_capture.py
+  s_3c2c4b41051b06::t_3da359a04bef56 52-55,814,816,818,829-839,846-847,987-998,1004
+references/digest-meego.md
+  s_3c2c4b41051b06::t_327578626ab13b 9-14,38-41
+references/machine-protocol.md
+  s_3c2c4b41051b06::t_ed1f6ee624619a 56-57,103-105
+tests/test_source_capture.py
+  s_3c2c4b41051b06::t_4bdfcb99db5d80 545-584
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "4356c750f677e45c0d7f746685aee2b0858ddc62",
+  "prompts": {},
+  "sessions": {
+    "s_3c2c4b41051b06": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb134-4420-7783-9036-8a95d43ceeec",
+        "model": "unknown"
+      },
+      "human_author": "Ran Jiao <ranjiao@gmail.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
