@@ -58,6 +58,8 @@
   对应条目,旧事实被推翻时移入「历史」。
 - `project` / `area`「思路与视角」:同日期 + 同作者 + 同来源 + 同【主张】/【意图】内容视为同一条。
 - `person`「协作历史与关键交互」:同日期 + 同 `event` / `raw_id` / `reading` 视为同一条。
+- `person` 通讯录部门变化:同日期 + 同旧 `department_path` + 同新 `department_path` 视为同一条；
+  只有非空新值与当前值不同时才追加，空查询不生成变化记录。
 - `org`「协作历史」:同日期 + 同来源节点 / `raw_id` 视为同一条。
 - `decision`「历史」:同来源 + 同状态变化视为同一条;同一决策新版本改变结论时,用
   `status: superseded` / `superseded_by` 或「历史」记录演进,不要制造同义重复 decision。

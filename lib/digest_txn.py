@@ -66,6 +66,9 @@ SHA_PREFIX = "sha256:"
 # sources.transaction_bridge so transaction core does not define providers.
 ALLOWED_SOURCE_TYPES = SUPPORTED_TRANSACTION_SOURCE_TYPES
 NODE_DIR_BY_TYPE = {node_type: dir_name for dir_name, node_type, _ in NODE_TYPES}
+DIRECTORY_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$"
+)
 PROTECTED_RAW_FIELDS = {
     "raw_id",
     "ingested",
@@ -719,6 +722,25 @@ def _validate_node_candidate(
         )
     if not body.strip():
         raise DigestTxnError(f"候选节点正文为空: {node_id}")
+    if node_type == "person":
+        feishu_id = str(fm.get("feishu_id", "")).strip()
+        if not feishu_id or feishu_id == "?":
+            raise DigestTxnError(
+                f"person 候选节点 {node_id} 缺少已解析的 frontmatter.feishu_id"
+            )
+        directory_verified_at = str(
+            fm.get("directory_verified_at", "")
+        ).strip()
+        if not DIRECTORY_TIMESTAMP_RE.fullmatch(directory_verified_at):
+            raise DigestTxnError(
+                f"person 候选节点 {node_id} 缺少合法的 "
+                "frontmatter.directory_verified_at"
+            )
+        enterprise_email = str(fm.get("enterprise_email", "")).strip()
+        if enterprise_email and "@" not in enterprise_email:
+            raise DigestTxnError(
+                f"person 候选节点 {node_id} 的 frontmatter.enterprise_email 非法"
+            )
 
     exists = target.exists()
     registered = existing_nodes.get(node_id)

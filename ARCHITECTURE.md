@@ -380,6 +380,12 @@ flowchart LR
     Reading -->|"影响"| Decision
 ```
 
+`person` 的实体消解与通讯录画像在 Agent 策略层和只读外部 helper 的边界完成：
+`bin/resolve-users.sh --format json` 以来源中的精确 `open_id` 查询 lark-contact，返回版本化的
+`byteworker-resolved-users/v1`；Agent 按 `feishu_id` 选择 person，并把同次查询的企业邮箱、
+当前部门路径和核验时间写入完整候选。事务层只校验候选契约，不调用通讯录。部门路径是可变属性，
+不是 provider-neutral org id；空结果不清除旧值，只有明确匹配已有 org 时才连边。
+
 ## 4. 代码层面的模块架构
 
 ### 4.1 分层与依赖方向
@@ -483,6 +489,7 @@ flowchart TB
 | `bin/kb-query.py` | search / evidence / source-record | 有覆盖信息的有限候选 |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
 | `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
+| `bin/resolve-users.sh` | 按 open_id 只读解析 person 身份与当前通讯录画像；默认 TSV 兼容旧调用 | `byteworker-resolved-users/v1` JSON 或兼容三列 TSV |
 | 其它 `bin/*.sh` | 外部拉取、索引/links 重建、viewer、安装与更新辅助 | 明确的文件或 JSON/文本回执 |
 
 机器协议只统一执行边界，不做插件发现，也不改变底层业务语义。
@@ -672,6 +679,7 @@ flowchart LR
 | `digest-plan/v2` | Agent + `digest_txn.py` | 只引用 Bundle，不复制 source/anchors；节点候选必须完整 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
+| `byteworker-resolved-users/v1` | `bin/resolve-users.sh` | 精确 open_id 输入；身份失败不创建 person；部门为空不表示调动；`resolved_at` 带时区 |
 | `byteworker-cli/v1` | `machine_protocol.py` | 稳定 `status/data/error/context`，不泄漏完整 argv 或正文 |
 | transaction receipt | `digest_txn.py` | `committed/noop` 语义明确；写入和 commit 同成同败 |
 
@@ -838,6 +846,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | `lib/source_capture.py` 单文件 | 保持旧 import 和成熟 capture 测试 | provider operation/transport 拆分完成且旧入口有兼容 facade |
 | `transaction_bridge.py` | 为旧 raw/frontmatter 物化 provider 字段 | 新 raw/query 不再依赖 legacy 字段 |
 | `record_projection.py` | 查询旧 Meego/Base/Aeolus snapshot | 兼容窗口结束或旧 raw 不再需要查询 |
+| `resolve-users.sh` 默认三列 TSV | 已有人工/Agent 调用可能按 `open_id/姓名/feishu_id` 消费 | 调用方全部切到 `--format json` 且用户同意结束兼容窗口 |
 
 任何兼容项的删除还必须同时满足：
 

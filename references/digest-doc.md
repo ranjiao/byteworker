@@ -40,7 +40,13 @@
 - **内部资料型文档 → `reading` 主记录**:若文档不是会议纪要/周报/项目状态,而是路线思考、方法论、调研、技术白皮书、方案复盘、原则阐释等"认知资产",主产 1 个 `reading` 节点(资料卡),并加读 `references/digest-reading.md`。`reading` 记录这篇资料本身的核心观点、方法框架、适用边界和可借鉴点;同时可按内容扇出明确 `decision`、更新相关 `project`/`area`/`person`/`org`。不要把整篇资料硬塞进某个项目或事件节点,项目只摘项目相关事实,事件只用于真实会议/评审/发布/讨论窗口。
   - 同一 `document_id` 的内部资料型文档重复 digest 时,默认更新已有 `reading` 主记录;只有用户
     明确要求把不同版本作为独立资料归档,才新建带版本后缀的 `reading`。
-- **人员 @ 提及解析**:`lark-doc` 返回的 `<cite type="user">` 是裸 `open_id`。digest 前运行 `bin/resolve-users.sh --from-doc <原文文件>`(或 `--ids ou_x,ou_y`)拿到 `open_id → 姓名 → feishu_id`(飞书英文 id = 企业邮箱前缀)映射,再建 / 更新 `person` 节点 —— `feishu_id` 写进 person frontmatter 字段(person 的 id 是稳定 slug、不随 `feishu_id` 变,见 DESIGN.md §2)。**不要手写解析逻辑。新建 person 必须有解析出的 `feishu_id`;解析不到则先不建 person,在 event / project 正文保留姓名或 open_id 并向用户报告待解析。**
+- **人员 @ 提及解析**:`lark-doc` 返回的 `<cite type="user">` 是裸 `open_id`。digest 前运行
+  `bin/resolve-users.sh --from-doc <原文文件> --format json`(或 `--ids ou_x,ou_y`)取得
+  `open_id / 姓名 / feishu_id / enterprise_email / department_path` 与顶层 `resolved_at`。
+  建 / 更新 `person` 时按 `references/digest-core.md` 同步身份和当前通讯录画像：
+  `resolved_at` 写为 `directory_verified_at`，可见的企业邮箱/部门写进 frontmatter 与「基本信息」。
+  **不要手写解析逻辑。新建 person 必须有解析出的 `feishu_id`;解析不到则先不建 person,在
+  event / project 正文保留姓名或 open_id 并向用户报告待解析。**
 - **同名消歧**:person 实体消解**按 `feishu_id` 比对**(全局唯一);**中文名相同但 `feishu_id` 不同 = 不同的人 → 不合并、向用户确认后各自建节点**;解析失败时先不建 person,向用户报告待解析人物(详见 `references/digest-core.md`「digest 扇出」的实体消解规则)。
 - **嵌入电子表格 / 多维表格**:文档里的 `<sheet>` / bitable 只返回占位 token,**关键数据在表格内**。
   先按 `references/digest-dependencies.md` 判断表内数据是否是当前结论 / 决策 / 风险成立所必需的

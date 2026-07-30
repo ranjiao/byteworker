@@ -646,6 +646,46 @@ class Doctor:
                         "person 缺少可用 feishu_id，属于待回填历史数据。",
                         repair="用 resolve-users/lark-contact 核实后回填；不要改节点 id。",
                     )
+                enterprise_email = str(
+                    frontmatter.get("enterprise_email", "")
+                ).strip()
+                department_path = str(
+                    frontmatter.get("department_path", "")
+                ).strip()
+                directory_verified_at = str(
+                    frontmatter.get("directory_verified_at", "")
+                ).strip()
+                if (
+                    enterprise_email or department_path
+                ) and not directory_verified_at:
+                    self.add(
+                        "warning",
+                        "PERSON_DIRECTORY_UNVERIFIED",
+                        relative,
+                        "person 已有通讯录字段，但缺少 directory_verified_at。",
+                        repair=(
+                            "用 resolve-users.sh --format json 重新核验；"
+                            "不要按现有正文猜写时间。"
+                        ),
+                    )
+                elif directory_verified_at and not TIMESTAMP_RE.fullmatch(
+                    directory_verified_at
+                ):
+                    self.add(
+                        "warning",
+                        "PERSON_DIRECTORY_TIMESTAMP_INVALID",
+                        relative,
+                        "directory_verified_at 不是带时区 ISO8601。",
+                        repair="重新运行通讯录解析并使用 resolved_at。",
+                    )
+                if enterprise_email and "@" not in enterprise_email:
+                    self.add(
+                        "warning",
+                        "PERSON_ENTERPRISE_EMAIL_INVALID",
+                        relative,
+                        "enterprise_email 不是合法邮箱形态。",
+                        repair="重新运行通讯录解析；不可见时删除该可选字段。",
+                    )
             body_title = extract_title(body)
             title = str(frontmatter.get("title", "")).strip()
             if not body_title:

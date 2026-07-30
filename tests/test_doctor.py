@@ -195,6 +195,63 @@ links: []
     def codes(self):
         return [item.code for item in scan(self.kb, ROOT).findings]
 
+    def test_person_directory_fields_require_valid_verification_metadata(self):
+        person = self.kb / "knowledge/people/person-zhang-san.md"
+        person.write_text(
+            """---
+id: person-zhang-san
+title: 张三
+type: person
+feishu_id: zhangsan
+enterprise_email: invalid-email
+department_path: Data-示例团队
+tags: []
+status: current
+created: 2026-07-30
+updated: 2026-07-30
+last_verified: 2026-07-30
+sources:
+  - https://example.test/person
+links: []
+---
+
+# 张三
+
+> **TL;DR:** 示例人员。
+
+## 基本信息
+## 负责什么
+## 协作历史与关键交互
+## 立场 / 利益 / 动机
+## 偏好 / 风格 / 注意点
+## 关联节点
+""",
+            encoding="utf-8",
+        )
+
+        codes = self.codes()
+
+        self.assertIn("PERSON_DIRECTORY_UNVERIFIED", codes)
+        self.assertIn("PERSON_ENTERPRISE_EMAIL_INVALID", codes)
+
+        text = person.read_text(encoding="utf-8")
+        text = text.replace(
+            "enterprise_email: invalid-email\n",
+            "enterprise_email: zhangsan@example.com\n"
+            "directory_verified_at: 2026-07-30T17:20:00+08:00\n",
+        )
+        person.write_text(text, encoding="utf-8")
+        codes = self.codes()
+        self.assertNotIn("PERSON_DIRECTORY_UNVERIFIED", codes)
+        self.assertNotIn("PERSON_ENTERPRISE_EMAIL_INVALID", codes)
+
+        text = person.read_text(encoding="utf-8").replace(
+            "directory_verified_at: 2026-07-30T17:20:00+08:00",
+            "directory_verified_at: 2026-07-30",
+        )
+        person.write_text(text, encoding="utf-8")
+        self.assertIn("PERSON_DIRECTORY_TIMESTAMP_INVALID", self.codes())
+
     def write_routine_raw(
         self,
         *,

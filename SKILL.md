@@ -152,6 +152,9 @@ provider capture。
 两个以上来源需要原子落库或共同更新一个节点时，使用 `digest-batch-plan/v1`；它仍只持一个短时
 写锁并产生一个 commit。所有业务 component、manifest 和候选文件都必须位于系统临时目录或
 知识库目录，事务 CLI 会拒绝 skill 仓库内路径。
+新建或更新 `person` 时必须用 `bin/resolve-users.sh --format json` 同次取得身份与通讯录画像：
+按 `feishu_id` 消解，记录 `directory_verified_at`，并在可见时同步企业邮箱和当前部门路径；
+部门变化保留历史，空结果不清除旧值。完整规则见 `references/digest-core.md`。
 其它写入遵守 `references/write-rules.md`;失败处理见 `references/error-handling.md`。
 
 ## search / update / brief / dashboard / context
