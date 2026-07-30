@@ -5,8 +5,9 @@
 
 ## 为什么需要统一入口
 
-历史 CLI 的输出结构和失败表达各不相同，调用方需要记住每个脚本的特殊分支。统一入口
-`bin/byteworker-cli.py` 不改变底层业务逻辑，只把确定性命令适配成稳定的
+历史 CLI 的输出结构和失败表达各不相同，调用方需要记住每个脚本的特殊分支。runtime-safe
+launcher `bin/byteworker <tool>` 会先选出 Python >=3.9 和一致的 Node/内部 CLI 环境，再交给
+`bin/byteworker-cli.py`；后者不改变底层业务逻辑，只把确定性命令适配成稳定的
 `byteworker-cli/v1` JSON envelope：
 
 ```json
@@ -21,111 +22,119 @@
 默认输出严格为单行 JSON，便于日志和流式调用；人工阅读时把全局 `--pretty` 放在 tool 前。
 进程退出码仍保留底层 CLI 的语义，调用方应同时检查退出码与 envelope。
 
+每个新 session 只先调用一次 `bin/byteworker preflight`。健康时命令完全无输出；有输出时解析
+`byteworker-session-preflight/v1.notices`。直接飞书命令用
+`bin/byteworker lark <lark-cli arguments>`；需要继承同一 Python/Node/PATH 的辅助脚本用
+`bin/byteworker run <command> ...`。`python3 bin/byteworker-cli.py` 仍兼容旧调用，但新 Agent
+流程不得猜 Python、nvm 或 lark-cli 路径。
+
 ## 调用方式
 
 ```bash
 # digest 事务
-python3 bin/byteworker-cli.py digest-txn preflight --kb "<知识库目录>" --source "<source.json>"
-python3 bin/byteworker-cli.py digest-txn validate --kb "<知识库目录>" --plan "<plan.json>"
-python3 bin/byteworker-cli.py digest-txn execute --kb "<知识库目录>" --plan "<plan.json>"
+bin/byteworker digest-txn preflight --kb "<知识库目录>" --source "<source.json>"
+bin/byteworker digest-txn validate --kb "<知识库目录>" --plan "<plan.json>"
+bin/byteworker digest-txn execute --kb "<知识库目录>" --plan "<plan.json>"
 
 # 查询与证据解析
-python3 bin/byteworker-cli.py kb-query search --kb "<知识库目录>" --query "<查询>"
-python3 bin/byteworker-cli.py kb-query evidence --kb "<知识库目录>" --node "<node-id>" --markers E1,E2
-python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" \
+bin/byteworker kb-query search --kb "<知识库目录>" --query "<查询>"
+bin/byteworker kb-query evidence --kb "<知识库目录>" --node "<node-id>" --markers E1,E2
+bin/byteworker kb-query source-record --kb "<知识库目录>" \
   --source-type meego --record-id "<work_item_id>"
-python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" \
+bin/byteworker kb-query source-record --kb "<知识库目录>" \
   --source-type feishu_base --title "<记录标题>" --limit 5
-python3 bin/byteworker-cli.py kb-query source-record --kb "<知识库目录>" \
+bin/byteworker kb-query source-record --kb "<知识库目录>" \
   --source-type aeolus --record-id "report:<report_id>"
 
 # doctor、Todo、provenance 回填
-python3 bin/byteworker-cli.py doctor scan --kb "<知识库目录>"
-python3 bin/byteworker-cli.py todo "<知识库目录>" check
-python3 bin/byteworker-cli.py provenance-backfill audit --kb "<知识库目录>"
+bin/byteworker doctor scan --kb "<知识库目录>"
+bin/byteworker todo "<知识库目录>" check
+bin/byteworker provenance-backfill audit --kb "<知识库目录>"
 
 # INDEX 确定性维护；先预演再执行
-python3 bin/byteworker-cli.py index rebuild --kb "<知识库目录>" --dry-run
-python3 bin/byteworker-cli.py index rebuild --kb "<知识库目录>"
+bin/byteworker index rebuild --kb "<知识库目录>" --dry-run
+bin/byteworker index rebuild --kb "<知识库目录>"
 
 # 自动更新状态；只读，不触发网络检查
-python3 bin/byteworker-cli.py update-status
+bin/byteworker update-status
 
-# 自动报告设置状态、跨任务租约和真实运行回执
-python3 bin/byteworker-cli.py report-automation status --kb "<知识库目录>"
-python3 bin/byteworker-cli.py report-automation lease --kb "<知识库目录>" \
+# 自动报告设置状态、缺口检查、跨任务租约和真实运行回执
+bin/byteworker report-automation status --kb "<知识库目录>"
+bin/byteworker report-automation check --kb "<知识库目录>" \
+  --kind daily --period "2026-07-30"
+bin/byteworker report-automation lease --kb "<知识库目录>" \
   --kind daily --period "2026-07-30" --owner codex
-python3 bin/byteworker-cli.py report-automation complete --kb "<知识库目录>" \
+bin/byteworker report-automation complete --kb "<知识库目录>" \
   --token "<lease token>" --run-status success \
   --report-path "reports/daily/2026-07-30.md"
 
 # 统一来源能力、Profile、capture 与 Bundle
-python3 bin/byteworker-cli.py source capabilities
-python3 bin/byteworker-cli.py source auth-status --source-type meego \
+bin/byteworker source capabilities
+bin/byteworker source auth-status --source-type meego \
   --host project.feishu.cn
-python3 bin/byteworker-cli.py source auth-status --source-type feishu_base
-python3 bin/byteworker-cli.py source inspect --source-type meego --url "<Meego 视图 URL>"
-python3 bin/byteworker-cli.py source inspect --source-type meego \
+bin/byteworker source auth-status --source-type feishu_base
+bin/byteworker source inspect --source-type meego --url "<Meego 视图 URL>"
+bin/byteworker source inspect --source-type meego \
   --url "<Meego 空间主页 URL>"
-python3 bin/byteworker-cli.py source capture --source-type meego --url "<Meego 视图 URL>" \
+bin/byteworker source capture --source-type meego --url "<Meego 视图 URL>" \
   --field name --field status --out "<临时目录>/meego-capture.json" \
   --bundle-out "<临时目录>/meego-bundle.json"
-python3 bin/byteworker-cli.py source profile-save --kb "<知识库目录>" \
+bin/byteworker source profile-save --kb "<知识库目录>" \
   --file "<临时目录>/meego-profile.json"
-python3 bin/byteworker-cli.py source capture --source-type meego \
+bin/byteworker source capture --source-type meego \
   --kb "<知识库目录>" --source-uid "meego:<project_key>:<view_id>" \
   --out "<临时目录>/meego-capture.json"
-python3 bin/byteworker-cli.py source diff --kb "<知识库目录>" \
+bin/byteworker source diff --kb "<知识库目录>" \
   --source-uid "meego:<project_key>:<view_id>" \
   --current "<本次 capture.json>" --out "<临时目录>/meego-diff.json"
-python3 bin/byteworker-cli.py source inspect --source-type feishu_base --url "<Base 视图 URL>"
-python3 bin/byteworker-cli.py source capture --source-type feishu_base --url "<Base 视图 URL>" \
+bin/byteworker source inspect --source-type feishu_base --url "<Base 视图 URL>"
+bin/byteworker source capture --source-type feishu_base --url "<Base 视图 URL>" \
   --field fld_title --field fld_status --out "<临时目录>/base-capture.json" \
   --bundle-out "<临时目录>/base-bundle.json"
-python3 bin/byteworker-cli.py source auth-status --source-type aeolus
-python3 bin/byteworker-cli.py source inspect --source-type aeolus --url "<风神 dashboard URL>"
-python3 bin/byteworker-cli.py source register --source-type aeolus \
+bin/byteworker source auth-status --source-type aeolus
+bin/byteworker source inspect --source-type aeolus --url "<风神 dashboard URL>"
+bin/byteworker source register --source-type aeolus \
   --kb "<知识库目录>" --url "<风神 dashboard URL>" \
   --report-id "<report_id>" --filter-mode dashboard --routine weekly
-python3 bin/byteworker-cli.py source profiles --kb "<知识库目录>" --source-type aeolus
-python3 bin/byteworker-cli.py source capture --source-type aeolus \
+bin/byteworker source profiles --kb "<知识库目录>" --source-type aeolus
+bin/byteworker source capture --source-type aeolus \
   --kb "<知识库目录>" \
   --source-uid "aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>" \
   --out "<临时目录>/aeolus-capture.json" \
   --bundle-out "<临时目录>/aeolus-bundle.json"
-python3 bin/byteworker-cli.py source capture --source-type feishu_chat \
+bin/byteworker source capture --source-type feishu_chat \
   --kb "<知识库目录>" --source-uid "<chat_id>" \
   --out "<临时目录>/chat-bundle.json"
-python3 bin/byteworker-cli.py source bundle-spec --source-type feishu_minutes
-python3 bin/byteworker-cli.py source bundle-spec --source-type feishu_doc
-python3 bin/byteworker-cli.py source bundle --source-type web \
+bin/byteworker source bundle-spec --source-type feishu_minutes
+bin/byteworker source bundle-spec --source-type feishu_doc
+bin/byteworker source bundle --source-type web \
   --request "<临时目录>/web-bundle-request.json" \
   --out "<临时目录>/web-bundle.json"
 
 # 按需 Wiki 空间探索（普通 Wiki 文档仍走 feishu_doc）
-python3 bin/byteworker-cli.py wiki auth-status
-python3 bin/byteworker-cli.py wiki inspect --url "<Wiki URL>"
-python3 bin/byteworker-cli.py wiki scan --kb "<知识库目录>" --url "<Wiki URL>"
-python3 bin/byteworker-cli.py wiki scan --kb "<知识库目录>" \
+bin/byteworker wiki auth-status
+bin/byteworker wiki inspect --url "<Wiki URL>"
+bin/byteworker wiki scan --kb "<知识库目录>" --url "<Wiki URL>"
+bin/byteworker wiki scan --kb "<知识库目录>" \
   --source-uid "feishu_wiki:<space_id>:<root_node_token>"
-python3 bin/byteworker-cli.py wiki topics --kb "<知识库目录>" \
+bin/byteworker wiki topics --kb "<知识库目录>" \
   --space-id "<space_id>" --limit 30
-python3 bin/byteworker-cli.py wiki candidates --kb "<知识库目录>" \
+bin/byteworker wiki candidates --kb "<知识库目录>" \
   --space-id "<space_id>" --root-node-token "<node_token>" \
   --out "<临时目录>/wiki-selection.json"
 
 # 已确认页面的可恢复批量任务
-python3 bin/byteworker-cli.py digest-job create --kb "<知识库目录>" \
+bin/byteworker digest-job create --kb "<知识库目录>" \
   --selection "<临时目录>/wiki-selection.json" --batch-size 5
-python3 bin/byteworker-cli.py digest-job list --kb "<知识库目录>" --active
-python3 bin/byteworker-cli.py digest-job next --kb "<知识库目录>" \
+bin/byteworker digest-job list --kb "<知识库目录>" --active
+bin/byteworker digest-job next --kb "<知识库目录>" \
   --job-id "<job_id>" --limit 5 --lease-owner "<session_id>"
-python3 bin/byteworker-cli.py digest-job mark --kb "<知识库目录>" \
+bin/byteworker digest-job mark --kb "<知识库目录>" \
   --job-id "<job_id>" --document-id "<document_id>" \
   --status committed --raw-id "<raw_id>" --commit "<commit>"
 
 # 人工可读输出
-python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
+bin/byteworker --pretty doctor scan --kb "<知识库目录>"
 ```
 
 `source auth-status` 只读且不发起 OAuth。它返回
@@ -141,7 +150,7 @@ python3 bin/byteworker-cli.py --pretty doctor scan --kb "<知识库目录>"
 仓库或 Git。拿不准时先运行：
 
 ```bash
-python3 bin/byteworker-cli.py source bundle-spec \
+bin/byteworker source bundle-spec \
   --source-type "<source_type>"
 ```
 
@@ -208,7 +217,7 @@ SourceBundle；被选页面仍逐个走 `feishu_doc` 标准事务。
 `journal_written=false/git_commit_created=false`，调用方随后按写入规范收尾。
 
 若底层参数需要与 facade 自身参数隔离，可在 tool 后加 `--`；例如
-`python3 bin/byteworker-cli.py doctor -- scan --kb "<知识库目录>"`。
+`bin/byteworker doctor -- scan --kb "<知识库目录>"`。
 
 ## 兼容边界
 

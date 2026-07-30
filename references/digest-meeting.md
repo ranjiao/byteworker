@@ -56,8 +56,8 @@ Bundle、plan 和候选节点必须全部放系统临时目录或知识库目录
 不要猜 provider request。先查询实际契约：
 
 ```bash
-python3 bin/byteworker-cli.py source bundle-spec --source-type feishu_minutes
-python3 bin/byteworker-cli.py source bundle-spec --source-type feishu_doc
+bin/byteworker source bundle-spec --source-type feishu_minutes
+bin/byteworker source bundle-spec --source-type feishu_doc
 ```
 
 `feishu_minutes.source_uid` 直接写 minute token；`feishu_doc.source_uid` 直接写
@@ -81,7 +81,7 @@ jq -n \
     transcript:{path:$transcript}}' \
   > "$BYTEWORKER_MEETING_TMP/minutes-request.json"
 
-python3 bin/byteworker-cli.py source bundle \
+bin/byteworker source bundle \
   --source-type feishu_minutes \
   --request "$BYTEWORKER_MEETING_TMP/minutes-request.json" \
   --out "$BYTEWORKER_MEETING_TMP/minutes-bundle.json"
@@ -98,7 +98,7 @@ jq -n \
     provider_metadata:{comments_status:"unavailable"}}' \
   > "$BYTEWORKER_MEETING_TMP/doc-request.json"
 
-python3 bin/byteworker-cli.py source bundle \
+bin/byteworker source bundle \
   --source-type feishu_doc \
   --request "$BYTEWORKER_MEETING_TMP/doc-request.json" \
   --out "$BYTEWORKER_MEETING_TMP/doc-bundle.json"
@@ -110,11 +110,11 @@ python3 bin/byteworker-cli.py source bundle \
 ### 3. 逐来源 preflight
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn preflight \
+bin/byteworker digest-txn preflight \
   --kb "<知识库目录>" \
   --source "$BYTEWORKER_MEETING_TMP/minutes-bundle.json"
 
-python3 bin/byteworker-cli.py digest-txn preflight \
+bin/byteworker digest-txn preflight \
   --kb "<知识库目录>" \
   --source "$BYTEWORKER_MEETING_TMP/doc-bundle.json"
 ```
@@ -138,11 +138,11 @@ python3 bin/byteworker-cli.py digest-txn preflight \
 ### 5. 校验并一次执行
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn validate \
+bin/byteworker digest-txn validate \
   --kb "<知识库目录>" \
   --plan "$BYTEWORKER_MEETING_TMP/meeting-batch-plan.json"
 
-python3 bin/byteworker-cli.py digest-txn execute \
+bin/byteworker digest-txn execute \
   --kb "<知识库目录>" \
   --plan "$BYTEWORKER_MEETING_TMP/meeting-batch-plan.json"
 ```

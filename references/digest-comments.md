@@ -8,7 +8,7 @@
 1. 正文用 `lark-doc +fetch --api-version v2 --detail with-ids` 拉取;评论单独运行:
 
    ```bash
-   python3 bin/pull_doc_comments.py --url "<飞书文档 URL>" --pretty > <临时 JSON>
+   bin/byteworker run bin/pull_doc_comments.py --url "<飞书文档 URL>" --pretty > <临时 JSON>
    ```
 
    临时文件只能放系统临时目录或知识库数据目录,**不得写进 skill 仓库**。脚本固定请求
@@ -43,7 +43,7 @@
 ## 人员优先级
 
 先读 `context.md`,再把评论 / 回复里的 `user_id` 批量交给
-`bin/resolve-users.sh --ids ... --format json`，解析姓名、`feishu_id` 与当前通讯录画像;
+`bin/byteworker run bin/resolve-users.sh --ids ... --format json`，解析姓名、`feishu_id` 与当前通讯录画像;
 新建 / 更新 person 的规则仍按 `references/digest-doc.md`。
 
 - **P0 必看**:

@@ -15,7 +15,7 @@
 **重建 INDEX(一等操作)** —— 不只在「文件数 ≠ 行数」时兜底触发;任何时候用户说「重建索引」「INDEX 不对」,或你怀疑 INDEX 与节点不一致,都可直接执行:
 
 1. Agent / 自动化通过机器协议运行
-   `python3 bin/byteworker-cli.py index rebuild --kb <数据目录> --dry-run` 预演，确认后去掉
+   `bin/byteworker index rebuild --kb <数据目录> --dry-run` 预演，确认后去掉
    `--dry-run` 执行；人工排障仍可运行 `bin/rebuild-index.sh`。
 2. 脚本扫 `knowledge/` 下全部 7 类节点的 frontmatter + body 首行 TL;DR,按 DESIGN.md §6 的分节格式重新生成整个 `INDEX.md`。
 3. 「定期摄取清单」优先由 `sources/` profiles 的 routine 派生；没有 profile 的旧来源才兼容

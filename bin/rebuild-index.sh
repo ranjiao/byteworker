@@ -39,10 +39,11 @@ if [ -z "$KB" ]; then
 fi
 [ -n "$KB" ] && [ -d "$KB" ] || { echo "错误:知识库数据目录不存在:$KB" >&2; exit 1; }
 [ -d "$KB/knowledge" ] || { echo "错误:$KB 下没有 knowledge/,似乎不是知识库数据目录" >&2; exit 1; }
-command -v python3 >/dev/null 2>&1 || { echo "错误:未找到 python3" >&2; exit 1; }
+PYTHON_BIN="${BYTEWORKER_PYTHON_BIN:-python3}"
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || { echo "错误:未找到可用 Python" >&2; exit 1; }
 
 ARGS=("$KB")
 [ "$DRYRUN" -eq 1 ] && ARGS+=(--dry-run)
 
-python3 "$SELF_DIR/rebuild_index.py" "${ARGS[@]}"
+"$PYTHON_BIN" "$SELF_DIR/rebuild_index.py" "${ARGS[@]}"
 exit $?

@@ -70,21 +70,26 @@ git clone https://github.com/ranjiao/byteworker.git "$TARGET"
 
 按退出码处理:
 - **Tier 1**(`git` / `jq` / `bash` / `python3 >= 3.9`)缺失 → 帮用户装上(macOS `brew`,Linux `apt`)。
-- **Tier 2**(`lark-cli` + `meegle` + 对应 skills)缺失 → 使用对应内部来源才需要,可稍后补。
+- **Tier 2**(可启动的 Node、`lark-cli`、`meegle`)缺失 → 使用对应内部来源才需要,可稍后补。
   按[飞书 CLI 官方安装指南](https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md)
   装 `lark-cli` 与 `lark-doc / minutes / vc / im / calendar / contact / base` 等 skill。
   摄取 Meego 保存视图时另装 `meegle` 与 `meegle` skill。登录和最小授权放到下一步,
   不要在用户未选择前自动打开 OAuth。
   风神读取由 byteworker 自带的标准库只读客户端完成，不需要安装额外 CLI；凭据配置放到下一步。
 
+`check-deps.sh` 和运行期 `bin/byteworker preflight` 共用同一个 resolver：会验证真实 Python
+版本和 `zoneinfo`，并从当前 PATH、`~/.local/bin`、Volta、Homebrew 与已安装 NVM 版本中寻找
+可启动的 Node / lark-cli / meegle。不要把某个 session 当前的 `command -v` 结果当作唯一安装
+位置。
+
 ### 5. 询问可选来源授权
 
 依赖安装和“用户授权”是两件事。Meego / Base 需要对应 CLI；风神直接运行原生客户端的只读检查:
 
 ```bash
-python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type meego
-python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type feishu_base
-python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type aeolus
+"$TARGET/bin/byteworker" source auth-status --source-type meego
+"$TARGET/bin/byteworker" source auth-status --source-type feishu_base
+"$TARGET/bin/byteworker" source auth-status --source-type aeolus
 ```
 
 `status=success` 只表示检查命令正常完成；必须看 `data.ready`。若所选来源都已
@@ -103,16 +108,16 @@ python3 "$TARGET/bin/byteworker-cli.py" source auth-status --source-type aeolus
   以 `source auth-status` 返回的 `data.action.command` 为准发起 split-flow；当前命令形如:
 
   ```bash
-  lark-cli auth login \
+  "$TARGET/bin/byteworker" lark auth login \
     --scope "base:app:read base:table:read base:field:read base:view:read base:record:read" \
     --no-wait --json
   ```
 
-  若 `lark-cli` 尚未初始化,先运行 `lark-cli config init --new`。发起授权后,把返回的
+  若 `lark-cli` 尚未初始化,先运行 `"$TARGET/bin/byteworker" lark config init --new`。发起授权后,把返回的
   `verification_url` **原样**展示给用户,并运行
-  `lark-cli auth qrcode "<verification_url>" --output "<cwd 下的相对 PNG 路径>"`
+  `"$TARGET/bin/byteworker" lark auth qrcode "<verification_url>" --output "<cwd 下的相对 PNG 路径>"`
   展示二维码；本轮到此结束。用户回复已完成后,由安装助手执行
-  `lark-cli auth login --device-code <本次流程返回的 device_code>` 收尾,再运行
+  `"$TARGET/bin/byteworker" lark auth login --device-code <本次流程返回的 device_code>` 收尾,再运行
   `source auth-status` 验证。URL / device code 只用于这一次进行中的授权,不得写入
   skill 仓库或知识库。
 - **风神** 使用 byteworker 原生只读客户端，不依赖其它 CLI。凭据按以下优先级选择一种：
@@ -153,7 +158,7 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
 - 初始化完成后，读取 `"$TARGET/references/report-scheduling.md"`，通过机器协议检查：
 
   ```bash
-  python3 "$TARGET/bin/byteworker-cli.py" report-automation status \
+  "$TARGET/bin/byteworker" report-automation status \
     --kb "<知识库绝对路径>"
   ```
 
@@ -173,7 +178,9 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
   2. 选择知识库数据目录作为任务项目，且只能用**本地**运行环境。
   3. 创建前搜索同名 / 同 prompt 任务，优先更新，不重复创建。
   4. 日报使用 `templates/report-automation-daily.md`，周报使用
-     `templates/report-automation-weekly.md`。
+     `templates/report-automation-weekly.md`；另建
+     `templates/report-automation-recovery.md` 补偿任务，默认每天
+     08:30、12:30、18:30、22:30 检查失败或错过的 period。
   5. 立即 Run now 验证一次；只有报告、journal 和知识库本地 commit 真实完成后才调用
      `report-automation configure` 记录 configured。
 - 当前宿主的具体设置：
@@ -301,9 +308,9 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"
 
 # 4. 可选:只读检查 Meego / Base / 风神授权状态(不会打开 OAuth)
-python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type meego
-python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type feishu_base
-python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type aeolus
+"$SKILLS_DIR/byteworker/bin/byteworker" source auth-status --source-type meego
+"$SKILLS_DIR/byteworker/bin/byteworker" source auth-status --source-type feishu_base
+"$SKILLS_DIR/byteworker/bin/byteworker" source auth-status --source-type aeolus
 ```
 
 若 `data.ready=false`,按上面第 5 步的相应流程授权；不打算摄取该来源可直接跳过。

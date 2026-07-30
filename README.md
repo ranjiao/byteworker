@@ -35,7 +35,14 @@
 **7. 报告由宿主自动调度**
 日报 / 周报不要求用户每天记命令。首次安装会引导你用 Codex、Claude 或 TRAE 的原生本地
 定时任务自动运行；每次自动日报和周报都先检查并 digest 已登记的定期来源，再生成带出处的
-报告快照。需要修复历史报告时仍可用自然语言要求补跑。
+报告快照。独立补偿任务会按 Byteworker 的 last-success 状态检查离线或休眠造成的缺口；
+需要修复历史报告时仍可用自然语言要求补跑。
+
+**8. 新 session 只有一次静默 preflight**
+Agent 每个 session 只调用一次 `bin/byteworker preflight`：自动更新、知识库定位、Todo、自动报告
+设置与 Python/Node/lark-cli/meegle runtime 一次检查完。健康时完全没有输出；只有确实需要处理
+时才返回有限 notice。后续命令统一通过 `bin/byteworker` 启动，不依赖 Agent 猜 NVM 或 Python
+路径。
 
 ## 用法
 
@@ -75,8 +82,9 @@ bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 pyth
 | **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.9` | Python 用于确定性维护 Todo / 索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
 | **内部数据源** | `lark-cli` + `meegle` + 对应 skills + 用户授权 | 文档 / Base 使用 `lark-cli`;Meego 使用独立的 `meegle` OAuth；风神由 byteworker 原生只读客户端访问，只需单独注入用户态或服务态凭据。安装助手会询问现在启用哪些来源,跳过后也会在首次使用时引导|
 
-装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)。依赖就绪不等于授权就绪；
-可用 `python3 bin/byteworker-cli.py source auth-status --source-type meego`、
+装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)，运行期使用同一套 resolver 自动
+发现 NVM、`~/.local/bin`、venv 和常见系统路径。依赖就绪不等于授权就绪；
+可用 `bin/byteworker source auth-status --source-type meego`、
 `--source-type feishu_base` 或 `--source-type aeolus` 做无副作用检查。
 
 ## 安装
@@ -100,9 +108,9 @@ SKILLS_DIR=~/.claude/skills
 git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 "$SKILLS_DIR/byteworker/bin/check-deps.sh"      # 自查依赖,按提示补齐
 # 可选:无副作用检查来源授权；ready=false 时按 INSTALL.md 第 5 步选择是否授权
-python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type feishu_base
+"$SKILLS_DIR/byteworker/bin/byteworker" source auth-status --source-type feishu_base
 # 风神（凭据配置见 INSTALL.md）
-python3 "$SKILLS_DIR/byteworker/bin/byteworker-cli.py" source auth-status --source-type aeolus
+"$SKILLS_DIR/byteworker/bin/byteworker" source auth-status --source-type aeolus
 ```
 
 把 skill **直接 clone 进 agent 的 skills 目录**(而非 clone 到别处再 symlink)—— 这样最稳,且自动更新依赖的 `git` remote 一步到位。沙箱 / 云环境、多 agent 共用、残留修复等细节见 [`INSTALL.md`](INSTALL.md)。

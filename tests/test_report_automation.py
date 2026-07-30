@@ -15,6 +15,7 @@ if str(LIB) not in sys.path:
 from report_automation import (  # noqa: E402
     ReportAutomationError,
     acquire_lease,
+    check_period,
     complete_run,
     configure,
     record_decision,
@@ -82,10 +83,17 @@ class ReportAutomationTests(unittest.TestCase):
                 weekly_schedule="周一 09:30",
                 daily_task_id="daily-1",
                 weekly_task_id="weekly-1",
+                recovery_schedule="每天 08:30/12:30/18:30/22:30",
+                recovery_task_id="recovery-1",
             )
             self.assertEqual("configured", configured["decision"])
             self.assertEqual("local", configured["environment"])
             self.assertEqual("daily-1", configured["daily"]["native_task_id"])
+            self.assertTrue(configured["recovery"]["enabled"])
+            self.assertEqual(
+                "recovery-1",
+                configured["recovery"]["native_task_id"],
+            )
             self.assertFalse(configured["needs_onboarding"])
 
     def test_single_lease_blocks_overlap_and_expiry_allows_recovery(self):
@@ -99,6 +107,11 @@ class ReportAutomationTests(unittest.TestCase):
                 owner="codex",
                 lease_seconds=60,
                 now=now,
+            )
+            running = status(kb, now=now)
+            self.assertEqual(
+                "running",
+                running["daily"]["last_attempt"]["status"],
             )
             with self.assertRaises(ReportAutomationError) as caught:
                 acquire_lease(
@@ -169,6 +182,10 @@ class ReportAutomationTests(unittest.TestCase):
                 "reports/daily/2026-07-30.md",
                 payload["daily"]["last_run"]["report_path"],
             )
+            self.assertEqual(
+                payload["daily"]["last_run"],
+                payload["daily"]["last_success"],
+            )
 
             with self.assertRaises(ReportAutomationError) as caught:
                 complete_run(
@@ -217,6 +234,156 @@ class ReportAutomationTests(unittest.TestCase):
             )
             self.assertEqual("SOURCE_AUTH_REQUIRED", failed["error_code"])
 
+    def test_failure_does_not_overwrite_last_success(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+            first = acquire_lease(
+                kb,
+                kind="daily",
+                period="2026-07-29",
+                owner="codex",
+                lease_seconds=60,
+                now=now,
+            )
+            successful = complete_run(
+                kb,
+                token=first["token"],
+                run_status="success",
+                report_path="reports/daily/2026-07-29.md",
+                now=now + timedelta(seconds=10),
+            )
+            second = acquire_lease(
+                kb,
+                kind="daily",
+                period="2026-07-30",
+                owner="codex",
+                lease_seconds=60,
+                now=now + timedelta(seconds=20),
+            )
+            complete_run(
+                kb,
+                token=second["token"],
+                run_status="failed",
+                error_code="SOURCE_NETWORK_ERROR",
+                now=now + timedelta(seconds=30),
+            )
+            payload = status(kb, now=now + timedelta(seconds=31))
+            self.assertEqual("failed", payload["daily"]["last_run"]["status"])
+            self.assertEqual(successful, payload["daily"]["last_success"])
+
+    def test_check_period_reports_disabled_busy_complete_and_due(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+
+            disabled = check_period(
+                kb,
+                kind="daily",
+                period="2026-07-30",
+                now=now,
+            )
+            self.assertEqual("disabled", disabled["status"])
+            self.assertFalse(disabled["should_run"])
+
+            configure(
+                kb,
+                harness="codex",
+                timezone_name="Asia/Shanghai",
+                environment="local",
+                daily_schedule="工作日 20:30",
+                weekly_schedule="周一 09:30",
+                now=now,
+            )
+            due = check_period(
+                kb,
+                kind="daily",
+                period="2026-07-30",
+                now=now,
+            )
+            self.assertEqual("due", due["status"])
+            self.assertEqual("period_not_succeeded", due["reason"])
+
+            lease = acquire_lease(
+                kb,
+                kind="daily",
+                period="2026-07-30",
+                owner="codex",
+                lease_seconds=60,
+                now=now,
+            )
+            busy = check_period(
+                kb,
+                kind="daily",
+                period="2026-07-30",
+                now=now + timedelta(seconds=10),
+            )
+            self.assertEqual("busy", busy["status"])
+            self.assertFalse(busy["should_run"])
+            self.assertNotIn("token", busy["active_lease"])
+
+            complete_run(
+                kb,
+                token=lease["token"],
+                run_status="success",
+                report_path="reports/daily/2026-07-30.md",
+                now=now + timedelta(seconds=20),
+            )
+            complete = check_period(
+                kb,
+                kind="daily",
+                period="2026-07-30",
+                now=now + timedelta(seconds=21),
+            )
+            self.assertEqual("complete", complete["status"])
+            self.assertFalse(complete["should_run"])
+
+            next_period = check_period(
+                kb,
+                kind="daily",
+                period="2026-07-31",
+                now=now + timedelta(seconds=22),
+            )
+            self.assertEqual("due", next_period["status"])
+            self.assertTrue(next_period["should_run"])
+
+    def test_check_period_marks_failed_period_due(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+            configure(
+                kb,
+                harness="codex",
+                timezone_name="Asia/Shanghai",
+                environment="local",
+                daily_schedule="工作日 20:30",
+                weekly_schedule="周一 09:30",
+                now=now,
+            )
+            lease = acquire_lease(
+                kb,
+                kind="weekly",
+                period="2026-W30",
+                owner="codex",
+                lease_seconds=60,
+                now=now,
+            )
+            complete_run(
+                kb,
+                token=lease["token"],
+                run_status="failed",
+                error_code="SOURCE_NETWORK_ERROR",
+                now=now + timedelta(seconds=10),
+            )
+            result = check_period(
+                kb,
+                kind="weekly",
+                period="2026-W30",
+                now=now + timedelta(seconds=11),
+            )
+            self.assertEqual("due", result["status"])
+            self.assertEqual("period_failed", result["reason"])
+
     def test_direct_cli_and_machine_facade_return_structured_json(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))
@@ -254,6 +421,37 @@ class ReportAutomationTests(unittest.TestCase):
             payload = json.loads(facade.stdout)
             self.assertEqual("success", payload["status"])
             self.assertTrue(payload["data"]["needs_onboarding"])
+
+            configure(
+                kb,
+                harness="codex",
+                timezone_name="Asia/Shanghai",
+                environment="local",
+                daily_schedule="工作日 20:30",
+                weekly_schedule="周一 09:30",
+            )
+            checked = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "bin" / "byteworker-cli.py"),
+                    "report-automation",
+                    "check",
+                    "--kb",
+                    str(kb),
+                    "--kind",
+                    "daily",
+                    "--period",
+                    "2026-07-30",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            checked_payload = json.loads(checked.stdout)
+            self.assertEqual("success", checked_payload["status"])
+            self.assertTrue(checked_payload["data"]["should_run"])
 
 
 if __name__ == "__main__":

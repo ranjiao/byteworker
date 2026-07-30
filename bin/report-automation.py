@@ -17,6 +17,7 @@ if str(LIB) not in sys.path:
 from report_automation import (  # noqa: E402
     ReportAutomationError,
     acquire_lease,
+    check_period,
     complete_run,
     configure,
     record_decision,
@@ -56,6 +57,13 @@ def parser() -> argparse.ArgumentParser:
     setup.add_argument("--weekly-schedule", required=True)
     setup.add_argument("--daily-task-id", default="")
     setup.add_argument("--weekly-task-id", default="")
+    setup.add_argument("--recovery-schedule", default="")
+    setup.add_argument("--recovery-task-id", default="")
+
+    check = sub.add_parser("check")
+    check.add_argument("--kb", required=True, type=Path)
+    check.add_argument("--kind", required=True, choices=("daily", "weekly"))
+    check.add_argument("--period", required=True)
 
     lease = sub.add_parser("lease")
     lease.add_argument("--kb", required=True, type=Path)
@@ -104,6 +112,14 @@ def _run(args: argparse.Namespace) -> object:
             weekly_schedule=args.weekly_schedule,
             daily_task_id=args.daily_task_id,
             weekly_task_id=args.weekly_task_id,
+            recovery_schedule=args.recovery_schedule,
+            recovery_task_id=args.recovery_task_id,
+        )
+    if args.operation == "check":
+        return check_period(
+            kb,
+            kind=args.kind,
+            period=args.period,
         )
     if args.operation == "lease":
         return acquire_lease(

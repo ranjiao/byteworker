@@ -37,7 +37,7 @@ class ReportSchedulingContractTests(unittest.TestCase):
         ):
             with self.subTest(term=term):
                 self.assertIn(term, install)
-        self.assertIn("这是本版本给老用户的一次性迁移提示", skill)
+        self.assertIn("references/report-scheduling.md", skill)
         self.assertIn("一次性迁移", scheduling)
         self.assertIn("decision --value prompted", scheduling)
         self.assertIn("declined", scheduling)
@@ -61,6 +61,24 @@ class ReportSchedulingContractTests(unittest.TestCase):
         self.assertIn("所有已登记且启用", daily)
         self.assertIn("所有已登记且启用", weekly)
 
+    def test_recovery_task_checks_last_success_before_retrying(self):
+        recovery = self.read("templates/report-automation-recovery.md")
+        scheduling = self.read("references/report-scheduling.md")
+        for term in (
+            "report-automation check",
+            "should_run=true",
+            "last_success",
+            "补跑一期",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, recovery)
+                self.assertIn(term, scheduling)
+        self.assertIn("08:30、12:30、18:30、22:30", scheduling)
+        self.assertIn(
+            "templates/report-automation-recovery.md",
+            self.read("INSTALL.md"),
+        )
+
     def test_scheduler_is_local_and_harness_owned(self):
         scheduling = self.read("references/report-scheduling.md")
         architecture = self.read("ARCHITECTURE.md")
@@ -68,6 +86,7 @@ class ReportSchedulingContractTests(unittest.TestCase):
         self.assertIn("系统 cron / launchd", scheduling)
         self.assertIn("宿主本地定时任务", architecture)
         self.assertIn("不承担任务唤醒", architecture)
+        self.assertIn("第三个宿主原生任务唤醒", architecture)
 
 
 if __name__ == "__main__":

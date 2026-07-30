@@ -29,22 +29,27 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
 
 ## 操作前必读
 
-**自动更新(最先做)**:每次使用本 skill,先静默运行 `bin/update-check.sh` —— 成功检查后 7 天内不重复检查；网络 / fast-forward 失败不会伪装成成功,而会按短周期指数退避重试。脚本用跨进程锁避免并发更新,并把检查与 post-update doctor 状态原子写入 `.update-state.json`。只有代码确实更新后才运行 post-update doctor:按 `auto_fix` 白名单修复确定性低成本问题、复扫并创建知识库本地回滚提交；若 doctor 未完成,记录 pending 并独立重试,不重复 merge。脚本**有输出**就把那一行转告用户,**无输出**则静默继续(代码更新于下次使用生效)。
+**统一 session preflight(最先做且只做一次)**:每个新 session 第一次使用本 skill 时运行
+`bin/byteworker preflight`。本次明确要访问尚未登记的飞书来源时加 `--require feishu`，访问 Meego
+时加 `--require meego`；已登记的来源会从知识库 `sources/` 自动推导，不用重复声明。
 
-- doctor 结果含无法自动处理的 `error`、修复失败或相关文件正被编辑 → 告知“严重问题”,请用户决定是否立即检查,当前业务请求可在不依赖损坏数据时继续。
-- 只剩 `warning` / `info` → 用脚本给出的单行数量摘要告知,让用户选择忽略或立即处理;不要展开全量 finding。
-- 自动更新没有发生且没有 pending postflight → 不运行 post-update doctor,避免每次调用都做全库扫描。
-
-- **无需 GitHub 账号/SSH key**:仓库是 public repo,脚本会自动使用 HTTPS 拉取;若你当前 origin 是 SSH(`git@github.com`) 但环境无 SSH key,脚本会 fallback 到 HTTPS 临时拉取,**默认不改写 origin**。确需让脚本补 / 改 remote 时,手动设置 `BYTEWORKER_AUTO_UPDATE_MUTATE_ORIGIN=1` 后再运行。
-- **主动触发**:用户说"更新 skill""检查更新""byteworker 有新版吗" → 调用 `bin/update-check.sh --force`(跳过 7 天周期,立即检查)。
-- **失败提示**:网络不通/本地有改动导致无法 fast-forward 时,脚本会输出一行提示并记录失败原因 / 下次重试时间 —— 把提示转告用户即可。排障时用 `python3 bin/byteworker-cli.py update-status` 查看状态。
-- **显式停用**:托管或固定版本环境可设置 `BYTEWORKER_NO_AUTO_UPDATE=1`;此时脚本静默退出且不改状态。
+- **无输出且退出码 0** → 全部健康，静默继续；不要再分别运行 `update-check`、`check-deps`、
+  `report-automation status`、Todo `init/check`，也不要向用户解释这些内部逻辑。
+- **有一行 JSON 输出** → 只处理 `notices`：`severity=blocking` 先修复再做依赖它的业务；
+  普通 notice 在当前回答合适位置简短转告。`TODO_REMINDERS` 展示后仍按 `references/todo.md`
+  调用 `mark-reminded`；自动报告 onboarding / prompt upgrade 在完成当前请求后询问。
+- preflight 负责定位知识库、解析可用 Python/Node/lark-cli/meegle、静默自动更新、验证
+  `context.md` / `todo.md`、检查 Todo 和自动报告设置状态。它只返回异常和待处理事项，不把健康
+  检查细节塞进 Agent context。只有出现 notice、用户主动检查更新或排查 runtime 时才读
+  [`references/session-preflight.md`](references/session-preflight.md)；健康路径不要加载它。
 
 **机器协议(确定性 CLI 必用)**:Agent 或其它程序调用 digest 事务、查询、doctor、Todo、
 自动报告状态/租约、provenance 回填时,按 [`references/machine-protocol.md`](references/machine-protocol.md)
-通过 `python3 bin/byteworker-cli.py <tool> ...` 调用并解析统一的
+通过 runtime-safe launcher `bin/byteworker <tool> ...` 调用并解析统一的
 `status / data / error / context` JSON envelope。`bin/digest-txn.py`、`bin/kb-query.py`、
 `bin/doctor.py`、`bin/todo.py` 等直接入口继续保留给人工排障和兼容旧调用。
+直接调用飞书 CLI 用 `bin/byteworker lark ...`；执行依赖 Node/Python/PATH 的辅助脚本用
+`bin/byteworker run <command> ...`，不要猜 nvm、venv 或 Python 绝对路径。
 
 Meego / Base / 风神 / 群聊来源授权先用 `source auth-status` 做无副作用检查。未就绪时必须先告诉用户将发起
 OAuth 并取得同意：Meego 走独立 `meegle` 登录；Base 走 `lark-cli` 用户登录 + 最小只读
@@ -75,25 +80,24 @@ inspect / capture。Meego / Base / 风神大视图统一采用“完整快照 +
 - 若该数据目录不存在或为空:按 DESIGN.md §1.B 初始化 —— 创建 `knowledge/` 的 7 个子目录、`sources/`、`raw_data/`、`provenance/`、`journal/`、`reports/daily/`、`reports/weekly/`、`reports/im/`、空 `INDEX.md`,并把 skill 目录的 `templates/context.md` / `templates/todo.md` 整份复制为数据目录的 `context.md` / `todo.md`;再对该数据目录执行 `git init`(**仅本地、永不配 remote**,作误删/错改的回滚网)。
 - **下文所有 `knowledge/`、`raw_data/`、`provenance/`、`journal/`、`reports/`、`INDEX.md`、`dashboard.md`、`context.md`、`todo.md` 路径,一律指知识库数据目录下的对应路径;`templates/` 与 `DESIGN.md` 在本 skill 目录下。**
 
-**自动报告设置与升级迁移**:定位知识库后,通过机器协议运行
-`report-automation status --kb <知识库路径>`。`needs_onboarding=true` 时:
-
-- `.kbconfig` 刚创建 → 把自动日报 / 周报设置纳入本次首次引导,读
-  [`references/report-scheduling.md`](references/report-scheduling.md)。
-- `.kbconfig` 早已存在 → 这是本版本给老用户的一次性迁移提示;先完成用户当前业务请求,再问一句
-  是否现在用当前 harness 创建本地自动日报 / 周报。不得在更新脚本里直接创建任务。
-- 真正展示问题前先记录 `decision=prompted`,确保用户没有回答时也不会在后续请求中重复提示。
-- 用户拒绝或说稍后 → 分别记录 `declined` / `deferred`,之后不反复打扰;用户主动说“设置自动
-  报告”时可重新配置。
-- 用户同意 → 按调度细则完成预检、查重、创建和 Run now 验证;只有宿主任务真实存在且首次运行
-  成功后才记录 `configured`。
-
-自动报告只能在知识库目录的本地环境运行。不得把本地 KB 上传到 Codex/Claude/TRAE 云端,
-不得选择 worktree,不得用系统 cron/launchd 冒充用户要求的 harness 原生调度。
+**自动报告设置与升级迁移**:统一 preflight 已检查
+`report-automation status --kb <知识库路径>`。返回 onboarding / prompt upgrade notice 时先完成
+当前业务，再读 [`references/report-scheduling.md`](references/report-scheduling.md) 处理一次性
+询问、宿主真相源和 local-only 边界；健康时不要加载调度细则。
 
 **定期摄取到期提醒**:本次操作若会读 `INDEX.md`,顺带看「定期摄取清单」—— 若清单非空、且数据目录的 `.last-routine-digest`(记上次「定期摄取」运行日期;文件不存在 = 从未运行)距今 ≥7 天 → 用一句话提醒用户「定期摄取清单有 N 项可能该查更新了,需要就说『跑定期摄取』」。**只提醒,不打断当前请求、不自动跑。**
 
-**全局上下文(每次必读)**:读知识库数据目录下的 `context.md` —— 固定包含使用者身份、职责范围、当前重点、主管方向、当前约束、交互与提醒偏好、背景信息(见 DESIGN.md §10)。把它作为本次 digest / search / brief / dashboard / todo 的**「透镜」**:身份表用于本人识别,职责 / 重点用于相关性判断,时区 / 默认时间用于 Todo 自然语言解析。digest 飞书文档评论时,`context.md` 中明确的直属上司 / 汇报对象和用户点名“特别关注其观点”的人员是 P0 必看,使用者本人及明确的上级链路 / 主管方向负责人是 P1 高关注;这只提高抽取与提醒优先级,不提高其观点本身的事实置信度。身份 / 职责是**用户提供的信息**;当前重点 / 主管方向等主观内容呈现时标为「你的视角 / 用户陈述」,不硬化为客观事实。`context.md` 是真相源 —— **本流程(操作前必读 / digest / search 等)中只读、绝不擅自改写**;用户要增删改走子命令 `context`。文件不存在 → 整份复制 `templates/context.md` 初始化;姓名 / 别名 / feishu_id 仍是“待补充”且本次任务需要识别本人时,合并成一次简短询问,不在无关操作中反复打断。
+**全局上下文(语义任务必读)**:preflight 只验证知识库 `context.md` 存在；执行 digest / search /
+update / brief / dashboard / todo 或生成报告时再读一次内容。help、纯 doctor、设置调度等不依赖
+用户语义的操作无需把全文载入 context。文件固定包含使用者身份、职责范围、当前重点、主管方向、
+当前约束、交互与提醒偏好、背景信息(见 DESIGN.md §10)。把它作为语义任务的**「透镜」**:
+身份表用于本人识别,职责 / 重点用于相关性判断,时区 / 默认时间用于 Todo 自然语言解析。digest
+飞书文档评论时,`context.md` 中明确的直属上司 / 汇报对象和用户点名“特别关注其观点”的人员是
+P0 必看,使用者本人及明确的上级链路 / 主管方向负责人是 P1 高关注;这只提高抽取与提醒优先级,
+不提高其观点本身的事实置信度。身份 / 职责是**用户提供的信息**;当前重点 / 主管方向等主观内容
+呈现时标为「你的视角 / 用户陈述」,不硬化为客观事实。`context.md` 是真相源 —— 只读、绝不
+擅自改写;用户要增删改走子命令 `context`。姓名 / 别名 / feishu_id 仍是“待补充”且本次任务
+需要识别本人时,合并成一次简短询问,不在无关操作中反复打断。
 
 **知识库检索回答引用(每次必做)**:凡用户可见回答中的事实来自 `knowledge/`、`raw_data/`、
 `reports/`、`journal/` 或 `dashboard.md` 派生内容,必须读取并执行
@@ -103,7 +107,10 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 “未记录”并降低置信度,不得用文件名或节点更新时间猜测。此规则覆盖 `search`、`brief`、
 `dashboard`、日报 / 周报 / IM 报告的生成与回显,以及任何实际检索知识库的自然语言回答。
 
-**Todo 状态检查(每次必做)**:完成上面的 `context.md` 读取后,按 `references/todo.md` 通过机器协议运行 Todo 的 `init --template templates/todo.md` 与 `check`。没有到期 / 临期事项则静默;有则在当前回答开头提醒,真正展示后调用 `mark-reminded` 限频。检查不等于后台推送:只能保证每次 byteworker 被宿主加载并运行时执行,不能保证未加载本 skill 的无关对话或无对话时主动提醒。
+**Todo 状态检查(preflight 内部)**:不要另跑 `init/check`。没有到期 / 临期事项时 preflight
+无输出；有则返回 `TODO_REMINDERS`，在当前回答开头提醒，真正展示后调用 `mark-reminded`
+限频。检查不等于后台推送:只能保证每个实际调用 Byteworker preflight 的 session 执行，
+不能保证未加载本 skill 的无关对话或无对话时主动提醒。
 
 **长流程状态输出**:digest / 跑定期摄取 / 交互式报告补跑 / IM Inbox / 大输入摄取等可能耗时较久的多步操作,必须给用户阶段性状态,避免长时间沉默。规则:
 - 开始长流程时先发一句说明本次会做哪几步,例如「我先拉取原文,再做幂等检查和节点写入」。
@@ -159,7 +166,7 @@ raw 的 `ingested` 收录时间及版本。不得只列节点 id / raw_id / 报�
 `byteworker-source-bundle/v2`，再由 Agent生成只引用该 bundle 的
 `digest-plan/v2` 与完整候选节点，通过
 `bin/digest-txn.py preflight / validate / execute` 完成;Agent 实际调用使用
-`python3 bin/byteworker-cli.py digest-txn ...` 机器协议。脚本只固化确定性执行,语义判断、冲突
+`bin/byteworker digest-txn ...` 机器协议。脚本只固化确定性执行,语义判断、冲突
 裁决、实体取舍和节点正文仍由 Agent负责。候选节点的关键知识库事实必须逐条带 `[E1]` 等标记,
 并在 manifest 中映射到 `raw_id + anchor_id`;主记录必须声明 `primary_source`,事务负责生成
 `primary_source_url` 和 `## 证据`。不得为单篇业务资料在 skill 仓库生成硬编码写入脚本。
@@ -174,7 +181,7 @@ provider capture。
 `digest-batch-plan/v2`；`digest-batch-plan/v1` 仅兼容旧调用。batch 仍只持一个短时写锁并
 产生一个 commit。所有业务 component、manifest 和候选文件都必须位于系统临时目录或知识库
 目录，事务 CLI 会拒绝 skill 仓库内路径。
-新建或更新 `person` 时必须用 `bin/resolve-users.sh --format json` 同次取得身份与通讯录画像：
+新建或更新 `person` 时必须用 `bin/byteworker run bin/resolve-users.sh --format json` 同次取得身份与通讯录画像：
 按 `feishu_id` 消解，记录 `directory_verified_at`，并在可见时同步企业邮箱和当前部门路径；
 部门变化保留历史，空结果不清除旧值。完整规则见 `references/digest-core.md`。
 其它写入遵守 `references/write-rules.md`;失败处理见 `references/error-handling.md`。
@@ -186,7 +193,7 @@ provider capture。
 - `search`:查询知识库。先通过机器协议调用 `bin/kb-query.py search` 做有覆盖回执的字面/全文召回
   和一跳图扩展,再由 Agent 语义补召回；若问题指向 Meego / Base / 风神的具体需求、记录 ID 或标题，
   或知识节点只含宏观摘要而不足以回答具体记录，必须通过机器协议调用
-  `python3 bin/byteworker-cli.py kb-query source-record`
+  `bin/byteworker kb-query source-record`
   从最新结构化 raw 快照按稳定 ID / 模糊标题做有限召回，禁止让 Agent 直接扫描大 raw；
   节点有 `[E]` 时调用 `bin/kb-query.py evidence` 精确解析出处。按
   `references/citations.md` 给每条知识库事实附原始出处、收录时间与置信度。
@@ -215,6 +222,9 @@ provider capture。
 设置、迁移和无人值守边界见 `references/report-scheduling.md`;报告内容细则见
 `references/periodic-report.md`。定时任务 prompt 使用
 `templates/report-automation-daily.md` / `templates/report-automation-weekly.md`。
+离线、休眠或瞬时网络失败的补偿任务使用
+`templates/report-automation-recovery.md`；它周期性调用 `report-automation check`，每次最多
+补跑一个没有成功回执的周期。
 
 - 自动日报每次运行都先执行**完整 routine digest**,不受 `.last-routine-digest` 七天提醒阈值
   限制;随后生成当天 00:00 到当前时刻的 `reports/daily/<YYYY-MM-DD>.md`。
@@ -223,6 +233,8 @@ provider capture。
 - 只重放已登记且启用的 routine 来源;自动报告不授权新增来源、扩大摄取范围、发起 OAuth、
   切换身份、发送消息或 push。
 - 开始前通过 `report-automation lease` 获取跨报告租约,结束后按真实结果记录 success / failed。
+- `lease` 在启动时记录 `last_attempt`；`complete` 同时维护 `last_run`，成功时另更新
+  `last_success`。补偿检查只以对应 period 的 `last_success` 判断完成，失败不会抹掉上次成功。
 - 用户明确要求「分析最近一天 IM / 聊天重点 / 日报包含 IM」时才加读
   `references/im-inbox-summary.md`;默认自动报告不全量扫描 IM。
 
@@ -238,7 +250,7 @@ provider capture。
 知识库”“schema 有没有漂移”。
 
 完整流程见 `references/doctor.md`。用户主动调用时默认通过机器协议执行只读
-`python3 bin/byteworker-cli.py doctor scan`;
+`bin/byteworker doctor scan`;
 只有用户明确要求修复才执行 `fix`。例外是代码实际自动更新后的 post-update doctor:可直接处理
 finding 明确声明的 `auto_fix`。自动修复只覆盖可确定重建的 INDEX 与 links;缺失业务字段、
 证据链、悬空 id、真相源损坏只列问题和建议,不得猜写。scan 同时检查 `sources/` Profile、
@@ -260,7 +272,7 @@ finding，绝不由 doctor 自动迁移或拼接 capture policy。
 - **写入前必读**:`references/write-rules.md` —— 原子写入、双向 links、auto-link、INDEX、journal、本地 git 回滚点、时间格式、时间倒序。
 - **兼容性诊断**:`references/doctor.md` —— 先只读扫描当前 schema/profile,再按用户授权做确定性修复。
 - **维护 / 恢复按需读**:`references/maintenance.md` —— 通过机器协议 `index rebuild` 重建
-  INDEX（shell wrapper 仅供人工排障）、运行 `bin/repair-links.sh --autolink` 修复双链 /
+  INDEX（shell wrapper 仅供人工排障）、运行 `bin/byteworker run bin/repair-links.sh --autolink` 修复双链 /
   正文提及连边、灾难恢复。
 
 核心不变量:知识库数据目录是唯一业务数据位置;`raw_data/` + `provenance/` + `knowledge/` + `reports/` + `todo.md` + `context.md` + `dashboard.md` 手动项是真相源,`INDEX.md` 和 dashboard 派生段可重建。

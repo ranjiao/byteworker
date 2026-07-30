@@ -8,10 +8,10 @@
 skill Git。先列活动任务，再按标题向用户确认恢复哪一个：
 
 ```bash
-python3 bin/byteworker-cli.py digest-job list --kb "<KB>" --active
-python3 bin/byteworker-cli.py digest-job status \
+bin/byteworker digest-job list --kb "<KB>" --active
+bin/byteworker digest-job status \
   --kb "<KB>" --job-id "<job_id>" --limit 20
-python3 bin/byteworker-cli.py digest-job reconcile \
+bin/byteworker digest-job reconcile \
   --kb "<KB>" --job-id "<job_id>"
 ```
 
@@ -23,7 +23,7 @@ python3 bin/byteworker-cli.py digest-job reconcile \
 每次只租约一个小批次，默认 5 页：
 
 ```bash
-python3 bin/byteworker-cli.py digest-job next \
+bin/byteworker digest-job next \
   --kb "<KB>" --job-id "<job_id>" --limit 5 \
   --lease-owner "<当前 session 稳定标识>" --lease-seconds 1800
 ```
@@ -31,7 +31,7 @@ python3 bin/byteworker-cli.py digest-job next \
 对返回的每个页面独立按普通 `feishu_doc` 流程处理。必须以 `digest-txn execute` receipt 标记：
 
 ```bash
-python3 bin/byteworker-cli.py digest-job mark \
+bin/byteworker digest-job mark \
   --kb "<KB>" --job-id "<job_id>" --document-id "<document_id>" \
   --status committed --raw-id "<raw_id>" --commit "<commit>"
 ```
@@ -54,7 +54,7 @@ python3 bin/byteworker-cli.py digest-job mark \
 用户要求取消时：
 
 ```bash
-python3 bin/byteworker-cli.py digest-job cancel \
+bin/byteworker digest-job cancel \
   --kb "<KB>" --job-id "<job_id>"
 ```
 

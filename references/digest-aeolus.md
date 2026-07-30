@@ -19,13 +19,13 @@
   覆盖 URL、report、filter 或行数。改变口径要显式重新 register，得到新的 profile revision。
 
 ```bash
-python3 bin/byteworker-cli.py source auth-status \
+bin/byteworker source auth-status \
   --source-type aeolus
 
-python3 bin/byteworker-cli.py source inspect \
+bin/byteworker source inspect \
   --source-type aeolus --url "<风神 dashboard URL>"
 
-python3 bin/byteworker-cli.py source register \
+bin/byteworker source register \
   --source-type aeolus --kb "<知识库目录>" \
   --url "<风神 dashboard URL>" \
   --report-id "<report_id>" \
@@ -33,13 +33,13 @@ python3 bin/byteworker-cli.py source register \
   --where '{"name":"<field_name>","dimMetId":<dim_met_id>,"op":"in","val":["<value>"]}' \
   --routine weekly
 
-python3 bin/byteworker-cli.py source capture \
+bin/byteworker source capture \
   --source-type aeolus --kb "<知识库目录>" \
   --source-uid "aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>" \
   --out "<系统临时目录>/aeolus-capture.json" \
   --bundle-out "<系统临时目录>/aeolus-bundle.json"
 
-python3 bin/byteworker-cli.py source diff \
+bin/byteworker source diff \
   --previous "<上一份完整 capture.json>" \
   --current "<本次完整 capture.json>" \
   --out "<系统临时目录>/aeolus-diff.json"

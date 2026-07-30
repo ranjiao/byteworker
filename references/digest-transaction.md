@@ -2,7 +2,7 @@
 
 > 由 `references/digest-core.md` 路由到这里。标准 digest 的语义判断由 Agent 完成；payload
 > hash、幂等检查、raw 拼装、结构校验、原子写入、INDEX、journal 与本地 Git 回滚点统一交给
-> `bin/digest-txn.py`，Agent 通过 `bin/byteworker-cli.py digest-txn` 的统一机器协议调用；
+> `bin/digest-txn.py`，Agent 通过 `bin/byteworker digest-txn` 的统一机器协议调用；
 > 不得再为单篇资料生成硬编码业务写入脚本。
 
 ## 职责边界
@@ -87,7 +87,7 @@ batch 采用一个短时锁、一次 INDEX 重建、一条 journal 和一个 com
 ### 1. preflight（写入前、无副作用）
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn preflight \
+bin/byteworker digest-txn preflight \
   --kb "<知识库数据目录>" \
   --source "<临时 source-bundle-v2.json>"
 ```
@@ -107,7 +107,7 @@ Agent 不得手算或覆盖脚本返回的 component hash、`content_hash`、`di
 更新节点时必须记录读取基线：
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn snapshot-node \
+bin/byteworker digest-txn snapshot-node \
   --kb "<知识库数据目录>" \
   --path "knowledge/<type>/<node>.md"
 ```
@@ -115,7 +115,7 @@ python3 bin/byteworker-cli.py digest-txn snapshot-node \
 把返回的 `base_sha256` 写入 node operation，然后：
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn validate \
+bin/byteworker digest-txn validate \
   --kb "<知识库数据目录>" \
   --plan "<临时 digest-plan.json>"
 ```
@@ -126,7 +126,7 @@ python3 bin/byteworker-cli.py digest-txn validate \
 ### 3. execute（唯一标准写入口）
 
 ```bash
-python3 bin/byteworker-cli.py digest-txn execute \
+bin/byteworker digest-txn execute \
   --kb "<知识库数据目录>" \
   --plan "<临时 digest-plan.json>"
 ```

@@ -5,10 +5,10 @@
 群聊是**持续更新**的消息流,同一个群通常**反复多次摄取**;摄取规则与文档 / 会议不同:
 
 - **时间窗 —— 默认增量**:摄取前先查 `INDEX.md` 的「群聊摄取进度」表(每个已摄取群一行:群名 / `chat_id` / 已摄取至高水位),据此判断:
-  - **表中已有该群** → 此前摄取过,**默认增量**:`bin/pull-chat.sh --query "<群名>" --since-last` —— 脚本从该群上次窗口结束点续拉到现在。
+  - **表中已有该群** → 此前摄取过,**默认增量**:`bin/byteworker run bin/pull-chat.sh --query "<群名>" --since-last` —— 脚本从该群上次窗口结束点续拉到现在。
   - **表中无该群** → 首次摄取:用户给了范围用之;否则默认最近 7 天直接执行 —— `--start <ISO8601> --end <ISO8601>`。只有用户要求先确认、时间窗明显超过 7 天、或预计消息量很大时才先问摄取范围。
   - 用户**显式给了**时间范围 → 永远以用户给的为准(覆盖增量)。
-- **首次拉取与注册**:运行 `bin/pull-chat.sh`(参数见上;已知 chat_id 用 `--chat-id <oc_xxx>`;
+- **首次拉取与注册**:运行 `bin/byteworker run bin/pull-chat.sh`(参数见上;已知 chat_id 用 `--chat-id <oc_xxx>`;
   另给 `--locators-out <临时 JSON>` 保存消息定位)。脚本自动定位群、分页拉全、把逐字转写写到
   文件,stdout 打印 `chat_id` / `window` / `mode` / `messages` / `pages` / `truncated` /
   `transcript` / `locators`。转写每条消息必须保留发送人 open_id,locator 必须保留 message_id /
@@ -23,7 +23,7 @@
   operation adapter 重放 Profile、显式传入 KB 高水位、包装 `pull-chat.sh`，并直接生成
   SourceBundle；不得从最近 raw 猜测 selector 或窗口策略。
 - **人员解析(必须)**:群聊 digest 前,对 transcript 运行
-  `bin/resolve-users.sh --from-doc <transcript> --format json`。新建 / 更新 `person` 节点时
+  `bin/byteworker run bin/resolve-users.sh --from-doc <transcript> --format json`。新建 / 更新 `person` 节点时
   必须使用解析出的 `feishu_id`，并按 `references/digest-core.md` 同步可见的企业邮箱、当前
   `department_path` 与 `directory_verified_at`;不要仅凭中文名新建 `feishu_id: ?` 的 person。
   若某个发言人解析失败,事件正文可保留其姓名和 open_id,但不要新建 person 节点;在汇报里列为
