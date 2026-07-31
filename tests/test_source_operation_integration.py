@@ -1,9 +1,11 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -523,6 +525,102 @@ class SourceOperationMatrixTests(unittest.TestCase):
             incremental["capture_policy"]["end"],
             command[command.index("--end") + 1],
         )
+
+    def test_pull_chat_since_last_parses_quoted_and_unquoted_windows(self):
+        if shutil.which("jq") is None:
+            self.fail("jq is required for pull-chat behavior tests")
+
+        for quoted in (False, True):
+            with self.subTest(quoted=quoted), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                kb = root / "kb"
+                raw = kb / "raw_data"
+                raw.mkdir(parents=True)
+                window = (
+                    "2026-07-29T09:00:00+08:00 .. "
+                    "2026-07-29T11:00:00+08:00"
+                )
+                rendered_window = json.dumps(window) if quoted else window
+                (raw / "chat.md").write_text(
+                    textwrap.dedent(
+                        f"""\
+                        ---
+                        source_chat_id: oc_test
+                        source_window: {rendered_window}
+                        ---
+                        transcript
+                        """
+                    ),
+                    encoding="utf-8",
+                )
+                call_log = root / "calls.jsonl"
+                fake_lark = root / "lark-cli"
+                fake_lark.write_text(
+                    textwrap.dedent(
+                        """\
+                        #!/usr/bin/env python3
+                        import json
+                        import os
+                        from pathlib import Path
+                        import sys
+
+                        args = sys.argv[1:]
+                        with Path(os.environ["FAKE_LARK_LOG"]).open(
+                            "a", encoding="utf-8"
+                        ) as handle:
+                            handle.write(json.dumps(args) + "\\n")
+                        print(json.dumps({
+                            "ok": True,
+                            "data": {
+                                "messages": [],
+                                "has_more": False,
+                                "page_token": "",
+                            },
+                        }))
+                        """
+                    ),
+                    encoding="utf-8",
+                )
+                fake_lark.chmod(0o755)
+                transcript = root / "transcript.txt"
+                locators = root / "locators.json"
+                completed = subprocess.run(
+                    [
+                        str(ROOT / "bin" / "pull-chat.sh"),
+                        "--chat-id",
+                        "oc_test",
+                        "--since-last",
+                        "--kb",
+                        str(kb),
+                        "--end",
+                        "2026-07-30T20:30:00+08:00",
+                        "--out",
+                        str(transcript),
+                        "--locators-out",
+                        str(locators),
+                    ],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env={
+                        **os.environ,
+                        "BYTEWORKER_LARK_CLI_BIN": str(fake_lark),
+                        "BYTEWORKER_PYTHON_BIN": sys.executable,
+                        "FAKE_LARK_LOG": str(call_log),
+                    },
+                    check=False,
+                )
+                self.assertEqual(0, completed.returncode, completed.stderr)
+                calls = [
+                    json.loads(line)
+                    for line in call_log.read_text(encoding="utf-8").splitlines()
+                ]
+                self.assertEqual(1, len(calls))
+                command = calls[0]
+                self.assertEqual(
+                    "2026-07-29T11:00:00+08:00",
+                    command[command.index("--start") + 1],
+                )
 
 
 if __name__ == "__main__":

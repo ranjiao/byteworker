@@ -98,10 +98,35 @@ if [ -n "$SINCE_LAST" ]; then
       for f in "$KBDIR"/raw_data/*.md; do
         [ -f "$f" ] || continue
         grep -Eq "^source_chat_id:[[:space:]]*${CHAT_ID}[[:space:]]*\$" "$f" || continue
-        w=$(grep -m1 '^source_window:' "$f" | sed 's/^source_window:[[:space:]]*//')
-        e=$(printf '%s' "$w" | sed 's/.*\.\.[[:space:]]*//' | tr -d '[:space:]')
+        if ! e=$("$PYTHON_BIN" - "$SELF_DIR/../lib" "$f" <<'PY'
+from datetime import datetime
+import sys
+
+sys.path.insert(0, sys.argv[1])
+from frontmatter import parse_file, source_window_end
+
+frontmatter, _ = parse_file(sys.argv[2])
+value = source_window_end(str(frontmatter.get("source_window", "")))
+if not value:
+    raise SystemExit(0)
+if "T" not in value:
+    value = f"{value}T00:00:00+08:00"
+try:
+    datetime.fromisoformat(
+        value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
+    )
+except ValueError:
+    print(
+        f"错误:无法解析 {sys.argv[2]} 的 source_window 结束时间",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+print(value)
+PY
+); then
+          exit 1
+        fi
         [ -n "$e" ] || continue
-        printf '%s' "$e" | grep -q 'T' || e="${e}T00:00:00+08:00"
         if [ -z "$LAST_END" ] || [[ "$e" > "$LAST_END" ]]; then LAST_END="$e"; fi
       done
     fi
