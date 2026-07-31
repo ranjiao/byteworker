@@ -12,7 +12,17 @@ import sys
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from runtime_deps import check_runtime, runtime_environment  # noqa: E402
+from runtime_deps import (  # noqa: E402
+    CACHE_SCHEMA_VERSION,
+    PYTHON_CACHE_FILENAME,
+    RUNTIME_CACHE_FILENAME,
+    cached_check_runtime,
+    check_runtime,
+    clear_runtime_cache,
+    read_runtime_cache,
+    runtime_environment,
+    write_runtime_cache,
+)
 
 
 class RuntimeDependencyTests(unittest.TestCase):
@@ -159,11 +169,284 @@ class RuntimeDependencyTests(unittest.TestCase):
             result = check_runtime(
                 environ={"HOME": str(home), "PATH": str(tools)},
                 home=home,
-                python_version=(3, 8, 18),
+                python_version=(3, 9, 6),
                 runner=self.successful_probe,
             )
             self.assertFalse(result["core_ready"])
             self.assertEqual("missing", result["python"]["status"])
+
+
+class RuntimeCacheTests(unittest.TestCase):
+    def executable(self, path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    @staticmethod
+    def successful_probe(argv, **kwargs):
+        name = Path(argv[0]).name
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=f"{name} test-version\n",
+            stderr="",
+        )
+
+    @staticmethod
+    def fake_python_probe(argv, **kwargs):
+        if argv[1:3] == ["-c", "import sys,zoneinfo;raise SystemExit(0 if sys.version_info>=(3,10) else 1)"]:
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+        name = Path(argv[0]).name
+        return subprocess.CompletedProcess(
+            argv, 0, stdout=f"{name} test-version\n", stderr=""
+        )
+
+    def layout(self, root: Path) -> tuple[Path, Path]:
+        home = root / "home"
+        tools = home / "tools"
+        for name in ("git", "jq", "bash", "node", "lark-cli"):
+            self.executable(tools / name)
+        return home, tools
+
+    def test_write_and_read_runtime_cache_roundtrip(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+            result = check_runtime(
+                required_sources={"feishu"},
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+            )
+            ok, status = write_runtime_cache(root, result, environ=env, home=home)
+            self.assertTrue(ok, msg=status)
+            self.assertTrue((root / RUNTIME_CACHE_FILENAME).is_file())
+            cached, reason = read_runtime_cache(root, environ=env, home=home)
+            self.assertIsNotNone(cached, msg=reason)
+            self.assertEqual(CACHE_SCHEMA_VERSION, cached.get("schema_version"))
+            self.assertEqual(
+                result["python"]["path"], cached.get("python", {}).get("path")
+            )
+
+    def test_python_cache_is_written_by_bash_layer_not_python_layer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+            result = check_runtime(
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+            )
+            write_runtime_cache(root, result, environ=env, home=home)
+            self.assertFalse(
+                (root / PYTHON_CACHE_FILENAME).is_file(),
+                ".python-cache.txt 应由 Bash 层写入,不应由 Python 层写入",
+            )
+
+    def test_read_cache_missing_returns_reason(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cached, reason = read_runtime_cache(root)
+            self.assertIsNone(cached)
+            self.assertIn("missing", reason)
+
+    def test_path_change_does_not_invalidate_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+            result = check_runtime(
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+            )
+            write_runtime_cache(root, result, environ=env, home=home)
+            alt_env = {"HOME": str(home), "PATH": str(tools) + ":/different"}
+            cached, reason = read_runtime_cache(root, environ=alt_env, home=home)
+            self.assertIsNotNone(cached, msg=reason)
+
+    def test_old_cache_does_not_expire(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+            result = check_runtime(
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+            )
+            write_runtime_cache(root, result, environ=env, home=home)
+            cache_path = root / RUNTIME_CACHE_FILENAME
+            import json as _json
+            data = _json.loads(cache_path.read_text(encoding="utf-8"))
+            data["generated_at"] = 1
+            cache_path.write_text(
+                _json.dumps(data, separators=(",", ":")), encoding="utf-8"
+            )
+            cached, reason = read_runtime_cache(root, environ=env, home=home)
+            self.assertIsNotNone(cached, msg=reason)
+
+    def test_cached_check_runtime_hit_skips_fresh_probe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+            seed_result, seed_status = cached_check_runtime(
+                root,
+                required_sources={"feishu"},
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+            )
+            self.assertIn("cached", seed_status)
+            probe_calls = {"count": 0}
+
+            def counting_probe(argv, **kwargs):
+                probe_calls["count"] += 1
+                return self.fake_python_probe(argv, **kwargs)
+
+            hit_result, status = cached_check_runtime(
+                root,
+                required_sources={"feishu"},
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=counting_probe,
+            )
+            self.assertEqual("hit", status)
+            self.assertTrue(hit_result["ready"])
+            self.assertEqual(
+                seed_result["programs"]["git"]["path"],
+                hit_result["programs"]["git"]["path"],
+            )
+
+    def test_cached_readiness_is_recomputed_for_current_requirements(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+
+            def failing_lark_probe(argv, **kwargs):
+                if Path(argv[0]).name == "lark-cli":
+                    return subprocess.CompletedProcess(
+                        argv, 1, stdout="", stderr="broken"
+                    )
+                return self.successful_probe(argv, **kwargs)
+
+            seed = check_runtime(
+                required_sources={"feishu"},
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=failing_lark_probe,
+            )
+            self.assertFalse(seed["ready"])
+            write_runtime_cache(root, seed, environ=env, home=home)
+
+            core_result, core_status = cached_check_runtime(
+                root,
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.fake_python_probe,
+            )
+            self.assertEqual("hit", core_status)
+            self.assertTrue(core_result["ready"])
+
+            feishu_result, feishu_status = cached_check_runtime(
+                root,
+                required_sources={"feishu"},
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=failing_lark_probe,
+            )
+            self.assertEqual("miss+cached", feishu_status)
+            self.assertFalse(feishu_result["ready"])
+
+    def test_cached_check_runtime_force_refresh_bypasses_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+            cached_check_runtime(
+                root,
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+            )
+            _result, status = cached_check_runtime(
+                root,
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+                force_refresh=True,
+            )
+            self.assertIn("cached", status)
+
+    def test_clear_runtime_cache_removes_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+            result = check_runtime(
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+            )
+            write_runtime_cache(root, result, environ=env, home=home)
+            self.assertTrue((root / RUNTIME_CACHE_FILENAME).is_file())
+            removed, message = clear_runtime_cache(root)
+            self.assertTrue(removed)
+            self.assertIn("removed", message)
+            self.assertFalse((root / RUNTIME_CACHE_FILENAME).is_file())
+            self.assertFalse((root / PYTHON_CACHE_FILENAME).is_file())
+            removed_again, _ = clear_runtime_cache(root)
+            self.assertFalse(removed_again)
+
+    def test_explicit_byteworker_python_bin_invalidates_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, tools = self.layout(root)
+            env = {"HOME": str(home), "PATH": str(tools)}
+            result = check_runtime(
+                environ=env,
+                home=home,
+                python_executable=sys.executable,
+                python_version=(3, 11, 0),
+                runner=self.successful_probe,
+            )
+            write_runtime_cache(root, result, environ=env, home=home)
+            env_override = dict(env)
+            env_override["BYTEWORKER_PYTHON_BIN"] = "/some/other/python"
+            cached, reason = read_runtime_cache(
+                root, environ=env_override, home=home
+            )
+            self.assertIsNone(cached)
+            self.assertIn("BYTEWORKER_PYTHON_BIN", reason)
 
 
 if __name__ == "__main__":

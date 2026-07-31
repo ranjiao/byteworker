@@ -85,7 +85,7 @@ class SessionPreflightTests(unittest.TestCase):
                 )
             )
             with (
-                mock.patch.object(session_preflight, "check_runtime", return_value=runtime()),
+                mock.patch.object(session_preflight, "cached_check_runtime", return_value=(runtime(), "hit")),
                 mock.patch.object(
                     session_preflight,
                     "runtime_environment",
@@ -130,7 +130,7 @@ class SessionPreflightTests(unittest.TestCase):
                 "category": "due_soon",
             }
             with (
-                mock.patch.object(session_preflight, "check_runtime", return_value=runtime()),
+                mock.patch.object(session_preflight, "cached_check_runtime", return_value=(runtime(), "hit")),
                 mock.patch.object(
                     session_preflight,
                     "runtime_environment",
@@ -179,8 +179,8 @@ class SessionPreflightTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     session_preflight,
-                    "check_runtime",
-                    return_value=runtime(),
+                    "cached_check_runtime",
+                    return_value=(runtime(), "hit"),
                 ),
                 mock.patch.object(
                     session_preflight,
@@ -216,8 +216,8 @@ class SessionPreflightTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     session_preflight,
-                    "check_runtime",
-                    return_value=runtime(),
+                    "cached_check_runtime",
+                    return_value=(runtime(), "hit"),
                 ),
                 mock.patch.object(
                     session_preflight,
@@ -256,8 +256,8 @@ class SessionPreflightTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     session_preflight,
-                    "check_runtime",
-                    return_value=runtime(),
+                    "cached_check_runtime",
+                    return_value=(runtime(), "hit"),
                 ),
                 mock.patch.object(
                     session_preflight,
@@ -300,8 +300,8 @@ class SessionPreflightTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     session_preflight,
-                    "check_runtime",
-                    return_value=runtime(ready=False),
+                    "cached_check_runtime",
+                    return_value=(runtime(ready=False), "hit"),
                 ),
                 mock.patch.object(
                     session_preflight,
@@ -339,8 +339,8 @@ class SessionPreflightTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     session_preflight,
-                    "check_runtime",
-                    return_value=runtime(),
+                    "cached_check_runtime",
+                    return_value=(runtime(), "hit"),
                 ),
                 mock.patch.object(
                     session_preflight,

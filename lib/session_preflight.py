@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from report_automation import record_decision, status as report_status
-from runtime_deps import check_runtime, runtime_environment
+from runtime_deps import cached_check_runtime, runtime_environment
 
 
 FEISHU_SOURCE_PREFIXES = ("feishu_", "lark_")
@@ -134,7 +134,8 @@ def run_preflight(
     requirements = set(required_sources)
     if kb is not None and kb.is_dir():
         requirements |= configured_requirements(kb)
-    runtime = check_runtime(
+    runtime, _cache_status = cached_check_runtime(
+        root,
         required_sources=requirements,
         include_optional=False,
         environ=environ,

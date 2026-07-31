@@ -6,7 +6,7 @@
 ## 为什么需要统一入口
 
 历史 CLI 的输出结构和失败表达各不相同，调用方需要记住每个脚本的特殊分支。runtime-safe
-launcher `bin/byteworker <tool>` 会先选出 Python >=3.9 和一致的 Node/内部 CLI 环境，再交给
+launcher `bin/byteworker <tool>` 会先选出 Python >=3.10 和一致的 Node/内部 CLI 环境，再交给
 `bin/byteworker-cli.py`；后者不改变底层业务逻辑，只把确定性命令适配成稳定的
 `byteworker-cli/v1` JSON envelope：
 

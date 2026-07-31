@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import unittest
@@ -13,7 +14,7 @@ CLI = ROOT / "bin" / "byteworker-cli.py"
 class MachineProtocolTests(unittest.TestCase):
     def run_cli(self, *args, env=None):
         return subprocess.run(
-            ["python3", str(CLI), *map(str, args)],
+            [sys.executable, str(CLI), *map(str, args)],
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,

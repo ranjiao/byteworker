@@ -153,8 +153,12 @@ flowchart TD
     R -->|"help"| H["只读帮助文档"]
 ```
 
-`lib/runtime_deps.py` 从显式 override、当前 PATH、常见本地目录和 NVM installations 中解析
-可执行文件，实际执行仍由 `bin/byteworker` 注入同一组环境。`lib/session_preflight.py` 合并
+`bin/byteworker` 将首次解析成功的 Python 绝对路径持久化为本机缓存；缓存没有 TTL，每次只做
+最小可执行与版本检查，路径被删除、失去执行权限或解释器不再兼容时才重新扫描。库层同样持久化
+已解析的核心命令与来源 runtime，不因时间、PATH 或虚拟环境变化主动刷新；显式 override、
+`deps --refresh`、`runtime-reset` 仍可要求重建。`lib/runtime_deps.py` 从显式 override、当前
+PATH、常见本地目录和 NVM installations 中解析可执行文件，实际执行仍由 `bin/byteworker`
+注入同一组环境。`lib/session_preflight.py` 合并
 更新、KB 定位、依赖、Todo 和自动报告设置检查；只输出需要 Agent 行动的 notice。它不读取
 `context.md` 正文进入模型：语义任务在路由后才读取一次，help/纯维护任务不承担这部分 context。
 公共阶段的目的不是“加载所有数据”，而是以稳定协议建立安全边界。
@@ -517,7 +521,7 @@ flowchart TB
 
 | 模块 | 职责 | 输出 |
 |---|---|---|
-| `bin/byteworker` + `bin/byteworker-launcher.py` | 先定位 Python >=3.9，再以统一 runtime 执行 preflight、机器 CLI 或外部工具 | 静默健康路径、机器 envelope 或下游输出 |
+| `bin/byteworker` + `bin/byteworker-launcher.py` | 先定位 Python >=3.10，再以统一 runtime 执行 preflight、机器 CLI 或外部工具 | 静默健康路径、机器 envelope 或下游输出 |
 | `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排更新、KB、runtime、Todo 与自动报告设置检查 | `byteworker-session-preflight/v1`；默认仅异常输出 |
 | `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
 | `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI | `byteworker-cli/v1` envelope |
