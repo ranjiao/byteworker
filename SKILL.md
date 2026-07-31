@@ -40,7 +40,9 @@ description: 个人飞书工作知识库。把飞书文档、会议妙记、会�
   调用 `mark-reminded`；自动报告 onboarding / prompt upgrade 在完成当前请求后询问。
 - preflight 负责定位知识库、解析可用 Python/Node/lark-cli/meegle、静默自动更新、验证
   `context.md` / `todo.md`、检查 Todo 和自动报告设置状态。它只返回异常和待处理事项，不把健康
-  检查细节塞进 Agent context。只有出现 notice、用户主动检查更新或排查 runtime 时才读
+  检查细节塞进 Agent context。runtime 绝对路径由 launcher 持久化且无 TTL；Agent 不自行检查
+  系统 Python 版本或猜测解释器路径，只有 launcher 报告缓存路径失效时才按 notice 排障。只有
+  出现 notice、用户主动检查更新或排查 runtime 时才读
   [`references/session-preflight.md`](references/session-preflight.md)；健康路径不要加载它。
 
 **机器协议(确定性 CLI 必用)**:Agent 或其它程序调用 digest 事务、查询、doctor、Todo、

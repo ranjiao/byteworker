@@ -13,7 +13,7 @@ bin/byteworker preflight --require meego
 
 preflight 合并：
 
-- 解析 Python >=3.9 + `zoneinfo`、git/jq/bash，以及已配置/本次要求的 Node、lark-cli、meegle；
+- 解析 Python >=3.10 + `zoneinfo`、git/jq/bash，以及已配置/本次要求的 Node、lark-cli、meegle；
 - 静默执行自动更新及真实更新后的 post-update doctor；
 - 定位 `.kbconfig` 与知识库目录，验证 `context.md` / `todo.md`；
 - 检查到期/临期 Todo；
@@ -48,6 +48,11 @@ preflight 合并：
 显式 override 无效时直接失败，不静默 fallback。解析结果保留用户选中的 venv/NVM wrapper
 绝对路径，不展开 symlink 后绕开原环境。`bin/byteworker lark ...`、
 `bin/byteworker meegle ...`、`bin/byteworker run <command> ...` 都继承同一环境。
+
+首次解析成功后，Python 路径和完整 runtime 结果写入本机缓存。缓存没有 TTL，也不因 PATH 或
+虚拟环境变化自动刷新；后续调用继续使用相同绝对路径。只有缓存路径被删除、失去执行权限、
+Python 版本不再兼容，或用户显式运行 `bin/byteworker deps --refresh` /
+`bin/byteworker runtime-reset` 时才重新探测。
 
 依赖检查不等于登录检查，不发起 OAuth；具体来源仍在 `source auth-status/inspect/capture`
 执行 Auth Guard。

@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 
-MIN_PYTHON = (3, 9)
+MIN_PYTHON = (3, 10)
+CACHE_SCHEMA_VERSION = "byteworker-runtime-cache/v2"
+PYTHON_CACHE_FILENAME = ".python-cache.txt"
+RUNTIME_CACHE_FILENAME = ".runtime-cache.json"
+
 PROGRAM_SPECS = {
     "git": {"tier": 1, "args": ["--version"]},
     "jq": {"tier": 1, "args": ["--version"]},
@@ -183,7 +189,7 @@ def check_runtime(
         "status": "ok" if py_ready else "missing",
         "required": True,
         "tier": 1,
-        "error": "" if py_ready else "需要 Python >= 3.9 且包含 zoneinfo",
+        "error": "" if py_ready else "需要 Python >= 3.10 且包含 zoneinfo",
     }
 
     provisional = {"programs": programs, "python": python}
@@ -268,3 +274,210 @@ def render_dependency_report(result: Mapping[str, Any]) -> str:
     lines.append("")
     lines.append("结论: " + ("✓ 依赖齐全。" if result["ready"] else "✗ 存在必须修复的依赖问题。"))
     return "\n".join(lines)
+
+
+def _program_still_valid(path: str, environ: Mapping[str, str]) -> bool:
+    if not path:
+        return False
+    candidate = Path(path).expanduser()
+    if not candidate.is_file():
+        return False
+    if not os.access(candidate, os.X_OK):
+        return False
+    return True
+
+
+def _python_still_valid(
+    path: str,
+    environ: Mapping[str, str],
+    *,
+    runner=subprocess.run,
+) -> bool:
+    if not _program_still_valid(path, environ):
+        return False
+    try:
+        completed = runner(
+            [
+                path,
+                "-c",
+                "import sys,zoneinfo;raise SystemExit(0 if sys.version_info>=(3,10) else 1)",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+            env=dict(environ),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
+def read_runtime_cache(
+    root: Path,
+    *,
+    environ: Mapping[str, str] | None = None,
+    home: Path | None = None,
+) -> tuple[dict[str, Any] | None, str]:
+    env = dict(os.environ if environ is None else environ)
+    cache_path = root / RUNTIME_CACHE_FILENAME
+    if not cache_path.is_file():
+        return None, "cache file missing"
+    try:
+        raw = cache_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, "cache corrupt: " + _bounded(str(exc), 120)
+    if data.get("schema_version") != CACHE_SCHEMA_VERSION:
+        return None, "cache schema outdated"
+    explicit_overrides = {
+        name: env.get(var, "")
+        for name, var in EXPLICIT_ENV.items()
+        if env.get(var, "")
+    }
+    if env.get("BYTEWORKER_PYTHON_BIN", "") and env["BYTEWORKER_PYTHON_BIN"] != data.get(
+        "python", {}
+    ).get("path", ""):
+        return None, "BYTEWORKER_PYTHON_BIN overrides cached value"
+    for program_name, override_value in explicit_overrides.items():
+        cached_path = data.get("programs", {}).get(program_name, {}).get("path", "")
+        if override_value != cached_path:
+            return None, f"{EXPLICIT_ENV[program_name]} overrides cached value"
+    return data, "ok"
+
+
+def write_runtime_cache(
+    root: Path,
+    result: Mapping[str, Any],
+    *,
+    environ: Mapping[str, str] | None = None,
+    home: Path | None = None,
+) -> tuple[bool, str]:
+    payload = {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "generated_at": time.time(),
+        "python": result.get("python", {}),
+        "programs": result.get("programs", {}),
+        "ready": result.get("ready", False),
+        "core_ready": result.get("core_ready", False),
+    }
+    runtime_cache_path = root / RUNTIME_CACHE_FILENAME
+    try:
+        runtime_cache_path.write_text(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        return False, "cache write failed: " + _bounded(str(exc), 120)
+    return True, "ok"
+
+
+def clear_runtime_cache(root: Path) -> tuple[bool, str]:
+    removed = False
+    messages: list[str] = []
+    for filename in (PYTHON_CACHE_FILENAME, RUNTIME_CACHE_FILENAME):
+        path = root / filename
+        if path.is_file():
+            try:
+                path.unlink()
+                removed = True
+                messages.append(f"removed {filename}")
+            except OSError as exc:
+                messages.append(f"{filename}: {_bounded(str(exc), 80)}")
+    return removed, ", ".join(messages) if messages else "no cache files present"
+
+
+def cached_check_runtime(
+    root: Path,
+    *,
+    required_sources: Iterable[str] = (),
+    include_optional: bool = False,
+    environ: Mapping[str, str] | None = None,
+    home: Path | None = None,
+    python_executable: str | None = None,
+    python_version: tuple[int, int, int] | None = None,
+    runner=subprocess.run,
+    force_refresh: bool = False,
+) -> tuple[dict[str, Any], str]:
+    env = dict(os.environ if environ is None else environ)
+    force_refresh = force_refresh or bool(
+        env.get("BYTEWORKER_REFRESH_RUNTIME", "").strip()
+    )
+    home_path = home or Path(env.get("HOME", str(Path.home())))
+    cache_status = "bypassed"
+    result: dict[str, Any] | None = None
+    if not force_refresh:
+        cached, _reason = read_runtime_cache(root, environ=env, home=home_path)
+        if cached is not None:
+            required = set(required_sources)
+            cached_programs = {
+                name: dict(item)
+                for name, item in cached.get("programs", {}).items()
+            }
+            all_present = True
+            for program_name, spec in PROGRAM_SPECS.items():
+                source = spec.get("source")
+                is_required = (
+                    spec["tier"] == 1
+                    or source in required
+                    or (
+                        bool(EXPLICIT_ENV.get(program_name))
+                        and env.get(EXPLICIT_ENV[program_name], "")
+                    )
+                )
+                if program_name in cached_programs:
+                    cached_programs[program_name]["required"] = is_required
+                if spec["tier"] == 2 and not (include_optional or is_required):
+                    continue
+                if program_name not in cached_programs:
+                    all_present = False
+                    break
+                program_entry = cached_programs[program_name]
+                if is_required and program_entry["status"] != "ok":
+                    all_present = False
+                    break
+                if program_entry["status"] == "ok" and not _program_still_valid(
+                    program_entry.get("path", ""), env
+                ):
+                    all_present = False
+                    break
+            if all_present:
+                py_path = cached.get("python", {}).get("path", "")
+                if _python_still_valid(py_path, env, runner=runner):
+                    python_entry = dict(cached.get("python", {}))
+                    core_ready = python_entry.get("status") == "ok" and all(
+                        item["status"] == "ok"
+                        for item in cached_programs.values()
+                        if item["tier"] == 1 and item["required"]
+                    )
+                    ready = core_ready and all(
+                        item["status"] == "ok"
+                        for item in cached_programs.values()
+                        if item["required"]
+                    )
+                    result = {
+                        "schema_version": "byteworker-runtime-check/v1",
+                        "ready": ready,
+                        "core_ready": core_ready,
+                        "required_sources": sorted(required),
+                        "python": python_entry,
+                        "programs": cached_programs,
+                    }
+                    cache_status = "hit"
+    if result is None:
+        result = check_runtime(
+            required_sources=required_sources,
+            include_optional=include_optional,
+            environ=env,
+            home=home_path,
+            python_executable=python_executable,
+            python_version=python_version,
+            runner=runner,
+        )
+        cache_status = "miss"
+        written, _write_status = write_runtime_cache(
+            root, result, environ=env, home=home_path
+        )
+        if written:
+            cache_status = "miss+cached"
+    return result, cache_status

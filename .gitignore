@@ -17,6 +17,8 @@ reports/
 .update-check.lock/
 .im-inbox-summary-first-run-shown
 .im-inbox-summary-last-run.json
+.python-cache.txt
+.runtime-cache.json
 
 # ===== 杂项 =====
 .DS_Store

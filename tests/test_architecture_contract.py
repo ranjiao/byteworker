@@ -102,6 +102,15 @@ class ArchitectureContractTests(unittest.TestCase):
             self.architecture,
         )
 
+    def test_runtime_cache_is_persistent_until_invalid(self):
+        for term in (
+            "缓存没有 TTL",
+            "路径被删除、失去执行权限或解释器不再兼容时才重新扫描",
+            "`deps --refresh`",
+            "`runtime-reset`",
+        ):
+            self.assertIn(term, self.architecture)
+
     def test_source_final_contract_is_not_split_into_a_process_ledger(self):
         self.assertFalse(
             (ROOT / "references/source-architecture-refactor.md").exists()

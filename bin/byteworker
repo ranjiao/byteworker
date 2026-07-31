@@ -5,14 +5,61 @@ set -uo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || exit 1
 
+PYTHON_CACHE="$ROOT/.python-cache.txt"
+REFRESH_RUNTIME="${BYTEWORKER_REFRESH_RUNTIME:-}"
+if [ "${1:-}" = "deps" ]; then
+  for argument in "$@"; do
+    if [ "$argument" = "--refresh" ]; then
+      REFRESH_RUNTIME=1
+      break
+    fi
+  done
+fi
+
 python_ready() {
   [ -n "${1:-}" ] &&
     [ -x "$1" ] &&
-    "$1" -c 'import sys, zoneinfo; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
+    "$1" -c 'import sys, zoneinfo; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
       >/dev/null 2>&1
 }
 
+python_version_of() {
+  "$1" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null || true
+}
+
+read_python_cache() {
+  [ -z "$REFRESH_RUNTIME" ] || return 1
+  [ -f "$PYTHON_CACHE" ] || return 1
+  [ -n "${BYTEWORKER_PYTHON_BIN:-}" ] && return 1
+  local cached_path cached_version
+  {
+    IFS= read -r cached_path
+    IFS= read -r cached_version
+  } < "$PYTHON_CACHE" 2>/dev/null || return 1
+  [ -n "${cached_path:-}" ] || return 1
+  if python_ready "$cached_path"; then
+    echo "$cached_path"
+    return 0
+  fi
+  return 1
+}
+
+write_python_cache() {
+  local target_path="$1"
+  local target_version
+  target_version=$(python_version_of "$target_path")
+  [ -n "$target_version" ] || return 0
+  local tmp_cache
+  tmp_cache="${PYTHON_CACHE}.tmp.$$"
+  if printf '%s\n%s\n' "$target_path" "$target_version" > "$tmp_cache" 2>/dev/null; then
+    mv -f "$tmp_cache" "$PYTHON_CACHE" 2>/dev/null || true
+  else
+    rm -f "$tmp_cache" 2>/dev/null || true
+  fi
+}
+
 PYTHON_BIN=""
+PYTHON_FROM_CACHE=0
 VENV_PYTHON=""
 USER_HOME="${HOME:-}"
 [ -n "${VIRTUAL_ENV:-}" ] && VENV_PYTHON="$VIRTUAL_ENV/bin/python"
@@ -20,8 +67,16 @@ if [ -n "${BYTEWORKER_PYTHON_BIN:-}" ]; then
   if python_ready "$BYTEWORKER_PYTHON_BIN"; then
     PYTHON_BIN="$BYTEWORKER_PYTHON_BIN"
   else
-    echo "byteworker: BYTEWORKER_PYTHON_BIN 不可用或低于 Python 3.9: $BYTEWORKER_PYTHON_BIN" >&2
+    echo "byteworker: BYTEWORKER_PYTHON_BIN 不可用或低于 Python 3.10: $BYTEWORKER_PYTHON_BIN" >&2
     exit 1
+  fi
+fi
+
+if [ -z "$PYTHON_BIN" ]; then
+  CACHED_PYTHON=$(read_python_cache || true)
+  if [ -n "$CACHED_PYTHON" ]; then
+    PYTHON_BIN="$CACHED_PYTHON"
+    PYTHON_FROM_CACHE=1
   fi
 fi
 
@@ -42,8 +97,12 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 
 if [ -z "$PYTHON_BIN" ]; then
-  echo "byteworker: 未找到带 zoneinfo 的 Python >= 3.9；请先运行 bin/check-deps.sh 排障。" >&2
+  echo "byteworker: 未找到带 zoneinfo 的 Python >= 3.10；请先运行 bin/check-deps.sh 排障。" >&2
   exit 1
+fi
+
+if [ "$PYTHON_FROM_CACHE" -eq 0 ] && [ -z "${BYTEWORKER_PYTHON_BIN:-}" ]; then
+  write_python_cache "$PYTHON_BIN"
 fi
 
 export BYTEWORKER_PYTHON_BIN="$PYTHON_BIN"
