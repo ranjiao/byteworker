@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -15,6 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from frontmatter import parse_file, parse_frontmatter
+from kb_write_txn import kb_write_lock
 from provenance import (
     BACKFILL_SCHEMA,
     EVIDENCE_MARKER_RE,
@@ -458,10 +458,7 @@ def apply_backfill(
     kb = kb.resolve()
     if not (kb / ".git").is_dir():
         raise BackfillError("知识库不是本地 Git 仓库")
-    lock_path = kb / ".git" / "byteworker-provenance.lock"
-    lock_path.touch(exist_ok=True)
-    with lock_path.open("a+") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with kb_write_lock(kb):
         result = validate_backfill(kb, plan_path)
         if not result.writes:
             return {

@@ -221,7 +221,7 @@ fi
 
 if [ "$BEFORE" != "$AFTER" ]; then
   N=$(git -C "$DIR" rev-list --count "${BEFORE}..${AFTER}" 2>/dev/null || echo "若干")
-  UPDATE_MESSAGE="byteworker skill 已自动更新(拉取 $N 个提交,更新于下次使用生效)。"
+  UPDATE_MESSAGE="byteworker skill 已自动更新(拉取 $N 个提交,本次 preflight 已加载新版本)。"
   "${STATE_CMD[@]}" postflight-pending --commit "$AFTER" >/dev/null 2>&1 || true
   if attempt_postflight; then
     append_notice "$UPDATE_MESSAGE${POSTFLIGHT_MESSAGE:+ $POSTFLIGHT_MESSAGE}"

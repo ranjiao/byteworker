@@ -151,7 +151,13 @@ class SessionPreflightTests(unittest.TestCase):
                 ),
                 mock.patch.object(session_preflight, "record_decision") as decision,
             ):
-                result = session_preflight.run_preflight(root, runner=runner)
+                result = session_preflight.run_preflight(
+                    root,
+                    runner=runner,
+                    environ={
+                        "BYTEWORKER_UPDATE_NOTICE": "byteworker:自动更新暂时失败。"
+                    },
+                )
             self.assertEqual("attention", result["status"])
             self.assertTrue(result["ready"])
             self.assertEqual(
@@ -209,7 +215,7 @@ class SessionPreflightTests(unittest.TestCase):
             )
             self.assertIn("cannot execute", notice["message"])
 
-    def test_update_launch_failure_is_nonblocking_and_bounded(self):
+    def test_external_update_notice_is_nonblocking_and_bounded(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.layout(root)
@@ -240,14 +246,16 @@ class SessionPreflightTests(unittest.TestCase):
             ):
                 result = session_preflight.run_preflight(
                     root,
-                    runner=mock.Mock(side_effect=OSError("cannot launch")),
+                    environ={
+                        "BYTEWORKER_UPDATE_NOTICE": "x" * 1200,
+                    },
                 )
             self.assertTrue(result["ready"])
             self.assertEqual(
                 "UPDATE_CHECK_NOTICE",
                 result["notices"][0]["code"],
             )
-            self.assertIn("cannot launch", result["notices"][0]["message"])
+            self.assertEqual(1000, len(result["notices"][0]["message"]))
 
     def test_report_onboarding_write_failure_is_bounded_and_blocking(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -351,7 +359,7 @@ class SessionPreflightTests(unittest.TestCase):
                 result = session_preflight.run_preflight(root, runner=runner)
             self.assertFalse(result["ready"])
             self.assertEqual("KB_CONFIG_MISSING", result["notices"][-1]["code"])
-            runner.assert_called_once()
+            runner.assert_not_called()
 
     def test_cli_is_silent_when_healthy_and_compact_on_attention(self):
         healthy = {

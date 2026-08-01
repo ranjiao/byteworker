@@ -1,12 +1,14 @@
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 
@@ -45,7 +47,7 @@ class TimeParsingTest(unittest.TestCase):
 
 class TodoStorageTest(unittest.TestCase):
     def setUp(self):
-        self.tempdir = tempfile.TemporaryDirectory()
+        self.tempdir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.kb = Path(self.tempdir.name)
         (self.kb / "context.md").write_text(
             "| 时区 | Asia/Shanghai |\n- 未指定具体时间的提醒：09:00\n"
@@ -54,6 +56,19 @@ class TodoStorageTest(unittest.TestCase):
         )
         self.now = todo.local_now("2026-07-23 10:00", todo.load_preferences(self.kb))
         self.path = todo.ensure_initialized(self.kb, None)
+        subprocess.run(["git", "init", "-q"], cwd=self.kb, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "todo@example.test"],
+            cwd=self.kb,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Todo Test"],
+            cwd=self.kb,
+            check=True,
+        )
+        subprocess.run(["git", "add", "."], cwd=self.kb, check=True)
+        subprocess.run(["git", "commit", "-qm", "init"], cwd=self.kb, check=True)
 
     def tearDown(self):
         self.tempdir.cleanup()
@@ -101,7 +116,7 @@ class TodoStorageTest(unittest.TestCase):
         self.assertEqual(loaded, [])
 
     def test_cli_add_and_complete_lifecycle(self):
-        self.run_cli(
+        created = self.run_cli(
             "add",
             "--title",
             "提交周报",
@@ -110,6 +125,7 @@ class TodoStorageTest(unittest.TestCase):
             "--now",
             "2026-07-23 10:00",
         )
+        self.assertEqual("committed", created["transaction"]["status"])
         _, loaded = todo.load_todos(self.path)
         self.assertEqual(loaded[0].fields["due_at"], "2026-07-24T18:00:00+08:00")
         self.run_cli(
@@ -122,6 +138,16 @@ class TodoStorageTest(unittest.TestCase):
         _, completed = todo.load_todos(self.path)
         self.assertEqual(completed[0].status, "done")
         self.assertIn("## Completed\n\n### [x]", self.path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            "",
+            subprocess.run(
+                ["git", "status", "--short"],
+                cwd=self.kb,
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            ).stdout,
+        )
 
     def test_list_scopes_include_active_done_and_cancelled_items(self):
         first = self.run_cli(
@@ -270,6 +296,40 @@ class TodoStorageTest(unittest.TestCase):
         self.path.write_text("# TODO\n\n## Active\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Active / Completed"):
             todo.load_todos(self.path)
+
+    def test_commit_failure_restores_todo_journal_and_git_index(self):
+        before = self.path.read_bytes()
+        real_git = todo._git
+
+        def fail_commit(kb_dir, *args, check=True):
+            if args[:1] == ("commit",):
+                raise todo.TodoTransactionError("forced commit failure")
+            return real_git(kb_dir, *args, check=check)
+
+        with mock.patch.object(todo, "_git", side_effect=fail_commit):
+            with self.assertRaisesRegex(SystemExit, "forced commit failure"):
+                todo.main(
+                    [
+                        str(self.kb),
+                        "add",
+                        "--title",
+                        "rollback me",
+                        "--now",
+                        "2026-07-23 10:00",
+                    ]
+                )
+
+        self.assertEqual(before, self.path.read_bytes())
+        self.assertEqual(
+            "",
+            subprocess.run(
+                ["git", "status", "--short"],
+                cwd=self.kb,
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            ).stdout,
+        )
 
 
 if __name__ == "__main__":

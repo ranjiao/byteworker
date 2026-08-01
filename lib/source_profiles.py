@@ -7,7 +7,6 @@ immutable evidence of what was actually read on a particular run.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -17,8 +16,11 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-from urllib.parse import parse_qsl, urlsplit
 from zoneinfo import ZoneInfo
+
+from credential_safety import credential_url_fields, is_credential_field
+from kb_write_txn import kb_write_lock
+from source_profile_contract import SourceProfileError
 
 
 PROFILE_SCHEMA_V1 = "byteworker-source-profile/v1"
@@ -37,38 +39,6 @@ PROFILE_SOURCE_TYPES_V2 = {
 PROFILE_SOURCE_TYPES = PROFILE_SOURCE_TYPES_V1 | PROFILE_SOURCE_TYPES_V2
 ROUTINE_CADENCES = {"daily", "weekly", "monthly"}
 SHA_PREFIX = "sha256:"
-SENSITIVE_KEYS = {
-    "access_token",
-    "api_key",
-    "auth_token",
-    "authorization",
-    "bearer_token",
-    "bytecloud_jwt",
-    "client_secret",
-    "credential",
-    "disposable_login_token",
-    "jwt",
-    "password",
-    "private_key",
-    "refresh_token",
-    "secret",
-    "session_token",
-    "sign",
-    "signature",
-    "titan_passport",
-    "token",
-}
-
-
-class SourceProfileError(RuntimeError):
-    """Safe validation or local-transaction error."""
-
-    def __init__(self, code: str, message: str, *, hint: str = "") -> None:
-        super().__init__(message)
-        self.code = code
-        self.hint = hint
-
-
 def _canonical_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -115,8 +85,7 @@ def _reject_unknown(
 def _reject_credentials(value: Any, path: str = "profile") -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
-            normalized = str(key).strip().lower()
-            if normalized in SENSITIVE_KEYS:
+            if is_credential_field(key):
                 raise SourceProfileError(
                     "SOURCE_PROFILE_CONTAINS_CREDENTIAL",
                     f"source profile 不得保存凭据字段: {path}.{key}",
@@ -138,21 +107,12 @@ def _validate_source_identity(
             "SOURCE_PROFILE_INVALID",
             "source profile 必须包含 source_uid、HTTPS source_url 和 title",
         )
-    sensitive_query_keys = sorted(
-        {
-            key.lower()
-            for key, _ in parse_qsl(
-                urlsplit(source_url).query,
-                keep_blank_values=True,
-            )
-            if key.lower() in SENSITIVE_KEYS
-        }
-    )
-    if sensitive_query_keys:
+    credential_locations = credential_url_fields(source_url)
+    if credential_locations:
         raise SourceProfileError(
             "SOURCE_PROFILE_CONTAINS_CREDENTIAL",
-            "source profile URL 不得保存凭据参数: "
-            + ", ".join(sensitive_query_keys),
+            "source profile URL 不得保存凭据: "
+            + ", ".join(credential_locations),
         )
     return source_uid, source_url, title
 
@@ -848,10 +808,7 @@ def save_profile(
             "source profile 目标已有未提交修改: " + ", ".join(overlap),
         )
 
-    lock_path = kb / ".git" / "byteworker-source-profile.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock_path, "a+", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with kb_write_lock(kb):
         if _run_git(kb, ["diff", "--cached", "--name-only"]).stdout.splitlines():
             raise SourceProfileError(
                 "SOURCE_PROFILE_GIT_DIRTY",
@@ -958,8 +915,6 @@ def save_profile(
             for path, content in snapshots.items():
                 _restore(path, content)
             raise
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     return {
         "status": "committed",
         "source_uid": normalized["source_uid"],

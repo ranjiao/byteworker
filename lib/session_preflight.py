@@ -159,26 +159,11 @@ def run_preflight(
             )
         )
 
-    if not skip_update and runtime["core_ready"]:
-        try:
-            completed = runner(
-                [str(root / "bin" / "update-check.sh")],
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
-                env=env,
-            )
-        except OSError as exc:
-            update_message = "自动更新检查无法启动: " + str(exc)[:500]
-        else:
-            update_message = " ".join(
-                (completed.stdout or completed.stderr).split()
-            )[:1000]
-            if completed.returncode != 0 and not update_message:
-                update_message = (
-                    f"自动更新检查失败（退出码 {completed.returncode}）。"
-                )
+    update_message = ""
+    if not skip_update:
+        update_message = " ".join(
+            str((environ or {}).get("BYTEWORKER_UPDATE_NOTICE", "")).split()
+        )[:1000]
         if update_message:
             notices.append(_notice("UPDATE_CHECK_NOTICE", update_message))
 

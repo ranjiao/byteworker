@@ -348,6 +348,26 @@ class SourceBundleTests(unittest.TestCase):
             "SOURCE_BUNDLE_CONTAINS_CREDENTIAL",
             caught.exception.code,
         )
+        for source_url in (
+            "https://user:pass@example.test/docx/doc-1",
+            "https://example.test/docx/doc-1?Access-Token=secret",
+            "https://example.test/docx/doc-1?client%5Fsecret=secret",
+            "https://example.test/docx/doc-1#refresh_token=secret",
+        ):
+            with self.subTest(source_url=source_url):
+                with self.assertRaises(SourceBundleError) as caught:
+                    build_feishu_document_bundle(
+                        source_uid="doc-1",
+                        source_url=source_url,
+                        title="测试文档",
+                        revision="7",
+                        body={"path": str(body)},
+                        comments={"path": str(comments)},
+                    )
+                self.assertEqual(
+                    "SOURCE_BUNDLE_CONTAINS_CREDENTIAL",
+                    caught.exception.code,
+                )
 
         with self.assertRaises(SourceBundleError) as caught:
             build_feishu_document_bundle(

@@ -26,6 +26,22 @@ class MachineProtocolTests(unittest.TestCase):
     def test_todo_success_uses_stable_single_line_envelope(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = Path(temporary)
+            subprocess.run(["git", "init", "-q"], cwd=kb, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "todo@example.test"],
+                cwd=kb,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Todo Test"],
+                cwd=kb,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "--allow-empty", "-qm", "init"],
+                cwd=kb,
+                check=True,
+            )
             result = self.run_cli(
                 "todo",
                 kb,
@@ -43,6 +59,10 @@ class MachineProtocolTests(unittest.TestCase):
             self.assertEqual("todo", payload["context"]["tool"])
             self.assertEqual("init", payload["context"]["operation"])
             self.assertTrue(payload["data"]["created"])
+            self.assertEqual(
+                "committed",
+                payload["data"]["transaction"]["status"],
+            )
 
     def test_argument_error_has_stable_code_and_exit_status(self):
         result = self.run_cli("kb-query", "search", "--kb", "/tmp/missing-query")
@@ -419,10 +439,36 @@ class MachineProtocolTests(unittest.TestCase):
     def test_index_rebuild_has_dry_run_and_apply_machine_receipts(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = Path(temporary)
-            (kb / "knowledge").mkdir()
-            (kb / "raw_data").mkdir()
-            (kb / "sources").mkdir()
+            for directory in (
+                "people",
+                "projects",
+                "areas",
+                "orgs",
+                "events",
+                "decisions",
+                "readings",
+            ):
+                (kb / "knowledge" / directory).mkdir(parents=True)
+            for directory in ("raw_data", "sources", "provenance", "journal"):
+                (kb / directory).mkdir()
+            for directory in ("daily", "weekly", "im"):
+                (kb / "reports" / directory).mkdir(parents=True)
+            for name in ("context.md", "todo.md", "dashboard.md"):
+                (kb / name).write_text(f"# {name}\n", encoding="utf-8")
             (kb / "INDEX.md").write_text("# stale\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=kb, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "index@example.test"],
+                cwd=kb,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Index Test"],
+                cwd=kb,
+                check=True,
+            )
+            subprocess.run(["git", "add", "."], cwd=kb, check=True)
+            subprocess.run(["git", "commit", "-qm", "init"], cwd=kb, check=True)
 
             preview = self.run_cli(
                 "index",
@@ -441,6 +487,7 @@ class MachineProtocolTests(unittest.TestCase):
             self.assertFalse(preview_payload["data"]["git_commit_created"])
             self.assertEqual(0, applied.returncode)
             self.assertEqual("rebuilt", applied_payload["data"]["status"])
+            self.assertTrue(applied_payload["data"]["git_commit_created"])
             self.assertIn(
                 "# 知识库索引",
                 (kb / "INDEX.md").read_text(encoding="utf-8"),

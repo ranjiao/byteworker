@@ -14,8 +14,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import urlsplit
 
+from credential_safety import credential_url_fields, is_credential_field
 
 BUNDLE_SCHEMA = "byteworker-source-bundle/v2"
 RECORD_INDEX_SCHEMA = "byteworker-record-index/v1"
@@ -41,26 +42,6 @@ ANCHOR_KINDS = {
     "web_section",
     "whiteboard_node",
     "local_span",
-}
-SENSITIVE_KEYS = {
-    "access_token",
-    "auth_token",
-    "authorization",
-    "bearer_token",
-    "bytecloud_jwt",
-    "client_secret",
-    "cookie",
-    "credential",
-    "credentials",
-    "disposable_login_token",
-    "jwt",
-    "password",
-    "secret",
-    "session_token",
-    "sign",
-    "signature",
-    "titan_passport",
-    "token",
 }
 SAFE_URL_SCHEMES = {"http", "https"}
 DEFAULT_SKILL_ROOT = Path(__file__).resolve().parents[2]
@@ -156,11 +137,7 @@ def _validate_hash(value: Any, path: str, *, optional: bool) -> str | None:
 
 
 def _url_has_credentials(value: str) -> bool:
-    parsed = urlsplit(value)
-    return any(
-        key.strip().lower() in SENSITIVE_KEYS
-        for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
-    )
+    return bool(credential_url_fields(value))
 
 
 def _validate_url(value: str, path: str, *, allow_empty: bool = True) -> str:
@@ -181,8 +158,7 @@ def _validate_url(value: str, path: str, *, allow_empty: bool = True) -> str:
 def _reject_credentials(value: Any, path: str = "bundle") -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
-            normalized = str(key).strip().lower()
-            if normalized in SENSITIVE_KEYS:
+            if is_credential_field(key):
                 _error(
                     f"source bundle 不得保存凭据字段: {path}.{key}",
                     f"{path}.{key}",

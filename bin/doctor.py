@@ -16,6 +16,7 @@ if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
 from doctor import apply_repairs, render_text, scan  # noqa: E402
+from update_postflight import run_postflight  # noqa: E402
 
 
 def resolve_kb(value: str) -> Path:
@@ -63,15 +64,25 @@ def main(argv: list[str] | None = None) -> int:
     try:
         kb = resolve_kb(args.kb)
         repairs = []
+        transaction = None
         if args.command == "fix":
             actions = [item.strip() for item in args.only.split(",") if item.strip()]
-            repairs = apply_repairs(
-                kb,
-                SKILL_ROOT,
-                actions,
-                autolink=args.autolink,
-                dry_run=args.dry_run,
-            )
+            if args.dry_run:
+                repairs = apply_repairs(
+                    kb,
+                    SKILL_ROOT,
+                    actions,
+                    autolink=args.autolink,
+                    dry_run=True,
+                )
+            else:
+                transaction = run_postflight(
+                    SKILL_ROOT,
+                    kb,
+                    allowed_actions=set(actions),
+                    force_autolink=args.autolink,
+                )
+                repairs = transaction.repairs
         report = scan(kb, SKILL_ROOT)
     except (OSError, ValueError) as exc:
         print(f"doctor 错误: {exc}", file=sys.stderr)
@@ -81,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
         payload = report.to_dict()
         if repairs:
             payload["repairs"] = repairs
+        if transaction is not None:
+            payload["transaction"] = transaction.to_dict()
         sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     else:
         if repairs:

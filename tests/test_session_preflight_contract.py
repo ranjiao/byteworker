@@ -33,6 +33,16 @@ class SessionPreflightContractTests(unittest.TestCase):
         self.assertIn("bin/byteworker lark", protocol)
         self.assertIn("bin/byteworker run", protocol)
 
+    def test_update_finishes_before_python_modules_are_loaded(self):
+        bootstrap = self.read("bin/byteworker")
+        preflight = self.read("lib/session_preflight.py")
+        self.assertLess(
+            bootstrap.index('"$ROOT/bin/update-check.sh"'),
+            bootstrap.index('exec "$PYTHON_BIN" "$ROOT/bin/byteworker-launcher.py"'),
+        )
+        self.assertNotIn("update-check.sh", preflight)
+        self.assertIn("BYTEWORKER_UPDATE_NOTICE", preflight)
+
 
 if __name__ == "__main__":
     unittest.main()

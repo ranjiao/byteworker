@@ -5,6 +5,7 @@ import sys
 import tempfile
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,7 @@ if str(LIB) not in sys.path:
 
 from doctor import SCHEMA_CONTRACT_PATHS, apply_repairs, scan  # noqa: E402
 from source_profiles import profile_relative_path, validate_profile  # noqa: E402
+import update_postflight  # noqa: E402
 from update_postflight import render_message, run_postflight  # noqa: E402
 
 
@@ -545,6 +547,55 @@ links: []
         self.assertEqual("byteworker-kb/v1", payload["schema_profile"])
         self.assertEqual(1, payload["counts"]["nodes"])
 
+    def test_cli_fix_uses_transaction_and_creates_local_commit(self):
+        self.commit_all()
+        (self.kb / "INDEX.md").write_text("# stale\n", encoding="utf-8")
+        self.git("add", "INDEX.md")
+        self.git("commit", "-m", "make index stale")
+        before = subprocess.run(
+            ["git", "-C", str(self.kb), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "bin/doctor.py"),
+                "fix",
+                "--kb",
+                str(self.kb),
+                "--only",
+                "index",
+                "--format",
+                "json",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["transaction"]["commit"])
+        self.assertEqual("healthy", payload["transaction"]["status"])
+        after = subprocess.run(
+            ["git", "-C", str(self.kb), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        self.assertNotEqual(before, after)
+        status = subprocess.run(
+            ["git", "-C", str(self.kb), "status", "--short"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        self.assertEqual("", status)
+
     def test_index_fix_dry_run_does_not_embed_the_generated_index(self):
         result = apply_repairs(self.kb, ROOT, ["index"], dry_run=True)
         self.assertTrue(result[0]["ok"])
@@ -643,6 +694,68 @@ links: []
         self.assertNotEqual(
             "stale\n", (self.kb / "INDEX.md").read_text(encoding="utf-8")
         )
+
+    def test_postflight_commit_failure_restores_files_index_and_head(self):
+        self.add_one_way_area_link()
+        self.commit_all()
+        before_head = subprocess.run(
+            ["git", "-C", str(self.kb), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        before_status = subprocess.run(
+            ["git", "-C", str(self.kb), "status", "--porcelain=v1"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        area = self.kb / "knowledge/areas/area-example.md"
+        before_area = area.read_bytes()
+        before_index = (self.kb / "INDEX.md").read_bytes()
+
+        real_git = update_postflight._git
+
+        def fail_commit(kb, *args):
+            if args[:1] == ("commit",):
+                return subprocess.CompletedProcess(
+                    ["git", *args],
+                    1,
+                    stdout="",
+                    stderr="forced commit failure",
+                )
+            return real_git(kb, *args)
+
+        with mock.patch.object(
+            update_postflight,
+            "_git",
+            side_effect=fail_commit,
+        ):
+            result = run_postflight(ROOT, self.kb)
+
+        self.assertEqual("decision", result.status)
+        self.assertIn("forced commit failure", result.reasons)
+        self.assertEqual("", result.commit)
+        self.assertEqual(
+            before_head,
+            subprocess.run(
+                ["git", "-C", str(self.kb), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip(),
+        )
+        self.assertEqual(
+            before_status,
+            subprocess.run(
+                ["git", "-C", str(self.kb), "status", "--porcelain=v1"],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout,
+        )
+        self.assertEqual(before_area, area.read_bytes())
+        self.assertEqual(before_index, (self.kb / "INDEX.md").read_bytes())
 
     def test_postflight_auto_repairs_self_link_error(self):
         reading = self.kb / "knowledge/readings/reading-example.md"
