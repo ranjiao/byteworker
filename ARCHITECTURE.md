@@ -47,7 +47,7 @@ flowchart LR
 
 | 层 | 负责 | 不负责 |
 |---|---|---|
-| Agent 语义层 | 理解内容、决定摄取范围、判断冲突、选择节点、生成完整候选、解释结果 | 不手算 hash，不绕过事务直接宣称写入成功 |
+| Agent 语义层 | 理解内容、按唯一 policy 产出带 reason/evidence 的语义决定、生成完整候选、解释结果 | 不手算 hash，不自行发明冲突/晋升阈值，不绕过事务直接写 KB |
 | Python / Shell 工具层 | 授权检查、抓取、规范化、hash、幂等、schema 校验、原子写入、回滚、查询、修复 | 不理解业务语义，不决定“这是什么项目/决策” |
 | 私有知识库 | 保存原文、出处、知识节点、用户状态、报告和本地回滚历史 | 不进入本 skill 仓库，不配置 remote |
 
@@ -65,7 +65,7 @@ flowchart TB
 
     subgraph T["B. 系统临时目录：任务期间存在"]
         T1["capture / SourceBundle"]
-        T2["DigestPlan / 候选节点"]
+        T2["DigestPlan / MutationPlan / 语义结果 / 候选内容"]
         T3["diff / 临时预览"]
     end
 
@@ -127,10 +127,11 @@ flowchart LR
 ```mermaid
 flowchart TD
     I["用户调用 byteworker"]
-    B["bin/byteworker preflight<br/>解析 Python 与来源 runtime"]
-    U["静默运行 update-check"]
+    B["bin/byteworker shell bootstrap<br/>解析 Python"]
+    U["加载任何 Python 模块前<br/>静默运行 update-check"]
     G{"代码是否真实 fast-forward？"}
     P["运行 post-update doctor<br/>只修白名单内确定性问题"]
+    X["exec 当前版本 launcher<br/>加载单一版本模块"]
     K["读取 .kbconfig<br/>定位私有知识库"]
     C["验证 context.md / todo.md"]
     T["Todo check + report status"]
@@ -139,8 +140,9 @@ flowchart TD
     R{"意图路由"}
 
     I --> B --> U --> G
-    G -->|"是"| P --> K
-    G -->|"否"| K
+    G -->|"是"| P --> X
+    G -->|"否"| X
+    X --> K
     K --> C --> T --> N
     N -->|"否"| Z --> R
     N -->|"是"| R
@@ -153,14 +155,17 @@ flowchart TD
     R -->|"help"| H["只读帮助文档"]
 ```
 
-`bin/byteworker` 将首次解析成功的 Python 绝对路径持久化为本机缓存；缓存没有 TTL，每次只做
+`bin/byteworker` 是不会预加载仓库 Python 模块的稳定 shell bootstrap。它将首次解析成功的
+Python 绝对路径持久化为本机缓存；缓存没有 TTL，每次只做
 最小可执行与版本检查，路径被删除、失去执行权限或解释器不再兼容时才重新扫描。库层同样持久化
 已解析的核心命令与来源 runtime，不因时间、PATH 或虚拟环境变化主动刷新；显式 override、
 `deps --refresh`、`runtime-reset` 仍可要求重建。`lib/runtime_deps.py` 从显式 override、当前
 PATH、常见本地目录和 NVM installations 中解析可执行文件，实际执行仍由 `bin/byteworker`
-注入同一组环境。`lib/session_preflight.py` 合并
-更新、KB 定位、依赖、Todo 和自动报告设置检查；只输出需要 Agent 行动的 notice。它不读取
-`context.md` 正文进入模型：语义任务在路由后才读取一次，help/纯维护任务不承担这部分 context。
+注入同一组环境。preflight 的更新检查在 shell 中先完成，之后 `exec` 当前工作树的 launcher，
+因此不会在一次调用中混用更新前后模块。`lib/session_preflight.py` 只合并 KB 定位、依赖、Todo
+和自动报告设置检查，并接收 shell 传入的有限更新 notice。它不读取 `context.md` 正文：
+语义任务在路由后通过 `context view --intent` 读取固定章节投影，help/纯维护任务不承担这部分
+context。
 公共阶段的目的不是“加载所有数据”，而是以稳定协议建立安全边界。
 
 ### 2.2 单来源 digest 主流程
@@ -311,7 +316,7 @@ flowchart TB
         R1["确定时间范围"]
         R2["完整运行全部启用的<br/>routine digest"]
         R3["查询 nodes / raw / journal / IM 候选"]
-        R4["生成带出处的报告快照<br/>journal + 本地 Git"]
+        R4["生成带出处候选<br/>KB mutation 原子写入"]
         R5["记录成功 / 失败并释放租约"]
         H1 --> R0 --> R1 --> R2 --> R3 --> R4 --> R5
     end
@@ -319,7 +324,7 @@ flowchart TB
     subgraph State["用户状态"]
         S1["自然语言 Todo / Context 请求"]
         S2["Agent 解析意图和时间"]
-        S3["todo.py 或受控 context 写入"]
+        S3["todo.py 或 KB mutation"]
         S1 --> S2 --> S3
     end
 
@@ -342,6 +347,23 @@ flowchart TB
 `last_attempt/last_run/last_success` 并确定性判断指定 period 是否缺口；单租约只防止同一知识库
 重叠运行。周期性补偿仍由第三个宿主原生任务唤醒，应用服务不承担任务唤醒、不常驻、不使用
 系统 cron。
+
+### 2.6 Agent 文档路由与语义收敛
+
+`SKILL.md` 只承担意图路由和全局不变量。`references/workflow-routes.json` 是机器可检查的
+workflow 闭包：每个入口声明 `required/on_error`，digest 再按 `source_type/features` 条件加载。
+子 Agent、无人值守报告和 Wiki resume 都必须从 manifest 递归展开闭包，不依赖上一 session
+或主 Agent 的隐式记忆。
+
+search/update/brief/dashboard/context 分别使用独立 reference；公共机器协议只定义 envelope 和
+成功判定，工具参数从对应 workflow 或 `--help` 发现。CI 对 reference-only 闭包设置字符预算，
+防止 progressive disclosure 被重新聚合文件破坏。
+
+`context.md` 仍是真相源，但 `lib/context_view.py` 按 intent 返回固定章节投影，并设置 12k
+软预算、24k 硬预算；mutation 另限制完整 context 不超过 32 KiB。语义决定使用唯一 policy：
+冲突动作由 `conflict-policy.md` 定义，知识晋升/参与方推断/IM 评分由 `semantic-policy.md`
+定义。IM 结果必须先通过 `lib/semantic_policy.py` 校验分数、阈值、reason code 和消息证据，
+再允许写报告或触发 digest。
 
 ## 3. 数据生命周期
 
@@ -445,6 +467,8 @@ flowchart TB
         DS["lib/doctor_sources.py<br/>来源契约只读审计"]
         PB["lib/provenance_backfill.py"]
         UP["lib/update_postflight.py"]
+        KM["lib/kb_mutation.py<br/>非 digest 内容事务"]
+        CV["lib/context_view.py<br/>按意图投影"]
     end
 
     subgraph L3["L3 · 领域契约层"]
@@ -452,6 +476,9 @@ flowchart TB
         PR["lib/provenance.py"]
         SP["lib/source_profiles.py"]
         SPP["lib/source_profile_providers.py"]
+        SPC["lib/source_profile_contract.py"]
+        SEM["lib/semantic_policy.py"]
+        CRED["lib/credential_safety.py"]
         SS["lib/snapshot_store.py"]
         FM["lib/frontmatter.py"]
         CO["lib/constants.py"]
@@ -460,6 +487,7 @@ flowchart TB
     subgraph L4["L4 · Provider 与系统基础设施"]
         SC["lib/source_capture.py<br/>兼容 capture 实现"]
         AE["lib/aeolus_client.py"]
+        KWT["lib/kb_write_txn.py<br/>共享写锁/回滚原语"]
         EXT["lark-cli / meegle / HTTP / Git / filesystem"]
     end
 
@@ -481,6 +509,9 @@ flowchart TB
     SO --> SCO
     DIRECT --> DOC
     DIRECT --> PB
+    DIRECT --> KM
+    DIRECT --> CV
+    DIRECT --> SEM
     DT --> SRC
     DT --> PR
     DT --> SS
@@ -494,11 +525,21 @@ flowchart TB
     DJ --> KB
     RA --> KB
     SP --> SPP
+    SP --> SPC
+    SPP --> SPC
+    SP --> CRED
+    SRC --> CRED
     SO --> SC
     SS --> SC
     SC --> AE
     SC --> EXT
     DT --> KB
+    DT --> KWT
+    PB --> KWT
+    SP --> KWT
+    UP --> KWT
+    KM --> KWT
+    KWT --> KB
     KQ --> KB
     DOC --> KB
     PB --> KB
@@ -521,8 +562,8 @@ flowchart TB
 
 | 模块 | 职责 | 输出 |
 |---|---|---|
-| `bin/byteworker` + `bin/byteworker-launcher.py` | 先定位 Python >=3.10，再以统一 runtime 执行 preflight、机器 CLI 或外部工具 | 静默健康路径、机器 envelope 或下游输出 |
-| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排更新、KB、runtime、Todo 与自动报告设置检查 | `byteworker-session-preflight/v1`；默认仅异常输出 |
+| `bin/byteworker` + `bin/byteworker-launcher.py` | shell 先定位 Python 并完成 update-check，再 exec 当前版本 launcher；统一执行 preflight、机器 CLI 或外部工具 | 单一版本模块、静默健康路径、机器 envelope 或下游输出 |
+| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、Todo 与自动报告设置检查，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；默认仅异常输出 |
 | `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
 | `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI | `byteworker-cli/v1` envelope |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
@@ -532,6 +573,9 @@ flowchart TB
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
+| `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
+| `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |
+| `bin/semantic.py` | 校验 IM 等结构化语义结果 | validation report / 稳定 error code |
 | `bin/kb-query.py` | search / evidence / source-record | 有覆盖信息的有限候选 |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
 | `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
@@ -655,13 +699,16 @@ Hash 语义必须区分：
 #### 4.3.2 Profile、快照与查询的最终规则
 
 - v2 Profile 的公共生命周期由 `lib/source_profiles.py` 管理，当前覆盖 Meego、Base、
-  群聊和飞书文档；provider validator 严格校验
+  群聊、飞书文档和 Wiki 子树；provider validator 严格校验
   selector 和 capture policy；未知字段、未知 provider、凭据字段全部拒绝。
 - `sources/` 历史上还可能含不属于 CaptureProfile 的日历/调度配置；枚举时只忽略“无 Profile
   schema 且 source_type 不受 Profile 支持”的明确异类文件。任何声称为受支持 source type 的
   畸形 Profile 仍 fail closed，不能借兼容过滤隐藏。
 - Base/群聊等新增 provider 规则放在 `lib/source_profile_providers.py`，避免 Profile 的
-  持久化、revision 和 Git 生命周期继续吸收 provider 分支。
+  持久化、revision 和 Git 生命周期继续吸收 provider 分支。provider validator 只依赖
+  `source_profile_contract.py` 的中立错误类型，不反向 import 生命周期模块。
+- `credential_safety.py` 对 Profile 与 Bundle 统一拒绝 URL userinfo、query/fragment 中编码或
+  分隔符变体的认证字段，同时允许 `app_token/root_node_token` 等明确资源标识。
 - 群聊的一次性显式窗口与 routine 增量 Profile 分开：启用 routine 必须使用
   `since_last=true`；高水位来自已提交 raw，Profile 只保存策略和 overlap。
 - routine 优先且只按已注册 Profile 重放配置；没有 Profile 的历史来源才允许兼容读取 raw 上的
@@ -713,7 +760,7 @@ flowchart LR
 - `bin/byteworker-cli.py` 仅通过子进程映射暴露 `wiki` / `digest-job`。普通路径不 import 这两个
   模块，不检查 auth、不扫描状态、不创建目录；这是冷路径兼容契约。
 
-### 4.5 Digest transaction
+### 4.5 写事务
 
 ```mermaid
 flowchart TD
@@ -722,7 +769,7 @@ flowchart TD
     HASH["重算 component hash / content_hash / digest_key"]
     PREF["扫描同源 raw<br/>new_source / new_version / noop / resume_failed"]
     VAL["校验节点 schema、sources、links、evidence、base_sha256"]
-    LOCK["获取知识库写锁"]
+    LOCK["获取共享 KB 写锁<br/>.git/byteworker-write.lock"]
     RECHECK["重新 preflight + baseline"]
     WRITE["原子写 raw / provenance / nodes"]
     DERIVE["重建 INDEX + journal"]
@@ -736,21 +783,35 @@ flowchart TD
     GIT -->|"任一步失败"| ROLLBACK
 ```
 
-事务成功的唯一证明是 `status=committed` 和 commit hash。Agent 已生成候选、validate 成功或文件
-看起来存在，都不等于事务完成。
+digest、Profile、provenance backfill、postflight、Todo 和通用 mutation 全部使用
+`lib/kb_write_txn.py` 的同一个 advisory lock；不能再为不同 writer 创建互不相见的锁。
 
-### 4.6 查询与维护
+digest 之外的 update/context/dashboard/report/inbox 使用 `byteworker-kb-mutation/v1`：
+Agent 提供候选、目标 `base_sha256`、章节模式、冲突处置、journal 摘要和 commit message；
+`lib/kb_mutation.py` 在锁内重新校验，执行完整替换/固定章节替换/保留手动章节替换，按需重建
+INDEX，并统一完成 journal、精确暂存、commit 和 rollback。它不允许写 raw/provenance/sources/
+todo。
+
+postflight 在共享锁内扫描和修复；repair、路径检查、暂存、commit 或 receipt 失败时恢复目标文件、
+Git index 和必要的 HEAD ref。事务成功的唯一证明是 `status=committed` 和 commit hash。Agent
+已生成候选、validate 成功或文件看起来存在，都不等于事务完成。
+
+### 4.6 查询、语义校验与维护
 
 | 模块 | 核心职责 | 允许写入 |
 |---|---|---|
 | `lib/kb_query.py` | 无持久数据库的节点召回、一跳扩展、evidence 和结构化记录查询 | 否 |
+| `lib/context_view.py` | 解析固定 context 章节并按 intent 返回有预算投影 | 否 |
+| `lib/semantic_policy.py` | 校验 IM 分数、阈值、reason code 和 message evidence | 否 |
+| `lib/kb_mutation.py` | 非 digest plan 校验、章节处理和统一事务提交 | 仅显式 execute |
+| `bin/todo.py` | Todo 解析、状态变更及共享锁内 journal/commit/rollback | 写命令显式执行 |
 | `lib/provenance.py` | anchor schema、sidecar、节点 `[E]` 物化、raw 扫描 | 仅由事务调用 |
 | `lib/provenance_backfill.py` | 历史出处 audit → plan → validate → apply | 仅显式 apply |
 | `lib/doctor.py` | 编排布局、节点、raw、provenance、links、报告、INDEX 与来源契约扫描 | scan 否；fix 受白名单限制 |
 | `lib/doctor_sources.py` | 只读检测 Profile/routine 覆盖、raw/Profile 绑定、payload component/digest key 与 record index 漂移 | 否 |
 | `bin/rebuild_index.py` | 从真相源重建 INDEX | 是，可确定重建 |
-| `bin/index.py` | INDEX 预演/执行 facade；显式声明不写 journal/commit | apply 只写 INDEX |
-| `bin/repair_links.py` | 修复明确、可证明的双向 links/autolink | 是，受保护 |
+| `bin/index.py` | INDEX 预演/执行 facade；apply 复用 postflight 事务 | INDEX、journal、本地 commit |
+| `bin/repair_links.py` | links 修复底层执行器；Agent 通过 `doctor fix` 调用 | 仅由受保护事务调用 |
 | `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
 | `lib/report_automation.py` | 自动报告一次性引导、local-only 配置、运行轨迹、缺口判定与跨报告租约 | 仅写 Git 排除的 `state/report_automation.json` |
 
@@ -762,12 +823,15 @@ flowchart LR
     SB["SourceBundle v2<br/>本次读到了什么"]
     DP["DigestPlan v2<br/>Agent 决定怎样写知识"]
     BP["DigestBatchPlan v2<br/>多个 Bundle 原子写入"]
+    KM["KB Mutation v1<br/>非 digest 候选与基线"]
+    IM["IM Semantic v1<br/>分数/reason/证据"]
     PV["Provenance v1<br/>事实在哪里"]
     RAW["Raw + payload metadata<br/>实际保存了什么"]
     RC["Receipt<br/>事务实际完成了什么"]
 
     CP --> SB --> DP --> PV --> RAW --> RC
     SB --> BP --> PV
+    IM --> KM --> RC
 ```
 
 | 契约 | 所有者 | 关键不变量 |
@@ -776,6 +840,10 @@ flowchart LR
 | `byteworker-source-bundle/v2` | `sources/models.py` | identity、components、coverage、anchors 唯一交接；业务路径不在 skill 仓库 |
 | `digest-plan/v2` | Agent + `digest_txn.py` | 只引用 Bundle，不复制 source/anchors；节点候选必须完整 |
 | `digest-batch-plan/v2` | Agent + `digest_txn.py` | `inputs[]` 各引用一个 Bundle；禁止复制 source/anchors；全部输入同成同败 |
+| `byteworker-kb-mutation/v1` | Agent + `kb_mutation.py` | 路径白名单、base hash、冲突处置、章节保留、journal/commit 同成同败 |
+| `byteworker-im-semantic/v1` | Agent + `semantic_policy.py` | 0..4 分数、固定阈值、reason code、message evidence；验证后才能写 |
+| `byteworker-context-view/v1` | `context_view.py` | 固定 intent/章节、显式字符预算，不静默截断 |
+| `byteworker-workflow-routes/v1` | `SKILL.md` + route contract tests | 独立入口闭包可递归展开、文件存在、场景预算受控 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
@@ -785,7 +853,7 @@ flowchart LR
 | `byteworker-runtime-check/v1` | `runtime_deps.py` | 绝对 executable、可执行探测与同源 PATH；显式 override 无效时不静默 fallback |
 | `byteworker-session-preflight/v1` | `session_preflight.py` | 健康无 notice；blocking 阻止依赖业务；Todo/迁移/更新只返回有限行动项 |
 | `byteworker-cli/v1` | `machine_protocol.py` | 稳定 `status/data/error/context`，不泄漏完整 argv 或正文 |
-| transaction receipt | `digest_txn.py` | `committed/noop` 语义明确；写入和 commit 同成同败 |
+| transaction receipt | `digest_txn.py` / `kb_mutation.py` | `committed/noop` 语义明确；写入和 commit 同成同败 |
 
 doctor 不要求临时 `SourceBundle` 或 `DigestPlan` 在事务完成后继续存在，而是检查其落盘结果：
 Profile schema/path、raw component 元数据和 digest key、Profile 绑定、record index、provenance
@@ -823,6 +891,11 @@ flowchart TD
 
 任何“不确定但继续写”的实现都违反本架构。权限不足、分页不完整、身份不一致、凭据污染、
 hash 不一致、重复 ID、目标文件并发变化和 KB remote 都必须 fail closed。
+
+URL 凭据污染包括 userinfo，以及 query/fragment 中大小写、百分号编码、连字符/下划线变体的认证
+字段。所有 durable writer 先竞争同一个 KB 写锁；锁内必须重新检查 staged/dirty/baseline。
+IM 阈值不一致、未知 reason code、缺 message evidence 和 context 超硬预算也必须 fail closed，
+不能让 Agent 用自由文本解释绕过。
 
 自动报告另有三条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
 digest 事务失败时不得继续生成“看似完整”的报告；报告、journal 或本地 Git 回滚点未完成时
@@ -878,7 +951,8 @@ Profile，不能为了矩阵好看而保存不可执行配置。
 
 1. 先判断它属于 Agent 语义、确定性应用服务还是纯维护工具。
 2. 确定性命令通过 `bin/byteworker-cli.py` 暴露统一 envelope。
-3. 写知识节点必须复用 digest transaction；可重建派生物可使用独立原子维护工具。
+3. 外部来源写 raw/节点必须复用 digest transaction；无新来源的节点更新和
+   context/dashboard/report 写入必须复用 KB mutation；可重建且不提交的派生预览可使用独立工具。
 4. 新的真相源字段或目录必须先修改 `DESIGN.md`。
 5. 新的主流程或模块依赖必须同时修改本文件。
 
@@ -888,6 +962,8 @@ Profile，不能为了矩阵好看而保存不可执行配置。
 - 因为某个 provider 特殊，就把特殊字段一路泄漏到 transaction、query 和 viewer。
 - 绕过 Bundle，把多个不同 source manifest 结构直接交给 Agent 猜。
 - 绕过 transaction 手工改 raw、provenance、知识节点、INDEX 和 journal，却仍声称原子完成。
+- 为新的 KB writer 创建私有 lock，或让 Agent 手工执行 journal/git 收尾。
+- 在多个 reference 重复定义冲突、晋升或评分动作，而不是引用唯一 policy。
 - 用文档或最近 raw 猜一个已经有 profile 的结构化来源配置。
 - 默认把结构化视图每一行变成实体节点。
 - 查询时把整个大型 raw 交给 Agent，而不是使用 `source-record` 有限召回。
@@ -955,6 +1031,8 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | `transaction_bridge.py` | 为旧 raw/frontmatter 物化 provider 字段 | 新 raw/query 不再依赖 legacy 字段 |
 | `record_projection.py` | 查询旧 Meego/Base/Aeolus snapshot | 兼容窗口结束或旧 raw 不再需要查询 |
 | `resolve-users.sh` 默认三列 TSV | 已有人工/Agent 调用可能按 `open_id/姓名/feishu_id` 消费 | 调用方全部切到 `--format json` 且用户同意结束兼容窗口 |
+| `update_postflight.py` 同时承载显式 doctor/index 维护事务 | 保留既有 post-update import/CLI，同时复用已验证 rollback 边界 | 后续有第二类维护 action 时再抽 `kb_maintenance.py`，不得复制事务 |
+| `rebuild_index.py` / `repair_links.py` 直接入口 | doctor/index 事务内部执行器与人工底层排障兼容 | 所有 Agent/自动化调用稳定 facade 后，仍可作为内部执行器保留 |
 
 任何兼容项的删除还必须同时满足：
 
@@ -971,12 +1049,13 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 |---|---|
 | Adapter / operation | auth、inspect、capture、完整分页、顺序稳定、URL 脱敏、稳定 ID |
 | Bundle | schema、credential/path 防护、component、anchor、coverage、canonical hash、重载后的 provider 派生一致性 |
-| Profile | v1/v2 兼容、revision、unknown field、credential rejection、非 Profile legacy 配置共存 |
+| Profile | v1/v2 兼容、revision、unknown field、URL/userinfo/编码凭据拒绝、非 Profile legacy 配置共存、validator 无反向 import |
 | SnapshotStore | latest/history、坏 raw fail closed、source mismatch、baseline/diff |
-| Transaction | plan v1/v2、batch v1/v2、no-op、新版本、rollback、并发、provenance、raw rendering |
+| Transaction | digest/mutation/Todo、batch、no-op、新版本、共享跨进程锁、文件/index/HEAD rollback、章节保留、provenance |
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
 | Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
-| Session preflight | 健康静默、blocking、更新 notice、Todo notice、报告一次性迁移、PATH/NVM/显式 override |
+| Session preflight | 更新先于 Python import、健康静默、blocking、更新 notice、Todo notice、报告迁移、PATH/NVM/显式 override |
+| Agent route / semantic | workflow 闭包、独立入口自足、context 字符预算、冲突唯一 owner、IM 阈值/reason/evidence |
 | 自动报告 | 首次/升级只询问一次、local-only 配置、宿主真相源、跨日报/周报租约、过期恢复、成功/失败回执、每次完整 routine digest |
 | End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle、会议妙记 + 文档 Bundles → batch 单 commit，以及 Bundle → commit → query/diff 闭环 |
 
@@ -997,6 +1076,10 @@ byteworker/
 ├── lib/                  # 确定性 Python 实现
 │   ├── runtime_deps.py   # Python/Node/内部 CLI 发现、探测与运行环境
 │   ├── session_preflight.py # 每 session 一次的静默公共准备
+│   ├── kb_write_txn.py   # durable writer 共享锁和回滚原语
+│   ├── kb_mutation.py    # 非 digest 内容事务
+│   ├── context_view.py   # 按意图裁剪 context
+│   ├── semantic_policy.py # 可校验语义阈值
 │   ├── doctor_sources.py # Profile/routine/raw 来源契约只读审计
 │   ├── source_chat_operations.py # 群聊 Profile capture 与高水位 transport 编排
 │   ├── source_profile_providers.py # v2 provider selector/capture-policy 校验

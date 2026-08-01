@@ -49,10 +49,13 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/wiki.py` + `lib/wiki_explorer.py` | 按需解析飞书 Wiki 空间、完整扫描目录或选定子树、生成有限主题/页面候选；不读取页面正文、不生成 Bundle |
 | `bin/digest-job.py` + `lib/digest_jobs.py` | 已确认 Wiki 页面列表的持久批次、租约、逐页 receipt 状态与崩溃恢复；不参与单页 digest transaction |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
+| `bin/kb-mutate.py` + `lib/kb_mutation.py` + `lib/kb_write_txn.py` | 非 digest 候选的版本化事务、所有 durable writer 的共享锁与回滚原语 |
+| `bin/context.py` + `lib/context_view.py` | 按 intent 读取固定章节的有限 context 投影 |
+| `bin/semantic.py` + `lib/semantic_policy.py` | 校验 IM 分数/阈值/reason/evidence，不保存模型输出 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index，主 doctor 编排 INDEX/links 的确定性修复 |
 | `bin/byteworker` + `bin/byteworker-launcher.py` + `lib/runtime_deps.py` | 无需 Agent 猜路径的稳定启动入口；解析 Python >=3.10、Node、lark-cli、meegle 并向子进程注入同一 runtime |
-| `bin/session-preflight.py` + `lib/session_preflight.py` | 每个新 session 一次合并自动更新、KB、依赖、Todo 与自动报告设置检查；健康路径静默 |
+| `bin/session-preflight.py` + `lib/session_preflight.py` | shell 更新完成后，每个新 session 一次合并 KB、依赖、Todo 与自动报告设置检查；健康路径静默 |
 | `bin/byteworker-cli.py` + `lib/machine_protocol.py` | 为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
@@ -125,7 +128,8 @@ skill 仓库。profile 有两个兼容 schema：
 
 所有 profile 共同遵守：
 
-- profile 不得含 JWT、token、cookie、密码等凭据，也不得含任何抓取结果；
+- profile 不得含 JWT、token、cookie、密码等凭据，也不得含任何抓取结果；source URL 同时拒绝
+  userinfo，以及 query/fragment 中大小写、编码和分隔符变体的认证字段；
 - `profile_revision` 是规范化 profile JSON 的 canonical SHA-256；
 - Meego/Base/群聊/飞书文档 profile 可由 `source profile-save --kb ... --file ...`
   校验并写入；风神仍由
@@ -229,6 +233,40 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
 
 状态目录继续遵守 §1.B 的本地排除规则：写入前把 `/state/` 加到知识库
 `.git/info/exclude`，不得提交、push 或进入报告事实来源。
+
+### G. 瞬时 Mutation 与语义结果契约
+
+以下 JSON 只存在系统临时目录或 KB 工作目录，不是新的持久目录：
+
+**`byteworker-kb-mutation/v1`**
+
+- 顶层固定为 `operation/conflict_disposition/conflict_evidence/writes/journal/commit`。
+- `operation` 为 `update/context/dashboard/report`，分别只允许
+  `knowledge/**/*.md`、`context.md`、`dashboard.md`、`reports/**/*.md`。
+- write 目标只允许 `context.md`、`dashboard.md`、`knowledge/**/*.md`、`reports/**/*.md`；
+  raw/provenance/sources/todo 不走此契约。
+- 已有目标必须带当前 `base_sha256`；新建目标的 baseline 为空。
+- mode 为 `replace`、`replace_section` 或 `replace_preserving_sections`。固定章节/可保留章节由
+  validator 白名单控制，Agent 不能任意匹配标题；顶层和 write 未知字段一律拒绝。
+- knowledge write 必须声明 `no_conflict/user_confirmed/revision/supersede`；后三者必须带
+  `conflict_evidence`。时间较新本身不构成 revision。
+- execute 在共享 KB 写锁内重新验证，按需重建 INDEX，并把目标、journal 和本地 commit 作为
+  一个回滚单元。plan/candidate 禁止放入 skill 仓库。
+
+**`byteworker-im-semantic/v1`**
+
+- 顶层是 `schema_version + threads[]`。
+- 每个 thread 的 `importance/relevance_to_user` 为 0..4 整数，必须带 `reason_codes` 和至少一组
+  非空 `chat_id/window/message_ids`。
+- `should_include_report` 固定为 `importance >= 3 and relevance_to_user >= 2`。
+- `should_digest_kb` 还要求 reason 属于明确决策、项目状态变化、关键风险或跨团队对齐。
+- validator 通过前不得写报告或触发标准 digest。
+
+**`byteworker-context-view/v1`**
+
+- 根据 todo/search/digest/update/brief/dashboard/report/inbox 选择固定章节，不返回无关章节。
+- 投影 12k 字符以上返回 warning，24k 以上 fail closed；完整 `context.md` 写入上限为 32 KiB。
+- 不静默截断。超预算时由用户归档过期条目。
 
 ---
 
@@ -669,7 +707,7 @@ links:                                        # 图的边,双向维护(写 A→B
 
 > Meego / Base / 风神保存视图的“必产 1 个记录节点”是代表整个视图/看板口径的同源 `reading`,不是每条记录/报表各产
 > 一个节点。首次快照的数百条 baseline 记录也不自动变成数百个 `project` / `event`；后续按
-> §3.1 的差异和晋升门槛选择性更新实体图。
+> §3.1 的差异和 `references/semantic-policy.md` reason/evidence 门槛选择性更新实体图。
 
 > 扇出的**行为细则**是 digest 流程、不在本文件:各 `source_type` 的差异、群聊强过滤与增量
 > 语义、会议簇合并、实体消解的同名陷阱、立场与思路视角的沉淀 —— 见 `SKILL.md`「digest」
@@ -686,11 +724,12 @@ links:                                        # 图的边,双向维护(写 A→B
 
 ### 4.5 参与方立场分析(书写准则见 references)
 
-§4.2 已定义 `event` 的「参与方立场分析」章节:对关键参与方分析其立场 / 利益 / 动机,
+§4.2 已定义 `event` 的「参与方立场分析」章节:只对明确影响决策、承担责任/风险或拥有审批权的
+关键参与方分析立场,
 结论同步沉淀进相关 `person` 的「立场 / 利益 / 动机」章节。它从会议发言**推断**而来(observed)。
 
-**怎么写**(三维度、必须基于证据、【观察】/【推断】标记、证据不足写「证据有限」、不臆测)
-是 digest 行为准则,统一收在 `references/digest-analysis.md`,由 `SKILL.md`「digest」路由读取。
+**怎么写**以 `references/semantic-policy.md` 为门槛：立场绑定 anchor；动机/利益默认不持久化，
+只有直接自述或至少两条独立观察才可标【推断】。细则收在 `references/digest-analysis.md`。
 
 ### 4.6 思路与视角:第一方观点(书写准则见 references)
 
@@ -794,7 +833,8 @@ templates/
   report-weekly.md       周报骨架(weekly 输出到 reports/weekly/)
   report-im.md           /byteworker inbox 的 IM Inbox 摘要骨架(输出到 reports/im/)
 ```
-无法判定 type 时,实体类倾向 `area`、记录类倾向 `event`,并在 journal 标注。
+无法判定 type 时不得写入；按 `references/semantic-policy.md` 给出最多 3 个候选类型、reason
+code 与证据，请用户确认。
 
 ---
 
@@ -829,7 +869,7 @@ templates/
 10. **第一方观点:思路与视角章节 + 全局 context.md** — 使用者/主管/同事的主观工作思路、想法、
    意图作为第一方输入纳入考量。挂在具体 project/area 上的观点 → 节点新增「思路与视角」章节
    (带日期、带作者、只追加日志,标【主张】/【意图】,§4.6);跨主题的工作底色 → 数据目录顶层
-   新增 `context.md`(使用者手维护、每次运行加载为「透镜」,§10)。出处严标、绝不硬化为事实。
+   新增 `context.md`(使用者手维护、按 intent 加载相关章节为「透镜」,§10)。出处严标、绝不硬化为事实。
 11. **person 飞书 id + digest 重点关注** — `person` 新增 frontmatter 字段 `feishu_id`(飞书英文
    id = 企业邮箱前缀,全局唯一),作 person 实体消解主键、消歧同名;同名不同 `feishu_id` =
    不同人,须经用户确认(§2、§4.1、§4.3)。digest 时:结合 `context.md` 重点关注使用者本人 /
@@ -879,8 +919,10 @@ templates/
 21. **结构化视图采用快照 + 差异 + 晋升门槛** — Meego / Base / 风神每次保存完整规范快照并为
    记录/报表建 exact anchor；`source diff` 只产可重算的
    `baseline / added / changed / left_view`，
-   其中 `left_view` 不代表删除。普通记录不进入实体图，只有长期项目、明确决策、时间事件或稳定
-   跨需求主题才晋升；同一视图始终更新一张 `reading` 主记录。见 §3.1、
+   其中 `left_view` 不代表删除。普通记录不进入实体图，只有满足
+   `references/semantic-policy.md` 中 explicit decision、dated status change、time-bounded
+   event、cross-record theme 或 long-running project 的最低证据才晋升；同一视图始终更新一张
+   `reading` 主记录。见 §3.1、
    `references/digest-meego.md`、`references/digest-base.md`、`references/digest-aeolus.md`。
 22. **结构化 raw 记录检索** — Meego / Base / 风神的普通记录/报表由
    `kb-query source-record` 从每个 `source_uid` 的最新完整快照按稳定 ID 或模糊标题有限召回；
@@ -898,6 +940,17 @@ templates/
    `directory_verified_at`，可见时同步 `enterprise_email` / `department_path`。部门是可变的
    当前目录属性：变化保留历史，空结果不清除旧值；仅明确命中已有 org 时连边。默认三列 TSV
    暂作旧调用兼容。见 §4.1、§4.2、§6 与 `references/digest-core.md`。
+25. **全部 durable writer 共用一个 KB 写锁** — digest、Profile、provenance backfill、
+   postflight 和非 digest mutation 都竞争 `.git/byteworker-write.lock`，锁内重验 staged/dirty/
+   baseline；不同业务入口不得创建互不相见的私有锁。
+26. **非 digest 写入使用 MutationPlan** — update/context/dashboard/report/inbox 不再让 Agent
+   手工修改目标、INDEX、journal 或 Git；统一使用 §1.G 的 `byteworker-kb-mutation/v1`。
+27. **冲突与语义阈值单一所有者** — 独立来源冲突默认并列并交用户裁决；只有 revision、
+   supersede 或用户确认可改当前值。知识晋升、参与方推断和 IM 评分使用固定 reason/evidence/
+   threshold，不以模型自由描述替代。
+28. **Agent progressive disclosure 可测试** — `byteworker-workflow-routes/v1` 声明独立入口的
+   required/on_error/source/features 闭包并设置字符预算；子 Agent、自动报告和 Wiki resume
+   不依赖隐式“普通流程”。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 
@@ -941,14 +994,15 @@ templates/
 ## 10. context.md — 全局工作上下文
 
 数据目录顶层文件,与 `INDEX.md` / `dashboard.md` / `todo.md` 并列。**使用者通过对话维护**的
-格式化全局工作上下文 —— 每次 skill 运行都加载,作为 digest / search / brief / dashboard / todo
-的「透镜」。
+格式化全局工作上下文 —— 语义任务按 intent 加载相关章节投影，作为 digest / search / brief /
+dashboard / todo 的「透镜」。
 
 - **性质**:真相源、不可派生。skill 在 digest / search 等流程中**只读、绝不自动改写**;
   用户明确要求时由 agent 代为增删改(SKILL 的 `context` 子命令)—— 完全通过对话式 agent
-  (Codex、OpenClaw 等)使用本 skill 的用户无法直接编辑文件,**必须靠 agent 代维护**。
-- **保持简短**:它是「透镜」不是「档案」—— 只放当前有效的上下文,过期内容使用者自行删除。
-  每次运行都加载,过长会吃上下文。
+   (Codex、OpenClaw 等)使用本 skill 的用户无法直接编辑文件,**必须靠 agent 代维护**；实际副作用
+   统一由 KB mutation 执行。
+- **保持简短**:它是「透镜」不是「档案」。日常通过 `byteworker-context-view/v1` 读取相关章节；
+  12k 字符给 warning、24k fail closed，完整文件 mutation 上限 32 KiB，不静默截断。
 - **用法**:身份表用于本人识别;职责 / 重点用于 digest 相关性与 Todo 候选判断;时区 / 默认时间
   用于自然语言提醒解析;search / brief 在客观答案旁带出使用者视角,并在事实与陈述意图冲突时提示。
 - **陈述性质分开**:“我的身份 / 我的职责范围”是用户提供的信息;“我的当前重点 / 主管方向”
@@ -962,6 +1016,8 @@ templates/
 其它章节使用简短条目,变更型信息优先带日期(`- <YYYY-MM-DD> —— <一句话>`)。
 首次使用、或数据目录缺 `context.md` 时,由 skill **整份复制**该模板初始化 —— 统一模板,避免各用户
 写出五花八门的格式。各章节无内容则留空;`<!-- 指引 -->` 注释保留(持续引导用户、不渲染)。
+用户明确维护时使用 mutation 的 `replace_section`，由 validator 保证章节名、baseline、journal、
+精确 commit 和失败回滚；Agent 不直接覆盖文件。
 
 ## 11. todo.md — 用户行动与提醒
 
@@ -997,7 +1053,8 @@ event / report 中的“待办”记录来源当时说了什么;`todo.md` 记录
   均用带时区 ISO8601。`time_expression` 保留用户原相对时间短语,回显时同时给出绝对时间。
 - **来源**:直接输入写 `direct:user`;digest 确认项写 event / raw / report id 或 URL。`links` 可连
   project / person 等知识节点,但 Todo 不加入节点双向 links,避免把操作状态混进知识图谱。
-- **写入**:`bin/todo.py` 负责解析受支持的相对时间、校验状态、原子重写和确定性检查;
+- **写入**:`bin/todo.py` 负责解析受支持的相对时间、校验状态，并在共享 KB 写锁内原子重写
+  `todo.md`、追加 journal、精确本地 commit 和失败回滚；
   agent 负责从自然语言提取标题、区分截止 / 提醒语义、在多个相似项间做语义消解。
 - **提醒**:每次 skill 运行检查到点提醒、逾期、24 小时内临期(窗口可由 context 配置);无命中静默。
   `last_reminded_at` 用于限频。它是拉取式能力,不代表后台 scheduler。
@@ -1029,9 +1086,12 @@ reports/
   - 自动日报 / 周报或自然语言补跑:先完整运行全部已登记且启用来源的 routine digest，再召回
     范围内 `journal/`、`raw_data/` frontmatter、`knowledge/` 节点及其 links。自动运行不受
     `.last-routine-digest` 七天交互提醒阈值限制。
-  - `im`: `bin/im-inbox-summary.sh` 的候选 threads JSON 经 LLM 精判后的最终摘要;候选 JSON 默认保留在 `/tmp`,不长期落盘。
+  - `im`: `bin/im-inbox-summary.sh` 的候选 threads 经 LLM 产生
+    `byteworker-im-semantic/v1`，通过固定阈值/reason/evidence validator 后形成摘要；候选 JSON
+    默认保留在 `/tmp`,不长期落盘。
 - **模板**:skill 目录 `templates/report-daily.md`、`templates/report-weekly.md`、`templates/report-im.md`。
-- **覆盖规则**:同一日期 / 周 / IM 窗口再次生成可覆盖报告正文;若旧报告有 `## 手动补充 / 备注`,必须保留该章节内容。
+- **覆盖规则**:同一日期 / 周 / IM 窗口再次生成可覆盖报告正文；用 mutation 的
+  `replace_preserving_sections` 确定性保留旧 `## 手动补充 / 备注`。
 - **IM 报告命名**:自然日窗口用 `reports/im/<YYYY-MM-DD>.md`;非自然日窗口用 `reports/im/<start>__<end>.md`,文件名中的 `:` 替换为 `-`。
 - **排序**:章节内带时间条目按事件发生时间倒序;时间不明放末尾并标注。
 - **溯源**:每个事实性条目在正文用 `[S<n>]` 绑定引用;「引用」章节(旧报告为「来源索引」)
@@ -1041,4 +1101,4 @@ reports/
   无来源不写事实结论。IM 尚未形成 raw 时列 chat / window / message_ids 与报告生成时间,
   并明确它不是标准 digest。
 - **边界**:`reports/im/` 只保存最终精判摘要、统计、warning 与来源窗口;不保存全量聊天原文,也不替代 `raw_data/`。若某个 thread 需要长期沉淀,按 IM Inbox 规则重新拉小窗口并走 `references/digest-chat.md` 生成标准 raw / event / project 更新。
-- **git**:报告写入后按写入规范在知识库数据目录本地 git 创建回滚点,永不 push。
+- **git**:报告、journal 和本地 commit 由 KB mutation 同成同败，永不 push；Agent 不手工暂存。
