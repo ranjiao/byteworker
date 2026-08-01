@@ -75,9 +75,11 @@
    `raw_id` 已存在时必须改用 `-2`/revision/hash 后缀,**绝不覆盖旧 raw**。
    同时按 `references/provenance.md` 把抓取阶段保留的稳定 locator 写成 bundle
    `anchors`;不要等摘要完成后按文本猜位置。
-6. **冲突检测** —— 先确认 INDEX 一致(见 `references/write-rules.md`);按标题/人名/项目名、
+6. **冲突检测** —— 唯一动作表见 `references/conflict-policy.md`。先确认 INDEX 一致(见
+   `references/write-rules.md`);按标题/人名/项目名、
    已有 raw 的 `digest_targets`、同源历史主记录节点在 INDEX 找可能涉及的已有节点,读取候选,
-   语义比对是否与新输入矛盾。**有冲突 → 高亮矛盾点,等用户裁决,不静默覆盖。**
+   语义比对是否与新输入矛盾。独立来源冲突时高亮矛盾点并等待用户裁决；只有可验证 revision、
+   supersede 或用户明确确认才可按对应 disposition 更新，时间较新本身不构成覆盖依据。
 7. **digest 扇出**(DESIGN.md §4.3):
    - 必产 1 个主记录节点(会议、群聊窗口 → `event`;外部读物、内部路线思考/方法论/调研/白皮书 → `reading`)。**会议簇**(同一场会的日历 + 投屏文档 + 妙记)仍只产 1 个 `event`,不按物件拆 —— 见 `references/digest-meeting.md`。
    - **同源主记录去重**:若同一 `source_uid + digest_period/source_window` 已有主记录节点(可从
@@ -85,7 +87,8 @@
      `reading` / `event`。`decision` 也按同一事实/同一来源去重;新版本改变原决策时,走
      supersede / 冲突裁决,不并排制造两个同义决策。
    - **结构化保存视图**:Meego / Base / 风神整个视图只产一张同源 `reading` 主记录。普通行/报表变化只留在
-     raw + provenance；仅长期项目、明确决策、时间事件或稳定跨记录主题达到晋升门槛时进入实体图。
+     raw + provenance；只有满足 `references/semantic-policy.md` 的晋升 reason code 和最低证据
+     才进入实体图，不由 Agent 自行解释“长期/稳定/重要”。
      `left_view` 只表示离开视图，不得推断为删除。
    - **主记录来源链接**:`event` / `reading` 正文必须附上原始来源链接,不能只放 raw_id。`event`
      写在「事件信息」,包括原始文档 / 妙记 / 日历日程 / 已找到的会议文档;`reading` 写在「来源」。
@@ -104,7 +107,9 @@
      先不要建 person,在主记录正文保留姓名 / open_id 并汇报「待解析人物」。**同名陷阱** ——
      中文名相同但 `feishu_id` 不同 = 不同的人,**不合并**、**向用户确认后**各自建节点;
      `project`/`org`/`area` 按名比对,有歧义问用户。
-   - **参与方立场分析**(细则 `references/digest-analysis.md`):`event` 除字面结论外,对每个关键参与方分析其立场、利益/动机、对决策的态度,并沉淀进对应 `person` 节点。**必须基于发言证据**,区分【观察】与【推断】,证据不足标「证据有限」,**不做无证据的发散猜测**。
+   - **参与方立场分析**(细则 `references/digest-analysis.md`):只分析
+     `references/semantic-policy.md` 定义的关键参与方。立场必须绑定发言/行为 anchor；
+     动机/利益默认不持久化，除非直接自述或至少两条独立可定位观察支持【推断】。
    - **思路与视角沉淀**(细则 `references/digest-analysis.md`):摄取时若有人(使用者/主管/同事)陈述了对某 `project`/`area` 的思路、想法、打法或意图 → 在该节点「思路与视角」章节追加一条带日期、带作者、带【主张】/【意图】标记的条目(按事件发生时间倒序)。第一方陈述用【主张】/【意图】,从发言推断仍用【推断】;**绝不把主观意图当成客观结论**。跨主题、不挂某个项目的工作底色不进节点,留给使用者维护 `context.md`。
    - **结合 `context.md` 重点关注**(操作前必读已把 `context.md` 当透镜加载):凡正文或评论涉及
      `context.md` 里记录的**使用者本人、其项目 / 团队、直属上司 / 汇报对象、用户点名特别关注的

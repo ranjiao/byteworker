@@ -24,7 +24,7 @@ byteworker 用到的骨架。`node-*.md` 是 7 类知识节点的骨架,digest �
 2. 填 frontmatter(字段定义见 `DESIGN.md` §4.1;命名规范见 §2)。
 3. 按 body 里的 `<!-- 指引 -->` 注释填写各章节。
 4. 生成正式节点时**删除所有指引注释**。
-5. 无法判定类型:实体类倾向 `node-area`,记录类倾向 `node-event`,并在 journal 标注。
+5. 无法判定类型时不得写入；按 `references/semantic-policy.md` 给出有限候选和证据，请用户确认。
 
 ## context.md 模板
 

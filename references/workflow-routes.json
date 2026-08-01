@@ -1,0 +1,132 @@
+{
+  "schema_version": "byteworker-workflow-routes/v1",
+  "common": {
+    "preflight": [
+      "references/machine-protocol.md"
+    ]
+  },
+  "workflows": {
+    "digest": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/digest-core.md",
+        "references/digest-dependencies.md",
+        "references/digest-transaction.md",
+        "references/provenance.md",
+        "references/write-rules.md",
+        "references/conflict-policy.md",
+        "references/semantic-policy.md"
+      ],
+      "on_error": [
+        "references/error-handling.md"
+      ],
+      "source_type": {
+        "feishu_doc": ["references/digest-doc.md"],
+        "feishu_chat": ["references/digest-chat.md"],
+        "meego": ["references/digest-meego.md"],
+        "feishu_base": ["references/digest-base.md"],
+        "aeolus": ["references/digest-aeolus.md"],
+        "web": ["references/digest-reading.md"],
+        "local_md": ["references/digest-reading.md"],
+        "feishu_meeting": ["references/digest-meeting.md"]
+      },
+      "features": {
+        "comments": ["references/digest-comments.md"],
+        "whiteboard": ["references/digest-whiteboard.md"],
+        "stakeholder_analysis": ["references/digest-analysis.md"],
+        "large_input": ["references/digest-large.md"],
+        "routine": ["references/digest-routine.md"]
+      }
+    },
+    "large_digest_worker": {
+      "extends": "digest",
+      "required": ["references/digest-large.md"]
+    },
+    "wiki_resume_page": {
+      "extends": "digest",
+      "required": [
+        "references/wiki-digest-jobs.md",
+        "references/digest-doc.md"
+      ]
+    },
+    "search": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/command-search.md",
+        "references/citations.md"
+      ]
+    },
+    "update": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/command-update.md",
+        "references/conflict-policy.md",
+        "references/kb-mutation.md"
+      ]
+    },
+    "brief": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/command-brief.md",
+        "references/command-search.md",
+        "references/citations.md"
+      ]
+    },
+    "dashboard": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/command-dashboard.md",
+        "references/kb-mutation.md",
+        "references/citations.md"
+      ]
+    },
+    "context": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/command-context.md",
+        "references/kb-mutation.md"
+      ]
+    },
+    "todo": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/todo.md"
+      ]
+    },
+    "report": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/report-scheduling.md",
+        "references/periodic-report.md",
+        "references/digest-routine.md",
+        "references/kb-mutation.md",
+        "references/citations.md"
+      ]
+    },
+    "inbox": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/im-inbox-summary.md",
+        "references/semantic-policy.md",
+        "references/kb-mutation.md",
+        "references/citations.md"
+      ]
+    },
+    "doctor": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/doctor.md"
+      ]
+    }
+  },
+  "budgets": {
+    "search": 18000,
+    "todo": 18000,
+    "update": 22000,
+    "context": 20000,
+    "dashboard": 26000,
+    "inbox": 32000,
+    "report": 40000,
+    "digest": 48000
+  }
+}

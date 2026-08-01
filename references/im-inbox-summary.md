@@ -162,10 +162,12 @@ bin/byteworker run bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byte
 
 ```json
 {
+  "schema_version": "byteworker-im-semantic/v1",
   "threads": [
     {
       "importance": 0,
       "relevance_to_user": 0,
+      "reason_codes": [],
       "should_include_report": false,
       "should_digest_kb": false,
       "title": "",
@@ -185,10 +187,20 @@ bin/byteworker run bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byte
 }
 ```
 
-判定标准:
+判定标准以 `references/semantic-policy.md` 为唯一真相源：
 
-- `should_include_report`:进入日报 / 「IM 重点」摘要。
-- `should_digest_kb`:需要沉淀成 KB event / decision / 更新项目节点。只有明确决策、项目状态变化、关键风险或重要跨团队对齐才为 true。
+- 两个分数都是 0..4 整数，使用该文件的逐级锚点。
+- `should_include_report` 固定为 `importance >= 3 and relevance_to_user >= 2`。
+- `should_digest_kb` 还必须有
+  `explicit_decision/project_status_change/key_risk/cross_team_alignment` reason code。
+- 每条必须带 `reason_codes` 和至少一组非空 chat/window/message_ids。
+- 模型输出写到系统临时 JSON 后先运行：
+
+  ```bash
+  bin/byteworker semantic validate-im --input "<semantic-result.json>"
+  ```
+
+  验证失败不得写报告或触发 digest。
 
 ### 5.5 输出与写入
 
@@ -208,7 +220,8 @@ bin/byteworker run bin/im-inbox-summary.sh --today --kb "$KBDIR" --out /tmp/byte
 - 结合 `context.md` 的“我的身份 / 我的职责范围”对“待办 / 需要跟进”做 Todo 候选判定;
   报告照常保存来源事实,汇报时按 `references/todo.md` 一次性询问哪些加入 `todo.md`,未经确认不写。
 - 汇总采集统计:扫描会话数、原始消息数、候选 thread 数、LLM 精判数、是否截断。
-- 向当天 journal 追加一行,说明生成了哪个 IM 报告、参考了哪些主要 chat / thread、是否截断;在知识库数据目录本地 git 精确暂存本次报告与 journal 后创建回滚点。
+- 生成完整报告候选，用 `kb-mutation.md` 的 `replace` /
+  `replace_preserving_sections` 保存；工具负责 journal、精确 commit 和失败回滚。
 
 若作为日报的一部分:
 

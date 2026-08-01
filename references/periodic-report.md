@@ -1,7 +1,8 @@
 # byteworker · 自动日报 / 周报细则 —— 定期摄取 + 工作总结报告
 
 > 由 harness 原生定时任务路由到这里；用户明确要求补生成 / 重跑某日或某周报告时也复用本流程。
-> 执行前仍需完成「操作前必读」：自动更新、读 `.kbconfig`、读 `context.md`。
+> 这是可独立启动的无人值守入口：先解析 `references/workflow-routes.json` 的 `report` 完整
+> required；context 只调用 `context view --intent report`，不读全文。
 
 byteworker skill 负责报告方法，Codex / Claude / TRAE 等 harness 负责调度。每次运行先复查已登记
 的 routine 来源并消化新增内容，再基于知识库生成日报 / 周报；设置与无人值守边界见
@@ -21,7 +22,8 @@ byteworker skill 负责报告方法，Codex / Claude / TRAE 等 harness 负责�
    - 取得 token 后必须在成功或失败路径调用 `report-automation complete`，租约意外遗留则等
      TTL 到期后恢复。
 2. **先跑定期摄取**
-   - 必读 `references/digest-routine.md`,按其中「运行」规则处理 INDEX「定期摄取清单」。
+   - 必读 `references/digest-routine.md`；对每个来源再解析 route manifest 的 `digest` workflow
+     及对应 source type/features，不能用“标准流程”隐式代替公共 digest 闭包。
    - **自动日报每次都必须执行完整 routine digest**；自动周报和用户补跑也一样。这一步不受
      `.last-routine-digest` 是否到期或七天提醒阈值限制。
    - 只重放已登记且启用的 routine 来源；无人值守运行不得新增来源、扩大范围、发起 OAuth 或
@@ -52,8 +54,9 @@ byteworker skill 负责报告方法，Codex / Claude / TRAE 等 harness 负责�
    - 无命中章节写"暂无",不要编造。
    - 日报和周报最重要的章节是「本日重点 / 本周重点」,一定确保最重要的进展、重要人物观点、重要决策都明确录入,同时保证整体篇幅尽可能精简。
 7. **写入收尾**
-   - 向当天 journal 追加一行,说明生成了哪个报告、覆盖或新建、参考了哪些主要节点 / raw。
-   - 在知识库数据目录本地 git 精确暂存本次改动路径后创建回滚点(`git commit`),永不 push。
+   - 生成完整候选报告，用 `kb-mutation.md` 的 `replace` 或
+     `replace_preserving_sections` 执行；工具统一保留手动章节、追加 journal、精确暂存、commit
+     和失败回滚。Agent 不直接改报告或 Git。
    - 回显报告的本日 / 本周重点、最重要 3-7 条、风险 / 下步、报告文件路径;回显中的知识库事实
      同样保留 `[S<n>]` 和完整引用,不能因为报告文件已落盘就省略。
    - 报告文件与知识库本地 commit 真实完成后调用
