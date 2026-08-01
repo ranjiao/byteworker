@@ -28,7 +28,9 @@ bin/byteworker digest-job next \
   --lease-owner "<当前 session 稳定标识>" --lease-seconds 1800
 ```
 
-对返回的每个页面独立按普通 `feishu_doc` 流程处理。必须以 `digest-txn execute` receipt 标记：
+对返回的每个页面先解析 `references/workflow-routes.json` 的 `wiki_resume_page`，递归展开
+`extends=digest` 并读取完整公共闭包与 `digest-doc.md`；不要依赖上个 session 已读过“普通
+feishu_doc 流程”。必须以 `digest-txn execute` receipt 标记：
 
 ```bash
 bin/byteworker digest-job mark \

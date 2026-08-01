@@ -34,6 +34,9 @@ bin/byteworker <tool> [tool arguments...]
 - `digest-job`
 - `report-automation`
 - `index`
+- `kb-mutate`
+- `context`
+- `semantic`
 - `update-status`
 
 这些 tool 调用总是输出 `byteworker-cli/v1` JSON envelope：
@@ -112,9 +115,12 @@ cd "$BYTEWORKER_ROOT"
 | `kb-query.py` | Agent / 维护者 | 节点、证据和结构化 raw 查询 | 只读 |
 | `doctor.py` | Agent / 维护者 | 扫描 schema/graph/profile 漂移 | `fix` 可写 INDEX/links |
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
-| `todo.py` | Agent | Todo 初始化、查询和状态维护 | 部分子命令写 `todo.md` |
+| `todo.py` | Agent | Todo 初始化、查询和状态维护 | 写命令事务化更新 todo、journal 和本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
-| `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 只写 `INDEX.md` |
+| `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 写 INDEX、journal 和本地 commit |
+| `kb-mutate.py` | Agent / 自动化 | 非 digest 内容的版本化事务写入 | 写目标、INDEX、journal 和本地 commit |
+| `context.py` | Agent / 自动化 | 按 intent 读取有限 context 投影 | 只读 |
+| `semantic.py` | Agent / 自动化 | 校验 IM 等结构化语义决定 | 只读临时结果 |
 | `pull_doc_comments.py` | Agent / 维护者 | 拉取飞书文档全部评论和回复 | 只向 stdout 输出 JSON |
 | `pull-chat.sh` | Agent / 维护者 | 拉取群聊窗口逐字稿和 locator | 写临时或显式输出文件 |
 | `im-inbox-summary.sh` | Agent | IM 高信号 thread 本地粗筛 | 写输出和运行标记，不写 raw |
@@ -123,7 +129,7 @@ cd "$BYTEWORKER_ROOT"
 | `check-deps.sh` | 用户 / 安装流程 | 用同一 resolver 检查运行依赖 | 只读 |
 | `rebuild-index.sh` | Agent / 维护者 | 从真相源重建 INDEX | 默认写 `INDEX.md` |
 | `rebuild_index.py` | 内部执行器 | INDEX 重建核心实现 | 同上 |
-| `repair-links.sh` | Agent / 维护者 | 修复双向 links、自链接和重复项 | 默认写节点 frontmatter |
+| `repair-links.sh` | 维护者底层排障 | 修复双向 links、自链接和重复项 | 默认写节点 frontmatter |
 | `repair_links.py` | 内部执行器 | links 修复核心实现 | 同上 |
 | `update-check.sh` | Skill 自动调用 | 周期性 fast-forward 更新 | 可更新 skill；更新后可能修复 KB |
 | `update-postflight.py` | 内部更新流程 | 更新后 doctor 与安全修复 | 可写 KB 并创建本地 commit |
@@ -641,7 +647,8 @@ bin/byteworker doctor fix \
   --dry-run
 ```
 
-去掉 `--dry-run` 才真正写入。`--autolink` 会把正文提及的已存在节点 ID 补进 links。
+去掉 `--dry-run` 才真正写入。`--autolink` 会把正文提及的已存在节点 ID 补进 links。apply
+使用共享 KB 写锁，统一写 journal、精确暂存并创建本地 commit；失败整体回滚。
 
 Doctor 还会只读检查 Profile v1/v2、定期来源的 Profile 覆盖、raw/Profile identity、
 payload component/digest key 和规范记录索引。Meego/Base/Aeolus/群聊缺 Profile 会报 error，飞书文档
@@ -900,8 +907,8 @@ bin/byteworker index rebuild --kb "$BYTEWORKER_KB" --dry-run
 bin/byteworker index rebuild --kb "$BYTEWORKER_KB"
 ```
 
-receipt 会显式说明是否变化，以及该操作不写 journal、不创建 Git commit。下面的 shell wrapper
-继续用于人工排障。
+apply receipt 会返回 journal/Git commit 状态和 commit hash；`--dry-run` 始终只读。下面的
+shell wrapper 继续用于人工底层排障。
 
 先预演：
 
@@ -915,7 +922,7 @@ bin/rebuild-index.sh --kb "$BYTEWORKER_KB" --dry-run
 bin/rebuild-index.sh --kb "$BYTEWORKER_KB"
 ```
 
-脚本原子替换 `INDEX.md`，但不创建 journal 或 Git commit；调用方负责按写入规范收尾。
+脚本只原子替换 `INDEX.md`，不创建 journal 或 Git commit，因此不作为 Agent 的 apply 入口。
 
 ### `rebuild_index.py`
 
@@ -944,13 +951,14 @@ bin/repair-links.sh \
   --autolink
 ```
 
-去掉 `--dry-run` 后实际修改节点 frontmatter。命令不创建 journal 或 Git commit。
+去掉 `--dry-run` 后实际修改节点 frontmatter。命令不创建 journal 或 Git commit，仅供维护者
+底层排障；Agent / 自动化使用 `doctor fix --only links [--autolink]` 的完整事务。
 
 退出码 `3` 表示扫描完成但仍有悬空链接，需要人工裁决。
 
 ### `repair_links.py`
 
-`repair-links.sh` 的内部 Python 执行器。普通用户和 Agent 应调用 shell wrapper。
+`repair-links.sh` 的内部 Python 执行器。Agent / 自动化不得直接调用。
 
 ```bash
 python3 bin/repair_links.py "$BYTEWORKER_KB" [--dry-run] [--autolink]

@@ -80,12 +80,7 @@ Profile revision 与当前 revision 不同可以是正常重配，不得据此�
 
 ## 执行修复后的收尾
 
-doctor 不碰知识库 Git 和 journal。实际执行 `fix` 后：
-
-1. 重新看 doctor 报告，区分已修复与仍需人工裁决的问题；
-2. 用 `git -C <知识库> diff -- <本次路径>` 核对；
-3. 按 `references/write-rules.md` 追加 journal，只暂存本次 doctor 修改的路径并创建本地提交；
-4. 绝不 push 知识库数据目录。
-
-上段针对用户主动运行 `doctor fix`；post-update doctor 的 journal 与本地提交由
-`bin/update-postflight.py` 自动完成。
+`doctor fix` 与 post-update doctor 使用同一共享 KB 写事务：锁内重验工作树，只执行 index/links
+白名单修复，复扫后统一写 journal、精确暂存并创建本地 commit。失败恢复文件、Git index 和必要的
+HEAD；用户或 Agent 不再手工补收尾。`--dry-run` 始终只读。仍需人工裁决的问题保留在复扫报告中，
+知识库永不 push。

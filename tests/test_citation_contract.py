@@ -23,10 +23,14 @@ class CitationContractTests(unittest.TestCase):
         self.assertIn("关键结论的原始出处或收录时间缺失", protocol)
 
     def test_retrieval_commands_apply_citations_to_search_brief_dashboard(self) -> None:
-        commands = self.read("references/commands.md")
-        self.assertGreaterEqual(commands.count("references/citations.md"), 3)
-        self.assertIn("溯源解析(必做)", commands)
-        self.assertIn("每个知识库事实段落 / 列表项就近标 `[S<n>]`", commands)
+        search = self.read("references/command-search.md")
+        brief = self.read("references/command-brief.md")
+        dashboard = self.read("references/command-dashboard.md")
+        self.assertIn("citations.md", search)
+        self.assertIn("citations.md", brief)
+        self.assertIn("citations.md", dashboard)
+        self.assertIn("从节点 `sources` 继续解析", search)
+        self.assertIn("每个知识库事实段落或列表项就近标 `[S<n>]`", search)
 
     def test_report_templates_keep_claim_level_citations(self) -> None:
         for relative_path in (

@@ -36,7 +36,8 @@ links: []
 
 ## 立场 / 利益 / 动机
 <!-- 跨多次讨论沉淀的立场倾向、核心利益诉求、行为逻辑;由各 event 的「参与方立场分析」累积。
-     须有证据支撑,推断须标【推断】,证据不足写「证据有限」,不臆测。详见 references/digest-analysis.md。 -->
+     须有证据支撑；动机/利益只有直接自述或至少两条独立观察时才可标【推断】,否则省略。
+     详见 references/semantic-policy.md 与 references/digest-analysis.md。 -->
 
 ## 偏好 / 风格 / 注意点
 <!-- 沟通偏好、工作风格、需要注意的点 -->
