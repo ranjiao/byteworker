@@ -32,6 +32,9 @@ TOOLS = {
     "digest-job": "digest-job.py",
     "report-automation": "report-automation.py",
     "index": "index.py",
+    "kb-mutate": "kb-mutate.py",
+    "context": "context.py",
+    "semantic": "semantic.py",
 }
 ATTENTION_EXIT_CODES = {"doctor": {2}}
 
