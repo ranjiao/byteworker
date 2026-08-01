@@ -12,6 +12,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LIB = ROOT / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+
+from update_postflight import run_postflight  # noqa: E402
+
 INDEX_MAINTENANCE_SCHEMA = "byteworker-index-maintenance/v1"
 
 
@@ -95,21 +101,23 @@ def rebuild(kb: Path, *, dry_run: bool) -> dict[str, object]:
     previous = index_path.read_bytes() if index_path.is_file() else b""
     expected = preview.stdout
     changed = previous != expected
+    transaction = None
     if not dry_run and changed:
-        applied = _invoke_rebuild(kb, dry_run=False)
-        if applied.returncode != 0:
-            message = (
-                applied.stderr.decode("utf-8", errors="replace").strip()
-                or applied.stdout.decode("utf-8", errors="replace").strip()
-                or "INDEX 重建失败"
-            )
-            raise IndexMaintenanceError("INDEX_REBUILD_FAILED", message)
-        actual = index_path.read_bytes()
-        if actual != expected:
+        transaction = run_postflight(
+            ROOT,
+            kb,
+            allowed_actions={"index"},
+        )
+        if not transaction.commit:
             raise IndexMaintenanceError(
-                "INDEX_REBUILD_VERIFY_FAILED",
-                "INDEX.md 写入结果与 dry-run 预演不一致",
+                "INDEX_REBUILD_FAILED",
+                "; ".join(transaction.reasons) or "INDEX 事务没有创建本地回滚点",
             )
+    final_content = (
+        index_path.read_bytes()
+        if not dry_run and index_path.is_file()
+        else expected
+    )
     return {
         "schema_version": INDEX_MAINTENANCE_SCHEMA,
         "status": (
@@ -123,9 +131,10 @@ def rebuild(kb: Path, *, dry_run: bool) -> dict[str, object]:
         "changed": changed,
         "index_path": str(index_path),
         "previous_hash": _sha256(previous),
-        "content_hash": _sha256(expected),
-        "journal_written": False,
-        "git_commit_created": False,
+        "content_hash": _sha256(final_content),
+        "journal_written": bool(transaction and transaction.commit),
+        "git_commit_created": bool(transaction and transaction.commit),
+        "commit": transaction.commit if transaction else "",
     }
 
 

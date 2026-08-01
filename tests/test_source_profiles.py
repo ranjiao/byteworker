@@ -196,6 +196,16 @@ def feishu_wiki_profile():
 
 
 class SourceProfileTests(unittest.TestCase):
+    def test_provider_validator_depends_on_neutral_contract_not_lifecycle(self):
+        provider = (ROOT / "lib/source_profile_providers.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "from source_profile_contract import SourceProfileError",
+            provider,
+        )
+        self.assertNotIn("from source_profiles import", provider)
+
     def test_two_dashboard_sheets_keep_independent_selectors_and_filters(self):
         first = validate_profile(
             profile(
@@ -274,6 +284,33 @@ class SourceProfileTests(unittest.TestCase):
         self.assertEqual(
             "SOURCE_PROFILE_CONTAINS_CREDENTIAL",
             caught.exception.code,
+        )
+        for source_url in (
+            "https://user:pass@example.test/view",
+            "https://example.test/view?Access-Token=secret",
+            "https://example.test/view?client%5Fsecret=secret",
+            "https://example.test/view#refresh_token=secret",
+        ):
+            with self.subTest(source_url=source_url):
+                value = profile()
+                value["source_url"] = source_url
+                with self.assertRaises(SourceProfileError) as caught:
+                    validate_profile(value)
+                self.assertEqual(
+                    "SOURCE_PROFILE_CONTAINS_CREDENTIAL",
+                    caught.exception.code,
+                )
+
+        # Provider resource identifiers are not authentication credentials.
+        self.assertEqual(
+            "bascn1",
+            validate_profile(feishu_base_profile())["selector"]["app_token"],
+        )
+        self.assertEqual(
+            "node-1",
+            validate_profile(feishu_wiki_profile())["selector"][
+                "root_node_token"
+            ],
         )
         value = profile()
         value["source_url"] += "&bytecloud_jwt=secret"

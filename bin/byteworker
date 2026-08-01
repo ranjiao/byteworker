@@ -106,4 +106,22 @@ if [ "$PYTHON_FROM_CACHE" -eq 0 ] && [ -z "${BYTEWORKER_PYTHON_BIN:-}" ]; then
 fi
 
 export BYTEWORKER_PYTHON_BIN="$PYTHON_BIN"
+
+# Preflight updates must finish before Python imports any byteworker module.
+# The following exec therefore loads one coherent version for the whole run.
+if [ "${1:-}" = "preflight" ]; then
+  SKIP_UPDATE=0
+  for argument in "$@"; do
+    if [ "$argument" = "--skip-update" ]; then
+      SKIP_UPDATE=1
+      break
+    fi
+  done
+  if [ "$SKIP_UPDATE" -eq 0 ]; then
+    UPDATE_NOTICE=$("$ROOT/bin/update-check.sh" 2>&1 || true)
+    export BYTEWORKER_UPDATE_NOTICE="$UPDATE_NOTICE"
+  fi
+  export BYTEWORKER_UPDATE_CHECKED=1
+fi
+
 exec "$PYTHON_BIN" "$ROOT/bin/byteworker-launcher.py" "$@"

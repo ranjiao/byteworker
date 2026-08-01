@@ -12,7 +12,6 @@ in the byteworker skill repository.
 
 from __future__ import annotations
 
-import fcntl
 import copy
 import hashlib
 import json
@@ -30,6 +29,7 @@ from zoneinfo import ZoneInfo
 
 from constants import NODE_ID_PREFIXES, NODE_TYPES
 from frontmatter import parse_file, parse_frontmatter
+from kb_write_txn import kb_write_lock
 from provenance import (
     ProvenanceError,
     anchor_index,
@@ -1765,10 +1765,7 @@ def execute_plan(
         target_paths.append(result.provenance_path)
     relative_paths = [str(path.relative_to(kb)) for path in target_paths]
 
-    lock_path = kb / ".git" / "byteworker-digest.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock_path, "a+", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with kb_write_lock(kb):
 
         remotes = _git(kb, ["remote"]).stdout.splitlines()
         if remotes:
@@ -1863,8 +1860,6 @@ def execute_plan(
                     _atomic_write(git_index_path, git_index_snapshot)
             _restore_files(snapshots)
             raise
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     created = [node["id"] for node in result.nodes if node["op"] == "create"]
     updated = [node["id"] for node in result.nodes if node["op"] == "update"]
@@ -1922,10 +1917,7 @@ def execute_batch_plan(
 
     target_paths = transaction_paths(result)
     relative_paths = [str(path.relative_to(kb)) for path in target_paths]
-    lock_path = kb / ".git" / "byteworker-digest.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock_path, "a+", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with kb_write_lock(kb):
         remotes = _git(kb, ["remote"]).stdout.splitlines()
         if remotes:
             raise DigestTxnError(
@@ -2035,8 +2027,6 @@ def execute_batch_plan(
                     _atomic_write(git_index_path, git_index_snapshot)
             _restore_files(snapshots)
             raise
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     return {
         "status": "committed",

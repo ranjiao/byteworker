@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from source_profiles import SourceProfileError
+from source_profile_contract import SourceProfileError
 
 
 def _reject_unknown(

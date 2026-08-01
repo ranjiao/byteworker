@@ -8,12 +8,29 @@ import calendar
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+ROOT = Path(__file__).resolve().parents[1]
+LIB = ROOT / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+
+from kb_write_txn import (  # noqa: E402
+    atomic_write as atomic_write_bytes,
+    kb_write_lock,
+    restore_files,
+    restore_git_index,
+    snapshot_files,
+    snapshot_git_index,
+)
 
 
 HEADING_RE = re.compile(r"^### \[([ xX])\] (T-\d{8}-\d{3}) · (.+)$")
@@ -40,6 +57,11 @@ DEFAULT_PREAMBLE = """# TODO
 <!-- 这是 byteworker 维护的个人待办真相源。
      日常请直接对 agent 说自然语言；T-YYYYMMDD-NNN 只用于内部去重、关联和审计。 -->
 """
+WRITE_COMMANDS = {"init", "add", "status", "snooze", "mark-reminded", "edit"}
+
+
+class TodoTransactionError(RuntimeError):
+    pass
 
 
 @dataclass
@@ -304,7 +326,8 @@ def render_todos(preamble: str, todos: Iterable[Todo]) -> str:
         result = [f"### [{checkbox}] {todo.todo_id} · {todo.title}"]
         seen = set()
         for key in FIELD_ORDER:
-            result.append(f"- {key}: {todo.fields.get(key, '')}")
+            value = todo.fields.get(key, "")
+            result.append(f"- {key}: {value}" if value else f"- {key}:")
             seen.add(key)
         for key in sorted(set(todo.fields) - seen):
             result.append(f"- {key}: {todo.fields[key]}")
@@ -365,6 +388,144 @@ def todo_json(todo: Todo) -> Dict[str, str]:
 
 def save(path: Path, preamble: str, todos: List[Todo]) -> None:
     atomic_write(path, render_todos(preamble, todos))
+
+
+def _git(kb_dir: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=kb_dir,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if check and result.returncode != 0:
+        raise TodoTransactionError(
+            result.stderr.strip() or result.stdout.strip() or "git 命令失败"
+        )
+    return result
+
+
+def _git_paths(kb_dir: Path, *args: str) -> set[str]:
+    result = _git(kb_dir, *args, "-z")
+    return {item for item in result.stdout.split("\0") if item}
+
+
+def _head(kb_dir: Path) -> str:
+    return _git(kb_dir, "rev-parse", "HEAD").stdout.strip()
+
+
+def _restore_head(kb_dir: Path, head: str) -> None:
+    current = _head(kb_dir)
+    if current == head:
+        return
+    _git(kb_dir, "update-ref", "HEAD", head, current)
+
+
+def _append_journal(
+    existing: bytes | None,
+    *,
+    now: datetime,
+    command: str,
+    todo_id: str,
+) -> bytes:
+    text = (
+        existing.decode("utf-8")
+        if existing is not None
+        else f"# {now:%Y-%m-%d}\n\n"
+    )
+    if text and not text.endswith("\n"):
+        text += "\n"
+    target = todo_id or "todo.md"
+    return (
+        text + f"- {now:%H:%M} Todo {command} | target={target}\n"
+    ).encode("utf-8")
+
+
+def execute_write_transaction(
+    kb_dir: Path,
+    *,
+    now: datetime,
+    command: str,
+    operation,
+):
+    if not (kb_dir / ".git").is_dir():
+        raise TodoTransactionError("知识库不是本地 Git 仓库")
+    with kb_write_lock(kb_dir):
+        if _git(kb_dir, "remote").stdout.splitlines():
+            raise TodoTransactionError("知识库 Git 配置了 remote，拒绝写入")
+        if _git_paths(kb_dir, "diff", "--cached", "--name-only"):
+            raise TodoTransactionError("知识库已有 staged 变更，拒绝混入 Todo commit")
+        todo_path = kb_dir / "todo.md"
+        journal_path = (
+            kb_dir / "journal" / now.strftime("%Y-%m") / f"{now:%Y-%m-%d}.md"
+        )
+        relative_paths = {
+            "todo.md",
+            str(journal_path.relative_to(kb_dir)),
+        }
+        dirty = _git_paths(kb_dir, "diff", "--name-only")
+        dirty.update(_git_paths(kb_dir, "ls-files", "--others", "--exclude-standard"))
+        overlap = sorted(dirty & relative_paths)
+        if overlap:
+            raise TodoTransactionError(
+                "Todo 事务目标已有未提交修改: " + ", ".join(overlap)
+            )
+        snapshots = snapshot_files([todo_path, journal_path])
+        git_index = snapshot_git_index(kb_dir)
+        head = _head(kb_dir)
+        try:
+            result = operation()
+            current = todo_path.read_bytes() if todo_path.is_file() else None
+            if current == snapshots[todo_path]:
+                return result
+            todo_id = str(result.get("id", "")) if isinstance(result, dict) else ""
+            atomic_write_bytes(
+                journal_path,
+                _append_journal(
+                    snapshots[journal_path],
+                    now=now,
+                    command=command,
+                    todo_id=todo_id,
+                ),
+            )
+            diff_check = _git(
+                kb_dir,
+                "diff",
+                "--check",
+                "--",
+                *sorted(relative_paths),
+                check=False,
+            )
+            if diff_check.returncode != 0:
+                raise TodoTransactionError(
+                    diff_check.stdout.strip() or diff_check.stderr.strip()
+                )
+            _git(kb_dir, "add", "--", *sorted(relative_paths))
+            staged = _git_paths(kb_dir, "diff", "--cached", "--name-only")
+            if staged != relative_paths:
+                raise TodoTransactionError("Todo 事务暂存路径不精确")
+            _git(kb_dir, "commit", "-m", f"todo: {command}")
+            commit = _head(kb_dir)
+        except Exception as exc:
+            rollback_error = None
+            try:
+                _restore_head(kb_dir, head)
+                restore_git_index(kb_dir, git_index)
+                restore_files(snapshots)
+            except Exception as restore_exc:
+                rollback_error = restore_exc
+            if rollback_error is not None:
+                raise TodoTransactionError(
+                    f"{exc}; 严重: Todo 回滚失败: {rollback_error}"
+                ) from exc
+            raise
+        if isinstance(result, dict):
+            result = {
+                **result,
+                "transaction": {"status": "committed", "commit": commit},
+            }
+        return result
 
 
 def command_check(todos: List[Todo], now: datetime, window_hours: int) -> List[Dict[str, str]]:
@@ -450,6 +611,107 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def execute_storage_command(args, kb_dir: Path, prefs: Preferences, now: datetime):
+    existed = (kb_dir / "todo.md").exists()
+    path = ensure_initialized(
+        kb_dir,
+        getattr(args, "template", None) if args.command == "init" else None,
+    )
+    preamble, todos = load_todos(path)
+    if args.command == "init":
+        return {"path": str(path), "created": not existed}
+    if args.command == "add":
+        title = args.title.strip()
+        if not title:
+            raise ValueError("Todo 标题不能为空")
+        todo_id = next_id(todos, now)
+        due_at = (
+            iso(resolve_time(args.due, now, prefs, "due")) if args.due else ""
+        )
+        remind_at = (
+            iso(resolve_time(args.remind, now, prefs, "remind"))
+            if args.remind
+            else ""
+        )
+        expressions = [value for value in (args.due, args.remind) if value]
+        fields = {
+            "kind": args.kind,
+            "status": "open",
+            "created_at": iso(now),
+            "updated_at": iso(now),
+            "due_at": due_at,
+            "remind_at": remind_at,
+            "time_expression": " / ".join(expressions),
+            "snoozed_until": "",
+            "source": args.source,
+            "links": ", ".join(dict.fromkeys(args.link)),
+            "reason": args.reason,
+            "last_reminded_at": "",
+            "note": args.note,
+        }
+        todo = Todo(todo_id, title, fields)
+        todos.append(todo)
+        save(path, preamble, todos)
+        return todo_json(todo)
+    if args.command == "list":
+        return [
+            todo_json(todo)
+            for todo in todos
+            if args.scope == "all"
+            or (args.scope == "active") == (todo.status in {"open", "waiting"})
+        ]
+    if args.command == "check":
+        return command_check(
+            todos,
+            now,
+            args.window_hours or prefs.due_soon_hours,
+        )
+    if args.command == "status":
+        todo = get_todo(todos, args.todo_id)
+        todo.fields["status"] = args.value
+        todo.fields["updated_at"] = iso(now)
+        save(path, preamble, todos)
+        return todo_json(todo)
+    if args.command == "snooze":
+        todo = get_todo(todos, args.todo_id)
+        todo.fields["snoozed_until"] = iso(
+            resolve_time(args.until, now, prefs, "remind")
+        )
+        todo.fields["updated_at"] = iso(now)
+        save(path, preamble, todos)
+        return todo_json(todo)
+    if args.command == "mark-reminded":
+        todo = get_todo(todos, args.todo_id)
+        todo.fields["last_reminded_at"] = iso(now)
+        todo.fields["updated_at"] = iso(now)
+        save(path, preamble, todos)
+        return todo_json(todo)
+    if args.command == "edit":
+        todo = get_todo(todos, args.todo_id)
+        if args.title:
+            todo.title = args.title.strip()
+        if args.clear_due:
+            todo.fields["due_at"] = ""
+        elif args.due:
+            todo.fields["due_at"] = iso(
+                resolve_time(args.due, now, prefs, "due")
+            )
+            todo.fields["time_expression"] = args.due
+        if args.clear_remind:
+            todo.fields["remind_at"] = ""
+        elif args.remind:
+            todo.fields["remind_at"] = iso(
+                resolve_time(args.remind, now, prefs, "remind")
+            )
+            todo.fields["time_expression"] = args.remind
+        if args.note is not None:
+            todo.fields["note"] = args.note
+        todo.fields["updated_at"] = iso(now)
+        save(path, preamble, todos)
+        return todo_json(todo)
+    raise AssertionError(args.command)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     kb_dir: Path = args.kb_dir.expanduser().resolve()
@@ -467,88 +729,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
-    existed = (kb_dir / "todo.md").exists()
-    path = ensure_initialized(kb_dir, getattr(args, "template", None) if args.command == "init" else None)
     try:
-        preamble, todos = load_todos(path)
-    except ValueError as error:
-        raise SystemExit(f"错误：{error}") from error
-
-    try:
-        if args.command == "init":
-            result = {"path": str(path), "created": not existed}
-        elif args.command == "add":
-            title = args.title.strip()
-            if not title:
-                raise ValueError("Todo 标题不能为空")
-            todo_id = next_id(todos, now)
-            due_at = iso(resolve_time(args.due, now, prefs, "due")) if args.due else ""
-            remind_at = iso(resolve_time(args.remind, now, prefs, "remind")) if args.remind else ""
-            expressions = [value for value in (args.due, args.remind) if value]
-            fields = {
-                "kind": args.kind,
-                "status": "open",
-                "created_at": iso(now),
-                "updated_at": iso(now),
-                "due_at": due_at,
-                "remind_at": remind_at,
-                "time_expression": " / ".join(expressions),
-                "snoozed_until": "",
-                "source": args.source,
-                "links": ", ".join(dict.fromkeys(args.link)),
-                "reason": args.reason,
-                "last_reminded_at": "",
-                "note": args.note,
-            }
-            todo = Todo(todo_id, title, fields)
-            todos.append(todo)
-            save(path, preamble, todos)
-            result = todo_json(todo)
-        elif args.command == "list":
-            selected = [todo for todo in todos if args.scope == "all" or (args.scope == "active") == (todo.status in {"open", "waiting"})]
-            result = [todo_json(todo) for todo in selected]
-        elif args.command == "check":
-            result = command_check(todos, now, args.window_hours or prefs.due_soon_hours)
-        elif args.command == "status":
-            todo = get_todo(todos, args.todo_id)
-            todo.fields["status"] = args.value
-            todo.fields["updated_at"] = iso(now)
-            save(path, preamble, todos)
-            result = todo_json(todo)
-        elif args.command == "snooze":
-            todo = get_todo(todos, args.todo_id)
-            todo.fields["snoozed_until"] = iso(resolve_time(args.until, now, prefs, "remind"))
-            todo.fields["updated_at"] = iso(now)
-            save(path, preamble, todos)
-            result = todo_json(todo)
-        elif args.command == "mark-reminded":
-            todo = get_todo(todos, args.todo_id)
-            todo.fields["last_reminded_at"] = iso(now)
-            todo.fields["updated_at"] = iso(now)
-            save(path, preamble, todos)
-            result = todo_json(todo)
-        elif args.command == "edit":
-            todo = get_todo(todos, args.todo_id)
-            if args.title:
-                todo.title = args.title.strip()
-            if args.clear_due:
-                todo.fields["due_at"] = ""
-            elif args.due:
-                todo.fields["due_at"] = iso(resolve_time(args.due, now, prefs, "due"))
-                todo.fields["time_expression"] = args.due
-            if args.clear_remind:
-                todo.fields["remind_at"] = ""
-            elif args.remind:
-                todo.fields["remind_at"] = iso(resolve_time(args.remind, now, prefs, "remind"))
-                todo.fields["time_expression"] = args.remind
-            if args.note is not None:
-                todo.fields["note"] = args.note
-            todo.fields["updated_at"] = iso(now)
-            save(path, preamble, todos)
-            result = todo_json(todo)
+        if args.command in WRITE_COMMANDS:
+            result = execute_write_transaction(
+                kb_dir,
+                now=now,
+                command=args.command,
+                operation=lambda: execute_storage_command(
+                    args,
+                    kb_dir,
+                    prefs,
+                    now,
+                ),
+            )
         else:
-            raise AssertionError(args.command)
-    except ValueError as error:
+            result = execute_storage_command(args, kb_dir, prefs, now)
+    except (OSError, ValueError, TodoTransactionError) as error:
         raise SystemExit(f"错误：{error}") from error
 
     print(json.dumps(result, ensure_ascii=False, indent=2))

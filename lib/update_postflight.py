@@ -9,6 +9,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Set
 
 from doctor import DoctorReport, apply_repairs, scan
+from kb_write_txn import (
+    atomic_write,
+    kb_write_lock,
+    restore_files,
+    restore_git_index,
+    snapshot_files,
+    snapshot_git_index,
+)
 
 
 AUTO_FIX_ACTIONS = {"index", "links", "autolink"}
@@ -166,7 +174,7 @@ def _append_journal(
     else:
         text = f"# {now:%Y-%m-%d}\n\n"
     line = (
-        f"- {now:%H:%M} skill 更新后 doctor 自动修复："
+        f"- {now:%H:%M} doctor 确定性修复："
         f"actions={','.join(actions)}；修复 findings={repaired_findings}；"
         f"修改文件={changed_files}；复扫 error={summary['error']}、"
         f"warning={summary['warning']}、info={summary['info']}；"
@@ -185,7 +193,7 @@ def _commit_repairs(kb: Path, paths: List[str]) -> str:
     check = _git(kb, "diff", "--cached", "--check")
     if check.returncode != 0:
         raise RuntimeError(check.stdout.strip() or check.stderr.strip())
-    commit = _git(kb, "commit", "-m", "doctor: auto-repair after skill update")
+    commit = _git(kb, "commit", "-m", "doctor: deterministic KB repair")
     if commit.returncode != 0:
         raise RuntimeError(commit.stderr.strip() or commit.stdout.strip())
     head = _git(kb, "rev-parse", "--short", "HEAD")
@@ -194,17 +202,65 @@ def _commit_repairs(kb: Path, paths: List[str]) -> str:
     return head.stdout.strip()
 
 
-def run_postflight(
+def _head(kb: Path) -> str:
+    result = _git(kb, "rev-parse", "HEAD")
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "无法读取知识库 Git HEAD")
+    return result.stdout.strip()
+
+
+def _restore_unexpected_path(kb: Path, relative: str) -> None:
+    target = kb / relative
+    tracked = subprocess.run(
+        ["git", "-C", str(kb), "show", f"HEAD:{relative}"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if tracked.returncode == 0:
+        atomic_write(target, tracked.stdout)
+    elif target.is_file() or target.is_symlink():
+        target.unlink()
+
+
+def _rollback(
+    kb: Path,
+    *,
+    head: str,
+    files: Dict[Path, bytes | None],
+    git_index: bytes | None,
+    unexpected: Set[str] | None = None,
+) -> None:
+    current = _head(kb)
+    if current != head:
+        moved = _git(kb, "update-ref", "HEAD", head, current)
+        if moved.returncode != 0:
+            raise RuntimeError(
+                moved.stderr.strip() or "无法回滚 doctor 修复提交引用"
+            )
+    restore_git_index(kb, git_index)
+    restore_files(files)
+    for relative in sorted(unexpected or set()):
+        _restore_unexpected_path(kb, relative)
+
+
+def _run_postflight_locked(
     skill_root: Path,
     kb: Path,
     *,
     now: datetime | None = None,
+    allowed_actions: Set[str] | None = None,
+    force_autolink: bool = False,
 ) -> PostflightResult:
     skill_root = skill_root.resolve()
     kb = kb.resolve()
     now = now or datetime.now().astimezone()
     initial = scan(kb, skill_root)
     actions, autolink = _actions(initial)
+    if allowed_actions is not None:
+        actions = [action for action in actions if action in allowed_actions]
+    if force_autolink and "links" in actions:
+        autolink = True
     repairable = {
         (item.code, item.path, item.auto_fix)
         for item in initial.findings
@@ -232,34 +288,43 @@ def run_postflight(
             )
         if not reasons:
             before = _dirty_paths(kb)
-            repairs = apply_repairs(
-                kb,
-                skill_root,
-                actions,
-                autolink=autolink,
-            )
-            failed = [item["action"] for item in repairs if not item["ok"]]
-            if failed:
-                reasons.append("自动修复执行失败: " + ", ".join(failed))
-            final = scan(kb, skill_root)
-            after = _dirty_paths(kb)
-            repair_paths = sorted(after - before)
-            allowed = [
-                path
-                for path in repair_paths
-                if path == "INDEX.md"
-                or (path.startswith("knowledge/") and path.endswith(".md"))
-            ]
-            unexpected = sorted(set(repair_paths) - set(allowed))
-            if unexpected:
-                reasons.append("自动修复触达未知路径")
-            repaired = repairable - {
-                (item.code, item.path, item.auto_fix)
-                for item in final.findings
-                if item.auto_fix
-            }
-            if allowed and not unexpected:
-                try:
+            journal_path = f"journal/{now:%Y-%m}/{now:%Y-%m-%d}.md"
+            possible_paths = [kb / "INDEX.md", kb / journal_path]
+            possible_paths.extend(sorted((kb / "knowledge").glob("**/*.md")))
+            snapshots = snapshot_files(possible_paths)
+            git_index_snapshot = snapshot_git_index(kb)
+            head_snapshot = _head(kb)
+            unexpected_paths: Set[str] = set()
+            try:
+                repairs = apply_repairs(
+                    kb,
+                    skill_root,
+                    actions,
+                    autolink=autolink,
+                )
+                failed = [item["action"] for item in repairs if not item["ok"]]
+                if failed:
+                    raise RuntimeError(
+                        "自动修复执行失败: " + ", ".join(failed)
+                    )
+                final = scan(kb, skill_root)
+                after = _dirty_paths(kb)
+                repair_paths = sorted(after - before)
+                allowed = [
+                    path
+                    for path in repair_paths
+                    if path == "INDEX.md"
+                    or (path.startswith("knowledge/") and path.endswith(".md"))
+                ]
+                unexpected_paths = set(repair_paths) - set(allowed)
+                if unexpected_paths:
+                    raise RuntimeError("自动修复触达未知路径")
+                repaired = repairable - {
+                    (item.code, item.path, item.auto_fix)
+                    for item in final.findings
+                    if item.auto_fix
+                }
+                if allowed:
                     journal = _append_journal(
                         kb,
                         repaired_findings=len(repaired),
@@ -270,8 +335,24 @@ def run_postflight(
                     )
                     commit = _commit_repairs(kb, [*allowed, journal])
                     changed_files = len(allowed)
-                except RuntimeError as exc:
+            except (OSError, RuntimeError) as exc:
+                try:
+                    _rollback(
+                        kb,
+                        head=head_snapshot,
+                        files=snapshots,
+                        git_index=git_index_snapshot,
+                        unexpected=unexpected_paths,
+                    )
+                except (OSError, RuntimeError) as rollback_exc:
+                    reasons.append(
+                        f"{exc}; 严重: 自动修复回滚失败: {rollback_exc}"
+                    )
+                else:
                     reasons.append(str(exc))
+                commit = ""
+                changed_files = 0
+                final = scan(kb, skill_root)
 
     summary = final.summary()
     if summary["error"]:
@@ -294,6 +375,25 @@ def run_postflight(
         reasons=list(dict.fromkeys(reasons)),
         repairs=repairs,
     )
+
+
+def run_postflight(
+    skill_root: Path,
+    kb: Path,
+    *,
+    now: datetime | None = None,
+    allowed_actions: Set[str] | None = None,
+    force_autolink: bool = False,
+) -> PostflightResult:
+    resolved_kb = kb.resolve()
+    with kb_write_lock(resolved_kb):
+        return _run_postflight_locked(
+            skill_root,
+            resolved_kb,
+            now=now,
+            allowed_actions=allowed_actions,
+            force_autolink=force_autolink,
+        )
 
 
 def render_message(result: PostflightResult) -> str:
