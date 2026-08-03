@@ -52,7 +52,8 @@ inspect/capture 会以稳定错误码 fail closed。
 
 ## 写入成功判定
 
-- digest：只认 `digest-txn execute` 的 `status=committed` receipt。
+- digest：候选完成后直接调用 `digest-txn execute`；它内含完整 validate 与锁内复验。只认
+  `status=committed` receipt；独立 `validate` 仅用于失败诊断。
 - 非 digest：只认 `kb-mutate execute` 的 `status=committed` receipt。
 - Todo：只认 todo 工具返回的新状态。
 - 自动报告：报告 mutation committed 后，再以真实结果调用 `report-automation complete`。

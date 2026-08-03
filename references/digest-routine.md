@@ -48,7 +48,8 @@
        `wiki scan --kb ... --source-uid ...` 原样重放 Profile；发现变化先展示，不自动创建
        批量 digest 任务。细则见
        `references/digest-wiki-space.md`。
-     - 各源增量 digest 走标准扇出并通过 `digest-txn validate / execute` 写入。群聊/会议等时间流
+     - 各源增量 digest 走标准扇出，在 `preflight` 后通过 `digest-txn execute` 写入；独立
+       `validate` 仅用于失败诊断。群聊/会议等时间流
        可产新 `event`；Meego / Base / 风神保存视图更新同一 `reading`，普通记录/数字变化只留 raw +
        provenance，达到晋升门槛才更新 `project` / `decision` / `event` / `area`。
   2. **汇报**:逐源说明有无增量、digest 了哪个新周期 / 窗口、触达哪些节点。

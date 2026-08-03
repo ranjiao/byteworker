@@ -80,9 +80,10 @@ components 和 anchors 全部从对应 Bundle 注入，禁止在 plan 复制。�
 batch 采用一个短时锁、一次 INDEX 重建、一条 journal 和一个 commit；任一输入已是
 `noop/resume_failed` 时整批拒绝，Agent 重新排除已完成项后再规划，不做隐式部分提交。
 `preflight` 仍对每个 Bundle 单独运行；确认都需摄取后再组 batch plan，随后执行
-`validate/execute`。v1 的 `inputs[].source` 仅为兼容入口，新流程不得继续使用。
+`execute`；其内部完成计划校验和锁内复检，独立 `validate` 只在失败诊断时调用。v1 的
+`inputs[].source` 仅为兼容入口，新流程不得继续使用。
 
-## 三段命令
+## 两段标准命令与可选诊断
 
 ### 1. preflight（写入前、无副作用）
 
@@ -102,7 +103,7 @@ bin/byteworker digest-txn preflight \
 
 Agent 不得手算或覆盖脚本返回的 component hash、`content_hash`、`digest_key`。
 
-### 2. validate（候选生成后、无副作用）
+### 可选：validate（只在候选排障时使用、无副作用）
 
 更新节点时必须记录读取基线：
 
@@ -112,7 +113,8 @@ bin/byteworker digest-txn snapshot-node \
   --path "knowledge/<type>/<node>.md"
 ```
 
-把返回的 `base_sha256` 写入 node operation，然后：
+把返回的 `base_sha256` 写入 node operation。标准路径随后直接运行 execute；只有 execute 返回
+候选 schema、link、baseline 或 evidence 校验错误，需要更完整诊断时才单独运行：
 
 ```bash
 bin/byteworker digest-txn validate \
@@ -121,9 +123,10 @@ bin/byteworker digest-txn validate \
 ```
 
 新增 link 时，反向节点必须一并提供候选更新；历史遗留的非对称/悬空 link 只 warning，不借本次
-事务做全库清洗。validate 失败先修 plan，不得绕过校验手工写库。
+事务做全库清洗。validate 失败先修 plan，不得绕过校验手工写库。不要在 validate 成功后把完整
+report、候选或 diff 再打印给模型；execute 会重复完成全部安全校验。
 
-### 3. execute（唯一标准写入口）
+### 2. execute（候选完成后的唯一标准写入口）
 
 ```bash
 bin/byteworker digest-txn execute \
@@ -147,6 +150,10 @@ remote 也中止,避免机密数据目录进入可推送状态；脚本自身没
 - `warnings`
 
 相同 payload 在 preflight 后被其它 Agent 先完成时，execute 返回 `status=noop`，不得重复写入。
+
+成功 receipt 已是写入真相源。收尾默认只消费 receipt；确需额外核验时，把 HEAD、INDEX 命中和
+工作区状态合并成一次紧凑检查。禁止输出完整 raw、provenance、候选节点、节点正文、完整 diff，
+也禁止为“确认成功”再跑一次 preflight。
 
 ## 候选文件规则
 

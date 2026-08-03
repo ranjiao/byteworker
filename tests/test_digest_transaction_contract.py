@@ -15,7 +15,8 @@ class DigestTransactionContractTests(unittest.TestCase):
     def test_skill_routes_standard_digest_to_transaction_tool(self):
         skill = self.read("SKILL.md")
         self.assertIn("references/digest-transaction.md", skill)
-        self.assertIn("bin/digest-txn.py preflight / validate / execute", skill)
+        self.assertIn("直接运行 `execute`", skill)
+        self.assertIn("独立 `validate` 只用于失败排障", skill)
         self.assertIn("语义判断、冲突", skill)
 
     def test_core_requires_receipt_before_claiming_write_completed(self):
@@ -41,12 +42,36 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertIn("旧 raw 永不改写", transaction)
         self.assertIn("不做启动时全库迁移", transaction)
 
-    def test_whiteboard_rules_separate_structure_and_visual_inference(self):
+    def test_whiteboard_rules_are_json_only(self):
         whiteboard = self.read("references/digest-whiteboard.md")
         self.assertIn("结构化节点 JSON", whiteboard)
-        self.assertIn("整体预览图", whiteboard)
-        self.assertIn("【视觉推断】", whiteboard)
+        self.assertIn("不获取、不生成、不查看整体预览图或截图", whiteboard)
+        self.assertIn("禁止为 digest 调用 `view_image`", whiteboard)
+        self.assertIn("不做视觉推断", whiteboard)
         self.assertIn("不等于系统已上线", whiteboard)
+
+    def test_large_digest_isolated_context_and_compact_handoff(self):
+        large = self.read("references/digest-large.md")
+        wiki_jobs = self.read("references/wiki-digest-jobs.md")
+        self.assertIn('fork_turns="none"', large)
+        self.assertIn('禁止', large)
+        self.assertIn('fork_turns="all"', large)
+        self.assertIn("semantic-work-packet", large)
+        self.assertIn("不得", large)
+        self.assertIn("list_agents", large)
+        self.assertIn("紧凑返回", large)
+        self.assertIn('fork_turns="none"', wiki_jobs)
+        self.assertIn("不得继承主对话", wiki_jobs)
+        self.assertIn("不主动轮询", wiki_jobs)
+
+    def test_digest_execute_is_single_standard_post_plan_call(self):
+        core = self.read("references/digest-core.md")
+        transaction = self.read("references/digest-transaction.md")
+        architecture = self.read("ARCHITECTURE.md")
+        self.assertIn("直接运行 `bin/digest-txn.py execute`", core)
+        self.assertIn("execute 会重复完成全部安全校验", transaction)
+        self.assertIn("标准 digest 在 plan 完成后直接调用 execute", architecture)
+        self.assertIn("禁止输出完整 raw", transaction)
 
     def test_business_manifest_is_forbidden_in_skill_repo(self):
         transaction = self.read("references/digest-transaction.md")

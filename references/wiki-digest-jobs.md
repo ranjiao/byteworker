@@ -30,7 +30,9 @@ bin/byteworker digest-job next \
 
 对返回的每个页面先解析 `references/workflow-routes.json` 的 `wiki_resume_page`，递归展开
 `extends=digest` 并读取完整公共闭包与 `digest-doc.md`；不要依赖上个 session 已读过“普通
-feishu_doc 流程”。必须以 `digest-txn execute` receipt 标记：
+feishu_doc 流程”。每页 worker 必须显式使用 `fork_turns="none"`，只接收页面身份、确认范围、
+KB 与临时 artifact 路径；不得继承主对话，也不得由主 Agent 重复读取正文。必须以
+`digest-txn execute` receipt 标记：
 
 ```bash
 bin/byteworker digest-job mark \
@@ -66,5 +68,6 @@ bin/byteworker digest-job cancel \
 
 - `create` 回执给出低/高 token 估算；大量页面时必须在开始前提醒用户。
 - `status` 和 `next` 都有预览/批次上限，不把完整任务或页面正文塞进单轮 context。
+- 主 Agent 只按批次有界等待并接收阶段状态与紧凑 receipt，不主动轮询，不收回正文、候选全文或 diff。
 - 每页处理完成立即 `mark`，不要等整个批次完成才记录。
 - 任务文件只保存已确认的页面身份、状态和回执定位，不保存页面正文、token 或 cookie。

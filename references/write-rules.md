@@ -6,7 +6,8 @@
 ## 通用规则
 
 - **标准 digest 统一走事务工具**:按 `references/digest-transaction.md` 生成临时 plan 与完整候选
-  节点,通过机器协议运行 `bin/digest-txn.py validate / execute`。禁止为单篇业务资料在 skill 仓库写硬编码
+  节点,通过机器协议在 `preflight` 后直接运行 `bin/digest-txn.py execute`；`execute` 内置完整校验和锁内
+  复检，独立 `validate` 仅用于失败诊断。禁止为单篇业务资料在 skill 仓库写硬编码
   落库脚本;禁止绕过事务工具手算 digest hash、手拼 raw 或声称未收到 receipt 的写入已完成。
   `update`、context、dashboard、报告/IM 等非标准 digest 统一按 `references/kb-mutation.md`
   生成 plan 并调用 `kb-mutate validate/execute`；Todo 只走 Todo 工具。

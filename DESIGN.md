@@ -398,9 +398,9 @@ feishu_doc 随后附 canonical 文档评论原始快照>
   作者 / 时间 / 解决状态及可取得的 relation 锚点,放在 raw 正文的独立章节。`comment_hash`
   不包含抓取时间。评论接口不可用 / 分页不完整时分别写 `unavailable` / `partial`,不得伪造空
   评论 hash;历史 raw 缺这些字段只表示当时未记录评论覆盖。
-- 正文中的内嵌 whiteboard 随当前文档摄取:结构化节点 JSON 是 raw 证据 component,整体预览只
-  用于 Agent视觉复核。全部 token 成功读取才写 `whiteboards_status: complete`;任何缺失写
-  `partial`。白板画出架构不证明系统已上线。
+- 正文中的内嵌 whiteboard 随当前文档摄取:只读取结构化节点 JSON 作为 raw 证据 component，
+  不抓取或分析预览图片。全部 token 的结构 JSON 成功读取才写 `whiteboards_status: complete`;
+  任何缺失写 `partial`。仅靠渲染外观才能成立的语义不持久化；白板画出架构不证明系统已上线。
 - `digest_key` 由 `source_type + source_uid + digest_period/source_window + content_hash` 组成,用于
   判断完全重复摄取。新格式固定为
   `source_type:source_uid:digest_period-or-window-or--:content_hash`;评论或白板任一 component
@@ -904,7 +904,7 @@ code 与证据，请用户确认。
    实体消解与候选正文;`bin/digest-txn.py` 固化逐组件 hash、兼容幂等、候选 schema、
    `base_sha256` 并发保护、原子写入/回滚、INDEX/journal 与精确本地 commit。新 raw 用
    `byteworker-payload-v1` 描述正文、评论、白板等实际 payload;旧 raw 只读兼容、不强制迁移。
-   飞书正文内嵌白板默认随当前来源读取结构 JSON + 预览,视觉推断不硬化为事实。见 §3、
+   飞书正文内嵌白板默认随当前来源只读取结构 JSON，不抓取或分析预览图片。见 §3、
    `references/digest-transaction.md`、`references/digest-whiteboard.md`。
 19. **主要来源 + 节点事实证据** — raw 正文继续不可变;精确 block/comment/message 等 locator
    写入 `provenance/<raw_id>.json` sidecar。主记录带 `primary_source` /

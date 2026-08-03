@@ -12,7 +12,7 @@
 
 ## 主流程
 
-长流程状态输出:开始摄取时先告诉用户本次会经历「分类 → 拉原文 → 幂等检查 → 依赖判断 → 冲突检测 → 节点写入 → 回滚点」;下面每个阶段完成后回显一行短状态。若拉原文、依赖判断、人员解析、冲突检测或节点写入任一阶段耗时超过约 30-60 秒,按 `SKILL.md`「长流程状态输出」发 heartbeat,只说阶段和数量,不要贴原文。
+长流程状态输出:开始摄取时先告诉用户本次会经历「分类 → 拉原文 → 幂等检查 → 依赖判断 → 冲突检测 → 节点写入 → 回滚点」;只在真实阶段变化时回显一行短状态。单阶段超过 60 秒且没有变化时可发一次 heartbeat,只说阶段和数量,不要贴原文，也不要为发状态主动轮询。大型输入遵守 `references/digest-large.md`，主/子 Agent 不重复处理。
 
 1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` /
    `feishu_chat` / `meego` / `feishu_base` / `aeolus` / `web` / `local_md`。**若输入是一整场会议**
@@ -120,11 +120,13 @@
 8. **写入事务** —— Agent按 `templates/node-<type>.md` 生成每个节点的**完整候选文件**;
    所有节点显式给 `evidence`,新节点至少一条；主记录设置 `primary_source`,关键事实句尾写
    `[E<n>]`,plan 中逐条映射到 `raw_id + anchor_id`;
-   更新节点时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。依次运行
-   通过机器协议运行 `bin/digest-txn.py validate` 与 `execute`:它会校验候选,原子写 raw/节点,重建 INDEX,追加
+   更新节点时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。
+   通过机器协议直接运行 `bin/digest-txn.py execute`:它会在任何写入前完成完整候选校验，并在锁内
+   复验后原子写 raw/节点,重建 INDEX,追加
    journal,精确暂存本次路径并在知识库本地 git 创建 commit。只有 receipt
    `status=committed` 才算完成;`status=noop` 不得重复写。详见
-   `references/digest-transaction.md` 与 `references/write-rules.md`。多份来源需要共同更新节点
+   `references/digest-transaction.md` 与 `references/write-rules.md`。独立 `validate` 只在 execute
+   返回候选校验错误时用于排障。多份来源需要共同更新节点
    或必须同成同败时，使用只引用各 SourceBundle 的 `digest-batch-plan/v2`，不得拆成多个可能
    留下半成品的提交；v1 只兼容历史调用。
 9. **汇报** —— 以事务 receipt 为准告诉用户 commit、raw_id、新建/更新节点、warning、是否因幂等检查跳过或合并了重复来源;不得仅凭 Agent已生成候选就声称落库。若发现重要依赖,还要说明哪些已随本次摄取、哪些未摄取及其影响。若命中「重点高亮」内容(重大事故 / 指标剧变 / 涉及你或你关注的人的重要指令等)→ 单独、显眼地提醒。若有 Todo 候选,末尾一次性列最多 5 项“事项 / 与你相关的依据 / 时间 / 来源”,询问哪些加入;用户回复序号 / 全部后再写 `todo.md`。最终汇报前不要让用户等到最后才第一次看到进展。
