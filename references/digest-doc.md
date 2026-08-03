@@ -11,8 +11,9 @@
   同时按 `references/provenance.md` 把 `with-ids` 的正文 block id、评论 / 回复 id 转成
   provenance anchors;关键事实节点正文用 `[E<n>]` 绑定到相应 anchor。
 - **正文内嵌白板属于当前来源 payload**:正文出现 `<whiteboard token="...">` 时加读
-  `references/digest-whiteboard.md`,默认读取每个白板的结构化节点 JSON 与整体预览;结构 JSON
-  以独立 `kind=whiteboard` component 进入 source bundle。不能只保留占位 token 或只看截图。
+  `references/digest-whiteboard.md`,只读取每个白板的结构化节点 JSON，不抓取或分析预览图片；
+  结构 JSON 以独立 `kind=whiteboard` component 进入 source bundle。不能只保留占位 token、截图
+  或 OCR 结果。
   当前文档自身白板不算递归子文档;外部白板和其它文档里的白板仍走重要依赖闸门。
 - **统一交接**:正文、评论和白板 artifact 抓取完成后，调用
   `source bundle --source-type feishu_doc --request <request.json> --out <bundle.json>`。

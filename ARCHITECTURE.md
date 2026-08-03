@@ -201,11 +201,9 @@ sequenceDiagram
         Txn-->>Agent: new_source / new_version
         Agent->>Agent: 依赖闸门、冲突检测、实体消解
         Agent->>Agent: 生成完整候选节点和 evidence 映射
-        Agent->>Txn: DigestPlan v2 validate
-        Txn->>Txn: schema / links / baseline / provenance 校验
-        Txn-->>Agent: validation report
-        Agent->>Txn: execute
-        Txn->>KB: 加锁后重新 preflight 和基线校验
+        Agent->>Txn: DigestPlan v2 execute
+        Txn->>Txn: 写入前 schema / links / baseline / provenance 校验
+        Txn->>KB: 加锁后重新 preflight、validate 和基线校验
         Txn->>KB: 原子写 raw + provenance + nodes
         Txn->>KB: 重建 INDEX + 追加 journal + 本地 Git commit
         Txn-->>Agent: status=committed receipt
@@ -354,6 +352,12 @@ flowchart TB
 workflow 闭包：每个入口声明 `required/on_error`，digest 再按 `source_type/features` 条件加载。
 子 Agent、无人值守报告和 Wiki resume 都必须从 manifest 递归展开闭包，不依赖上一 session
 或主 Agent 的隐式记忆。
+
+大型输入采用单一语义 owner：主 Agent 只做抓取、规模/依赖确认与 receipt 收尾；worker 必须用
+`fork_turns="none"` 启动，只接收自足 prompt 和系统临时 artifact 路径。worker 从 SourceBundle
+生成一次临时 semantic work packet，正文、评论与白板结构 JSON 各只进入一次，后续仅按 anchor
+定点回读。主 Agent 不同时读取 component、生成候选或轮询临时文件；worker 只在有限阶段或需要
+用户裁决时回报，最终返回紧凑 receipt 摘要。该约束避免主/子双重语义分析和历史对话重放。
 
 search/update/brief/dashboard/context 分别使用独立 reference；公共机器协议只定义 envelope 和
 成功判定，工具参数从对应 workflow 或 `--help` 发现。CI 对 reference-only 闭包设置字符预算，
@@ -681,6 +685,10 @@ component 使用 `verbatim` 或 `canonical-json` 模式；两者都可用 JSON P
 内值，但 verbatim 目标必须是字符串，canonical-json 则规范序列化选中值。不为了“统一”而把
 飞书文档、Meego、Base、风神压成同一个内容 AST。
 
+飞书 whiteboard component 只包含结构化节点 JSON。抓取和语义层都不生成、读取或分析预览图片；
+坐标、尺寸、父子关系和 connector 可作为结构证据，只有渲染后才能观察到的外观语义保持未知。
+这不改变 whiteboard component/hash schema，因此历史 raw 无需迁移。
+
 通用 schema 校验只证明 envelope 合法，不证明字段仍然忠于 provider。Bundle 从磁盘重载并
 进入事务前，registry 必须调用 adapter 的 `validate_bundle`：结构化来源从唯一的
 `snapshot` component 重新构造期望 Bundle，并复验 identity、coordinates、coverage、
@@ -795,6 +803,10 @@ todo。
 postflight 在共享锁内扫描和修复；repair、路径检查、暂存、commit 或 receipt 失败时恢复目标文件、
 Git index 和必要的 HEAD ref。事务成功的唯一证明是 `status=committed` 和 commit hash。Agent
 已生成候选、validate 成功或文件看起来存在，都不等于事务完成。
+
+标准 digest 在 plan 完成后直接调用 execute；execute 在任何写入前完成完整 validate，并在写锁内
+再次复验。独立 validate 保留为失败诊断入口，不是标准成功路径。receipt 之后只允许一次紧凑的
+HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或完整 diff 重新送回 Agent。
 
 ### 4.6 查询、语义校验与维护
 

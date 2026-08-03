@@ -92,16 +92,17 @@ bin/byteworker context view --kb "<KB>" --intent "<intent>"
 - `references/write-rules.md`
 - `references/conflict-policy.md`
 
-按来源加读：飞书文档 `digest-doc.md`（评论加 `references/digest-comments.md`，白板再加
-`digest-whiteboard.md`）；群聊 `digest-chat.md`；Meego `digest-meego.md`；Base
+按来源加读：飞书文档 `digest-doc.md`（评论加 `references/digest-comments.md`，白板只读取
+结构 JSON 并加读 `digest-whiteboard.md`）；群聊 `digest-chat.md`；Meego `digest-meego.md`；Base
 `digest-base.md`；风神 `digest-aeolus.md`；网页/本地资料 `digest-reading.md`；会议簇
 `digest-meeting.md`；立场分析 `digest-analysis.md`；大型输入 `digest-large.md`；routine
 `digest-routine.md`。Wiki 空间探索先读 `references/digest-wiki-space.md`，确认页面后按
 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
 来源先产生 `byteworker-source-bundle/v2`，Agent 再生成只引用 bundle 的
-`digest-plan/v2` 和完整候选节点。实际写入使用
-`bin/digest-txn.py preflight / validate / execute` 对应的 facade 命令。两个以上来源共同更新
+`digest-plan/v2` 和完整候选节点。标准路径先运行 `bin/digest-txn.py preflight`；候选完成后
+直接运行 `execute`，由它在写入前完成完整 validate 与锁内复验。独立 `validate` 只用于失败排障。
+两个以上来源共同更新
 节点时用 `digest-batch-plan/v2`。语义判断、冲突分类、实体取舍和候选正文由 Agent 负责；
 hash、幂等、schema、INDEX、journal、精确 commit 和 rollback 由事务负责。只有
 `status=committed` receipt 表示写入成功。
@@ -116,7 +117,8 @@ Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用�
 查询具体记录用 `kb-query source-record`，不让 Agent 扫完整 raw。
 
 大型输入 worker 和 Wiki resume page 必须从 workflow manifest 解析完整 digest 闭包；子 Agent
-prompt 必须自足，不依赖主对话已读过哪些文档。
+必须显式使用 `fork_turns="none"`，prompt 自足且只传来源、确认范围、KB 和临时 artifact 路径，
+不得继承主对话。主 Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终紧凑回执。
 
 ## 写入
 
@@ -155,7 +157,8 @@ postflight 只修明确 auto_fix，并在共享写锁内失败回滚，不猜业
 - KB 禁止 remote/push；凭据只来自环境或仓库外权限文件，不得进入 URL、bundle、profile、raw、
   日志或命令参数。
 - 不调用 lark-task；会议待办保存在 event，个人待办保存在 todo.md。
-- 长流程每完成关键阶段给一行元信息状态；超过约 30-60 秒发 heartbeat，不粘贴业务原文。
+- 长流程只在真实阶段变化时给一行元信息状态；单阶段超过 60 秒可发一次 heartbeat，不粘贴业务
+  原文、不为发状态主动轮询。大型 worker 由主 Agent 使用有界等待，避免主/子双重处理。
 
 系统边界以 [`ARCHITECTURE.md`](ARCHITECTURE.md) 为准，schema 以 `DESIGN.md` 为准。修改模块、
 依赖、信息流、失败边界或成功判定时，必须在**同一变更**同步架构文档和契约测试。
