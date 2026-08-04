@@ -33,6 +33,13 @@
 `.kbconfig` 尚未配置时静默跳过，因为没有知识库可检查。相关文件正被编辑时不抢写，把它视为
 无法自动完成的严重问题交给用户，而不是覆盖或卷入现有改动。
 
+## Dreaming 周期维护
+
+Dreaming 启用后的 `maintenance` job 复用本文件同一 scan/fix facade 和事务边界，不能定义第二套
+修复白名单。细则见 `references/dreaming-maintenance.md`：只执行 finding 明确声明的
+`auto_fix`，复扫后把重要未决问题用有限元数据摘要交给用户；用户处理或忽略前进入
+`waiting_for_user`，避免重复提醒。maintenance 失败不改变 doctor 结果，也不阻塞其它能力。
+
 ## 用法
 
 ```bash

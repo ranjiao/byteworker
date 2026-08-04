@@ -41,7 +41,7 @@ byteworker 由**两个物理隔离**的部分组成。
 
 | 文件/目录 | 存什么 |
 |-----------|--------|
-| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/todo/inbox/context/doctor/help + 自动日报/周报) |
+| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help + 自动日报/周报) |
 | `ARCHITECTURE.md` | 信息处理流程、代码分层、模块边界、依赖方向与演进约束 |
 | `DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 8 类节点骨架模板 |
@@ -79,7 +79,8 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `provenance/` | 每个 raw 的原始定位 sidecar:文档 block / 评论 / 消息 / 妙记片段等 | digest 事务写入;受控回填可补充 | 只随对应 raw 增补/升级 |
 | `knowledge/{people,projects,areas,orgs,events,decisions,readings,thinkings}/` | 8 类节点笔记,按类型分子目录 | skill 写入/更新 | 实体和 thinking 可更新；来源记录定型 |
 | `journal/` | 摄取/更新/扫描事件的**时间线日志** | skill 追加 | 只追加 |
-| `reports/daily/`, `reports/weekly/`, `reports/im/` | 日报 / 周报 / IM Inbox 摘要归档快照；前两者由宿主本地定时任务或自然语言补跑生成，后者由 `inbox` 流程生成 | skill 写入,用户可手改 | 可覆盖同周期 |
+| `reports/daily/`, `reports/weekly/`, `reports/morning/` | 日报 / 周报 / Dreaming 晨报归档快照 | legacy report automation 或 Dreaming report action 写入,用户可手改 | 可覆盖同周期 |
+| `reports/im/`（仅历史 KB 可存在） | 已移除 Inbox writer 留下的历史 IM 摘要 | 当前 skill 只读,用户可手改 | 禁止新建或改写 |
 | `INDEX.md` | 主索引:8 类节点登记表 + 定期摄取清单 + 群聊高水位 | skill 维护,可全量重建 | 高频更新 |
 | `dashboard.md` | 工作看板 —— 实时视图(长期关注 / 需关注 / 今日进展) | skill 维护/渲染 | 高频刷新 |
 | `context.md` | 格式化全局工作上下文 —— 身份 / 职责 / 重点 / 约束 / 提醒偏好 / 背景 | 用户通过 agent 维护 | 手维护 |
@@ -109,7 +110,8 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
   可能无法仅从 raw 正文恢复,因此与 raw 一起保护;修订必须保留 `derived_from.content_hash`。
 - `knowledge/` 节点 —— 可变消化产物,承载真正的知识价值;节点出错可回对应 `raw_data`
   重新消化(LLM digest,非确定性),但 `raw_data` 本身丢了就无源可回。
-- `reports/` —— 日报 / 周报 / IM Inbox 摘要是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
+- `reports/` —— 日报 / 周报 / 晨报是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
+  历史 `reports/im/` 同样是真相源，但 I7 后只读兼容，不得由 skill 新建、改写或删除。
 - `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
 - 活动中的 `state/digest_jobs/` —— 保存用户已确认的多页处理范围与未完成状态。它是本机
   session 恢复 checkpoint，不进入实体图或 Git；已成功页面仍以 committed raw/transaction
@@ -232,9 +234,183 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
   `last_run` 作为兼容值；不得仅凭报告文件存在推断成功。
 - 自动日报和自动周报每次都必须先完整执行所有已登记且启用来源的 routine digest，再生成报告；
   这条执行契约不受 `.last-routine-digest` 的七天交互提醒阈值限制。
+- owner 迁移时，`release-owner` 保存 daily/weekly/recovery 的 enabled/schedule/native_task_id
+  snapshot，确认无有效租约后禁用 legacy owner；`restore-owner` 只有在 Dreaming report jobs 已
+  关闭时才能按 snapshot 恢复。历史 last_success 保留并导入 Dreaming，避免重复 period。
 
 状态目录继续遵守 §1.B 的本地排除规则：写入前把 `/state/` 加到知识库
 `.git/info/exclude`，不得提交、push 或进入报告事实来源。
+
+### F.1 Dreaming 设置与 Job 状态
+
+`state/dreaming/state.json` 使用 `byteworker-dreaming/v2`。`lib/dreaming_state.py` 负责安全
+路径、权限、共享 state lock、原子 JSON 和 schema migration；`lib/dreaming_scheduler.py` 只
+负责当前启停、due job、租约和回执语义。Dreaming 是可选后台控制面，不是业务知识真相源，也不
+替代宿主本地任务列表。
+
+- 状态文件缺失等同 `enabled=false`；只读 `status` 不创建状态文件。
+- `state/dreaming/` 固定为 `0700`，状态、锁和 migration backup 固定为 `0600`；路径必须位于
+  KB 的 `state/dreaming/` 内，拒绝绝对路径和 `..` 逃逸。
+- 读取 v1 时先把原 JSON 原子写入 `state/dreaming/migrations/state-v1-<UTC>.json`，再原子替换为
+  v2。未知 schema、v1 缺字段或替换失败均 fail closed；替换失败不得覆盖原 v1。
+- `enable` 必须记录 `capability_tour_version/capability_tour_acknowledged_at` 和
+  `runtime_notice_acknowledged_at`：前者证明已完整介绍 Dreaming 与 digest 的差异、能力、授权、
+  生命周期和退出边界，后者证明用户已看到额外网络/模型/存储开销及机器需保持开机、唤醒、联网
+  的提示。两个确认缺一不可；安装、升级和普通 preflight 不得自动启用或代填。
+- `environment` 只能为 `local`；`owner_harness/timezone/enabled_at/disabled_at` 记录已确认设置。
+- `jobs` 固定包含 `process/morning/daily/weekly/maintenance/recovery`，分别维护 enabled、schedule、
+  `lease_epoch`、`last_attempt/last_run/last_success`、
+  `next_attempt_at/consecutive_failures/deadline_at/blocked_by/ready_since/waiting_for_user`。
+  scheduler 按 deadline、ready age 和稳定 job name 公平选择；瞬时错误 5 分钟起指数退避至
+  4 小时，授权类错误等待显式 `retry-job`，不能压住其它 job。
+- `grants` 初始化 `revision=0`、`im.mode=off`、`persist_finding=false`。`grant set-im` 每次变更
+  revision；`all_visible` 必须确认会读取 P2P/免打扰。降级会清理被撤销范围内未晋升 spool/batch。
+- `grants.actions` 分别保存 `persist_report/archive/instant_alert`，默认全部关闭。
+  `grant set-actions` 是整组替换；任何 grant revision 变化会取消未 claim action，并把 claimed
+  action 转入 reconcile。
+- `runs/cursors/gaps/receipt_index` 由 Batch Commit Protocol 维护。queryless discovery 只能标
+  `best_effort`；预算截断保存时间切片 gap，不持久化 provider page token。
+- 初次启用只开启 `process/morning/maintenance/recovery`；`daily/weekly` 默认关闭，避免与现有
+  `report_automation` 重复运行。
+- `maintenance` 默认工作日 03:30，通过公开 doctor facade 先 scan，再执行 finding 明确声明的
+  INDEX/links 确定性修复。剩余重要 error、证据/身份风险或自动化阻断项只向用户给有限元数据摘要，
+  以 `DOCTOR_USER_DECISION_REQUIRED` 进入 `waiting_for_user`；不保存业务正文，不猜语义修复。
+- 旧 v2 state 缺少 `maintenance` 或 capability tour 字段时，只在内存补成 disabled/未确认；
+  `status` 不写回，也不因代码升级自动开启维护。下一次用户显式 enable 才记录新导览并开启该 job。
+- `manage_reports=true` 前必须确认旧 scheduler owner 已释放；如果
+  `state/report_automation.json` 仍声明日报或周报 enabled，迁移必须 fail closed，且不得修改
+  旧状态文件。
+- `active_lease` 保存随机 token、job、period、owner、fencing epoch 和过期时间。首版串行领取
+  一个 job，但每个 job 的成功历史相互独立；长任务通过 token 匹配的 `renew` 延长有效租约。
+- `partial/failed` 必须带稳定 error code，且不得覆盖 `last_success`；过期 lease 记录为
+  `DREAMING_LEASE_EXPIRED`。
+- 禁用只关闭后续 job，不删除历史 receipt、报告或 findings，也不修改现有自动报告设置。
+
+Dreaming 运行正文、checkpoint 和后续 findings 均位于 `state/dreaming/` 或系统临时目录，继续
+受 `/state/` Git 排除规则保护。任何长期知识仍必须通过现有 SourceBundle + DigestTxn；Dreaming
+状态不能作为事实证据或绕过事务。
+
+`lib/dreaming_models.py` 定义并结构校验以下瞬时契约，不负责语义正确性，也不自行持久化：
+
+- `byteworker-evidence-batch/v1`
+- `byteworker-dreaming-batch/v1`
+- `byteworker-finding-bundle/v1`
+- `byteworker-action-plan/v1`
+- `byteworker-action-claim/v1`
+
+这些契约的正文实例可能包含业务信息，只能位于系统临时目录或 KB 的私密 `state/dreaming/`；
+仓库内只允许无业务内容的模板和测试 fixture。
+
+I2 状态布局：
+
+```text
+state/dreaming/
+  state.json
+  spool/<batch_id>/<message_hash>.json
+  batches/<batch_id>/
+    manifest.json
+    batch.json
+    analysis.receipt.json          # I3 写入
+    consolidation.receipt.json     # I3 写入
+    batch.commit.json
+```
+
+- `process prepare` 采集并提交 `collected` manifest，只向机器输出 batch id、相对 manifest path、
+  数量和 coverage，不输出消息正文。
+- monitored lane 从已登记 `feishu_chat` Profile 获取 chat_id，并用逐 chat 分页形成
+  complete/partial coverage；all_visible 使用 queryless search，永远是 best_effort。
+- message 去重键为 `message_id + update_time/create_time`；spool 文件保存规范消息 JSON，权限
+  `0600`，manifest 只保存 anchor、hash 和 `spool://` 引用。
+- commit 必须已有 consolidation receipt；先 fsync `batch.commit.json`，再更新 cursor 和
+  `committed_batch_id`。marker 已存在而 cursor 缺失时 recovery 只补 cursor。
+- 默认 spool TTL：all_visible 24 小时、monitored 72 小时。GC 和 grant 撤销不得跟随符号链接。
+
+I3 Finding 状态：
+
+```text
+state/dreaming/
+  finding-history.jsonl   # byteworker-finding-event/v1，fsync 追加
+  findings.json           # byteworker-findings/v1，可由 history 重建
+```
+
+- `process commit --input <FindingBundle>` 复验 manifest hash、batch id、grant revision 和所有
+  evidence refs；FindingBundle 必须位于系统临时目录或 KB，拒绝 skill 仓库路径和超过 2 MiB 输入。
+- Finding 必须有稳定 id、kind、summary、why_it_matters、confidence、uncertainties 和非空 evidence。
+- `persist_finding=false` 时只写不含正文的 analysis/consolidation receipt 并 commit cursor；
+  不创建 history/projection。
+- `persist_finding=true` 时，事件键为 `batch_id + finding_id`；先 fsync history，再原子替换
+  projection。history 保存每批 proposal delta，不保存累计快照；相同 batch 重放幂等，不同
+  bundle hash 拒绝；跨 batch 同 finding id revision 递增。撤销任一 batch 后从剩余 delta 重算，
+  不得残留被撤销 evidence。
+- grant 降级/关闭会删除撤销 batch 的未晋升 Finding 事件并重建投影。Finding 是运行状态，不是
+  knowledge/provenance，也不能作为报告或长期知识的原始证据。
+- `context view --intent dreaming` 提供身份、职责、重点、主管方向、约束、提醒偏好和背景；
+  I7 后不再提供独立 `inbox` intent。
+
+I4 Action Ledger：
+
+```text
+state/dreaming/
+  actions/<action_id>.json   # byteworker-action-ledger/v1，0600
+  state.json.actions         # 有限状态索引，不复制正文
+```
+
+- Action kind 固定为 suppress/wait/include_report/instant_alert/todo_candidate/source_candidate/
+  conflict_review/knowledge_candidate。模型提供的 `policy_result` 不可信，由 Python 重算。
+- include_report、instant_alert、knowledge_candidate 分别要求对应 grant；Todo、来源、冲突必须
+  用户确认；knowledge 还要求 complete monitored evidence，并强制 recapture。
+- plan 必须绑定当前 lease token；claim 绑定 run/job/period/lease epoch/grant revision，返回随机
+  claim token 和稳定 dedupe key。下游调用前必须 `validate-claim`。
+- Ledger 不执行下游写入。Agent 使用现有公开 mutation/Todo/DigestTxn，并把 dedupe key 传为下游
+  idempotency key。报告/Todo/知识要求 KB Git 中真实存在且路径匹配的 committed receipt；即时提醒
+  要求 delivery id；无写动作才接受 noop。所有 receipt 的 key 必须匹配。
+- 租约过期或 grant 变化后，claimed action 不重新认领，只进入 reconcile。无真实 receipt 时保持
+  reconcile；找到 receipt 后可对账 committed。committed 重放相同 receipt 幂等，不同 receipt 拒绝。
+- Ledger 只保存 receipt hash、status、commit 和 idempotency key，不复制下游业务正文。
+
+I5 报告消费者：
+
+```text
+state/dreaming/
+  reports/<kind>-<period>/packet.json
+  state.json.report_dependencies
+  state.json.report_owner
+  state.json.outbox
+```
+
+- 报告窗口：morning 为前一日 20:30 至当日 08:30；当期自动 daily 为当日 00:00 至当前 tick，
+  历史补跑 daily 为完整自然日；weekly 为完整 ISO 周。均按 Dreaming timezone 计算后保存 UTC。
+- IM cursor 落后或 gap 与窗口重叠时，报告 job 写 `blocked_by`，scheduler 先领取独立 process
+  catch-up lease；process commit 清除已覆盖 gap 并刷新 dependency，下一 tick 才领取报告。
+- all_visible discovery 即使追平也只能标 partial/best-effort。存在 Dreaming 尚未支持的 routine
+  provider 时 morning 可 partial，但禁止 daily/weekly owner migration。
+- report packet 只包含 committed Finding 投影、coverage 和 durable KB 查询指针，不读取 spool；
+  文件 `0600`。报告事实仍必须通过 citations 回到原始 evidence。
+- 报告提交必须走 include_report Action claim 和 KB Mutation。生成 commit 后才能完成 action 和
+  Dreaming job；delivery outbox 独立维护 pending/delivered，不以报告 commit 冒充送达。
+- legacy owner 迁移先由 `report-automation release-owner` 保存 schedule/task/history snapshot 并
+  禁用旧状态，再由 Dreaming 写 `report_owner.owner=dreaming` 和 migration epoch。回滚顺序相反：
+  先关闭 Dreaming report jobs，宿主恢复旧任务后再 `restore-owner`。
+- release/restore/manage-reports 共同持有 `state/report-owner.lock`，再按固定顺序获取各自 state
+  lock；避免 restore 与 migrate 并发形成双 owner。
+
+I6 foreground/review/shadow：
+
+- `process once` 创建最长 2 小时的 `foreground_sessions` 单次 authorization，mode 仅为
+  monitored/all_visible；后者仍需显式确认。session token 不进入 status/机器输出，commit/abort
+  后关闭。foreground 不修改 enabled/jobs/persistent IM grant，也始终 `persist_finding=false`。
+- foreground batch 的 source lane 为 `foreground`，另存 `collection_mode`；采集、spool、
+  EvidenceBatch、gap、cursor 和 commit 与后台共用同一实现，不恢复旧 Inbox scanner。
+- Finding feedback 作为 `byteworker-finding-event/v1 operation=feedback` 追加，稳定键为
+  `finding_id + request_id`。生命周期为 open/snoozed/resolved/dismissed/promoted；snoozed 要求
+  未来绝对时间。projection 从 proposal + feedback history 重建。
+- `review` 只返回有限 Finding 摘要；`explain` 返回 Finding 和 evidence locator/coverage，不返回
+  spool 正文。
+- shadow 评估目录必须在 KB 和 skill 仓库之外；输入只允许 sample id、priority、slice、expected/
+  selected，不接受业务文本。输出只含指标和 sample IDs，history 同样保留在私有评估目录。
+- 单日数据门槛：至少 200 样本，决定/责任/风险/短回复/P2P/免打扰/低活跃/附件不可读/
+  partial coverage 九个切片各至少 20 个正样本。Inbox 删除产品门槛：最近 10 个工作日均通过且
+  首尾跨度至少 11 天；该状态仅作为 I7 必要条件，不自动切换路由或删除文件。
 
 ### G. 瞬时 Mutation 与语义结果契约
 
@@ -246,7 +422,7 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
 - `operation` 为 `update/context/dashboard/report`，分别只允许
   `knowledge/**/*.md`、`context.md`、`dashboard.md`、`reports/**/*.md`。
 - write 目标只允许 `context.md`、`dashboard.md`、`knowledge/**/*.md`、`reports/**/*.md`；
-  raw/provenance/sources/todo 不走此契约。
+  其中历史 `reports/im/**` 显式拒绝；raw/provenance/sources/todo 不走此契约。
 - 已有目标必须带当前 `base_sha256`；新建目标的 baseline 为空。
 - mode 为 `replace`、`replace_section` 或 `replace_preserving_sections`。固定章节/可保留章节由
   validator 白名单控制，Agent 不能任意匹配标题；顶层和 write 未知字段一律拒绝。
@@ -266,7 +442,7 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
 
 **`byteworker-context-view/v1`**
 
-- 根据 todo/search/digest/update/brief/dashboard/report/inbox 选择固定章节，不返回无关章节。
+- 根据 todo/search/digest/update/brief/dashboard/report/dreaming 选择固定章节，不返回无关章节。
 - 投影 12k 字符以上返回 warning，24k 以上 fail closed；完整 `context.md` 写入上限为 32 KiB。
 - 不静默截断。超预算时由用户归档过期条目。
 
@@ -284,7 +460,8 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
   - 事件含日期:`event-<YYYY-MM-DD>-<slug>`,如 `event-2026-05-20-q2-review`。
   - 决策:`decision-<slug>`;读物:`reading-<slug>`。
 - **journal**:`journal/<YYYY-MM>/<YYYY-MM-DD>.md`。
-- **reports**:`reports/daily/<YYYY-MM-DD>.md`;`reports/weekly/<YYYY>-W<WW>.md`(ISO 周);`reports/im/<YYYY-MM-DD>.md`(自然日 IM 摘要)或 `reports/im/<start>__<end>.md`(非自然日窗口,文件名里的 `:` 写成 `-`)。
+- **reports**:`reports/daily/<YYYY-MM-DD>.md`;`reports/weekly/<YYYY>-W<WW>.md`(ISO 周);
+  `reports/morning/<YYYY-MM-DD>.md`。历史 `reports/im/*` 文件名保持原样，不再生成新文件。
 - 单类节点 > 200 时再分子目录(TODOS)。
 
 ### 2.1 时间格式规范
@@ -845,7 +1022,7 @@ templates/
   todo.md                todo.md 文件骨架(用户行动状态,§11;首次使用 Todo 时整份复制)
   report-daily.md        日报骨架(daily 输出到 reports/daily/)
   report-weekly.md       周报骨架(weekly 输出到 reports/weekly/)
-  report-im.md           /byteworker inbox 的 IM Inbox 摘要骨架(输出到 reports/im/)
+  report-morning.md      Dreaming 晨报骨架(输出到 reports/morning/)
 ```
 无法判定 type 时不得写入；按 `references/semantic-policy.md` 给出最多 3 个候选类型、reason
 code 与证据，请用户确认。
@@ -897,43 +1074,42 @@ code 与证据，请用户确认。
 13. **定期摄取到期判断改用状态文件** — 「到期提醒」不再扫 journal 散文找上次运行日期,
    改读数据目录的 `.last-routine-digest`(§1.B)。定期摄取例程每次运行后写当天日期 ——
    **空手而归也写**(「复查过」≠「有新增」);journal 行降为纯审计。见 §1.B、SKILL.md。
-14. **报告归档快照** — 新增 `reports/daily/`、`reports/weekly/` 与 `reports/im/`。自动日报 /
-   周报或自然语言补跑每次先完整跑定期摄取,再从 journal / raw / nodes 召回事实生成报告;
-   `inbox` 从脚本候选 threads
-   精判后生成摘要。报告不进入 INDEX,但每条事实必须能回溯到节点 / raw / journal 或 chat/message
-   来源。同周期 / 同窗口再次生成可覆盖,但保留用户手动备注。见 §12、SKILL.md。
+14. **报告归档快照** — 当前 writer 只生成 `reports/daily/`、`reports/weekly/` 与 Dreaming
+   `reports/morning/`。报告不进入 INDEX,但每条事实必须回溯到原始 evidence；同周期再次生成
+   可覆盖,但保留用户手动备注。I7 已移除 Inbox writer；历史 `reports/im/` 保持只读且不参与
+   新知识库初始化。见 §12、SKILL.md。
 15. **新增 `thinking` 节点类型** — 用户自己的认知、直觉、假设、推演与方案草稿以自然语言
    持续更新在 `knowledge/thinkings/`；只强制最小 frontmatter，状态仅为
    `effective|inactive`。它不要求 raw、固定章节或 TL;DR，不替代 reading/decision/context。
-15. **digest 幂等与 raw 不覆盖** — raw frontmatter 增加 `source_uid` / `source_revision` /
+16. **digest 幂等与 raw 不覆盖** — raw frontmatter 增加 `source_uid` / `source_revision` /
    `content_hash` / `digest_key` 等运维字段;重复摄取同一来源同一正文必须 no-op,同源新版本写
    新 raw 并更新已有主记录节点;任何情况下都不得覆盖旧 raw 正文。见 §2、§3、references/digest-core.md。
-16. **本地 Todo + 自然语言优先** — 数据目录顶层 `todo.md` 是用户确认后行动状态的唯一真相源;
+17. **本地 Todo + 自然语言优先** — 数据目录顶层 `todo.md` 是用户确认后行动状态的唯一真相源;
    event / report 的待办只保留来源事实,不承担完成状态。digest 只产候选、必须经用户确认后入 Todo;
    用户日常以“明天提醒我”“刚才那个做完了”等自然语言操作,id 仅供内部关联。每次 skill 运行
    拉取式检查到期 / 临期项;无对话时不承诺后台推送,也不调用 `lark-task`。见 §11、references/todo.md。
-17. **飞书文档评论进入证据链** — `feishu_doc` 正文与评论独立拉取、独立 hash;raw 保留全部评论
+18. **飞书文档评论进入证据链** — `feishu_doc` 正文与评论独立拉取、独立 hash;raw 保留全部评论
    (含已解决)、完整回复链、作者 / 时间 / 解决状态和正文锚点。评论变化即使不改变正文 revision
    也可触发同源新版本。直属上司与用户点名特别关注人员只提高抽取 / 提醒优先级,其观点仍按
    【主张】/【意图】/【观察】呈现,不自动升级为客观事实。见 §3、
    `references/digest-comments.md`。
-18. **digest 确定性事务 + payload components** — Agent继续负责语义理解、依赖范围、冲突、
+19. **digest 确定性事务 + payload components** — Agent继续负责语义理解、依赖范围、冲突、
    实体消解与候选正文;`bin/digest-txn.py` 固化逐组件 hash、兼容幂等、候选 schema、
    `base_sha256` 并发保护、原子写入/回滚、INDEX/journal 与精确本地 commit。新 raw 用
    `byteworker-payload-v1` 描述正文、评论、白板等实际 payload;旧 raw 只读兼容、不强制迁移。
    飞书正文内嵌白板默认随当前来源只读取结构 JSON，不抓取或分析预览图片。见 §3、
    `references/digest-transaction.md`、`references/digest-whiteboard.md`。
-19. **主要来源 + 节点事实证据** — raw 正文继续不可变;精确 block/comment/message 等 locator
+20. **主要来源 + 节点事实证据** — raw 正文继续不可变;精确 block/comment/message 等 locator
    写入 `provenance/<raw_id>.json` sidecar。主记录带 `primary_source` /
    `primary_source_url`;节点关键事实用持久 `[E<n>]` 映射到 anchor,查询回答再生成动态
    `[S<n>]`。历史库通过默认不执行的 audit/plan/validate/apply 流程保守回填,不自动猜测
    多来源节点。见 §3.2、§4、`references/provenance.md`。
-20. **轻量批量事务 + 确定性查询入口** — 新的多来源原子 digest 使用
+21. **轻量批量事务 + 确定性查询入口** — 新的多来源原子 digest 使用
    `digest-batch-plan/v2`，每个 input 只引用 SourceBundle；v1 只兼容历史调用。事务仍以
    乐观基线、短时文件锁和单次本地 commit 实现,不引入数据库。
    `bin/kb-query.py` 每次运行直接扫描节点,统一输出召回覆盖、一跳图扩展和 evidence 解析；
    不保存索引、不承担语义判断。见 §3、§6、`references/digest-transaction.md`。
-21. **结构化视图采用快照 + 差异 + 晋升门槛** — Meego / Base / 风神每次保存完整规范快照并为
+22. **结构化视图采用快照 + 差异 + 晋升门槛** — Meego / Base / 风神每次保存完整规范快照并为
    记录/报表建 exact anchor；`source diff` 只产可重算的
    `baseline / added / changed / left_view`，
    其中 `left_view` 不代表删除。普通记录不进入实体图，只有满足
@@ -941,31 +1117,32 @@ code 与证据，请用户确认。
    event、cross-record theme 或 long-running project 的最低证据才晋升；同一视图始终更新一张
    `reading` 主记录。见 §3.1、
    `references/digest-meego.md`、`references/digest-base.md`、`references/digest-aeolus.md`。
-22. **结构化 raw 记录检索** — Meego / Base / 风神的普通记录/报表由
+23. **结构化 raw 记录检索** — Meego / Base / 风神的普通记录/报表由
    `kb-query source-record` 从每个 `source_uid` 的最新完整快照按稳定 ID 或模糊标题有限召回；
    Agent 不直接扫描大 raw。历史查询
    必须显式开启并返回最新性标记；检索结果携带 raw 与 exact anchor 溯源。见 §3.1、
    `references/commands.md`、`references/machine-protocol.md`。
-23. **异构来源通过 Bundle/Adapter 解耦** — 新单来源 digest 使用
+24. **异构来源通过 Bundle/Adapter 解耦** — 新单来源 digest 使用
    `byteworker-source-bundle/v2` + `digest-plan/v2`；来源 adapter 保留 provider 自身
    transport 和 payload，只在 bundle 边界统一身份、component、coverage、anchor 和可选
    record index。plan 不复制来源或 anchors；事务核心不新增 provider 分支。
    `digest-plan/v1`、Aeolus profile v1 和既有 raw/query 解析作为迁移期兼容层保留，达到
    `ARCHITECTURE.md` §8.3 的删除条件后再移除。
-24. **person 通讯录画像随身份解析补全** — `bin/resolve-users.sh --format json` 除姓名 /
+25. **person 通讯录画像随身份解析补全** — `bin/resolve-users.sh --format json` 除姓名 /
    `feishu_id` 外返回企业邮箱、当前部门路径和核验时间；新建 person 必须记录
    `directory_verified_at`，可见时同步 `enterprise_email` / `department_path`。部门是可变的
    当前目录属性：变化保留历史，空结果不清除旧值；仅明确命中已有 org 时连边。默认三列 TSV
    暂作旧调用兼容。见 §4.1、§4.2、§6 与 `references/digest-core.md`。
-25. **全部 durable writer 共用一个 KB 写锁** — digest、Profile、provenance backfill、
+26. **全部 durable writer 共用一个 KB 写锁** — digest、Profile、provenance backfill、
    postflight 和非 digest mutation 都竞争 `.git/byteworker-write.lock`，锁内重验 staged/dirty/
    baseline；不同业务入口不得创建互不相见的私有锁。
-26. **非 digest 写入使用 MutationPlan** — update/context/dashboard/report/inbox 不再让 Agent
+27. **非 digest 写入使用 MutationPlan** — update/context/dashboard/report 不再让 Agent
    手工修改目标、INDEX、journal 或 Git；统一使用 §1.G 的 `byteworker-kb-mutation/v1`。
-27. **冲突与语义阈值单一所有者** — 独立来源冲突默认并列并交用户裁决；只有 revision、
+   thinking 复用 `update` operation 写 `knowledge/thinkings/`。
+28. **冲突与语义阈值单一所有者** — 独立来源冲突默认并列并交用户裁决；只有 revision、
    supersede 或用户确认可改当前值。知识晋升、参与方推断和 IM 评分使用固定 reason/evidence/
    threshold，不以模型自由描述替代。
-28. **Agent progressive disclosure 可测试** — `byteworker-workflow-routes/v1` 声明独立入口的
+29. **Agent progressive disclosure 可测试** — `byteworker-workflow-routes/v1` 声明独立入口的
    required/on_error/source/features 闭包并设置字符预算；子 Agent、自动报告和 Wiki resume
    不依赖隐式“普通流程”。
 
@@ -1082,9 +1259,9 @@ event / report 中的“待办”记录来源当时说了什么;`todo.md` 记录
 
 ## 12. reports/ — 归档报告快照
 
-报告文件不是知识节点,不进入 `INDEX.md`,但属于用户可手改的真相源快照。它们用于归档某天 /
-某周或某个 IM 扫描窗口的工作总结,回答"这段时间发生了什么重要事,与我和团队有什么关系,
-后续该看什么"。
+报告文件不是知识节点,不进入 `INDEX.md`,但属于用户可手改的真相源快照。当前 writer 用它们
+归档某天、某周或晨间窗口的工作总结，回答“这段时间发生了什么重要事，与我和团队有什么关系，
+后续该看什么”。
 
 目录与命名:
 
@@ -1094,28 +1271,27 @@ reports/
     2026-05-25.md
   weekly/
     2026-W22.md
-  im/
-    2026-06-01.md
-    2026-06-01T00-00-00+08-00__2026-06-01T23-59-59+08-00.md
+  morning/
+    2026-06-02.md
 ```
 
 - **生成来源**:
   - 自动日报 / 周报或自然语言补跑:先完整运行全部已登记且启用来源的 routine digest，再召回
     范围内 `journal/`、`raw_data/` frontmatter、`knowledge/` 节点及其 links。自动运行不受
     `.last-routine-digest` 七天交互提醒阈值限制。
-  - `im`: `bin/im-inbox-summary.sh` 的候选 threads 经 LLM 产生
-    `byteworker-im-semantic/v1`，通过固定阈值/reason/evidence validator 后形成摘要；候选 JSON
-    默认保留在 `/tmp`,不长期落盘。
-- **模板**:skill 目录 `templates/report-daily.md`、`templates/report-weekly.md`、`templates/report-im.md`。
-- **覆盖规则**:同一日期 / 周 / IM 窗口再次生成可覆盖报告正文；用 mutation 的
+  - Dreaming morning/daily/weekly：只消费 committed Finding projection、coverage 与 durable KB
+    查询指针，不读取 spool；必须通过 include_report Action claim 提交。
+- **模板**:skill 目录 `templates/report-daily.md`、`templates/report-weekly.md`、
+  `templates/report-morning.md`。
+- **覆盖规则**:同一日期 / 周 / 晨间窗口再次生成可覆盖报告正文；用 mutation 的
   `replace_preserving_sections` 确定性保留旧 `## 手动补充 / 备注`。
-- **IM 报告命名**:自然日窗口用 `reports/im/<YYYY-MM-DD>.md`;非自然日窗口用 `reports/im/<start>__<end>.md`,文件名中的 `:` 替换为 `-`。
 - **排序**:章节内带时间条目按事件发生时间倒序;时间不明放末尾并标注。
 - **溯源**:每个事实性条目在正文用 `[S<n>]` 绑定引用;「引用」章节(旧报告为「来源索引」)
   继续沿节点 / 报告 / journal
   追到原始 raw,列具体文档 / 妙记录屏 / 会议 / 群聊窗口、原文时间或覆盖范围、`ingested`
   收录时间、版本与 raw_id。节点 id、raw_id、journal 日期或报告路径不能单独充当原始出处;
-  无来源不写事实结论。IM 尚未形成 raw 时列 chat / window / message_ids 与报告生成时间,
-  并明确它不是标准 digest。
-- **边界**:`reports/im/` 只保存最终精判摘要、统计、warning 与来源窗口;不保存全量聊天原文,也不替代 `raw_data/`。若某个 thread 需要长期沉淀,按 IM Inbox 规则重新拉小窗口并走 `references/digest-chat.md` 生成标准 raw / event / project 更新。
+  无来源不写事实结论。Dreaming Finding 必须沿 evidence locator 回到消息窗口；需要长期沉淀时
+  重新采集并走标准 SourceBundle/DigestTxn。
+- **历史兼容**:I7 前生成的 `reports/im/` 可继续存在，doctor 可只读校验其文件名与引用结构；
+  当前 skill 不创建、改写、迁移或删除该目录及内容。
 - **git**:报告、journal 和本地 commit 由 KB mutation 同成同败，永不 push；Agent 不手工暂存。

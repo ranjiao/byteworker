@@ -2,6 +2,13 @@
 
 > 本文件定义 harness 原生定时任务的设置、迁移、去重和无人值守边界。报告内容仍按
 > `references/periodic-report.md` 生成，调度器只决定何时启动，不决定摄取哪些来源。
+>
+> Dreaming 默认关闭并与本流程解耦。仅启用 Dreaming 不修改本流程或
+> `state/report_automation.json`。用户明确要求统一迁移时，先按 `references/dreaming.md`
+> 停用旧宿主任务并转移 scheduler owner；迁移完成前继续以本流程为真相源。
+
+owner migration 必须使用 `report-automation release-owner/restore-owner`，禁止手改 state。
+完整顺序见 `references/dreaming-reports.md`。
 
 ## 1. 共同原则
 

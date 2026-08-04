@@ -37,9 +37,16 @@ todo       待办提醒 —— 直接说自然语言,不用记命令或编号
   → 周期性补偿检查会跳过已成功周期，只补跑离线 / 休眠造成的缺口
   → 说“设置 / 修改 / 暂停自动报告”可管理;说“补生成 2026-05-25 日报”可人工补跑
 
-inbox      IM摘要 —— 扫描飞书 IM 高信号消息,生成当天 / 指定窗口摘要
-  /byteworker inbox / /byteworker inbox 昨天 / /byteworker inbox 2026-06-01
-  → 本地筛选降噪 → 精判高信号 threads → 生成 reports/im/<YYYY-MM-DD>.md
+dreaming   主动后台运行 —— 默认关闭，用户明确确认后才启用
+  /byteworker dreaming status / "打开 Dreaming" / "关闭 Dreaming"
+  → 启用前先完整介绍它与 digest 的差异、能力、授权、成本、隐私和退出方式
+  → 周期性处理已授权来源，统一调度主动处理、晨报和恢复；日报/周报需单独迁移后才接管
+  → 工作日低频运行 doctor，自动处理确定性低风险修复；重要问题请你决策
+  → 说“分析今天/昨天飞书 IM”时，使用一次性 foreground process；不会隐式打开后台
+  → 用 dreaming review / explain 查看 Finding；独立 inbox 命令已移除
+  → 会增加网络、模型和存储开销；若要按时运行，机器需保持开机、唤醒、联网
+  → 机器休眠或关机期间不运行，恢复后只能补跑
+  → Dreaming 与 digest/search/update 等命令解耦，关闭或故障不影响已有能力
 
 context    全局上下文 —— 对话式维护你的工作上下文(供 agent 当「透镜」)
   "我的名字是X,飞书id是Y" / "我的当前重点改成X" / "默认提醒时间改成10点"
@@ -68,7 +75,7 @@ help       用法说明
            环境起不了 web 服务,browse.sh 不适用 —— 那种情况用对话查询 search 即可)
 
 存储:知识库数据目录(用户指定,独立于本 skill,不进 git)——
-      knowledge/(节点)· raw_data/(原始输入)· provenance/(精确出处)· journal/(日志)· reports/(日报/周报/IM摘要)
+      knowledge/(节点)· raw_data/(原始输入)· provenance/(精确出处)· journal/(日志)· reports/(日报/周报/晨报)
       · INDEX.md · dashboard.md · context.md(全局上下文)· todo.md(确认后的个人待办)
 文档:DESIGN.md(存储 schema)· TODOS.md(延后功能)
 安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git;Todo 仅本地,不创建飞书任务

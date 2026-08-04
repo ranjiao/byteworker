@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import stat
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import unittest
@@ -18,6 +19,8 @@ from report_automation import (  # noqa: E402
     check_period,
     complete_run,
     configure,
+    release_owner,
+    restore_owner,
     record_decision,
     state_path,
     status,
@@ -383,6 +386,73 @@ class ReportAutomationTests(unittest.TestCase):
             )
             self.assertEqual("due", result["status"])
             self.assertEqual("period_failed", result["reason"])
+
+    def test_release_and_restore_owner_preserve_configuration(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 8, 4, tzinfo=timezone.utc)
+            configure(
+                kb,
+                harness="codex",
+                timezone_name="Asia/Shanghai",
+                environment="local",
+                daily_schedule="工作日 20:30",
+                weekly_schedule="周一 09:30",
+                recovery_schedule="每天四次",
+                now=now,
+            )
+            with self.assertRaises(ReportAutomationError):
+                release_owner(kb, acknowledge_tasks_stopped=False, now=now)
+            released = release_owner(
+                kb,
+                acknowledge_tasks_stopped=True,
+                now=now,
+            )
+            self.assertEqual("released-to-dreaming", released["scheduler_owner"])
+            self.assertFalse(released["daily"]["enabled"])
+            self.assertFalse(released["weekly"]["enabled"])
+            self.assertEqual(
+                0o600,
+                stat.S_IMODE((kb / "state" / "report-owner.lock").stat().st_mode),
+            )
+            released_again = release_owner(
+                kb,
+                acknowledge_tasks_stopped=True,
+                now=now + timedelta(seconds=1),
+            )
+            self.assertTrue(
+                released_again["owner_snapshot"]["daily"]["enabled"]
+            )
+            dreaming_state = kb / "state" / "dreaming" / "state.json"
+            dreaming_state.parent.mkdir(parents=True)
+            dreaming_state.write_text(
+                json.dumps(
+                    {
+                        "manage_reports": True,
+                        "report_owner": {"owner": "dreaming"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ReportAutomationError) as caught:
+                restore_owner(
+                    kb,
+                    acknowledge_tasks_restored=True,
+                    now=now + timedelta(seconds=30),
+                )
+            self.assertEqual(
+                "REPORT_AUTOMATION_OWNER_CONFLICT",
+                caught.exception.code,
+            )
+            dreaming_state.unlink()
+            restored = restore_owner(
+                kb,
+                acknowledge_tasks_restored=True,
+                now=now + timedelta(minutes=1),
+            )
+            self.assertEqual("legacy", restored["scheduler_owner"])
+            self.assertTrue(restored["daily"]["enabled"])
+            self.assertEqual("工作日 20:30", restored["daily"]["schedule"])
 
     def test_direct_cli_and_machine_facade_return_structured_json(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

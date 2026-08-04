@@ -13,6 +13,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from report_owner import report_owner_lock
+
 
 STATE_SCHEMA = "byteworker-report-automation/v1"
 ONBOARDING_VERSION = 1
@@ -564,3 +566,120 @@ def complete_run(
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
     return run
+
+
+def release_owner(
+    kb: Path,
+    *,
+    acknowledge_tasks_stopped: bool,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    if not acknowledge_tasks_stopped:
+        raise ReportAutomationError(
+            "REPORT_AUTOMATION_OWNER_ACK_REQUIRED",
+            "释放 owner 前必须确认旧日报、周报和 recovery 宿主任务已停止。",
+        )
+    current = now or _now()
+    with report_owner_lock(kb), _state_lock(kb):
+        value = _load_unlocked(kb, current)
+        if _lease_is_active(value.get("active_lease"), current):
+            raise ReportAutomationError(
+                "REPORT_AUTOMATION_BUSY",
+                "旧报告任务仍有有效租约，不能释放 owner。",
+            )
+        if value.get("decision") != "configured":
+            raise ReportAutomationError(
+                "REPORT_AUTOMATION_OWNER_INVALID",
+                "旧报告 automation 尚未配置。",
+            )
+        if value.get("scheduler_owner") == "released-to-dreaming":
+            return {
+                **value,
+                "needs_onboarding": False,
+                "prompt_upgrade_available": False,
+                "lease_active": False,
+            }
+        value["owner_snapshot"] = {
+            kind: {
+                "enabled": bool(value.get(kind, {}).get("enabled")),
+                "schedule": str(value.get(kind, {}).get("schedule", "")),
+                "native_task_id": str(
+                    value.get(kind, {}).get("native_task_id", "")
+                ),
+            }
+            for kind in ("daily", "weekly", "recovery")
+        }
+        for kind in ("daily", "weekly", "recovery"):
+            if isinstance(value.get(kind), dict):
+                value[kind]["enabled"] = False
+        value["scheduler_owner"] = "released-to-dreaming"
+        value["owner_released_at"] = _iso(current)
+        value["active_lease"] = None
+        value["updated_at"] = _iso(current)
+        _atomic_write(state_path(kb), value)
+    return status(kb, now=current)
+
+
+def restore_owner(
+    kb: Path,
+    *,
+    acknowledge_tasks_restored: bool,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    if not acknowledge_tasks_restored:
+        raise ReportAutomationError(
+            "REPORT_AUTOMATION_OWNER_ACK_REQUIRED",
+            "恢复 owner 前必须确认旧宿主任务已按 snapshot 恢复。",
+        )
+    current = now or _now()
+    with report_owner_lock(kb), _state_lock(kb):
+        value = _load_unlocked(kb, current)
+        dreaming_path = kb.resolve() / "state" / "dreaming" / "state.json"
+        if dreaming_path.is_file():
+            try:
+                dreaming = json.loads(dreaming_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ReportAutomationError(
+                    "REPORT_AUTOMATION_OWNER_INVALID",
+                    "Dreaming state 损坏，拒绝恢复 legacy owner。",
+                ) from exc
+            report_owner = (
+                dreaming.get("report_owner")
+                if isinstance(dreaming, Mapping)
+                else {}
+            )
+            if (
+                isinstance(dreaming, Mapping)
+                and dreaming.get("manage_reports")
+            ) or (
+                isinstance(report_owner, Mapping)
+                and report_owner.get("owner") == "dreaming"
+            ):
+                raise ReportAutomationError(
+                    "REPORT_AUTOMATION_OWNER_CONFLICT",
+                    "Dreaming 仍管理日报/周报，必须先关闭 Dreaming report jobs。",
+                )
+        if value.get("scheduler_owner") != "released-to-dreaming":
+            raise ReportAutomationError(
+                "REPORT_AUTOMATION_OWNER_INVALID",
+                "旧报告 owner 当前未释放给 Dreaming。",
+            )
+        snapshot = value.get("owner_snapshot")
+        if not isinstance(snapshot, Mapping):
+            raise ReportAutomationError(
+                "REPORT_AUTOMATION_OWNER_INVALID",
+                "旧报告 owner snapshot 缺失。",
+            )
+        for kind in ("daily", "weekly", "recovery"):
+            saved = snapshot.get(kind)
+            if isinstance(saved, Mapping) and isinstance(value.get(kind), dict):
+                value[kind]["enabled"] = bool(saved.get("enabled"))
+                value[kind]["schedule"] = str(saved.get("schedule", ""))
+                value[kind]["native_task_id"] = str(
+                    saved.get("native_task_id", "")
+                )
+        value["scheduler_owner"] = "legacy"
+        value["owner_restored_at"] = _iso(current)
+        value["updated_at"] = _iso(current)
+        _atomic_write(state_path(kb), value)
+    return status(kb, now=current)

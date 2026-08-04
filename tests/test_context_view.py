@@ -49,6 +49,32 @@ class ContextViewTests(unittest.TestCase):
 
             self.assertEqual("CONTEXT_BUDGET_EXCEEDED", caught.exception.code)
 
+    def test_dreaming_projection_includes_full_semantic_lens(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.context(root)
+            result = context_view(root, "dreaming")
+            self.assertEqual(
+                {
+                    "我的身份",
+                    "我的职责范围",
+                    "我的当前重点",
+                    "主管方向",
+                    "当前约束",
+                    "交互与提醒偏好",
+                    "背景信息",
+                },
+                set(result["sections"]),
+            )
+
+    def test_removed_inbox_intent_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.context(root)
+            with self.assertRaises(ContextViewError) as caught:
+                context_view(root, "inbox")
+            self.assertEqual("CONTEXT_INTENT_INVALID", caught.exception.code)
+
 
 if __name__ == "__main__":
     unittest.main()
