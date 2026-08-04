@@ -31,6 +31,8 @@ TOOLS = {
     "wiki": "wiki.py",
     "digest-job": "digest-job.py",
     "report-automation": "report-automation.py",
+    "dreaming": "dreaming.py",
+    "inbox": "inbox.py",
     "index": "index.py",
     "kb-mutate": "kb-mutate.py",
     "context": "context.py",

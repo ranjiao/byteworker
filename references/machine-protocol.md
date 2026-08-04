@@ -31,7 +31,7 @@ facade 输出一行 `byteworker-cli/v1` JSON：
 
 可用工具以 `bin/byteworker --help` 为准，当前包括：
 `digest-txn`、`kb-mutate`、`kb-query`、`context`、`doctor`、`todo`、`source`、`wiki`、
-`digest-job`、`report-automation`、`provenance-backfill`、`index`、`update-status`。
+`digest-job`、`report-automation`、`dreaming`、`provenance-backfill`、`index`、`update-status`。
 
 ## SourceBundle request 快速参考
 
@@ -57,6 +57,8 @@ inspect/capture 会以稳定错误码 fail closed。
 - 非 digest：只认 `kb-mutate execute` 的 `status=committed` receipt。
 - Todo：只认 todo 工具返回的新状态。
 - 自动报告：报告 mutation committed 后，再以真实结果调用 `report-automation complete`。
+- Dreaming：默认关闭；只有用户确认机器运行要求后才调用 `dreaming enable`。每个宿主 tick
+  通过 `run-due` 领取至多一个 job，并在所有路径调用 `complete`。
 
 直接 `bin/*.py` 入口仅供人工排障和旧调用方。Agent 不手工补做工具已负责的 hash、INDEX、
 journal、暂存、commit 或 rollback。

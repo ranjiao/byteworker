@@ -161,6 +161,11 @@ def _target(kb: Path, value: Any) -> tuple[Path, str]:
     resolved = unresolved.resolve()
     if not resolved.is_relative_to(kb):
         raise MutationError("KB_MUTATION_PATH_INVALID", f"目标越出 KB: {relative}")
+    if relative.startswith("reports/im/"):
+        raise MutationError(
+            "KB_MUTATION_PATH_FORBIDDEN",
+            f"reports/im 是已移除 Inbox 的只读历史目录: {relative}",
+        )
     allowed = (
         relative in {"context.md", "dashboard.md"}
         or (relative.startswith("knowledge/") and relative.endswith(".md"))

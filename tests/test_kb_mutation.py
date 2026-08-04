@@ -146,6 +146,25 @@ class KbMutationTests(unittest.TestCase):
         self.assertIn("## 手动补充 / 备注\nkeep this", rendered)
         self.assertNotIn("replace me", rendered)
 
+    def test_legacy_reports_im_is_read_only(self):
+        candidate = self.work / "legacy-im.md"
+        candidate.write_text("# replacement\n", encoding="utf-8")
+        plan = self.plan(
+            {
+                "path": "reports/im/2026-08-03.md",
+                "mode": "replace",
+                "content_path": str(candidate),
+                "base_sha256": "",
+            },
+            operation="report",
+        )
+
+        with self.assertRaises(MutationError) as caught:
+            execute_mutation(self.kb, plan, ROOT)
+
+        self.assertEqual("KB_MUTATION_PATH_FORBIDDEN", caught.exception.code)
+        self.assertFalse((self.kb / "reports/im/2026-08-03.md").exists())
+
     def test_stale_baseline_and_undeclared_knowledge_conflict_fail_closed(self):
         candidate = self.work / "candidate.md"
         candidate.write_text("new\n", encoding="utf-8")

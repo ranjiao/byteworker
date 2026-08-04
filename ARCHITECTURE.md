@@ -149,7 +149,8 @@ flowchart TD
 
     R -->|"digest / routine"| D["摄取流程"]
     R -->|"search / update / brief / dashboard"| Q["知识查询与派生流程"]
-    R -->|"自动报告 / 自然语言补跑 / inbox"| W["报告流程"]
+    R -->|"自动报告 / 自然语言补跑"| W["报告流程"]
+    R -->|"用户显式启停 / 宿主 tick"| DR["可选 Dreaming 控制面"]
     R -->|"todo / context"| L["本地用户状态流程"]
     R -->|"doctor / maintenance"| M["维护与恢复流程"]
     R -->|"help"| H["只读帮助文档"]
@@ -167,6 +168,9 @@ PATH、常见本地目录和 NVM installations 中解析可执行文件，实际
 语义任务在路由后通过 `context view --intent` 读取固定章节投影，help/纯维护任务不承担这部分
 context。
 公共阶段的目的不是“加载所有数据”，而是以稳定协议建立安全边界。
+
+Dreaming 不属于公共 preflight。状态缺失等同关闭；普通 session、安装、升级和
+digest/search/update 等既有入口不读取 Dreaming 状态，也不提示启用。
 
 ### 2.2 单来源 digest 主流程
 
@@ -308,12 +312,12 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    subgraph Reports["自动日报 / 周报与 IM Inbox"]
+    subgraph Reports["自动日报 / 周报"]
         H1["宿主本地定时任务<br/>或自然语言补跑"]
         R0["获取跨日报 / 周报单租约"]
         R1["确定时间范围"]
         R2["完整运行全部启用的<br/>routine digest"]
-        R3["查询 nodes / raw / journal / IM 候选"]
+        R3["查询 nodes / raw / journal"]
         R4["生成带出处候选<br/>KB mutation 原子写入"]
         R5["记录成功 / 失败并释放租约"]
         H1 --> R0 --> R1 --> R2 --> R3 --> R4 --> R5
@@ -345,6 +349,36 @@ flowchart TB
 `last_attempt/last_run/last_success` 并确定性判断指定 period 是否缺口；单租约只防止同一知识库
 重叠运行。周期性补偿仍由第三个宿主原生任务唤醒，应用服务不承担任务唤醒、不常驻、不使用
 系统 cron。
+
+Dreaming 是新增的可选旁路控制面，默认关闭。用户明确确认额外网络/模型/存储开销以及机器需
+保持开机、唤醒、联网前，还必须先完成独立能力导览，讲清它与 digest 的差异、全部 job、授权、
+Finding/Action 生命周期、维护和退出边界。两个确认都记录后，宿主 local task 才可调用
+`dreaming run-due`。初始实现不接管上述自动报告；`daily/weekly` job 默认关闭。后续迁移必须先
+释放旧 scheduler owner，并由 `migration_epoch` 保证同一 period 只有一个 owner。
+
+```text
+宿主 local tick
+  → dreaming run-due
+  → process / morning / maintenance / recovery（初始启用）
+  → daily / weekly（显式迁移后）
+  → dreaming complete
+```
+
+Dreaming 只通过 `bin/byteworker` 公开入口调用 source、query、mutation 或 DigestTxn，不 import
+这些模块的内部实现。Dreaming 禁用、状态损坏或 job 失败均不得改变 digest/search/update 等
+既有命令和未迁移的旧自动报告行为。
+
+I7 后独立 Inbox 不再是 workflow：旧 scanner、writer、模板、context intent 和 route manifest
+条目均已删除。`bin/inbox.py` 只是一个 major 版本的无副作用 tombstone，只输出
+`INBOX_REMOVED`，不得读取 IM、Dreaming state 或 KB。明确的单次 IM 分析进入 Dreaming
+foreground `process once`，持续处理进入显式 IM grant。新 KB 不创建 `reports/im/`；历史目录
+由 doctor 只读识别，`kb_mutation` 显式拒绝该路径；任何升级、扫描或 Dreaming 流程都不得改写
+或删除其内容。
+
+`maintenance` 同样只调用公开 `doctor scan/fix` facade。doctor 仍是修复白名单和 KB 写事务的
+唯一 owner；Dreaming 不复制 finding 分类或 repair 实现。该 job 只把 error、证据/身份风险和
+自动化阻断等有限元数据交给用户决策，使用 `DOCTOR_USER_DECISION_REQUIRED` 停在
+`waiting_for_user`，避免重复提醒；其失败不阻塞其它 job。
 
 ### 2.6 Agent 文档路由与语义收敛
 
@@ -479,6 +513,21 @@ flowchart TB
         WX["lib/wiki_explorer.py<br/>惰性 Wiki 树探索"]
         DJ["lib/digest_jobs.py<br/>持久批次与租约"]
         RA["lib/report_automation.py<br/>自动报告状态、单租约与缺口判定"]
+        DR["lib/dreaming_scheduler.py<br/>可选 Dreaming 启停、调度与回执"]
+        DST["lib/dreaming_state.py<br/>v2 local state、权限、锁与迁移"]
+        DM["lib/dreaming_models.py<br/>跨阶段结构契约校验"]
+        DG["lib/dreaming_grants.py<br/>IM grant 与撤销清理"]
+        DC["lib/dreaming_collection.py<br/>窗口、coverage、gap 与去重"]
+        DB["lib/dreaming_batch.py<br/>manifest、receipt、commit 与 cursor"]
+        DFI["lib/dreaming_collectors/feishu_im.py<br/>lark-cli user adapter"]
+        DA["lib/dreaming_analysis.py<br/>Finding/evidence/grant 校验"]
+        DCO["lib/dreaming_consolidation.py<br/>history、投影与幂等 revision"]
+        DPR["lib/dreaming_process.py<br/>process commit 编排"]
+        DAP["lib/dreaming_action_policy.py<br/>有限动作与确定性门禁"]
+        DAL["lib/dreaming_action_ledger.py<br/>claim fencing 与 receipt reconcile"]
+        DREP["lib/dreaming_reports.py<br/>窗口、coverage、packet、outbox"]
+        ROWN["lib/report_owner.py<br/>跨 scheduler owner migration lock"]
+        DEV["lib/dreaming_evaluation.py<br/>私有 shadow 指标与产品门槛"]
         DOC["lib/doctor.py"]
         DS["lib/doctor_sources.py<br/>来源契约只读审计"]
         PB["lib/provenance_backfill.py"]
@@ -522,6 +571,33 @@ flowchart TB
     DIRECT --> WX
     DIRECT --> DJ
     DIRECT --> RA
+    DIRECT --> DR
+    DR --> DST
+    DIRECT --> DG
+    DIRECT --> DC
+    DIRECT --> DB
+    DIRECT --> DPR
+    DIRECT --> DAP
+    DIRECT --> DAL
+    DIRECT --> DREP
+    DIRECT --> DEV
+    DC --> DB
+    DC --> DFI
+    DG --> DST
+    DB --> DST
+    DPR --> DA
+    DPR --> DCO
+    DPR --> DB
+    DA --> DM
+    DCO --> DST
+    DAP --> DCO
+    DAP --> DA
+    DAL --> DST
+    DREP --> DCO
+    DREP --> DST
+    DR --> ROWN
+    RA --> ROWN
+    DFI --> EXT
     SO --> SCO
     DIRECT --> DOC
     DIRECT --> PB
@@ -540,6 +616,7 @@ flowchart TB
     DJ --> FM
     DJ --> KB
     RA --> KB
+    DR --> KB
     SP --> SPP
     SP --> SPC
     SPP --> SPC
@@ -588,6 +665,7 @@ flowchart TB
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
+| `bin/dreaming.py` | Dreaming 控制面，以及 grant set-im、process prepare/abort | job/grant 回执与不含正文的 batch 摘要 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
 | `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |
@@ -806,7 +884,8 @@ flowchart TD
 digest、Profile、provenance backfill、postflight、Todo 和通用 mutation 全部使用
 `lib/kb_write_txn.py` 的同一个 advisory lock；不能再为不同 writer 创建互不相见的锁。
 
-digest 之外的 update/thinking/context/dashboard/report/inbox 使用 `byteworker-kb-mutation/v1`：
+digest 之外的 update/context/dashboard/report 使用 `byteworker-kb-mutation/v1`；thinking 复用
+`update` operation：
 Agent 提供候选、目标 `base_sha256`、章节模式、冲突处置、journal 摘要和 commit message；
 `lib/kb_mutation.py` 在锁内重新校验，执行完整替换/固定章节替换/保留手动章节替换，按需重建
 INDEX，并统一完成 journal、精确暂存、commit 和 rollback。它不允许写 raw/provenance/sources/
@@ -838,6 +917,21 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `bin/repair_links.py` | links 修复底层执行器；Agent 通过 `doctor fix` 调用 | 仅由受保护事务调用 |
 | `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
 | `lib/report_automation.py` | 自动报告一次性引导、local-only 配置、运行轨迹、缺口判定与跨报告租约 | 仅写 Git 排除的 `state/report_automation.json` |
+| `lib/dreaming_state.py` | `byteworker-dreaming/v2` 安全路径、`0700/0600`、共享 state lock、原子 JSON 与 v1→v2 迁移 | 仅写 Git 排除的 `state/dreaming/` |
+| `lib/dreaming_models.py` | EvidenceBatch、batch、FindingBundle、ActionPlan、ActionClaim 的结构校验 | 否 |
+| `lib/dreaming_scheduler.py` | 能力导览/机器条件双启用闸门、deadline/fairness 选择、退避、blocked job、maintenance、lease renew、成功历史与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
+| `lib/dreaming_grants.py` | IM off/monitored/all_visible、persist_finding revision 与降级清理 | grant state、撤销范围内 spool/batch |
+| `lib/dreaming_collectors/feishu_im.py` | user identity 的 queryless discovery 和逐 chat 分页；provider response 规范化 | 否 |
+| `lib/dreaming_collection.py` | 时间窗口、Profile 选择、message revision 去重、coverage 与时间切片 gap | collected batch |
+| `lib/dreaming_batch.py` | 私密 spool、immutable manifest、stage receipt、commit marker、cursor/recovery、TTL GC | `state/dreaming/{spool,batches}` 与 v2 索引 |
+| `lib/dreaming_analysis.py` | FindingBundle schema、batch/hash、evidence ref 和 grant revision 复验 | 否 |
+| `lib/dreaming_consolidation.py` | Finding event history、当前投影、跨 batch revision、重建和 grant purge | 私密 Finding state |
+| `lib/dreaming_process.py` | analysis receipt、可选 consolidation、batch commit/cursor 的幂等编排 | 仅通过 analysis/consolidation/batch owner |
+| `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
+| `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
+| `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |
+| `lib/report_owner.py` | legacy/Dreaming owner migration 的共同 advisory lock | 仅 `state/report-owner.lock` |
+| `lib/dreaming_evaluation.py` | KB/仓库外 Golden/legacy/Dreaming ID 对比、分层 recall 与两周门槛 | 私有评估目录 metrics/history |
 
 ## 5. 跨层契约
 
@@ -873,6 +967,16 @@ flowchart LR
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
+| `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；grant/job/run/cursor/gap/receipt 空槽；默认不接管报告 |
+| Dreaming 跨阶段结构契约 | `dreaming_models.py` | schema 白名单、必填结构、枚举和 evidence ref 形状；不复刻业务语义 |
+| `byteworker-evidence-batch/v1` | `dreaming_collection.py` + `dreaming_batch.py` | principal/grant revision、窗口、coverage、message anchors、私密 spool refs |
+| `byteworker-dreaming-batch/v1` | `dreaming_batch.py` | collected→analyzed→consolidated→committed/aborted；commit marker 先于 cursor |
+| `byteworker-finding-bundle/v1` | Agent + `dreaming_analysis.py` | 当前 batch id、合法 kind/confidence、非空 evidence refs 且全部来自 manifest |
+| `byteworker-findings/v1` | `dreaming_consolidation.py` | history 是恢复源、projection 可重建；事件键 `batch_id+finding_id` 幂等 |
+| `byteworker-action-plan/v1` | Agent + `dreaming_action_policy.py` | action kind 白名单；policy_result、确认、recapture 和 coverage 由 Python 重算 |
+| `byteworker-action-claim/v1` | `dreaming_action_ledger.py` | run/lease epoch/grant revision 绑定；dedupe key；真实下游 receipt 后才 committed |
+| `byteworker-finding-event/v1` | `dreaming_consolidation.py` | proposal/feedback 事件；request-id 幂等；projection 可重建 |
+| `byteworker-shadow-evaluation/v1` | `dreaming_evaluation.py` | 只含指标与 sample IDs；评估输入拒绝业务文本字段 |
 | `byteworker-resolved-users/v1` | `bin/resolve-users.sh` | 精确 open_id 输入；身份失败不创建 person；部门为空不表示调动；`resolved_at` 带时区 |
 | `byteworker-runtime-check/v1` | `runtime_deps.py` | 绝对 executable、可执行探测与同源 PATH；显式 override 无效时不静默 fallback |
 | `byteworker-session-preflight/v1` | `session_preflight.py` | 健康无 notice；blocking 阻止依赖业务；Todo/迁移/更新只返回有限行动项 |
@@ -924,6 +1028,13 @@ IM 阈值不一致、未知 reason code、缺 message evidence 和 context 超�
 自动报告另有三条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
 digest 事务失败时不得继续生成“看似完整”的报告；报告、journal 或本地 Git 回滚点未完成时
 不得记录成功。获取到其他运行中的有效租约时应安静退出并保留现有租约，不能并发写同一 KB。
+
+Dreaming 另有五条边界：缺失状态必须等同关闭；未记录当前版本能力导览或机器运行要求确认时
+拒绝启用；旧自动报告仍声明 enabled 时拒绝接管 daily/weekly；maintenance 只能调用 doctor
+公开 facade 和 `auto_fix` 白名单，重要未决项必须等待用户；Dreaming 状态损坏、租约过期或 job 失败只影响
+Dreaming，不得阻塞、回滚或改变 digest/search/update 和旧自动报告。`partial/failed` 不覆盖
+job 的 `last_success`。v1→v2 迁移必须先写本地私密备份，再原子替换 state；未知 schema 或迁移
+失败保持 Dreaming fail closed，不能猜写或影响其它能力。
 
 ## 7. 怎样扩展而不让架构失控
 
@@ -1057,6 +1168,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | `resolve-users.sh` 默认三列 TSV | 已有人工/Agent 调用可能按 `open_id/姓名/feishu_id` 消费 | 调用方全部切到 `--format json` 且用户同意结束兼容窗口 |
 | `update_postflight.py` 同时承载显式 doctor/index 维护事务 | 保留既有 post-update import/CLI，同时复用已验证 rollback 边界 | 后续有第二类维护 action 时再抽 `kb_maintenance.py`，不得复制事务 |
 | `rebuild_index.py` / `repair_links.py` 直接入口 | doctor/index 事务内部执行器与人工底层排障兼容 | 所有 Agent/自动化调用稳定 facade 后，仍可作为内部执行器保留 |
+| `lib/report_automation.py` 与 Dreaming 并存 | 既有用户仍由旧宿主任务生成日报/周报；Dreaming 默认不接管 | 显式 owner migration 完成、旧任务停用且兼容期结束 |
 
 任何兼容项的删除还必须同时满足：
 
@@ -1081,6 +1193,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | Session preflight | 更新先于 Python import、健康静默、blocking、更新 notice、Todo notice、报告迁移、PATH/NVM/显式 override |
 | Agent route / semantic | workflow 闭包、独立入口自足、context 字符预算、冲突唯一 owner、IM 阈值/reason/evidence |
 | 自动报告 | 首次/升级只询问一次、local-only 配置、宿主真相源、跨日报/周报租约、过期恢复、成功/失败回执、每次完整 routine digest |
+| Dreaming | 默认关闭无状态写、启用确认、local-only、due/idle/busy、fencing、独立 job 历史、旧报告 owner 冲突、既有命令不依赖 |
 | End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle、会议妙记 + 文档 Bundles → batch 单 commit，以及 Bundle → commit → query/diff 闭环 |
 
 `tests/test_architecture_contract.py` 固化文档入口和核心模块清单；
@@ -1110,6 +1223,21 @@ byteworker/
 │   ├── wiki_explorer.py # 按需 Wiki 树状态、主题与页面候选
 │   ├── digest_jobs.py # 已确认多页 digest 的租约 checkpoint
 │   ├── report_automation.py # 自动报告设置状态与跨任务租约
+│   ├── dreaming_state.py # Dreaming v2 local state、权限、锁与迁移
+│   ├── dreaming_models.py # Dreaming 跨阶段结构契约校验
+│   ├── dreaming_grants.py # IM grant revision 与撤销清理
+│   ├── dreaming_collection.py # 窗口、coverage、gap 与去重
+│   ├── dreaming_batch.py # spool、manifest、receipt、commit/cursor
+│   ├── dreaming_collectors/ # provider adapter；首个为 Feishu IM
+│   ├── dreaming_analysis.py # FindingBundle 与 evidence/grant 校验
+│   ├── dreaming_consolidation.py # Finding history、投影与重建
+│   ├── dreaming_process.py # process commit 幂等编排
+│   ├── dreaming_action_policy.py # ActionPlan 确定性门禁
+│   ├── dreaming_action_ledger.py # claim fencing 与 receipt reconcile
+│   ├── dreaming_reports.py # 报告窗口、coverage、packet 与 outbox
+│   ├── report_owner.py # legacy/Dreaming 跨 scheduler owner lock
+│   ├── dreaming_evaluation.py # 私有 shadow 指标与产品门槛
+│   ├── dreaming_scheduler.py # 默认关闭的 Dreaming 启停、due job、租约与回执
 │   └── sources/          # SourceBundle、adapter、provider conformance、registry、兼容投影
 ├── viewer/               # 纯前端只读知识库浏览器
 └── tests/                # 单元、集成和架构防漂移契约

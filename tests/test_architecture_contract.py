@@ -68,6 +68,22 @@ class ArchitectureContractTests(unittest.TestCase):
             "lib/digest_jobs.py",
             "bin/report-automation.py",
             "lib/report_automation.py",
+            "bin/dreaming.py",
+            "lib/dreaming_state.py",
+            "lib/dreaming_models.py",
+            "lib/dreaming_grants.py",
+            "lib/dreaming_collection.py",
+            "lib/dreaming_batch.py",
+            "lib/dreaming_collectors/feishu_im.py",
+            "lib/dreaming_analysis.py",
+            "lib/dreaming_consolidation.py",
+            "lib/dreaming_process.py",
+            "lib/dreaming_action_policy.py",
+            "lib/dreaming_action_ledger.py",
+            "lib/dreaming_reports.py",
+            "lib/report_owner.py",
+            "lib/dreaming_evaluation.py",
+            "lib/dreaming_scheduler.py",
             "bin/index.py",
             "lib/snapshot_store.py",
             "lib/source_capture.py",
@@ -135,7 +151,94 @@ class ArchitectureContractTests(unittest.TestCase):
         ):
             with self.subTest(term=term):
                 self.assertIn(term, self.architecture)
+
+    def test_dreaming_is_opt_in_and_decoupled_from_existing_commands(self):
+        for term in (
+            "Dreaming 不属于公共 preflight",
+            "缺失状态必须等同关闭",
+            "拒绝接管 daily/weekly",
+            "`byteworker-dreaming/v2`",
+            "v1→v2",
+            "`0700/0600`",
+            "不得改变 digest/search/update 等",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, self.architecture)
+
+        for relative_path in (
+            "lib/digest_txn.py",
+            "lib/kb_query.py",
+            "lib/session_preflight.py",
+            "lib/report_automation.py",
+        ):
+            with self.subTest(relative_path=relative_path):
+                source = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertNotIn("dreaming_scheduler", source)
+
+        dreaming_source = (ROOT / "lib/dreaming_scheduler.py").read_text(
+            encoding="utf-8"
+        )
+
+        for forbidden_import in (
+            "import digest_txn",
+            "from digest_txn",
+            "import kb_query",
+            "from kb_query",
+            "import report_automation",
+            "from report_automation",
+        ):
+            with self.subTest(forbidden_import=forbidden_import):
+                self.assertNotIn(forbidden_import, dreaming_source)
+        state_source = (ROOT / "lib/dreaming_state.py").read_text(
+            encoding="utf-8"
+        )
+        models_source = (ROOT / "lib/dreaming_models.py").read_text(
+            encoding="utf-8"
+        )
+        dreaming_sources = [
+            state_source,
+            models_source,
+            (ROOT / "lib/dreaming_grants.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_collection.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_batch.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_analysis.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_consolidation.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_process.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_action_policy.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_action_ledger.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_reports.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/report_owner.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_evaluation.py").read_text(encoding="utf-8"),
+        ]
+        for source in dreaming_sources:
+            self.assertNotIn("import digest_txn", source)
+            self.assertNotIn("from digest_txn", source)
+            self.assertNotIn("import kb_query", source)
+            self.assertNotIn("from kb_query", source)
         self.assertNotIn("source-architecture-refactor.md", self.architecture)
+
+    def test_inbox_removal_boundary_is_documented(self):
+        for term in (
+            "`bin/inbox.py`",
+            "`INBOX_REMOVED`",
+            "新 KB 不创建 `reports/im/`",
+            "历史目录",
+            "foreground `process once`",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, self.architecture)
+
+    def test_dreaming_tour_and_maintenance_boundaries_are_documented(self):
+        for term in (
+            "能力导览",
+            "process / morning / maintenance / recovery",
+            "`maintenance`",
+            "`DOCTOR_USER_DECISION_REQUIRED`",
+            "`waiting_for_user`",
+            "公开 `doctor scan/fix` facade",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, self.architecture)
 
 
 if __name__ == "__main__":

@@ -60,10 +60,10 @@ evidence 映射、journal 摘要和 commit message，再按
 |------|------|----------|
 | `report-daily.md` | 自动日报 / 自然语言补跑 | `reports/daily/<YYYY-MM-DD>.md` |
 | `report-weekly.md` | 自动周报 / 自然语言补跑 | `reports/weekly/<YYYY>-W<WW>.md` |
+| `report-morning.md` | Dreaming 晨报 | `reports/morning/<YYYY-MM-DD>.md` |
 | `report-automation-daily.md` | 宿主本地自动日报 prompt | harness 定时任务配置 |
 | `report-automation-weekly.md` | 宿主本地自动周报 prompt | harness 定时任务配置 |
 | `report-automation-recovery.md` | 自动报告缺口检查与单期补跑 prompt | harness 周期性补偿任务配置 |
-| `report-im.md` | `/byteworker inbox` IM 摘要 | `reports/im/<YYYY-MM-DD>.md` 或 `reports/im/<start>__<end>.md` |
 
 报告模板只定义结构,不含业务数据。生成报告时复制结构到知识库数据目录,填入从节点 / raw /
-journal 或 IM Inbox 候选 threads 精判得到的事实,并保留 `## 手动补充 / 备注` 供用户自行改写。
+journal 或 committed Dreaming Finding 得到的事实,并保留 `## 手动补充 / 备注` 供用户自行改写。

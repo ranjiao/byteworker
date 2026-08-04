@@ -71,6 +71,7 @@ class AgentRouteContractTests(unittest.TestCase):
             "templates/report-automation-daily.md",
             "templates/report-automation-weekly.md",
             "templates/report-automation-recovery.md",
+            "templates/dreaming-runner.md",
             "references/digest-large.md",
             "references/wiki-digest-jobs.md",
         ):
@@ -90,6 +91,41 @@ class AgentRouteContractTests(unittest.TestCase):
                     len((ROOT / relative).read_text(encoding="utf-8")),
                     limit,
                 )
+
+    def test_removed_inbox_is_not_an_agent_workflow(self):
+        self.assertNotIn("inbox", self.workflows)
+        self.assertNotIn("inbox", self.manifest["budgets"])
+
+    def test_dreaming_routes_enable_tour_and_maintenance_on_demand(self):
+        features = self.workflows["dreaming"]["features"]
+        self.assertEqual(
+            ["references/dreaming-onboarding.md"],
+            features["enable"],
+        )
+        self.assertEqual(
+            ["references/dreaming-maintenance.md"],
+            features["maintenance"],
+        )
+        onboarding = (ROOT / features["enable"][0]).read_text(encoding="utf-8")
+        maintenance = (ROOT / features["maintenance"][0]).read_text(
+            encoding="utf-8"
+        )
+        for term in (
+            "它与 digest 的区别",
+            "能做什么",
+            "默认值与授权",
+            "成本、隐私与运行条件",
+            "--acknowledge-capability-tour",
+        ):
+            self.assertIn(term, onboarding)
+        for term in (
+            "doctor scan",
+            "doctor fix",
+            "DOCTOR_USER_DECISION_REQUIRED",
+            "waiting_for_user",
+            "不得猜业务语义",
+        ):
+            self.assertIn(term, maintenance)
 
     def test_core_policies_have_no_known_contradictory_fallbacks(self):
         paths = [

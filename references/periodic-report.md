@@ -3,6 +3,10 @@
 > 由 harness 原生定时任务路由到这里；用户明确要求补生成 / 重跑某日或某周报告时也复用本流程。
 > 这是可独立启动的无人值守入口：先解析 `references/workflow-routes.json` 的 `report` 完整
 > required；context 只调用 `context view --intent report`，不读全文。
+>
+> Dreaming 启用本身不改变本流程。只有显式 scheduler owner migration 完成后，Dreaming 的
+> daily/weekly job 才能生成报告；迁移后改走 `references/dreaming-reports.md`，不再执行下述
+> 完整 routine digest。迁移前仍执行本文件的 legacy 流程。
 
 byteworker skill 负责报告方法，Codex / Claude / TRAE 等 harness 负责调度。每次运行先复查已登记
 的 routine 来源并消化新增内容，再基于知识库生成日报 / 周报；设置与无人值守边界见
@@ -68,21 +72,12 @@ byteworker skill 负责报告方法，Codex / Claude / TRAE 等 harness 负责�
 
 日报回答:"今天发生了什么重要事,跟我和我的团队有什么关系,明天 / 接下来该看什么?"
 
-### 可选:IM Inbox 扫描
+### 可选:Dreaming IM Finding
 
-普通自动日报默认不扫描用户全部 IM。若用户明确说「日报包含 IM」「分析今天聊天里最重要的事」
-「最近一天 IM 重点」,则在「召回事实源」后加跑 `references/im-inbox-summary.md`:
-
-- 运行前向用户发状态:即将扫描 IM 候选、做本地降噪、生成 `reports/im/` 摘要后再合入日报。
-- 先用本地规则和预算限制筛选 IM,不要把全天聊天全量送入模型。
-- 若脚本返回 `first_run_notice.shown=true`,先向用户说明 IM Inbox 的运行逻辑与存储边界,并提醒用户后续可补充 `--keyword` 或维护 `context.md` 里的关注项目 / 人 / 组织 / 业务词。
-- 若脚本返回 `repeat_run_notice.shown=true`,提醒用户 IM Inbox 是重扫描命令,建议一天一次;短时间重复运行通常收益很低。提醒即可,不要阻断用户显式要求的重跑。
-- 先把最终精判摘要保存到 `reports/im/`,再把高置信事项写入日报;不把全量 IM 原文入库。
-- 日报可把 `reports/im/<...>.md` 记为“经由”,但「引用」章节仍按
-  `references/citations.md` 展开 IM 的 chat / window / message_ids / 扫描时间;已提升为标准
-  digest 的 thread 优先引用其 raw。
-- 只有明确决策 / 项目状态变化 / 关键风险 / 重要跨团队对齐,才把对应 thread 按 `references/digest-chat.md` 重新拉小窗口并 digest 成标准 raw/event。
-- 报告中必须写明扫描统计与截断情况,例如扫描会话数、原始消息数、候选 thread 数、是否超过预算。
+普通 legacy 自动日报不扫描用户全部 IM。需要 IM 输入时，用户应先显式运行 Dreaming foreground
+`process once --source im`，或授权 Dreaming 后台采集；日报不能自行扩大 grant 或恢复旧 Inbox
+scanner。只有已 committed 且满足报告 policy 的 Finding 才能经 Dreaming report packet 合入
+报告，引用仍须回到原始 evidence。legacy report automation 不直接读取 Dreaming spool。
 
 建议输出顺序:
 1. 本日重点:3-5 条,只写与你本人、你的团队、主管方向直接相关的事项。

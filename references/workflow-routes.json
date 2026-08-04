@@ -110,14 +110,20 @@
         "references/citations.md"
       ]
     },
-    "inbox": {
+    "dreaming": {
       "required": [
         "references/machine-protocol.md",
-        "references/im-inbox-summary.md",
-        "references/semantic-policy.md",
-        "references/kb-mutation.md",
-        "references/citations.md"
-      ]
+        "references/dreaming.md",
+        "references/dreaming-analysis.md",
+        "references/dreaming-consolidation.md",
+        "references/dreaming-actions.md",
+        "references/dreaming-reports.md",
+        "references/dreaming-review.md"
+      ],
+      "features": {
+        "enable": ["references/dreaming-onboarding.md"],
+        "maintenance": ["references/dreaming-maintenance.md"]
+      }
     },
     "doctor": {
       "required": [
@@ -133,7 +139,7 @@
     "context": 20000,
     "thinking": 22000,
     "dashboard": 26000,
-    "inbox": 32000,
+    "dreaming": 18000,
     "report": 40000,
     "digest": 48000
   }

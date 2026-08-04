@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、IM Inbox、全局工作上下文和兼容诊断。当用户要保存或查询工作资料、沉淀自己的思考、管理待办提醒、生成工作报告、分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/inbox/context/thinking/doctor/help 时触发。
+description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、全局工作上下文、可选主动后台机制 Dreaming 和兼容诊断。当用户要保存或查询工作资料、沉淀自己的思考、管理待办提醒、生成工作报告、启用/关闭/查看 Dreaming、通过 Dreaming 分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help 时触发。
 ---
 
 # byteworker
@@ -15,9 +15,9 @@ description: 个人飞书工作知识库。把飞书文档、妙记、会议、�
 | brief | 生成会前简报 |
 | dashboard | 查看或维护工作看板 |
 | todo | 用自然语言管理待办和提醒 |
-| inbox | 扫描飞书 IM 高信号事项 |
 | context | 查看或维护全局工作上下文 |
 | thinking | 保存或持续更新用户自己的自然语言认知与推演 |
+| dreaming | 显式启用、关闭或查看主动后台运行；默认关闭 |
 | doctor | 检查或修复 schema/skill 兼容问题 |
 | help | 原样展示 `references/help.md` |
 
@@ -38,6 +38,7 @@ bin/byteworker preflight
 - 输出 JSON：只处理 `byteworker-session-preflight/v1.notices`；blocking 先解决。
 - launcher 在加载 Python 模块前完成更新，因此本次 preflight 始终使用单一代码版本。
 - 只有 notice 或排障时才读 `references/session-preflight.md`。
+- Dreaming 是默认关闭的独立旁路；普通 preflight 不检查、不启用也不提示 Dreaming。
 
 首次无 `.kbconfig` 时，询问用户要上手引导还是常规建库。引导读 `TUTORIAL.md`；常规建库询问
 父目录，默认创建 `byteworker_kb`。按 `DESIGN.md` 初始化 8 类 knowledge 目录、sources、
@@ -68,8 +69,11 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 - todo：`references/todo.md`
 - report：`references/report-scheduling.md` + `references/periodic-report.md` +
   `references/digest-routine.md` + `references/kb-mutation.md` + `references/citations.md`
-- inbox：`references/im-inbox-summary.md` + `references/kb-mutation.md` +
-  `references/citations.md`
+- dreaming：`references/dreaming.md` + `references/dreaming-analysis.md` +
+  `references/dreaming-consolidation.md` + `references/dreaming-actions.md` +
+  `references/dreaming-reports.md` + `references/dreaming-review.md`；启用时加
+  `references/dreaming-onboarding.md`，maintenance job 加
+  `references/dreaming-maintenance.md`
 - doctor：`references/doctor.md`
 
 ## Context
@@ -125,7 +129,7 @@ Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用�
 ## 写入
 
 - digest 只走 digest transaction。
-- update/context/dashboard/thinking/report/inbox 只走 `byteworker-kb-mutation/v1`。
+- update/context/dashboard/report 只走 `byteworker-kb-mutation/v1`；thinking 使用 `update` operation。
 - Todo 只走 Todo 工具。
 - Agent 不直接执行 temp、INDEX、journal、git add/commit 或失败回滚。
 - mutation 候选与 plan 放系统临时目录或 KB，不得进入 skill 仓库。
@@ -148,17 +152,14 @@ Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用�
 
 凡用户可见事实来自 KB，执行 `references/citations.md`：正文用 `[S<n>]` 绑定结论，末尾给出
 原始出处、收录时间与置信度，并列原文时间/覆盖和版本/raw_id。不得只列节点/raw/report 路径；
-缺失项明确披露。该规则覆盖 search、brief、dashboard、日报/周报、IM 报告及其回显。
+缺失项明确披露。该规则覆盖 search、brief、dashboard、日报/周报及其回显。
 
-## 报告、Inbox、Todo 与 Doctor
+## 报告、Todo 与 Doctor
 
 自动日报/周报每次先运行完整 **routine digest**，不受 `.last-routine-digest` **七天**提醒限制；
 只重放所有已登记且启用的来源，不新增来源、不扩大范围、不发起 OAuth。报告候选通过 mutation
 保留“手动补充 / 备注”，commit 后才调用 report-automation complete。调度细则见
 `references/report-scheduling.md`。
-
-Inbox 只把本地筛选后的 top threads 交给模型，按 `im-inbox-summary.md` 的评分锚点、阈值和
-reason codes 输出；先验证 semantic result，再通过 mutation 保存摘要。全量 IM 原文不入库。
 
 Todo 以自然语言为主，内部 id 不要求用户记忆。digest 识别出的 Todo 只是候选，用户确认后才写。
 
@@ -167,8 +168,38 @@ Thinking 只在用户明确要求记录、保存、沉淀或更新认知时触�
 `effective` / `inactive`。纯对话思考不创建 raw，通过 mutation 原子维护节点、双向 links、
 INDEX、journal 和本地回滚点。检索时标明它是用户当前思考，不能硬化为客观事实或正式决策。
 
-doctor 默认只读调用 `bin/doctor.py` 对应 facade；只有用户明确要求才 fix。代码真实更新后的
-postflight 只修明确 auto_fix，并在共享写锁内失败回滚，不猜业务字段。
+doctor 默认只读调用 `bin/doctor.py` 对应 facade；交互请求只有用户明确要求才 fix。两个受控例外是
+代码真实更新后的 postflight，以及用户已启用 Dreaming 后的 maintenance job：都只修 finding
+明确声明的 auto_fix，并在共享写锁内失败回滚，不猜业务字段。
+
+## Dreaming
+
+Dreaming 是可选后台 orchestration layer，默认关闭。用户明确要求启用时先读取
+`references/dreaming.md` 和 `references/dreaming-onboarding.md`，完整介绍它与 digest 的差异、
+全部能力、默认授权、Finding/Action 生命周期、隐私、成本、机器条件、maintenance 和退出方式；
+不能只给一句成本提示。导览后用户明确确认，才能传
+`--acknowledge-capability-tour --acknowledge-machine-runtime` 并创建宿主 local 任务。
+
+- 普通安装、升级、preflight 和其它命令不得自动启用或反复询问。
+- 启用默认不接管现有日报/周报；接管需要单独确认旧 scheduler owner 已释放。
+- Dreaming local state 使用 `byteworker-dreaming/v2`；读取已有 v1 时由确定性状态层先写本地私密
+  备份再迁移。迁移失败保持 Dreaming 关闭，不得阻塞其它命令或让 Agent 手改 state JSON。
+- IM grant 默认 `off`。`all_visible` 会读取 P2P 和免打扰会话，只有用户明确确认后才可设置；
+  `process prepare` 只生成私密 EvidenceBatch，不调用模型、不写 Finding/报告/知识。
+- `process prepare` 后的 Agent 分析必须读 `references/dreaming-analysis.md`；Finding 持久与去重
+  规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
+- 任何报告、Todo、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
+  下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
+- Dreaming owner 下的 morning/daily/weekly 按 `references/dreaming-reports.md` 消费 committed
+  Finding 和 KB；不得再次完整 routine digest，也不得与旧 report automation 双 owner。
+- maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行 finding
+  明确声明的确定性低风险修复；剩余重要 error/证据风险/自动化阻断项给用户有限摘要并等待决策。
+- 前台单次处理、Finding review/explain/feedback 和私有 shadow 评估按
+  `references/dreaming-review.md`；foreground 不得隐式启用后台或持久化 Finding。
+- 用户明确要求分析今天、昨天或指定窗口的 IM 时，使用 foreground
+  `dreaming process once --source im`；独立 Inbox 已移除，旧命令只返回 `INBOX_REMOVED`。
+- Dreaming 只通过公开 `bin/byteworker` 命令调用既有能力，不 import digest/query 内部模块。
+- Dreaming 禁用、失败或状态损坏不能阻塞 digest/search/update 等既有能力。
 
 ## 安全与架构
 

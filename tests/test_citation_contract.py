@@ -36,7 +36,7 @@ class CitationContractTests(unittest.TestCase):
         for relative_path in (
             "templates/report-daily.md",
             "templates/report-weekly.md",
-            "templates/report-im.md",
+            "templates/report-morning.md",
         ):
             with self.subTest(template=relative_path):
                 template = self.read(relative_path)

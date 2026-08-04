@@ -85,7 +85,6 @@ EXPECTED_DIRS = (
     "journal",
     "reports/daily",
     "reports/weekly",
-    "reports/im",
     "knowledge/people",
     "knowledge/projects",
     "knowledge/areas",

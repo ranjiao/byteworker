@@ -21,6 +21,8 @@ from report_automation import (  # noqa: E402
     complete_run,
     configure,
     record_decision,
+    release_owner,
+    restore_owner,
     status,
 )
 
@@ -78,6 +80,14 @@ def parser() -> argparse.ArgumentParser:
     complete.add_argument("--run-status", required=True, choices=("success", "failed"))
     complete.add_argument("--report-path", default="")
     complete.add_argument("--error-code", default="")
+
+    release = sub.add_parser("release-owner")
+    release.add_argument("--kb", required=True, type=Path)
+    release.add_argument("--acknowledge-tasks-stopped", action="store_true")
+
+    restore = sub.add_parser("restore-owner")
+    restore.add_argument("--kb", required=True, type=Path)
+    restore.add_argument("--acknowledge-tasks-restored", action="store_true")
     return result
 
 
@@ -136,6 +146,16 @@ def _run(args: argparse.Namespace) -> object:
             run_status=args.run_status,
             report_path=args.report_path,
             error_code=args.error_code,
+        )
+    if args.operation == "release-owner":
+        return release_owner(
+            kb,
+            acknowledge_tasks_stopped=args.acknowledge_tasks_stopped,
+        )
+    if args.operation == "restore-owner":
+        return restore_owner(
+            kb,
+            acknowledge_tasks_restored=args.acknowledge_tasks_restored,
         )
     raise AssertionError(args.operation)
 

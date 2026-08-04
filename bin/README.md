@@ -33,6 +33,7 @@ bin/byteworker <tool> [tool arguments...]
 - `wiki`
 - `digest-job`
 - `report-automation`
+- `dreaming`
 - `index`
 - `kb-mutate`
 - `context`
@@ -117,13 +118,14 @@ cd "$BYTEWORKER_ROOT"
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
 | `todo.py` | Agent | Todo 初始化、查询和状态维护 | 写命令事务化更新 todo、journal 和本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
+| `dreaming.py` | Agent / 自动化 | Dreaming 双确认启停、foreground process、Finding review/feedback、shadow、Action/report/maintenance job | 私密 state 与 KB 外评估指标 |
 | `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 写 INDEX、journal 和本地 commit |
 | `kb-mutate.py` | Agent / 自动化 | 非 digest 内容的版本化事务写入 | 写目标、INDEX、journal 和本地 commit |
 | `context.py` | Agent / 自动化 | 按 intent 读取有限 context 投影 | 只读 |
 | `semantic.py` | Agent / 自动化 | 校验 IM 等结构化语义决定 | 只读临时结果 |
+| `inbox.py` | 兼容调用方 | 已移除 Inbox 的稳定 tombstone | 只输出 `INBOX_REMOVED`，无业务副作用 |
 | `pull_doc_comments.py` | Agent / 维护者 | 拉取飞书文档全部评论和回复 | 只向 stdout 输出 JSON |
 | `pull-chat.sh` | Agent / 维护者 | 拉取群聊窗口逐字稿和 locator | 写临时或显式输出文件 |
-| `im-inbox-summary.sh` | Agent | IM 高信号 thread 本地粗筛 | 写输出和运行标记，不写 raw |
 | `resolve-users.sh` | Agent / 维护者 | open_id 批量解析为身份与当前通讯录画像 | 只读外部通讯录 |
 | `browse.sh` | 用户 | 启动本地只读 Viewer | 只写临时服务目录 |
 | `check-deps.sh` | 用户 / 安装流程 | 用同一 resolver 检查运行依赖 | 只读 |
@@ -159,6 +161,9 @@ bin/byteworker \
 bin/byteworker update-status
 
 bin/byteworker report-automation status \
+  --kb "$BYTEWORKER_KB"
+
+bin/byteworker dreaming status \
   --kb "$BYTEWORKER_KB"
 ```
 
@@ -855,34 +860,11 @@ person 新建/更新必须使用 JSON 模式：`resolved_at` 写入 `directory_v
 身份字段解析不到时使用 `?`；可选通讯录字段不可见时为空字符串；进度写 stderr。需要
 `lark-cli`、`jq` 和用户态通讯录授权。
 
-### `im-inbox-summary.sh`
+### `inbox.py`
 
-拉取指定时间窗的候选会话，在本地规范化、打分并聚合成高信号 discussion threads，供后续
-LLM 精判。它不会自动把全天 IM 原文写入 `raw_data/`。
-
-```bash
-bin/byteworker run bin/im-inbox-summary.sh --today \
-  --kb "$BYTEWORKER_KB" \
-  --out /tmp/byteworker-example/im-candidates.json
-
-bin/byteworker run bin/im-inbox-summary.sh \
-  --last-hours 24 \
-  --keyword "OCR" \
-  --keyword "风险"
-
-bin/byteworker run bin/im-inbox-summary.sh \
-  --start "2026-07-28T09:00:00+08:00" \
-  --end "2026-07-29T09:00:00+08:00" \
-  --chat-id "<oc_xxx>"
-```
-
-主要参数：
-
-- 时间：`--today`、`--last-hours`、`--start/--end`
-- 范围：可重复 `--chat-id`、可重复 `--keyword`
-- 输出：`--out`
-- 预算：`--max-chats`、`--per-chat-limit`、`--global-message-limit`
-- 聚类：`--thread-gap-minutes`、`--representative-limit`、`--min-score`
+独立 Inbox 已移除。该入口只为一个 major 版本内的旧调用方返回稳定
+`INBOX_REMOVED`，不读取参数、IM、Dreaming state 或 KB，也不创建文件。IM 单次分析使用
+`dreaming process once --source im`，持续处理使用显式 Dreaming grant。
 - 召回：`--no-chat-list`、`--no-search`、`--queryless-search`、`--no-context-search`
 - 提示：`--no-first-run-notice`、`--no-repeat-run-notice`
 - `--dry-run`：只展示时间窗、关键词、context 词表和预算，不调用 `lark-cli`
@@ -1109,5 +1091,5 @@ python3 -m coverage report
 git diff --check
 ```
 
-完整测试还需要 Node.js 22（viewer runtime）和 `jq`（IM Inbox shell 行为）。覆盖率规则集中在
+完整测试还需要 Node.js 22（viewer runtime）。覆盖率规则集中在
 根目录 `.coveragerc`，CI 与本地使用同一套 branch coverage 门禁。
