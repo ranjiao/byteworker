@@ -56,6 +56,7 @@ def _node_records(kb: Path) -> Dict[str, Dict[str, Any]]:
             "id": node_id,
             "title": str(frontmatter.get("title", "")).strip(),
             "type": str(frontmatter.get("type", "")).strip(),
+            "status": str(frontmatter.get("status", "")).strip(),
             "tags": _list_value(frontmatter.get("tags")),
             "links": _list_value(frontmatter.get("links")),
             "sources": _list_value(frontmatter.get("sources")),
@@ -81,6 +82,10 @@ def search(
     kb = kb.resolve()
     records = _node_records(kb)
     tokens = _tokens(query)
+    include_inactive_thinking = any(
+        marker in query.lower()
+        for marker in ("inactive", "不生效", "历史思考", "旧思考")
+    )
     ranked: List[Tuple[int, str, List[str]]] = []
     weights = (
         ("id", 12),
@@ -90,6 +95,12 @@ def search(
         ("body", 1),
     )
     for node_id, record in records.items():
+        if (
+            record["type"] == "thinking"
+            and record["status"] == "inactive"
+            and not include_inactive_thinking
+        ):
+            continue
         score = 0
         reasons: List[str] = []
         for field, weight in weights:
@@ -134,6 +145,7 @@ def search(
                 "id": node_id,
                 "title": record["title"],
                 "type": record["type"],
+                "status": record["status"],
                 "path": record["path"],
                 "score": score,
                 "reasons": reasons,

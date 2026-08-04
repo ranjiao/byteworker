@@ -87,6 +87,13 @@
         "references/kb-mutation.md"
       ]
     },
+    "thinking": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/thinking.md",
+        "references/kb-mutation.md"
+      ]
+    },
     "todo": {
       "required": [
         "references/machine-protocol.md",
@@ -124,6 +131,7 @@
     "todo": 18000,
     "update": 22000,
     "context": 20000,
+    "thinking": 22000,
     "dashboard": 26000,
     "inbox": 32000,
     "report": 40000,

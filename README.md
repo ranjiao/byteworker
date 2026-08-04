@@ -7,10 +7,11 @@
 ## 设计理念
 
 **1. 实体图,不是文件堆**
-知识库是一张实体图,7 类节点:
+知识库是一张实体图,8 类节点:
 
 - 实体(持续更新):`person` 人员 · `project` 项目 · `area` 主题领域 · `org` 组织
 - 记录(产生即定型):`event` 事件 · `decision` 决策 · `reading` 外部读物
+- 思考(持续更新):`thinking` 用户自己的自然语言认知、假设与推演
 
 节点之间用 `links` 互链。一个项目会在多个会议、文档里被反复讨论 —— 它们全部汇聚到同一个 `project` 节点上持续生长,而不是散落各处。查「关于张三我都知道什么」= 他的 `person` 节点 + 所有链回他的事件/决策/项目。不用会漂移的「标签分类」,实体本身就是组织方式。
 
@@ -71,7 +72,7 @@ Agent 每个 session 只调用一次 `bin/byteworker preflight`：自动更新�
 bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 python3)
 ```
 
-它起一个本地静态文件服务器(`python3 -m http.server`,零自定义后端):在一个临时目录里把 skill 自带的 viewer 与你的知识库数据目录挂在一起(只读),用 viewer 页面渲染 —— 左侧按 7 类列出全部节点 + 搜索框,点开渲染 md,frontmatter 与正文里的 `links` / 节点 id 都可点,沿实体图跳转。viewer 代码随 skill 分发、始终在本仓库内,你的数据目录一个字节都不写入;viewer 纯只读,编辑知识库仍走 byteworker skill。
+它起一个本地静态文件服务器(`python3 -m http.server`,零自定义后端):在一个临时目录里把 skill 自带的 viewer 与你的知识库数据目录挂在一起(只读),用 viewer 页面渲染 —— 左侧按 8 类列出全部节点 + 搜索框,点开渲染 md,frontmatter 与正文里的 `links` / 节点 id 都可点,沿实体图跳转。viewer 代码随 skill 分发、始终在本仓库内,你的数据目录一个字节都不写入;viewer 纯只读,编辑知识库仍走 byteworker skill。
 
 > ⚠️ `browse.sh` 需要在**本地、有浏览器、能跑本地服务**的环境运行。如果你通过云平台 / 沙箱里的托管 agent(如托管 Codex / OpenClaw)使用本 skill,沙箱通常起不了 web 服务、也没有浏览器 —— `browse.sh` 在那种环境用不了,这是预期的、不是故障;那种情况直接用对话查询(`/byteworker search`)即可。
 
@@ -123,7 +124,7 @@ AI 助手安装完成后会直接带你走 **上手引导**：指定一个持久
 
 你的实际知识库数据存在上面指定的独立目录(**不在本仓库**):
 
-- `sources/` —— 每个结构化来源自己的 selector/filter/routine profile · `knowledge/` —— 7 类节点笔记 · `raw_data/` —— 摄取的逐字原文 · `provenance/` —— 原始章节/评论/消息定位 · `journal/` —— 操作日志
+- `sources/` —— 每个结构化来源自己的 selector/filter/routine profile · `knowledge/` —— 8 类节点笔记（含用户自然语言 `thinking`） · `raw_data/` —— 摄取的逐字原文 · `provenance/` —— 原始章节/评论/消息定位 · `journal/` —— 操作日志
 - `reports/` —— 日报 / 周报归档快照
 - `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板 · `context.md` —— 格式化用户上下文 · `todo.md` —— 本地个人待办
 

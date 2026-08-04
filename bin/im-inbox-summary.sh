@@ -307,7 +307,7 @@ collect_context_terms() {
           gsub(/^[ \t]+|[ \t]+$/, "", $i)
         }
         for (i=1; i<=NF; i++) {
-          if ($i ~ /^(project|person|org|event|decision|topic|reading)-/) {
+          if ($i ~ /^(project|person|org|event|decision|topic|reading|thinking)-/) {
             print $i
             if ((i + 1) <= NF && $(i + 1) !~ /^(标题|title|Title)$/ && length($(i + 1)) >= 2) {
               print $(i + 1)
@@ -468,7 +468,7 @@ run_searches() {
   jq -r ".[:$CONTEXT_SEARCH_LIMIT][]" "$TERMS_JSON" 2>/dev/null \
     | while IFS= read -r term; do
         [ -n "$term" ] || continue
-        printf '%s' "$term" | grep -Eq '^(project|person|org|event|decision|topic|reading)-' && continue
+        printf '%s' "$term" | grep -Eq '^(project|person|org|event|decision|topic|reading|thinking)-' && continue
         printf '%s' "$term" | grep -Eq '^(oc|ou)_' && continue
         run_search_query "$term" "search-context"
       done

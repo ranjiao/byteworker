@@ -18,12 +18,18 @@
 - **sources / links 去重**:更新已有节点时,`sources` 与 `links` 必须去重保序;同一个
   `raw_id`、同一个 URL、同一个节点 id 不重复追加。若同源新版本产生新的 `raw_id`,可以追加新
   `raw_id`,但不要重复追加旧来源。
-- **自动连边(auto-link)**:写节点 body 时扫描正文,凡出现其它节点 id(形如 `person-xxx`、`project-xxx` 等 7 类前缀)且该 id 在 INDEX 中确实存在的,自动并入本节点 `links` 并双向写回 —— 不依赖 digest 时主动想起,避免漏连。批量修复时运行 `bin/repair-links.sh --autolink`。
+- **自动连边(auto-link)**:写节点 body 时扫描正文,凡出现其它节点 id(形如 `person-xxx`、
+  `project-xxx`、`thinking-xxx` 等 8 类前缀)且该 id 在 INDEX 中确实存在的,自动并入本节点
+  `links` 并双向写回 —— 不依赖 digest 时主动想起,避免漏连。批量修复时运行
+  `bin/repair-links.sh --autolink`。
 - **INDEX / journal / 回滚点**:所有持久写工具在共享 KB 写锁内按需重建 INDEX、追加 journal、
   精确暂存实际路径并创建本地 commit；已有 staged 变更或目标路径脏时 fail closed。Agent 不运行
   `git add` / `git commit`，不手工补写 journal。
 - **Todo 写入**:`todo.md` 由 `bin/todo.py` 原子维护，Agent 通过统一机器协议调用;用户确认前的 digest 候选不得写入。新增 / 完成 / 延期 / 取消 / 真正发出提醒后,只暂存 `todo.md` 与本次 journal 路径创建本地回滚点。todo id 是内部键,用户侧按自然语言标题和当前对话消解。
 - **命名 / 字段**:严格按 DESIGN.md §2(命名)与 §4.1(字段)。
+- **thinking 例外**:`thinking` 不创建 raw、不走 digest transaction；按
+  `references/thinking.md` 生成候选，并通过 `byteworker-kb-mutation/v1` 原子写入。允许最小
+  frontmatter 和自由正文，但仍维护双向 links、INDEX、journal 和本地 Git 回滚点。
 - 单类节点 > 200 条 → 提示用户该类按子目录分片(暂不自动做)。
 
 ## area 主题领域的业务 / 团队边界

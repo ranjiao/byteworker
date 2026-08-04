@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、IM Inbox、全局工作上下文和兼容诊断。当用户要保存或查询工作资料、管理待办提醒、生成工作报告、分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/inbox/context/doctor/help 时触发。
+description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、IM Inbox、全局工作上下文和兼容诊断。当用户要保存或查询工作资料、沉淀自己的思考、管理待办提醒、生成工作报告、分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/inbox/context/thinking/doctor/help 时触发。
 ---
 
 # byteworker
@@ -17,6 +17,7 @@ description: 个人飞书工作知识库。把飞书文档、妙记、会议、�
 | todo | 用自然语言管理待办和提醒 |
 | inbox | 扫描飞书 IM 高信号事项 |
 | context | 查看或维护全局工作上下文 |
+| thinking | 保存或持续更新用户自己的自然语言认知与推演 |
 | doctor | 检查或修复 schema/skill 兼容问题 |
 | help | 原样展示 `references/help.md` |
 
@@ -39,7 +40,7 @@ bin/byteworker preflight
 - 只有 notice 或排障时才读 `references/session-preflight.md`。
 
 首次无 `.kbconfig` 时，询问用户要上手引导还是常规建库。引导读 `TUTORIAL.md`；常规建库询问
-父目录，默认创建 `byteworker_kb`。按 `DESIGN.md` 初始化 7 类 knowledge 目录、sources、
+父目录，默认创建 `byteworker_kb`。按 `DESIGN.md` 初始化 8 类 knowledge 目录、sources、
 raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模板。KB 必须是无 remote
 的独立本地 Git 仓库。
 
@@ -63,6 +64,7 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 - dashboard：`references/command-dashboard.md` + `references/kb-mutation.md` +
   `references/citations.md`
 - context：`references/command-context.md` + `references/kb-mutation.md`
+- thinking：`references/thinking.md` + `references/kb-mutation.md`
 - todo：`references/todo.md`
 - report：`references/report-scheduling.md` + `references/periodic-report.md` +
   `references/digest-routine.md` + `references/kb-mutation.md` + `references/citations.md`
@@ -123,7 +125,7 @@ Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用�
 ## 写入
 
 - digest 只走 digest transaction。
-- update/context/dashboard/report/inbox 只走 `byteworker-kb-mutation/v1`。
+- update/context/dashboard/thinking/report/inbox 只走 `byteworker-kb-mutation/v1`。
 - Todo 只走 Todo 工具。
 - Agent 不直接执行 temp、INDEX、journal、git add/commit 或失败回滚。
 - mutation 候选与 plan 放系统临时目录或 KB，不得进入 skill 仓库。
@@ -159,6 +161,11 @@ Inbox 只把本地筛选后的 top threads 交给模型，按 `im-inbox-summary.
 reason codes 输出；先验证 semantic result，再通过 mutation 保存摘要。全量 IM 原文不入库。
 
 Todo 以自然语言为主，内部 id 不要求用户记忆。digest 识别出的 Todo 只是候选，用户确认后才写。
+
+Thinking 只在用户明确要求记录、保存、沉淀或更新认知时触发，普通讨论不自动保存。执行前读取
+`references/thinking.md`；同一稳定主题持续更新一个 `thinking` 节点，状态仅允许
+`effective` / `inactive`。纯对话思考不创建 raw，通过 mutation 原子维护节点、双向 links、
+INDEX、journal 和本地回滚点。检索时标明它是用户当前思考，不能硬化为客观事实或正式决策。
 
 doctor 默认只读调用 `bin/doctor.py` 对应 facade；只有用户明确要求才 fix。代码真实更新后的
 postflight 只修明确 auto_fix，并在共享写锁内失败回滚，不猜业务字段。

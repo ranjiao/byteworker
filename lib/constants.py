@@ -12,6 +12,7 @@ NODE_TYPES: List[Tuple[str, str, str]] = [
     ("events",    "event",    "事件"),
     ("decisions", "decision", "决策"),
     ("readings",  "reading",  "读物"),
+    ("thinkings",  "thinking", "思考"),
 ]
 
 SOURCE_TYPE_LABELS: Dict[str, str] = {
@@ -29,5 +30,5 @@ SOURCE_TYPE_LABELS: Dict[str, str] = {
 
 NODE_ID_PREFIXES = (
     "person-", "project-", "area-", "org-",
-    "event-", "decision-", "reading-",
+    "event-", "decision-", "reading-", "thinking-",
 )

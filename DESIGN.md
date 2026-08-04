@@ -7,7 +7,7 @@
 
 ## 0. 核心模型:实体图
 
-知识库是一张**实体图**。不再用会漂移的「topic 分类」,而用 **7 类实体/记录节点**,
+知识库是一张**实体图**。不再用会漂移的「topic 分类」,而用 **8 类实体/记录/思考节点**,
 知识持续累积到节点上,节点之间互相链接。
 
 **实体(持续更新的活节点):**
@@ -24,9 +24,11 @@
 | 事件 `event` | `event-` | 一次会议/评审/发布的 digest 快照,定型;链接到人/项目/组织 |
 | 决策 `decision` | `decision-` | 一个决策及理由/相关方/影响;可被新决策 supersede;链接到项目/事件/人 |
 | 读物 / 资料卡 `reading` | `reading-` | 外部 blog/论文/wiki,以及内部路线思考/方法论/调研/技术白皮书的 digest:核心观点 + 方法框架 + 可借鉴点 |
+| 思考 `thinking` | `thinking-` | 用户自己的认知、直觉、假设、推演和方案草稿；按稳定主题持续更新，以自然语言承载语义 |
 
 **图的边:** event 链接它涉及的 person/project/org;decision 链接相关 project/event 与决策人;
-project 链接成员 person、所属 area、所属 org;reading 作为资料入口链接它支撑或影响的 project/area/decision/event。
+project 链接成员 person、所属 area、所属 org;reading 作为资料入口链接它支撑或影响的 project/area/decision/event；
+thinking 链接它讨论的 person/project/area/org/decision/reading。
 查询「关于某人我都知道什么」= 对应 person 节点 + 所有链回该人的 event/decision/project。
 
 ---
@@ -42,7 +44,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/todo/inbox/context/doctor/help + 自动日报/周报) |
 | `ARCHITECTURE.md` | 信息处理流程、代码分层、模块边界、依赖方向与演进约束 |
 | `DESIGN.md` | 本文档:存储 schema |
-| `templates/` | 7 类节点骨架模板 |
+| `templates/` | 8 类节点骨架模板 |
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
 | `lib/sources/` | 来源适配器注册表、`SourceBundle` 契约及 provider → transaction 兼容边界；provider payload 保持异构 |
 | `bin/source.py` + `lib/source_profiles.py` + `lib/snapshot_store.py` | 统一来源 capability、Profile、capture、Bundle 构造及历史完整快照选择/差异；实例参数只在用户 KB |
@@ -75,10 +77,10 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `sources/` | 每个可重放来源一份独立 operational profile；保存 selector、capture policy 与 routine，不含凭据和抓取结果 | `source register` / `source profile-save` 事务写入 | 显式重配时更新 |
 | `raw_data/` | 摄取的**逐字原文** + 溯源元数据,一次摄取一文件 | skill 写入;正文永不改写,运维 frontmatter 可更新 | 正文只增不改 |
 | `provenance/` | 每个 raw 的原始定位 sidecar:文档 block / 评论 / 消息 / 妙记片段等 | digest 事务写入;受控回填可补充 | 只随对应 raw 增补/升级 |
-| `knowledge/{people,projects,areas,orgs,events,decisions,readings}/` | 7 类节点笔记,按类型分子目录(固定 7 个,不漂移) | skill 写入/更新 | 实体可更新;记录定型 |
+| `knowledge/{people,projects,areas,orgs,events,decisions,readings,thinkings}/` | 8 类节点笔记,按类型分子目录 | skill 写入/更新 | 实体和 thinking 可更新；来源记录定型 |
 | `journal/` | 摄取/更新/扫描事件的**时间线日志** | skill 追加 | 只追加 |
 | `reports/daily/`, `reports/weekly/`, `reports/im/` | 日报 / 周报 / IM Inbox 摘要归档快照；前两者由宿主本地定时任务或自然语言补跑生成，后者由 `inbox` 流程生成 | skill 写入,用户可手改 | 可覆盖同周期 |
-| `INDEX.md` | 主索引:7 类节点登记表 + 定期摄取清单 + 群聊高水位 | skill 维护,可全量重建 | 高频更新 |
+| `INDEX.md` | 主索引:8 类节点登记表 + 定期摄取清单 + 群聊高水位 | skill 维护,可全量重建 | 高频更新 |
 | `dashboard.md` | 工作看板 —— 实时视图(长期关注 / 需关注 / 今日进展) | skill 维护/渲染 | 高频刷新 |
 | `context.md` | 格式化全局工作上下文 —— 身份 / 职责 / 重点 / 约束 / 提醒偏好 / 背景 | 用户通过 agent 维护 | 手维护 |
 | `todo.md` | 用户确认过的行动项、截止 / 提醒时间与完成状态 | 用户通过 agent 维护 | 高频更新 |
@@ -536,13 +538,13 @@ profiles，再为没有 profile 的旧来源兼容扫描 raw。详见 SKILL「�
 
 ## 4. knowledge/ — 节点笔记
 
-### 4.1 通用 frontmatter(7 类都有)
+### 4.1 通用 frontmatter
 
 ```yaml
 ---
 id: project-q2-roadmap
 title: Q2 产品路线图
-type: person | project | area | org | event | decision | reading
+type: person | project | area | org | event | decision | reading | thinking
 tags: [roadmap, q2]
 status: current | stale | superseded         # 实体常为 current/stale;记录可 superseded
 created: 2026-05-20
@@ -563,7 +565,7 @@ links:                                        # 图的边,双向维护(写 A→B
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `id` | ✓ | `<前缀><slug>`,全局唯一 |
-| `type` | ✓ | 7 类之一,决定子目录与 body 结构 |
+| `type` | ✓ | 8 类之一,决定子目录与 body 结构 |
 | `tags` | ✓ | 自由二级标签,承载角色特异性(数据集名、渠道、技术栈…);优先复用已有 tag |
 | `status` | ✓ | `current` / `stale` 疑似过期 / `superseded` 已被取代 |
 | `created`/`updated`/`last_verified` | ✓ | 创建 / 最后修改 / 最后被新输入或人工确认的日期,格式固定为 `YYYY-MM-DD` |
@@ -576,6 +578,10 @@ links:                                        # 图的边,双向维护(写 A→B
 | `enterprise_email` | ✗ | **仅 `person`**:本次用户态通讯录查询返回的企业邮箱；不可见或为空时省略，不用个人邮箱冒充 |
 | `department_path` | ✗ | **仅 `person`**:飞书通讯录返回的当前部门路径字符串。它是可变的当前目录属性，不是稳定 org id；为空时省略，不据姓名或正文猜写 |
 | `directory_verified_at` | 新建/更新 `person` ✓ / 未触达历史节点兼容 ✗ | **仅 `person`**:本次 `lark-contact` 核验时间，使用带时区 ISO8601。person 候选每次写入都必填；未被本次事务触达的历史节点可缺失，等后续真实查询再回填 |
+
+`thinking` 使用更轻的 frontmatter 契约：只强制 `id/title/type/status/created/updated`；
+`status` 仅为 `effective|inactive`。`tags/sources/links/last_verified` 均可选，且不要求
+`primary_source`。`effective` 只表示这是用户当前认可的思考，不表示其中命题是客观事实。
 
 > 不再有 `topic` 字段——领域结构由 `area`/`org` 节点 + `links` 承载,topic 治理问题消解。
 
@@ -696,6 +702,13 @@ links:                                        # 图的边,双向维护(写 A→B
 > 作为主记录,同时可按内容扇出明确 decision、更新相关 project/area/person/org。
 > `reading` 低维护(观点不会像项目状态那样过期),`status` 基本恒为 `current`,不进看板陈旧告警。
 
+**`thinking`(持续更新的自然语言思考)**
+
+正文只要求标题和非空自然语言，不要求 TL;DR 或固定章节。它可以承载用户自己的认知、直觉、
+假设、推演、方案和问题；推荐用【事实】/【用户判断】/【推断】/【建议】区分语义，但不把这些
+标记固化成字段。同一稳定主题更新同一节点，当前正文可直接重写，本地 Git 保存历史版本。
+整篇不再认可时设为 `inactive`；正式拍板另建 `decision`。
+
 ### 4.3 一次摄取的产出(digest 扇出)
 
 一次摄取(raw)按下面的**形状**扇出成多个节点 —— 这是实体图的生长方式:
@@ -764,7 +777,7 @@ links:                                        # 图的边,双向维护(写 A→B
 ## 6. INDEX.md — 主索引
 
 skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `raw_data/` frontmatter 全量重建。
-按 7 类分节,一行一节点:
+按 8 类分节,一行一节点:
 
 ```markdown
 # 知识库索引
@@ -776,7 +789,7 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 ## 项目 (project)
 | id | 标题 | TL;DR | status | last_verified |
 
-## 主题领域 (area) / 组织 (org) / 事件 (event) / 决策 (decision) / 读物 (reading)
+## 主题领域 (area) / 组织 (org) / 事件 (event) / 决策 (decision) / 读物 (reading) / 思考 (thinking)
 | …同上… |
 
 ## 定期摄取清单 (routine digest — 会定期更新、需周期性复查的源)
@@ -827,6 +840,7 @@ templates/
   node-event.md         /   + 章节内 <!-- 指引 --> 注释(填什么、从哪提取)
   node-decision.md     /
   node-reading.md
+  node-thinking.md       thinking 的低结构自然语言骨架
   context.md             context.md 文件骨架(全局上下文,§10;首次使用整份复制为初始 context.md)
   todo.md                todo.md 文件骨架(用户行动状态,§11;首次使用 Todo 时整份复制)
   report-daily.md        日报骨架(daily 输出到 reports/daily/)
@@ -888,6 +902,9 @@ code 与证据，请用户确认。
    `inbox` 从脚本候选 threads
    精判后生成摘要。报告不进入 INDEX,但每条事实必须能回溯到节点 / raw / journal 或 chat/message
    来源。同周期 / 同窗口再次生成可覆盖,但保留用户手动备注。见 §12、SKILL.md。
+15. **新增 `thinking` 节点类型** — 用户自己的认知、直觉、假设、推演与方案草稿以自然语言
+   持续更新在 `knowledge/thinkings/`；只强制最小 frontmatter，状态仅为
+   `effective|inactive`。它不要求 raw、固定章节或 TL;DR，不替代 reading/decision/context。
 15. **digest 幂等与 raw 不覆盖** — raw frontmatter 增加 `source_uid` / `source_revision` /
    `content_hash` / `digest_key` 等运维字段;重复摄取同一来源同一正文必须 no-op,同源新版本写
    新 raw 并更新已有主记录节点;任何情况下都不得覆盖旧 raw 正文。见 §2、§3、references/digest-core.md。

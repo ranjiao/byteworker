@@ -10,7 +10,7 @@
 #   --kb <dir>  指定知识库数据目录,覆盖 .kbconfig(主要用于测试)。
 #
 # 做什么:
-#   · 扫 7 类 knowledge 节点,生成节点登记表;人员表带 feishu_id 列。
+#   · 扫 8 类 knowledge 节点,生成节点登记表;人员表带 feishu_id 列。
 #   · 优先扫 sources/ profiles，再兼容带 routine 的 raw_data，生成「定期摄取清单」。
 #   · 扫 feishu_chat raw_data,生成「群聊摄取进度」高水位。
 #   · 原子写回 INDEX.md;不碰 git、不写 journal —— 由调用方按「写入规范」收尾。

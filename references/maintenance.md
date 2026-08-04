@@ -17,7 +17,8 @@
 1. Agent / 自动化通过机器协议运行
    `bin/byteworker index rebuild --kb <数据目录> --dry-run` 预演，确认后去掉
    `--dry-run` 执行；人工排障仍可运行 `bin/rebuild-index.sh`。
-2. 脚本扫 `knowledge/` 下全部 7 类节点的 frontmatter + body 首行 TL;DR,按 DESIGN.md §6 的分节格式重新生成整个 `INDEX.md`。
+2. 脚本扫 `knowledge/` 下全部 8 类节点的 frontmatter，并在存在时读取 body 首行 TL;DR，
+   按 DESIGN.md §6 的分节格式重新生成整个 `INDEX.md`。
 3. 「定期摄取清单」优先由 `sources/` profiles 的 routine 派生；没有 profile 的旧来源才兼容
    `raw_data/` 的 `routine`。同一 `source_uid` 有 profile 时，profile 的启用/禁用和 cadence
    覆盖历史 raw。「群聊摄取进度」仍由 `feishu_chat` raw 的
