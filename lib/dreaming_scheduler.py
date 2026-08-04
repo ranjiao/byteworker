@@ -101,7 +101,13 @@ def _status_value(value: Mapping[str, Any], now: datetime) -> dict[str, Any]:
     result = dict(value)
     sessions = result.pop("foreground_sessions", {})
     result["foreground_session_count"] = (
-        len(sessions) if isinstance(sessions, Mapping) else 0
+        sum(
+            1
+            for session in sessions.values()
+            if isinstance(session, Mapping) and session.get("status") == "active"
+        )
+        if isinstance(sessions, Mapping)
+        else 0
     )
     result["active_lease"] = _public_lease(value.get("active_lease"), now)
     result["runtime_notice"] = RUNTIME_NOTICE

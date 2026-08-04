@@ -40,12 +40,30 @@ def _default_command(timeout: int) -> Command:
                 "DREAMING_IM_CAPTURE_FAILED",
                 "lark-cli 未返回合法 JSON。",
             ) from exc
-        if completed.returncode != 0 or not isinstance(value, dict) or value.get("ok") is not True:
-            error = value.get("error") if isinstance(value, dict) else {}
+        auth_status = (
+            args[:2] == ["auth", "status"]
+            and isinstance(value, dict)
+            and isinstance(value.get("identities"), Mapping)
+        )
+        if (
+            completed.returncode != 0
+            or not isinstance(value, dict)
+            or (value.get("ok") is not True and not auth_status)
+        ):
+            raw_error = value.get("error") if isinstance(value, dict) else None
+            error = (
+                dict(raw_error)
+                if isinstance(raw_error, Mapping)
+                else {
+                    "message": (
+                        completed.stderr.strip()
+                        or str(raw_error or "lark-cli command failed")
+                    )
+                }
+            )
             code = (
                 "SOURCE_AUTH_REQUIRED"
-                if isinstance(error, Mapping)
-                and error.get("type") == "authorization"
+                if error.get("type") == "authorization"
                 else "DREAMING_IM_CAPTURE_FAILED"
             )
             raise DreamingError(code, "lark-cli IM 读取失败。", details={"error": error})
