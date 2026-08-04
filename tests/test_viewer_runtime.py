@@ -47,6 +47,71 @@ class ViewerRuntimeTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stderr)
         self.assertEqual("syntax-ok", completed.stdout)
 
+    def test_thinking_nodes_are_parsed_routed_and_linkable(self):
+        completed = self.run_node(
+            textwrap.dedent(
+                f"""\
+                const fs = require('fs');
+                const vm = require('vm');
+                const html = fs.readFileSync({json.dumps(str(VIEWER))}, 'utf8');
+                const constants = html.slice(
+                  html.indexOf('const DIR ='),
+                  html.indexOf('const TODAY')
+                );
+                const nodeDir = html.slice(
+                  html.indexOf('function nodeDir('),
+                  html.indexOf('\\nfunction kbUrl(', html.indexOf('function nodeDir('))
+                );
+                const parseIndex = html.slice(
+                  html.indexOf('function parseIndex('),
+                  html.indexOf('\\n// ---- YAML-ish', html.indexOf('function parseIndex('))
+                );
+                const source = constants + '\\n' + nodeDir + '\\n' + parseIndex;
+                const context = {{}};
+                vm.createContext(context);
+                vm.runInContext(source, context);
+                const index = [
+                  '## 思考 (thinking)',
+                  '',
+                  '| id | title | tldr | status | updated |',
+                  '|---|---|---|---|---|',
+                  '| thinking-example-shapes | 示例形状笔记 | 当前推演 | effective | 2026-08-04 |',
+                ].join('\\n');
+                const result = vm.runInContext(`JSON.stringify({{
+                  nodes: parseIndex(${{JSON.stringify(index)}}),
+                  dir: nodeDir('thinking-example-shapes'),
+                  typeOrder: TYPE_ORDER,
+                  label: TYPE_LABEL.thinking,
+                  help: TYPE_HELP.thinking,
+                  linkedIds: '关联 thinking-example-shapes'.match(ID_RE),
+                }})`, context);
+                process.stdout.write(result);
+                """
+            )
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(
+            [
+                {
+                    "id": "thinking-example-shapes",
+                    "title": "示例形状笔记",
+                    "tldr": "当前推演",
+                    "status": "effective",
+                    "last_verified": "2026-08-04",
+                    "type": "thinking",
+                }
+            ],
+            result["nodes"],
+        )
+        self.assertEqual("thinkings", result["dir"])
+        self.assertIn("thinking", result["typeOrder"])
+        self.assertEqual("思考", result["label"])
+        self.assertIn("自然语言认知", result["help"])
+        self.assertEqual(
+            ["thinking-example-shapes"], result["linkedIds"]
+        )
+
     def test_viewer_boots_against_minimal_dom_and_empty_index(self):
         completed = self.run_node(
             textwrap.dedent(

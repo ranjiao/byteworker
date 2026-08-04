@@ -770,9 +770,10 @@ class Doctor:
             match = EVIDENCE_ROW_RE.match(line)
             if not match:
                 continue
+            rest = match.group("rest").strip().rstrip("|")
             cells = [
                 cell.strip()
-                for cell in ("|" + match.group("rest")).strip().strip("|").split("|")
+                for cell in re.split(r"(?<!\\)\|", rest)
             ]
             raw_match = re.search(r"`([^`]+)`", cells[0] if cells else "")
             locator = cells[1] if len(cells) > 1 else ""

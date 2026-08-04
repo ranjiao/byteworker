@@ -206,6 +206,22 @@ links: []
     def codes(self):
         return [item.code for item in scan(self.kb, ROOT).findings]
 
+    def test_evidence_table_allows_escaped_pipe_in_source_title(self):
+        reading = self.kb / "knowledge/readings/reading-example.md"
+        reading.write_text(
+            reading.read_text(encoding="utf-8").replace(
+                "[示例][E1]", r"[08-03 \| 架构工作同步][E1]"
+            ),
+            encoding="utf-8",
+        )
+        findings = [
+            item.code
+            for item in scan(self.kb, ROOT).findings
+            if item.path.endswith("reading-example.md")
+        ]
+        self.assertNotIn("NODE_EVIDENCE_ROW_INCOMPLETE", findings)
+        self.assertNotIn("NODE_EVIDENCE_MARKER_MISMATCH", findings)
+
     def test_minimal_effective_thinking_is_valid(self):
         (self.kb / "knowledge/thinkings/thinking-ai-cognition.md").write_text(
             """---
