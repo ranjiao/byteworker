@@ -1,6 +1,6 @@
 # byteworker · 非 digest 确定性写事务
 
-update、context、dashboard、日报/周报/IM 报告统一使用
+update、thinking、context、dashboard、日报/周报/IM 报告统一使用
 `byteworker-kb-mutation/v1`。业务 plan 与候选文件只能放系统临时目录或 KB，禁止进入 skill 仓库。
 
 最小 plan：
@@ -38,6 +38,7 @@ write mode：
 允许目标仅为 `context.md`、`dashboard.md`、`knowledge/**/*.md`、`reports/**/*.md`。
 operation 与目标一一对应：`context` → `context.md`，`dashboard` → `dashboard.md`，
 `update` → `knowledge/**/*.md`，`report` → `reports/**/*.md`；write 未知字段一律拒绝。
+thinking 节点属于 knowledge update，因此 plan 使用 `operation: "update"`。
 raw/provenance/source/todo 不走本工具。knowledge write 必须按 `conflict-policy.md` 声明处置；
 非 `no_conflict` 必须带证据。
 

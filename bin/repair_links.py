@@ -155,7 +155,10 @@ def main():
 
     # 正文 auto-link: 只吸收已经存在的节点 id
     body_linked = []
-    node_id_re = re.compile(r"\b(?:person|project|area|org|event|decision|reading)-[A-Za-z0-9._-]+\b")
+    node_id_re = re.compile(
+        r"\b(?:person|project|area|org|event|decision|reading|thinking)-"
+        r"[A-Za-z0-9._-]+\b"
+    )
     if autolink:
         all_ids = set(nodes)
         for nid, p in nodes.items():

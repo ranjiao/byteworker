@@ -45,6 +45,12 @@ context    全局上下文 —— 对话式维护你的工作上下文(供 agent
   "我的名字是X,飞书id是Y" / "我的当前重点改成X" / "默认提醒时间改成10点"
   → 维护 context.md 的身份 / 职责 / 重点 / 主管方向 / 约束 / 提醒偏好 / 背景
 
+thinking   思考 —— 保存和持续更新你自己的自然语言认知
+  /byteworker thinking 记录这次组织架构讨论
+  "把刚才关于AI的思考存下来" / "更新我对内容安全组织的看法"
+  → 同一主题持续更新一个 thinking 节点；状态只有 effective / inactive
+  → 不要求资料来源或固定章节，查询时明确标为你的当前思考
+
 doctor     兼容诊断 —— 检查知识库是否匹配当前 skill/schema
   /byteworker doctor / "升级 skill 后检查一下知识库" / "扫描并修复知识库"
   → 默认只读列出结构、节点、raw、provenance、引用、links、INDEX 问题

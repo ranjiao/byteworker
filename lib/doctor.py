@@ -25,13 +25,15 @@ from provenance import (
 
 SCHEMA_PROFILE = "byteworker-kb/v1"
 ALLOWED_NODE_STATUS = {"current", "stale", "superseded"}
+ALLOWED_THINKING_STATUS = {"effective", "inactive"}
 ALLOWED_RAW_STATUS = {"pending", "digested", "failed"}
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$"
 )
 NODE_ID_RE = re.compile(
-    r"\b(?:person|project|area|org|event|decision|reading)-[A-Za-z0-9._-]+\b"
+    r"\b(?:person|project|area|org|event|decision|reading|thinking)-"
+    r"[A-Za-z0-9._-]+\b"
 )
 RAW_ID_RE = re.compile(r"^raw-[A-Za-z0-9._-]+$")
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -54,6 +56,14 @@ NODE_REQUIRED_FIELDS = (
     "last_verified",
     "sources",
     "links",
+)
+THINKING_REQUIRED_FIELDS = (
+    "id",
+    "title",
+    "type",
+    "status",
+    "created",
+    "updated",
 )
 NODE_LIST_FIELDS = ("tags", "sources", "links")
 CURRENT_RAW_REQUIRED_FIELDS = (
@@ -521,7 +531,12 @@ class Doctor:
                     f"id 与 {self.nodes[node_id]['relative_path']} 重复: {node_id}",
                 )
                 continue
-            missing = [field for field in NODE_REQUIRED_FIELDS if field not in frontmatter]
+            required_fields = (
+                THINKING_REQUIRED_FIELDS
+                if node_type == "thinking"
+                else NODE_REQUIRED_FIELDS
+            )
+            missing = [field for field in required_fields if field not in frontmatter]
             if missing:
                 self.add(
                     "error",
@@ -536,7 +551,7 @@ class Doctor:
                     "error",
                     "NODE_UNKNOWN_DIRECTORY",
                     relative,
-                    "节点不在固定的 7 类目录中。",
+                    "节点不在固定的 8 类目录中。",
                 )
             elif node_type != path_type:
                 self.add(
@@ -578,7 +593,12 @@ class Doctor:
                         f"{field} 应使用列表格式。",
                     )
             status = str(frontmatter.get("status", "")).strip()
-            if status and status not in ALLOWED_NODE_STATUS:
+            allowed_status = (
+                ALLOWED_THINKING_STATUS
+                if node_type == "thinking"
+                else ALLOWED_NODE_STATUS
+            )
+            if status and status not in allowed_status:
                 self.add(
                     "error",
                     "NODE_INVALID_STATUS",
@@ -595,7 +615,11 @@ class Doctor:
                         f"{field}={value!r} 不是 YYYY-MM-DD。",
                     )
             sources = _list_value(frontmatter.get("sources"))
-            if "sources" in frontmatter and not sources:
+            if (
+                node_type != "thinking"
+                and "sources" in frontmatter
+                and not sources
+            ):
                 self.add("error", "NODE_EMPTY_SOURCES", relative, "sources 为空。")
             primary = str(frontmatter.get("primary_source", "")).strip()
             if node_type in {"event", "decision", "reading"} and not primary:
@@ -697,7 +721,7 @@ class Doctor:
                     relative,
                     "frontmatter.title 与正文标题不一致。",
                 )
-            if not extract_tldr(body):
+            if node_type != "thinking" and not extract_tldr(body):
                 self.add("warning", "NODE_TLDR_MISSING", relative, "正文缺少 TL;DR。")
             headings = set(re.findall(r"(?m)^##\s+(.+?)\s*$", body))
             required = set(self.required_headings.get(node_type, []))

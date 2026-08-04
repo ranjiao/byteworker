@@ -19,6 +19,7 @@ class KbQueryTests(unittest.TestCase):
         self.kb = Path(self.temp.name)
         (self.kb / "knowledge/projects").mkdir(parents=True)
         (self.kb / "knowledge/decisions").mkdir(parents=True)
+        (self.kb / "knowledge/thinkings").mkdir(parents=True)
         (self.kb / "raw_data").mkdir()
         (self.kb / "provenance").mkdir()
         (self.kb / "knowledge/projects/project-alpha.md").write_text(
@@ -99,6 +100,43 @@ raw
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_search_uses_effective_thinking_and_hides_inactive_by_default(self):
+        for suffix, status, text in (
+            ("current", "effective", "AI 认知会持续更新"),
+            ("old", "inactive", "AI 认知旧版本"),
+        ):
+            (self.kb / f"knowledge/thinkings/thinking-ai-{suffix}.md").write_text(
+                f"""---
+id: thinking-ai-{suffix}
+title: AI 思考 {suffix}
+type: thinking
+status: {status}
+created: 2026-08-04
+updated: 2026-08-04
+---
+
+# AI 思考 {suffix}
+
+{text}
+""",
+                encoding="utf-8",
+            )
+
+        current = search(self.kb, "AI 认知")
+        self.assertEqual(
+            ["thinking-ai-current"],
+            [
+                item["id"]
+                for item in current["candidates"]
+                if item["type"] == "thinking"
+            ],
+        )
+        history = search(self.kb, "AI 认知 历史思考")
+        self.assertIn(
+            "thinking-ai-old",
+            [item["id"] for item in history["candidates"]],
+        )
 
     def write_snapshot(
         self,

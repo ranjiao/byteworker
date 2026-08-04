@@ -1,6 +1,7 @@
 # templates/ — 骨架模板
 
-byteworker 用到的骨架。`node-*.md` 是 7 类知识节点的骨架,digest 时 agent 按对应模板生成
+byteworker 用到的骨架。`node-*.md` 是 8 类知识节点的骨架；来源节点由 digest 生成，
+`thinking` 由用户明确要求保存或更新时生成。
 节点笔记；`source-bundle-v2.json` + `digest-plan-v2.json` 是新增单来源的 adapter 交接契约 /
 事务 manifest；`digest-batch-plan-v2.json` 是新增多来源原子事务模板；`digest-plan-v1.json`
 和 `digest-batch-plan-v1.json` 只用于兼容历史调用；
@@ -17,6 +18,7 @@ byteworker 用到的骨架。`node-*.md` 是 7 类知识节点的骨架,digest �
 | `node-event.md` | 会议 / 评审 / 发布 | 记录 · 产生即定型 |
 | `node-decision.md` | 决策 | 记录 · 可被取代 |
 | `node-reading.md` | 外部 blog / 论文 / wiki 读物;内部路线思考 / 方法论 / 调研 / 技术白皮书资料卡 | 记录 · 低维护 |
+| `node-thinking.md` | 用户自己的认知、直觉、假设、推演和方案 | 持续更新 · 自然语言优先 |
 
 用法:
 

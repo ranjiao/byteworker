@@ -895,7 +895,7 @@ bin/byteworker run bin/im-inbox-summary.sh \
 
 从以下真相源确定性重建 `INDEX.md`：
 
-- 7 类 `knowledge/` 节点
+- 8 类 `knowledge/` 节点
 - `sources/` Profile
 - 兼容的 raw routine
 - 群聊摄取高水位

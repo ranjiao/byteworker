@@ -408,7 +408,7 @@ flowchart TD
 
 真相源损坏时不能靠 INDEX 反推修复；INDEX 或 dashboard 派生段不一致时，直接从真相源重建。
 
-### 3.2 七类知识节点
+### 3.2 八类知识节点
 
 ```mermaid
 flowchart LR
@@ -425,13 +425,25 @@ flowchart LR
         Reading["reading 资料卡"]
     end
 
+    subgraph Thought["用户持续更新的思考"]
+        Thinking["thinking 自然语言认知"]
+    end
+
     Person <-->|"成员 / 相关方"| Project
     Org <-->|"归属 / 协作"| Project
     Project <-->|"发生于 / 衍生"| Event
     Event <-->|"形成 / 执行"| Decision
     Reading -->|"提供依据"| Area
     Reading -->|"影响"| Decision
+    Thinking -->|"讨论 / 推演"| Project
+    Thinking -->|"参考"| Reading
+    Thinking -->|"收敛为"| Decision
 ```
+
+`thinking` 不走来源摄取事务：它由用户明确触发，按稳定主题创建或语义重写，使用最小
+frontmatter 和自由正文；写入通过通用 KB mutation 原子维护双向 links、INDEX、journal 与
+知识库本地 Git 回滚点。
+`effective` thinking 可作为用户当前视角参与综合，`inactive` 只在明确查询历史时使用。
 
 `person` 的实体消解与通讯录画像在 Agent 策略层和只读外部 helper 的边界完成：
 `bin/resolve-users.sh --format json` 以来源中的精确 `open_id` 查询 lark-contact，返回版本化的
@@ -794,7 +806,7 @@ flowchart TD
 digest、Profile、provenance backfill、postflight、Todo 和通用 mutation 全部使用
 `lib/kb_write_txn.py` 的同一个 advisory lock；不能再为不同 writer 创建互不相见的锁。
 
-digest 之外的 update/context/dashboard/report/inbox 使用 `byteworker-kb-mutation/v1`：
+digest 之外的 update/thinking/context/dashboard/report/inbox 使用 `byteworker-kb-mutation/v1`：
 Agent 提供候选、目标 `base_sha256`、章节模式、冲突处置、journal 摘要和 commit message；
 `lib/kb_mutation.py` 在锁内重新校验，执行完整替换/固定章节替换/保留手动章节替换，按需重建
 INDEX，并统一完成 journal、精确暂存、commit 和 rollback。它不允许写 raw/provenance/sources/

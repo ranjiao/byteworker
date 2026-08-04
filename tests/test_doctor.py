@@ -19,7 +19,16 @@ import update_postflight  # noqa: E402
 from update_postflight import render_message, run_postflight  # noqa: E402
 
 
-NODE_DIRS = ("people", "projects", "areas", "orgs", "events", "decisions", "readings")
+NODE_DIRS = (
+    "people",
+    "projects",
+    "areas",
+    "orgs",
+    "events",
+    "decisions",
+    "readings",
+    "thinkings",
+)
 
 
 class DoctorTests(unittest.TestCase):
@@ -196,6 +205,56 @@ links: []
 
     def codes(self):
         return [item.code for item in scan(self.kb, ROOT).findings]
+
+    def test_minimal_effective_thinking_is_valid(self):
+        (self.kb / "knowledge/thinkings/thinking-ai-cognition.md").write_text(
+            """---
+id: thinking-ai-cognition
+title: 我对 AI 的认知
+type: thinking
+status: effective
+created: 2026-08-04
+updated: 2026-08-04
+---
+
+# 我对 AI 的认知
+
+认知会持续更新，不要求固定章节或外部来源。
+""",
+            encoding="utf-8",
+        )
+        report = scan(self.kb, ROOT)
+        thinking_findings = [
+            item
+            for item in report.findings
+            if item.path.endswith("thinking-ai-cognition.md")
+        ]
+        self.assertEqual([], thinking_findings)
+
+    def test_thinking_rejects_non_binary_status(self):
+        path = self.kb / "knowledge/thinkings/thinking-ai-cognition.md"
+        path.write_text(
+            """---
+id: thinking-ai-cognition
+title: 我对 AI 的认知
+type: thinking
+status: exploring
+created: 2026-08-04
+updated: 2026-08-04
+---
+
+# 我对 AI 的认知
+
+仍在形成。
+""",
+            encoding="utf-8",
+        )
+        findings = [
+            item
+            for item in scan(self.kb, ROOT).findings
+            if item.path.endswith("thinking-ai-cognition.md")
+        ]
+        self.assertIn("NODE_INVALID_STATUS", [item.code for item in findings])
 
     def test_person_directory_fields_require_valid_verification_metadata(self):
         person = self.kb / "knowledge/people/person-zhang-san.md"
