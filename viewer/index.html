@@ -54,6 +54,7 @@
   --c-event:    oklch(0.55 0.10 210);
   --c-decision: oklch(0.55 0.16 25);
   --c-reading:  oklch(0.55 0.07 240);
+  --c-thinking: oklch(0.55 0.12 330);
 
   --c-person-tint:   oklch(0.95 0.04 250);
   --c-project-tint:  oklch(0.95 0.04 150);
@@ -62,6 +63,7 @@
   --c-event-tint:    oklch(0.95 0.03 210);
   --c-decision-tint: oklch(0.95 0.04 25);
   --c-reading-tint:  oklch(0.95 0.02 240);
+  --c-thinking-tint: oklch(0.95 0.04 330);
 
   --shadow-card: 0 1px 0 rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.04);
   --shadow-pop:  0 12px 32px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
@@ -102,6 +104,7 @@
   --c-event:    oklch(0.78 0.10 210);
   --c-decision: oklch(0.74 0.16 25);
   --c-reading:  oklch(0.78 0.05 240);
+  --c-thinking: oklch(0.77 0.12 330);
 
   --c-person-tint:   oklch(0.32 0.06 250);
   --c-project-tint:  oklch(0.32 0.06 150);
@@ -110,6 +113,7 @@
   --c-event-tint:    oklch(0.32 0.04 210);
   --c-decision-tint: oklch(0.32 0.06 25);
   --c-reading-tint:  oklch(0.30 0.02 240);
+  --c-thinking-tint: oklch(0.32 0.05 330);
 
   --shadow-card: 0 1px 0 rgba(255,255,255,0.04), 0 1px 3px rgba(0,0,0,0.4);
   --shadow-pop:  0 16px 40px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.4);
@@ -591,6 +595,7 @@ body.sidebar-resizing * {
 .tchip.event    { color: var(--c-event);    background: var(--c-event-tint); }
 .tchip.decision { color: var(--c-decision); background: var(--c-decision-tint); }
 .tchip.reading  { color: var(--c-reading);  background: var(--c-reading-tint); }
+.tchip.thinking { color: var(--c-thinking); background: var(--c-thinking-tint); }
 
 .tdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 .tdot.person   { background: var(--c-person); }
@@ -600,6 +605,7 @@ body.sidebar-resizing * {
 .tdot.event    { background: var(--c-event); }
 .tdot.decision { background: var(--c-decision); }
 .tdot.reading  { background: var(--c-reading); }
+.tdot.thinking { background: var(--c-thinking); }
 
 .status {
   display: inline-flex; align-items: center; gap: 4px;
@@ -1397,13 +1403,14 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
 // ---- constants -------------------------------------------------
 const DIR = {
   person: 'people', project: 'projects', area: 'areas', org: 'orgs',
-  event: 'events', decision: 'decisions', reading: 'readings'
+  event: 'events', decision: 'decisions', reading: 'readings',
+  thinking: 'thinkings'
 };
 const KB = '../kb/';
-const TYPE_ORDER = ['person','project','area','org','event','decision','reading'];
+const TYPE_ORDER = ['person','project','area','org','event','decision','reading','thinking'];
 const TYPE_LABEL = {
   person:'人员', project:'项目', area:'主题领域', org:'组织',
-  event:'事件', decision:'决策', reading:'资料卡'
+  event:'事件', decision:'决策', reading:'资料卡', thinking:'思考'
 };
 const TYPE_HELP = {
   person: '持续更新的协作对象。',
@@ -1412,9 +1419,10 @@ const TYPE_HELP = {
   org: '团队、供应商或组织单元。',
   event: '会议、评审、发布或群聊窗口的定型快照。',
   decision: '已生效或可被取代的选择、原则与边界。',
-  reading: '外部读物或内部路线思考、方法论、调研、白皮书的资料入口。'
+  reading: '外部读物或内部路线思考、方法论、调研、白皮书的资料入口。',
+  thinking: '用户持续更新的自然语言认知与推演。'
 };
-const ID_RE = /\b(?:person|project|area|org|event|decision|reading)-[a-z0-9]+(?:[.-][a-z0-9]+)*\b/g;
+const ID_RE = /\b(?:person|project|area|org|event|decision|reading|thinking)-[a-z0-9]+(?:[.-][a-z0-9]+)*\b/g;
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const md = window.markdownit({ html: false, linkify: true, typographer: false });
@@ -3356,7 +3364,7 @@ function sxNoderefParts(raw) {
     // Keep the relationship in the label column instead of treating the
     // linked nodes as an unlabelled, indented full-width row.
     const relation = raw.match(
-      /^(更新|关联|新增|涉及|影响)(?:节点)?\s+(?=(?:`|\[\[)?(?:person|project|area|org|event|decision|reading)-)/
+      /^(更新|关联|新增|涉及|影响)(?:节点)?\s+(?=(?:`|\[\[)?(?:person|project|area|org|event|decision|reading|thinking)-)/
     );
     if (relation) {
       label = relation[1] + '节点';
