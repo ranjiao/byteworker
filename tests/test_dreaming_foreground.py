@@ -101,7 +101,9 @@ class DreamingForegroundTests(unittest.TestCase):
                     token=token,
                     now=now,
                 )
-            self.assertNotIn("foreground_sessions", status(kb, now=now))
+            public_status = status(kb, now=now)
+            self.assertNotIn("foreground_sessions", public_status)
+            self.assertEqual(0, public_status["foreground_session_count"])
 
     def test_all_visible_requires_foreground_ack(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
