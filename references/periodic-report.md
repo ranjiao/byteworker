@@ -8,7 +8,7 @@
 > daily/weekly job 才能生成报告；迁移后改走 `references/dreaming-reports.md`，不再执行下述
 > 完整 routine digest。迁移前仍执行本文件的 legacy 流程。
 
-byteworker skill 负责报告方法，Codex / Claude / TRAE 等 harness 负责调度。每次运行先复查已登记
+byteworker skill 负责报告方法，Codex / Claude / TraeWork 等 harness 负责调度。每次运行先复查已登记
 的 routine 来源并消化新增内容，再基于知识库生成日报 / 周报；设置与无人值守边界见
 `references/report-scheduling.md`。不提供 `daily` / `weekly` 用户子命令；自然语言补跑只是
 恢复入口，不是日常触发负担。

@@ -29,6 +29,7 @@ class DreamingI5CliTests(unittest.TestCase):
                 timezone_name="Asia/Shanghai",
                 acknowledge_machine_runtime=True,
                 acknowledge_capability_tour=True,
+                acknowledge_schedule=True,
                 now=now,
             )
             configure(
@@ -91,6 +92,59 @@ class DreamingI5CliTests(unittest.TestCase):
             self.assertEqual(0, prepared.returncode, prepared.stdout)
             packet = kb / json.loads(prepared.stdout)["packet_path"]
             self.assertTrue(packet.is_file())
+
+            document = root / "report.json"
+            document.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "byteworker-report-document/v1",
+                        "kind": "morning",
+                        "period": "2026-08-04",
+                        "title": "晨报 · 2026-08-04",
+                        "generated_at": "2026-08-04 10:00",
+                        "window": {
+                            "start": "2026-08-03 20:30",
+                            "end": "2026-08-04 10:00",
+                            "timezone": "Asia/Shanghai",
+                        },
+                        "coverage": {
+                            "status": "covered",
+                            "notes": [],
+                        },
+                        "message_summary": "晨报摘要：" + "重要信息需要关注。" * 40,
+                        "sections": {
+                            "highlights": [],
+                            "changes": [],
+                            "risks": [],
+                            "confirmations": [],
+                            "todos": [],
+                        },
+                        "sources": [],
+                        "manual_notes": "",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            rendered = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "bin" / "dreaming.py"),
+                    "report",
+                    "render",
+                    "--kb",
+                    str(kb),
+                    "--input",
+                    str(document),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(0, rendered.returncode, rendered.stdout)
+            rendered_value = json.loads(rendered.stdout)
+            self.assertTrue(Path(rendered_value["html_path"]).is_file())
+            self.assertTrue((kb / rendered_value["manifest_path"]).is_file())
 
 
 if __name__ == "__main__":

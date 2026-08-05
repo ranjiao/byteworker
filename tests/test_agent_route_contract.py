@@ -99,14 +99,31 @@ class AgentRouteContractTests(unittest.TestCase):
     def test_dreaming_routes_enable_tour_and_maintenance_on_demand(self):
         features = self.workflows["dreaming"]["features"]
         self.assertEqual(
-            ["references/dreaming-onboarding.md"],
+            ["references/dreaming-setup-guide.md"],
+            features["configure"],
+        )
+        self.assertEqual(
+            [
+                "references/dreaming-onboarding.md",
+                "references/dreaming-setup-guide.md",
+            ],
             features["enable"],
         )
         self.assertEqual(
             ["references/dreaming-maintenance.md"],
             features["maintenance"],
         )
+        self.assertEqual(
+            ["references/dreaming-harness-trae.md"],
+            features["harness_trae"],
+        )
         onboarding = (ROOT / features["enable"][0]).read_text(encoding="utf-8")
+        setup_guide = (ROOT / features["configure"][0]).read_text(
+            encoding="utf-8"
+        )
+        trae_harness = (ROOT / features["harness_trae"][0]).read_text(
+            encoding="utf-8"
+        )
         maintenance = (ROOT / features["maintenance"][0]).read_text(
             encoding="utf-8"
         )
@@ -116,8 +133,35 @@ class AgentRouteContractTests(unittest.TestCase):
             "默认值与授权",
             "成本、隐私与运行条件",
             "--acknowledge-capability-tour",
+            "--acknowledge-schedule",
+            "每几天固定时间",
+            "内部复验仍检查",
         ):
             self.assertIn(term, onboarding)
+        for term in (
+            "后台信息助手",
+            "结构化提问或选项控件",
+            "从第一个未完成",
+            "只想修改一项",
+            "每天给我汇总重要信息",
+            "为什么没有自动运行",
+            "会包含私聊和免打扰会话",
+            "不得暗中开启",
+            "不得因命令覆盖语义意外关闭",
+            "自动运行：已接通",
+            "自动运行：待完成",
+        ):
+            self.assertIn(term, setup_guide)
+        for internal, user_term in (
+            ("`operational`", "自动运行是否接通"),
+            ("`persist_report`", "生成定时摘要"),
+            ("`instant_alert`", "紧急事项及时提醒"),
+            ("harness", "本地定时任务"),
+            ("Finding", "待关注事项"),
+        ):
+            with self.subTest(internal=internal):
+                self.assertIn(internal, setup_guide)
+                self.assertIn(user_term, setup_guide)
         for term in (
             "doctor scan",
             "doctor fix",
@@ -126,6 +170,29 @@ class AgentRouteContractTests(unittest.TestCase):
             "不得猜业务语义",
         ):
             self.assertIn(term, maintenance)
+        for term in (
+            "byteworker-dreaming-local",
+            "每 30 分钟",
+            "Code 模式",
+            "本地环境",
+            "Run now",
+            "自动运行：待完成",
+            "不得向用户输出",
+            "harness register",
+            "禁止猜内部",
+            "不得把名称中的 `TRAE` 当成支持定时任务的充分条件",
+            "TRAE IDE/TraeCode",
+            "提示用户切换到 TraeWork 桌面版",
+            "TraeWork 网页版仅提供云端运行环境",
+            "即使当前会话暴露 Schedule 工具",
+            "不创建任务，也不执行",
+        ):
+            self.assertIn(term, trae_harness)
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+        for text in (skill, architecture):
+            self.assertIn("TRAE IDE/TraeCode", text)
+            self.assertIn("TraeWork 桌面版", text)
 
     def test_core_policies_have_no_known_contradictory_fallbacks(self):
         paths = [

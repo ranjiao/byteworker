@@ -23,10 +23,31 @@ Dreaming local state 使用 `byteworker-dreaming/v2`。已有 v1 state 第一次
 > 及时运行，本地机器必须保持开机、唤醒、联网，并允许宿主执行本地任务；休眠或关机期间不会
 > 运行，只能在恢复后补跑。
 
-用户确认后才可以：
+能力导览后先配置运行计划。process 三种模式：
 
-1. 在宿主中创建 local 定时任务，工作目录必须是私有知识库目录。
-2. 调用：
+```bash
+# quota 充足：每小时
+bin/byteworker dreaming configure --kb "<KB>" --timezone Asia/Shanghai \
+  --process-kind interval --process-interval-minutes 60 \
+  --morning-time 08:30 --maintenance-time 03:30 \
+  --recovery-interval-minutes 240 --log-retention-days 30
+
+# quota 有限：每天晚上一次
+bin/byteworker dreaming configure --kb "<KB>" --timezone Asia/Shanghai \
+  --process-kind daily_time --process-time 22:30
+
+# 更低频：每 3 天晚上一次；配置日是稳定 anchor
+bin/byteworker dreaming configure --kb "<KB>" --timezone Asia/Shanghai \
+  --process-kind every_n_days --process-every-days 3 --process-time 22:30
+```
+
+`--process-enabled/--morning-enabled/--maintenance-enabled/--recovery-enabled true|false`
+可独立开关 job；偏好写入 `configured_enabled`，总开关 disable/enable 不会丢失。
+
+配置后运行 `dreaming status`，向用户展示完整 schedule、日志保留期和未来 `next_due_at`。取得
+schedule 明确确认后才可以：
+
+1. 调用：
 
 ```bash
 bin/byteworker dreaming enable \
@@ -34,14 +55,27 @@ bin/byteworker dreaming enable \
   --harness "<当前宿主>" \
   --timezone "<context.md 时区>" \
   --acknowledge-capability-tour \
+  --acknowledge-schedule \
   --acknowledge-machine-runtime
 ```
 
-3. 创建成功后立即运行 `dreaming status`，核对 `enabled=true`、timezone、harness 和 job。
+2. 在宿主中真实创建 local 定时任务，工作目录必须是私有知识库目录。
+   目标宿主属于 TRAE 产品家族时必须加载 `references/dreaming-harness-trae.md`。TRAE
+   IDE/TraeCode 只提示切换到 TraeWork 桌面版；确认处于 TraeWork 桌面版后，才按其自动化 UI、
+   首次触发和 harness pending 规则执行。
+3. 任务创建成功后登记真实 task id：
+
+```bash
+bin/byteworker dreaming harness register --kb "<KB>" --task-id "<宿主任务 id>"
+```
+
+4. 运行 `dreaming status`，核对 `enabled=true`、`harness.status=installed`、
+   `operational=true`、timezone、所有 job schedule 与 `next_due_at`。
 
 禁止在安装、升级或 session preflight 中自动启用或询问。未完成导览并得到确认时不能代填
 `--acknowledge-capability-tour`；未确认成本和机器条件时不能代填
-`--acknowledge-machine-runtime`。
+`--acknowledge-machine-runtime`；未逐项展示 schedule 时不能代填 `--acknowledge-schedule`。
+`enabled=true` 但 harness 为 `pending/error` 时必须明确说“不会自动运行”，不能声称后台已完成。
 
 ## 禁用与状态
 
@@ -53,6 +87,8 @@ bin/byteworker dreaming retry-job --kb "<知识库绝对路径>" --job maintenan
 ```
 
 - 缺失状态等同 `disabled`，且 `status` 不创建状态文件。
+- `status.jobs.*.next_due_at` 是按 timezone 计算的下一次到期；`due=true` 表示已到期等待领取。
+- `operational` 只有 enabled 且宿主任务已登记时为 true。
 - 有活跃租约时禁用失败；等待完成或租约过期后重试。
 - 禁用不删除 findings、receipt、报告，也不修改旧 `report-automation` 配置。
 - Dreaming 状态损坏只影响 Dreaming；不要转而修改或阻塞既有命令。
@@ -84,6 +120,35 @@ morning/recovery。授权等人工阻断修复后显式运行 `retry-job`。
 ```bash
 bin/byteworker dreaming renew --kb "<知识库绝对路径>" \
   --token "<lease.token>" --lease-seconds 7200
+```
+
+每个 lease 带稳定 `run_id`。单阶段超过 60 秒，或阶段发生真实变化时写 heartbeat：
+
+```bash
+bin/byteworker dreaming heartbeat --kb "<KB>" --token "<lease.token>" \
+  --stage collection --detail-code IM_DISCOVERY \
+  --progress-current 3 --progress-total 10
+```
+
+stage 只允许 scheduled/collection/analysis/consolidation/action/report/maintenance/recovery/complete。
+heartbeat 不保存业务文本，`detail-code` 必须是有限机器码。
+
+## 运行日志
+
+运行日志位于 `state/dreaming/run-logs/<UTC-date>[-NNNN].jsonl`，目录 `0700`、文件 `0600`。
+默认保留 30 天，可配置 1..365 天；单文件达到 5 MiB 后轮转。日志只允许：
+
+- run/job/period/owner/epoch 与时间；
+- leased/heartbeat/renewed/completed/lease_expired；
+- stage、status、error code、artifact path；
+- duration/item/finding/gap/progress 等非负计数。
+
+禁止写消息正文、Finding summary、人员、群名、URL、凭据、命令 argv 或 stderr 原文。查询：
+
+```bash
+bin/byteworker dreaming runs list --kb "<KB>" --limit 20
+bin/byteworker dreaming runs show --kb "<KB>" "<run_id>"
+bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 ```
 
 ## Job 执行
@@ -162,7 +227,8 @@ bin/byteworker dreaming complete \
   --token "<lease.token>" \
   --run-status success \
   --artifact-path "<可选 KB 相对路径>" \
-  --coverage-checkpoint "<有限 checkpoint>"
+  --coverage-checkpoint "<有限 checkpoint>" \
+  --item-count 710 --finding-count 5 --gap-count 0
 ```
 
 部分或失败必须提供稳定错误码：

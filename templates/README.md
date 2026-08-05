@@ -61,9 +61,13 @@ evidence 映射、journal 摘要和 commit message，再按
 | `report-daily.md` | 自动日报 / 自然语言补跑 | `reports/daily/<YYYY-MM-DD>.md` |
 | `report-weekly.md` | 自动周报 / 自然语言补跑 | `reports/weekly/<YYYY>-W<WW>.md` |
 | `report-morning.md` | Dreaming 晨报 | `reports/morning/<YYYY-MM-DD>.md` |
+| `report-template.html` | Dreaming 面向用户的 HTML 模板 | `state/dreaming/reports/<kind>-<period>/artifacts/report.html` |
+| `report-template.md` | Dreaming HTML 模板渲染契约 | 设计 / 开发参考，不进入报告产物 |
 | `report-automation-daily.md` | 宿主本地自动日报 prompt | harness 定时任务配置 |
 | `report-automation-weekly.md` | 宿主本地自动周报 prompt | harness 定时任务配置 |
 | `report-automation-recovery.md` | 自动报告缺口检查与单期补跑 prompt | harness 周期性补偿任务配置 |
 
 报告模板只定义结构,不含业务数据。生成报告时复制结构到知识库数据目录,填入从节点 / raw /
 journal 或 committed Dreaming Finding 得到的事实,并保留 `## 手动补充 / 备注` 供用户自行改写。
+HTML 模板必须保持单文件自包含，不加载外部 JS/CSS/字体/图片；业务文本由 Python 渲染器转义后
+替换 `{{PLACEHOLDER}}`。Dreaming 只读取 `report-template.html`；文件不存在时报告渲染失败。

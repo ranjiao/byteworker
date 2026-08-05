@@ -1,11 +1,10 @@
 # Dreaming Report Consumers
 
-仅在 Dreaming report owner 生效后使用。旧 report automation owner 未释放时不得运行本流程。
+仅由 Dreaming report owner 运行。
 
 ## Coverage 与 Packet
 
-`run-due` 发现报告窗口未覆盖时不会领取报告，而会返回独立 process catch-up lease，包含
-`dependency.start/end/lane`。runner 用该窗口执行 process；成功 commit 后下一 tick 才领取报告。
+窗口未覆盖时 `run-due` 返回 process catch-up lease；commit 后下一 tick 领取报告。
 
 报告 lease 到手后：
 
@@ -14,41 +13,56 @@ bin/byteworker dreaming report prepare \
   --kb "<KB>" --kind morning|daily|weekly --period "<period>"
 ```
 
-prepare 只读取 committed Finding projection 和 durable KB 引用，不读 spool、不重新运行完整
-routine digest。返回私密 packet path、Finding 数量和 coverage：
+prepare 只读 committed Finding 和 durable KB 引用，不读 spool 或重跑 digest，返回 packet、
+Finding 数量和 coverage：
 
-- monitored cursor/gap 未完成：blocked，不生成 packet。
-- all_visible discovery：最多 partial，必须在报告中披露 best-effort。
-- 尚未支持的 routine provider：partial；存在时禁止 daily/weekly owner migration。
+- monitored cursor/gap 未完成：blocked。
+- all_visible discovery：最多 partial，披露 best-effort。
+- 不支持的 routine provider：partial，并禁止 daily/weekly 迁移。
 
 ## 生成与提交
 
-1. 读取 packet、`context view --intent report`、Todo 和有限 KB query。
-2. 使用 packet 指定模板生成完整候选；所有事实按 `references/citations.md` 回到原始 evidence。
-3. 生成 `include_report` ActionPlan，按 `references/dreaming-actions.md` plan/claim/validate。
-4. 用 `kb-mutate execute` 写报告，保留“手动补充 / 备注”。
-5. 将真实 mutation receipt 包装为 action downstream receipt：
-   - `status=committed`
-   - `idempotency_key=<claim.dedupe_key>`
-   - `commit=<KB commit>`
-6. `action complete` 成功后，才 `dreaming complete --run-status success --artifact-path ...`。
+1. 读取 packet、report context、Todo 和有限 KB query。
+2. 一次生成 `byteworker-report-document/v1`；事实按 `references/citations.md` 回到原始
+   evidence，`message_summary` 为 300-500 字。
+3. 将候选保存到 KB 外临时文件，调用：
 
-报告生成成功和投递成功分离。需要投递时：
+```bash
+bin/byteworker dreaming report render --kb "<KB>" --input "<report.json>"
+```
+
+render 确定性生成 manifest 和四个私有文件：
+
+- `report.json`：唯一语义结果。
+- `summary.txt`：所有宿主回显的用户消息摘要。
+- `report.md`：Agent 内部记录和引用审计。
+- `report.html`：详细自包含页面；宿主预览或返回本地链接。
+
+HTML 禁止宿主私有 API 和外部脚本、样式、字体、图片或网络资源。TraeWork、Codex、Claude
+Code 只消费 manifest。
+4. 按 `references/dreaming-actions.md` plan/claim/validate `include_report`。
+5. 用 `kb-mutate execute` 写内部 Markdown，保留“手动补充 / 备注”。
+6. 将真实 mutation receipt 包装为 action downstream receipt，含 `status=committed`、
+   `idempotency_key=<claim.dedupe_key>` 和 `commit=<KB commit>`。
+7. `action complete` 后才成功完成 Dreaming job。
+
+生成与投递分别判定。需要投递时：
 
 ```bash
 bin/byteworker dreaming report enqueue-delivery \
   --kb "<KB>" --kind "<kind>" --period "<period>" \
-  --report-path "<reports/...>" --commit "<commit>"
+  --report-path "<reports/...>" --commit "<commit>" \
+  --channel lark_bot --artifact summary --recipient-id "<ou_...>"
 
-bin/byteworker dreaming report delivery-complete \
-  --kb "<KB>" --outbox-id "<OUT-id>" --delivery-id "<delivery-id>"
+bin/byteworker dreaming report deliver \
+  --kb "<KB>" --outbox-id "<OUT-id>"
 ```
 
-没有 delivery receipt 只能说报告已生成，不能声称用户已收到。
+飞书固定用应用机器人发送 summary；`message_id` 是送达回执。不得猜收件人；无回执只能说已生成。
 
 ## Owner Migration
 
-迁移前先在宿主 UI 停止旧 daily/weekly/recovery 任务，然后：
+先在宿主 UI 停止旧 daily/weekly/recovery 任务，再执行：
 
 ```bash
 bin/byteworker report-automation release-owner \
@@ -58,13 +72,10 @@ bin/byteworker dreaming manage-reports \
   --kb "<KB>" --enabled true --acknowledge-owner-released
 ```
 
-Dreaming 会保存 legacy snapshot 和 migration epoch。若存在尚未支持的 routine provider，迁移
-fail closed。
+保存 legacy snapshot 和 migration epoch；不支持的 provider 令迁移失败。
 
-回滚顺序：
+回滚：
 
 1. `dreaming manage-reports --enabled false`
 2. 在宿主 UI 按 snapshot 恢复旧任务
 3. `report-automation restore-owner --acknowledge-tasks-restored`
-
-不能先恢复旧任务，否则同一 period 可能出现双 owner。

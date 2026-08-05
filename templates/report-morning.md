@@ -1,7 +1,7 @@
 # 晨报 · <YYYY-MM-DD>
 
 > 生成时间:<YYYY-MM-DD HH:MM>
-> 范围:<前一工作日夜间> .. <YYYY-MM-DD 08:30>
+> 范围:<前一工作日夜间> .. <YYYY-MM-DD 10:00>
 > Coverage:<covered / partial>
 > 引用范围:<实际支持正文的原始来源摘要;不要只写 Finding / node / raw id>
 

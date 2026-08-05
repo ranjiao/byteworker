@@ -87,6 +87,8 @@ class ReportSchedulingContractTests(unittest.TestCase):
         self.assertIn("宿主本地定时任务", architecture)
         self.assertIn("不承担任务唤醒", architecture)
         self.assertIn("第三个宿主原生任务唤醒", architecture)
+        self.assertIn("TRAE IDE/TraeCode", scheduling)
+        self.assertIn("切换到 TraeWork 桌面版", scheduling)
 
 
 if __name__ == "__main__":

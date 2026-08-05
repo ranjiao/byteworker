@@ -45,6 +45,7 @@ class DreamingSchedulerTests(unittest.TestCase):
             timezone_name="Asia/Shanghai",
             acknowledge_machine_runtime=True,
             acknowledge_capability_tour=True,
+            acknowledge_schedule=True,
             now=now,
         )
 
@@ -70,6 +71,7 @@ class DreamingSchedulerTests(unittest.TestCase):
                     timezone_name="Asia/Shanghai",
                     acknowledge_machine_runtime=False,
                     acknowledge_capability_tour=True,
+                    acknowledge_schedule=True,
                 )
             self.assertEqual("DREAMING_RUNTIME_ACK_REQUIRED", caught.exception.code)
             self.assertFalse(state_path(kb).exists())
@@ -162,6 +164,7 @@ class DreamingSchedulerTests(unittest.TestCase):
                             environment=environment,
                             acknowledge_machine_runtime=True,
                             acknowledge_capability_tour=True,
+                            acknowledge_schedule=True,
                         )
                     self.assertEqual("DREAMING_CONFIG_INVALID", caught.exception.code)
 

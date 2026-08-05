@@ -78,6 +78,7 @@ class DreamingI4CliTests(unittest.TestCase):
                 timezone_name="Asia/Shanghai",
                 acknowledge_machine_runtime=True,
                 acknowledge_capability_tour=True,
+                acknowledge_schedule=True,
                 now=now - timedelta(hours=3),
             )
             lease = run_due(
