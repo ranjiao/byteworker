@@ -172,7 +172,8 @@ class AgentRouteContractTests(unittest.TestCase):
             self.assertIn(term, maintenance)
         for term in (
             "byteworker-dreaming-local",
-            "每 30 分钟",
+            "本地任务唤醒间隔",
+            "推荐 2 小时",
             "Code 模式",
             "本地环境",
             "Run now",

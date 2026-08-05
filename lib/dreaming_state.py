@@ -260,6 +260,10 @@ def empty_state(now: datetime) -> dict[str, Any]:
             "registered_at": None,
             "last_tick_at": None,
         },
+        "harness_preferences": {
+            "wake_interval_minutes": 120,
+            "model": "",
+        },
         "environment": "local",
         "timezone": "",
         "runtime_notice_acknowledged_at": None,
@@ -422,6 +426,13 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
         },
     )
     result.setdefault(
+        "harness_preferences",
+        {
+            "wake_interval_minutes": 120,
+            "model": "",
+        },
+    )
+    result.setdefault(
         "logging",
         {
             "retention_days": 30,
@@ -444,6 +455,22 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
         raise DreamingError(
             "DREAMING_STATE_INVALID",
             "Dreaming v2 harness 无效。",
+        )
+    harness_preferences = result["harness_preferences"]
+    if (
+        not isinstance(harness_preferences, Mapping)
+        or not isinstance(harness_preferences.get("wake_interval_minutes"), int)
+        or harness_preferences["wake_interval_minutes"] < 5
+        or not isinstance(harness_preferences.get("model"), str)
+        or len(harness_preferences["model"]) > 80
+        or any(
+            token in harness_preferences["model"].lower()
+            for token in ("token", "secret", "cookie", "\n", "\r")
+        )
+    ):
+        raise DreamingError(
+            "DREAMING_STATE_INVALID",
+            "Dreaming v2 harness preferences 无效。",
         )
     logging = result["logging"]
     if (

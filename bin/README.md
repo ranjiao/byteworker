@@ -119,6 +119,7 @@ cd "$BYTEWORKER_ROOT"
 | `todo.py` | Agent | Todo 初始化、查询和状态维护 | 写命令事务化更新 todo、journal 和本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
 | `dreaming.py` | Agent / 自动化 | Dreaming 三确认启停、灵活 schedule、harness truth、run heartbeat/log、foreground process、Finding/Action/report/maintenance | 私密 state、`run-logs/` 与 KB 外评估指标 |
+| `viewer-server.py` | `browse.sh` 内部 | 本地 viewer 静态服务与 token-gated 设置 API | 只通过 `settings.py` 写受控配置 |
 | `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 写 INDEX、journal 和本地 commit |
 | `kb-mutate.py` | Agent / 自动化 | 非 digest 内容的版本化事务写入 | 写目标、INDEX、journal 和本地 commit |
 | `context.py` | Agent / 自动化 | 按 intent 读取有限 context 投影 | 只读 |
@@ -981,7 +982,8 @@ bin/byteworker preflight --require feishu
 
 ### `browse.sh`
 
-在本机启动只读静态 Viewer。
+在本机启动 Viewer。知识库浏览仍是静态只读；设置对话框里的系统设置通过
+`viewer-server.py` 暴露的本机会话 API 写入受控配置。
 
 ```bash
 bin/browse.sh
@@ -991,7 +993,9 @@ bin/browse.sh 8765
 - 默认端口 `8765`；被占用时自动寻找其它可用端口。
 - 只绑定 `127.0.0.1`。
 - 临时服务目录只包含 `viewer/` 和知识库目录的符号链接。
-- 不修改知识库；按 `Ctrl-C` 停止并清理临时目录。
+- `/api/settings` 要求启动时生成的一次性 token，只允许修改 Dreaming 安全开关/频率/日志/摘要和
+  Source Profile routine；旧自动报告只读展示。
+- 按 `Ctrl-C` 停止并清理临时目录。
 
 ### `check-deps.sh`
 

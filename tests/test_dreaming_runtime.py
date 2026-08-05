@@ -68,6 +68,8 @@ class DreamingRuntimeTests(unittest.TestCase):
                 log_retention_days=45,
                 lark_delivery_enabled=True,
                 lark_recipient_id="ou_test",
+                harness_wake_interval_minutes=120,
+                harness_model="gpt-5.5",
                 now=configured_at,
             )
             self.assertEqual(
@@ -77,6 +79,10 @@ class DreamingRuntimeTests(unittest.TestCase):
             self.assertEqual(
                 {"enabled": True, "recipient_id": "ou_test"},
                 configured["report_delivery"]["lark_bot"],
+            )
+            self.assertEqual(
+                {"wake_interval_minutes": 120, "model": "gpt-5.5"},
+                configured["harness_preferences"],
             )
             enabled = self.enable_at(kb, configured_at)
             self.assertFalse(enabled["operational"])
@@ -93,6 +99,10 @@ class DreamingRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(installed["operational"])
             self.assertEqual(45, installed["logging"]["retention_days"])
+            self.assertEqual(
+                "gpt-5.5",
+                installed["harness_preferences"]["model"],
+            )
             removed = unregister_harness(
                 kb,
                 now=configured_at + timedelta(minutes=2),
