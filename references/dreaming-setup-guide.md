@@ -185,6 +185,9 @@ bin/byteworker dreaming grant set-actions --kb "<KB>" \
 `references/dreaming-harness-trae.md` 先分流：TRAE IDE/TraeCode 提示切换，TraeWork 桌面版
 才能接通本地自动运行。
 
+创建或修改本地定时任务前，必须确认“本地任务唤醒间隔”：只唤醒 runner 查 due，不等于业务分析
+频率或每次都调用模型。推荐 2 小时；用户可按 quota 和时效调整。已有任务只改间隔。
+
 只有任务真实存在、首次触发成功并完成 register 后，才显示：
 
 > 自动运行：已接通
@@ -200,6 +203,7 @@ bin/byteworker dreaming grant set-actions --kb "<KB>" \
 ```text
 后台信息助手：已开启 / 已关闭
 自动运行：已接通 / 待完成
+任务唤醒：<间隔> / 待设置
 信息范围：仅已选择群聊 / 全部可见会话 / 未授权
 自动检查：<自然语言频率与时间>
 分析结果：保存 / 不保存

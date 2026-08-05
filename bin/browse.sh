@@ -10,11 +10,13 @@
 #   2. 建一个临时服务根目录,里面只放两个符号链接:
 #        app/ → 本 skill 的 viewer/(viewer 代码随 skill 分发)
 #        kb/  → 知识库数据目录(只读浏览,绝不写入)
-#   3. 在临时根起 `python3 -m http.server`(纯静态文件服务器,零自定义后端);
+#   3. 在临时根起本地 viewer server:
+#      - 静态浏览仍只读；
+#      - /api/settings 只绑定 127.0.0.1,并要求本次会话 token；
 #   4. 打开浏览器到 viewer 页面。Ctrl-C 停止,临时目录自动清理。
 #
-# viewer 是纯前端、只读 —— 浏览/检索/沿 links 跳转;编辑知识库仍走 byteworker skill。
-# 关键:viewer 代码始终在 skill 仓库内,数据目录一个字节都不写入。
+# viewer 浏览/检索/沿 links 跳转仍是只读；设置页只通过受限 API 写入已支持的配置项。
+# 关键:viewer 代码始终在 skill 仓库内,业务数据不进入 skill 仓库。
 set -euo pipefail
 
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -77,15 +79,24 @@ ln -s "$SKILL_DIR/viewer" "$SERVE_ROOT/app"
 ln -s "$KBDIR" "$SERVE_ROOT/kb"
 
 URL="http://localhost:$PORT/app/index.html"
+API_TOKEN=$("$PYTHON_BIN" - <<'PY'
+import secrets
+print(secrets.token_urlsafe(24))
+PY
+)
+URL_WITH_TOKEN="$URL?api_token=$API_TOKEN"
 echo "byteworker viewer → $URL"
-echo "(静态服务器,纯本地;Ctrl-C 停止)"
+echo "(本地 viewer server;Ctrl-C 停止)"
 
 # 1 秒后开浏览器(等服务器起来)
 ( sleep 1
-  if command -v open >/dev/null 2>&1; then open "$URL"
-  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL"
+  if command -v open >/dev/null 2>&1; then open "$URL_WITH_TOKEN"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL_WITH_TOKEN"
   fi ) &
 
 # 不用 exec —— 保留 trap,python 退出后能清理临时目录
-cd "$SERVE_ROOT"
-"$PYTHON_BIN" -m http.server "$PORT" --bind 127.0.0.1
+"$PYTHON_BIN" "$SKILL_DIR/bin/viewer-server.py" \
+  --root "$SERVE_ROOT" \
+  --kb "$KBDIR" \
+  --port "$PORT" \
+  --token "$API_TOKEN"

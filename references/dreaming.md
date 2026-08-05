@@ -95,7 +95,8 @@ bin/byteworker dreaming retry-job --kb "<知识库绝对路径>" --job maintenan
 
 ## 宿主 tick
 
-目标态由一个 local 宿主任务每 30 分钟运行 `templates/dreaming-runner.md`。runner 调用：
+local 宿主任务按唤醒间隔运行 `templates/dreaming-runner.md`；推荐 2 小时，最短
+5 分钟。runner 调用：
 
 ```bash
 bin/byteworker dreaming run-due \

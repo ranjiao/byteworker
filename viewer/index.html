@@ -1203,10 +1203,11 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
 }
 @keyframes settingsFade { from { opacity: 0; } to { opacity: 1; } }
 .settings {
-  width: 460px; max-width: 92vw;
+  width: 680px; max-width: 94vw;
+  max-height: 86vh;
   background: var(--bg-elev); border: 1px solid var(--line);
   border-radius: var(--radius-lg); box-shadow: var(--shadow-pop);
-  overflow: hidden;
+  overflow: hidden; display: flex; flex-direction: column;
   animation: settingsRise 200ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
 }
 @keyframes settingsRise {
@@ -1225,7 +1226,20 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
   border-radius: 5px; background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .settings-close:hover { background: var(--bg-hover); color: var(--ink); }
-.settings-body { padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 16px; }
+.settings-tabs {
+  display: flex; gap: 4px; padding: 10px 16px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.settings-tab {
+  height: 30px; padding: 0 12px; border-radius: 7px 7px 0 0;
+  font-size: 12.5px; color: var(--ink-3);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.settings-tab:hover { color: var(--ink); background: var(--bg-hover); }
+.settings-tab.on {
+  color: var(--accent); background: var(--accent-tint); font-weight: 600;
+}
+.settings-body { padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
 .settings-group { display: grid; grid-template-columns: 88px 1fr; column-gap: 14px; align-items: center; }
 .settings-label {
   font-size: 12px; font-weight: 600; color: var(--ink-3);
@@ -1252,6 +1266,67 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
   display: flex; align-items: center; gap: 10px;
 }
 .settings-foot .kbd { margin-left: auto; }
+.settings-section {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg-elev);
+  overflow: hidden;
+}
+.settings-section-h {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border-bottom: 1px solid var(--divider); font-weight: 600; font-size: 13px;
+}
+.settings-section-h .hint { margin-left: auto; color: var(--ink-4); font-size: 11px; font-weight: 400; }
+.settings-form { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.settings-row {
+  display: grid; grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px; align-items: center; min-height: 30px;
+}
+.settings-row label,
+.settings-row .settings-row-label {
+  color: var(--ink-3); font-size: 12px; font-family: var(--font-mono);
+}
+.settings-control-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.settings-input,
+.settings-select {
+  height: 30px; min-width: 0; border: 1px solid var(--line);
+  border-radius: 7px; padding: 0 9px; background: var(--bg); color: var(--ink);
+  font: inherit; font-size: 12.5px;
+}
+.settings-input:focus,
+.settings-select:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.settings-input.small { width: 92px; }
+.settings-input.medium { width: 180px; }
+.settings-check {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2);
+}
+.settings-check input { accent-color: var(--accent); }
+.settings-muted { color: var(--ink-4); font-size: 11.5px; line-height: 1.5; }
+.settings-status {
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--bg-chip); color: var(--ink-2); font-size: 12.5px; line-height: 1.55;
+}
+.settings-status.error {
+  background: color-mix(in oklch, var(--c-decision) 9%, transparent);
+  color: var(--ink);
+}
+.settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+.settings-primary,
+.settings-secondary {
+  height: 30px; padding: 0 12px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+}
+.settings-primary { background: var(--accent); color: white; }
+.settings-primary:disabled { opacity: 0.5; cursor: default; }
+.settings-secondary { border: 1px solid var(--line); color: var(--ink-2); }
+.settings-secondary:hover { border-color: var(--line-strong); color: var(--ink); }
+.settings-source-list { display: flex; flex-direction: column; gap: 8px; }
+.settings-source {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px; align-items: center; padding: 9px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--bg);
+}
+.settings-source-title { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-source-meta { color: var(--ink-4); font-size: 11px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -1426,6 +1501,11 @@ const ID_RE = /\b(?:person|project|area|org|event|decision|reading|thinking)-[a-
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const md = window.markdownit({ html: false, linkify: true, typographer: false });
+const API_TOKEN = (() => {
+  const search = String(window.location && window.location.search || '');
+  const match = search.match(/[?&]api_token=([^&]+)/);
+  return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : '';
+})();
 
 // ---- state ----------------------------------------------------
 const state = {
@@ -1462,7 +1542,12 @@ const state = {
   recentIds: [], // most-recently-opened, deduped, capped 8
   rail: 'graph',
   settings: { theme: 'light', density: 'normal', width: 'normal' },
+  settingsTab: 'display',
   settingsOpen: false,
+  appSettings: null,
+  appSettingsLoading: false,
+  appSettingsSaving: false,
+  appSettingsError: '',
   paletteOpen: false,
   paletteQ: '',
   paletteSel: 0,
@@ -3014,8 +3099,246 @@ function setSetting(key, value) {
   try { localStorage.setItem('bw.viewer.settings', JSON.stringify(state.settings)); } catch (e) {}
   if (state.settingsOpen) renderSettings();
 }
-function openSettings() { state.settingsOpen = true; renderSettings(); }
+function openSettings() {
+  state.settingsOpen = true;
+  renderSettings();
+  if (state.settingsTab === 'system') loadSystemSettings();
+}
 function closeSettings() { state.settingsOpen = false; D.settingsPortal.innerHTML = ''; }
+async function settingsApi(method, body) {
+  if (!API_TOKEN) throw new Error('当前 viewer 会话没有设置接口 token。请通过 bin/browse.sh 打开。');
+  const options = {
+    method,
+    headers: {
+      'Accept': 'application/json',
+      'X-Byteworker-Token': API_TOKEN,
+    },
+    cache: 'no-store',
+  };
+  if (body !== undefined) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch('/api/settings', options);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.error) {
+    const err = payload.error || {};
+    throw new Error(err.message || err.code || '设置接口请求失败。');
+  }
+  return payload;
+}
+async function loadSystemSettings() {
+  if (!state.settingsOpen || state.settingsTab !== 'system' || !API_TOKEN) return;
+  state.appSettingsLoading = true;
+  state.appSettingsError = '';
+  renderSettings();
+  try {
+    state.appSettings = await settingsApi('GET');
+  } catch (e) {
+    state.appSettingsError = e.message || String(e);
+  } finally {
+    state.appSettingsLoading = false;
+    renderSettings();
+  }
+}
+function setSettingsTab(tab) {
+  state.settingsTab = tab;
+  renderSettings();
+  if (tab === 'system' && !state.appSettings && !state.appSettingsLoading) {
+    loadSystemSettings();
+  }
+}
+function inputValue(id) {
+  return document.getElementById(id)?.value ?? '';
+}
+function inputChecked(id) {
+  return !!document.getElementById(id)?.checked;
+}
+function numberValue(id, fallback) {
+  const parsed = Number(inputValue(id));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+async function saveSystemSettings() {
+  if (!state.appSettings || state.appSettingsSaving) return;
+  try {
+    const processKind = inputValue('settings-process-kind') || 'interval';
+    const processSchedule = { kind: processKind };
+    if (processKind === 'interval') {
+      processSchedule.minutes = numberValue('settings-process-minutes', 120);
+    } else if (processKind === 'daily_time') {
+      processSchedule.time = inputValue('settings-process-time') || '22:00';
+    } else {
+      processSchedule.days = numberValue('settings-process-days', 2);
+      processSchedule.time = inputValue('settings-process-time') || '22:00';
+    }
+    const sourcePatches = Array.from(D.settingsPortal.querySelectorAll('[data-source-uid]')).map(row => {
+      const enabled = row.querySelector('[data-source-enabled]')?.checked || false;
+      const cadence = row.querySelector('[data-source-cadence]')?.value || '';
+      return {
+        source_uid: row.dataset.sourceUid,
+        routine: {
+          enabled,
+          cadence: enabled ? (cadence || 'daily') : '',
+        },
+      };
+    });
+    const patch = {
+      dreaming: {
+        timezone: inputValue('settings-dreaming-timezone'),
+        jobs: {
+          process: {
+            enabled: inputChecked('settings-process-enabled'),
+            schedule: processSchedule,
+          },
+          morning: {
+            enabled: inputChecked('settings-morning-enabled'),
+            schedule: { time: inputValue('settings-morning-time') || '08:30' },
+          },
+          maintenance: {
+            enabled: inputChecked('settings-maintenance-enabled'),
+            schedule: { time: inputValue('settings-maintenance-time') || '03:30' },
+          },
+          recovery: {
+            enabled: inputChecked('settings-recovery-enabled'),
+            schedule: { minutes: numberValue('settings-recovery-minutes', 240) },
+          },
+        },
+        im: {
+          mode: inputValue('settings-im-mode') || 'off',
+          persist_finding: inputChecked('settings-im-persist'),
+          acknowledge_all_visible: inputChecked('settings-im-all-visible-ack'),
+        },
+        logging: {
+          retention_days: numberValue('settings-log-retention', 30),
+        },
+        delivery: {
+          lark_summary_enabled: inputChecked('settings-lark-enabled'),
+          lark_recipient_id: inputValue('settings-lark-recipient'),
+        },
+        harness_preferences: {
+          wake_interval_minutes: numberValue('settings-harness-wake-minutes', 120),
+          model: inputValue('settings-harness-model'),
+        },
+      },
+      sources: sourcePatches,
+    };
+    state.appSettingsSaving = true;
+    state.appSettingsError = '';
+    renderSettings();
+    state.appSettings = await settingsApi('PATCH', patch);
+  } catch (e) {
+    state.appSettingsError = e.message || String(e);
+  } finally {
+    state.appSettingsSaving = false;
+    renderSettings();
+  }
+}
+function scheduleValue(job, key, fallback = '') {
+  const schedule = job?.schedule || {};
+  return schedule[key] ?? fallback;
+}
+function renderSystemSettings() {
+  if (!API_TOKEN) {
+    return `<div class="settings-status">当前页面不是通过 byteworker 本地 viewer server 打开的，系统设置只读。请使用 <code>bin/browse.sh</code> 打开后再修改配置。</div>`;
+  }
+  if (state.appSettingsLoading && !state.appSettings) {
+    return `<div class="settings-status">正在读取配置…</div>`;
+  }
+  if (!state.appSettings) {
+    return `<div class="settings-status${state.appSettingsError ? ' error' : ''}">${esc(state.appSettingsError || '尚未读取配置。')}</div>`;
+  }
+  const cfg = state.appSettings;
+  const d = cfg.dreaming || {};
+  const jobs = d.jobs || {};
+  const process = jobs.process || {};
+  const morning = jobs.morning || {};
+  const maintenance = jobs.maintenance || {};
+  const recovery = jobs.recovery || {};
+  const processKind = scheduleValue(process, 'kind', 'interval');
+  const im = d.im || {};
+  const delivery = d.delivery || {};
+  const logging = d.logging || {};
+  const harnessPrefs = d.harness_preferences || {};
+  const report = cfg.report_automation || {};
+  const sources = cfg.sources || [];
+  const sourceRows = sources.length ? sources.map(source => `
+    <div class="settings-source" data-source-uid="${esc(source.source_uid)}">
+      <div>
+        <div class="settings-source-title">${esc(source.title)}</div>
+        <div class="settings-source-meta">${esc(source.source_label)} · ${esc(source.profile_path)}</div>
+      </div>
+      <div class="settings-control-row">
+        <label class="settings-check"><input type="checkbox" data-source-enabled ${source.routine?.enabled ? 'checked' : ''}>定期读取</label>
+        <select class="settings-select" data-source-cadence>
+          ${['', 'daily', 'weekly', 'monthly'].map(v => `<option value="${v}" ${source.routine?.cadence === v ? 'selected' : ''}>${v || '不设置'}</option>`).join('')}
+        </select>
+      </div>
+    </div>`).join('') : '<div class="settings-muted">暂无已注册来源配置。</div>';
+  return `
+    ${state.appSettingsError ? `<div class="settings-status error">${esc(state.appSettingsError)}</div>` : ''}
+    <div class="settings-section">
+      <div class="settings-section-h">${icon('eye', 13)}<span>后台信息助手</span><span class="hint">${d.operational ? '已自动运行' : (d.enabled ? '等待本地任务' : '未启用')}</span></div>
+      <div class="settings-form">
+        <div class="settings-row"><label>时区</label><input id="settings-dreaming-timezone" class="settings-input medium" value="${esc(d.timezone || cfg.kb?.context?.timezone_hint || '')}" placeholder="Asia/Shanghai"></div>
+        <div class="settings-row"><label>信息范围</label><div class="settings-control-row">
+          <select id="settings-im-mode" class="settings-select">
+            ${['off', 'monitored', 'all_visible'].map(v => `<option value="${v}" ${im.mode === v ? 'selected' : ''}>${v === 'off' ? '关闭' : v === 'monitored' ? '仅关注会话' : '所有可见会话'}</option>`).join('')}
+          </select>
+          <label class="settings-check"><input id="settings-im-persist" type="checkbox" ${im.persist_finding ? 'checked' : ''}>沉淀待关注事项</label>
+        </div></div>
+        <div class="settings-row"><label>敏感范围确认</label><label class="settings-check"><input id="settings-im-all-visible-ack" type="checkbox">我确认允许读取所有可见会话</label></div>
+        <div class="settings-row"><label>本地任务</label><div class="settings-control-row">
+          <input id="settings-harness-wake-minutes" class="settings-input small" type="number" min="5" value="${esc(harnessPrefs.wake_interval_minutes || 120)}" title="唤醒间隔分钟">
+          <span class="settings-muted">分钟唤醒一次 runner</span>
+          <input id="settings-harness-model" class="settings-input medium" value="${esc(harnessPrefs.model || '')}" placeholder="模型，如 gpt-5.5">
+        </div></div>
+        <div class="settings-row"><span class="settings-row-label"></span><div class="settings-muted">这是本地定时任务的期望配置；viewer 会保存设置，但不会伪造宿主任务回执。</div></div>
+        <div class="settings-row"><label>自动检查</label><div class="settings-control-row">
+          <label class="settings-check"><input id="settings-process-enabled" type="checkbox" ${process.enabled ? 'checked' : ''}>启用</label>
+          <select id="settings-process-kind" class="settings-select">
+            ${['interval', 'daily_time', 'every_n_days'].map(v => `<option value="${v}" ${processKind === v ? 'selected' : ''}>${v === 'interval' ? '每隔一段时间' : v === 'daily_time' ? '每天固定时间' : '每 N 天'}</option>`).join('')}
+          </select>
+          <input id="settings-process-minutes" class="settings-input small" type="number" min="5" value="${esc(scheduleValue(process, 'minutes', 120))}" title="间隔分钟">
+          <input id="settings-process-days" class="settings-input small" type="number" min="1" value="${esc(scheduleValue(process, 'days', 2))}" title="间隔天数">
+          <input id="settings-process-time" class="settings-input small" value="${esc(scheduleValue(process, 'time', '22:00'))}" title="HH:MM">
+        </div></div>
+        <div class="settings-row"><label>晨报</label><div class="settings-control-row">
+          <label class="settings-check"><input id="settings-morning-enabled" type="checkbox" ${morning.enabled ? 'checked' : ''}>启用</label>
+          <input id="settings-morning-time" class="settings-input small" value="${esc(scheduleValue(morning, 'time', '08:30'))}">
+        </div></div>
+        <div class="settings-row"><label>自检维护</label><div class="settings-control-row">
+          <label class="settings-check"><input id="settings-maintenance-enabled" type="checkbox" ${maintenance.enabled ? 'checked' : ''}>启用</label>
+          <input id="settings-maintenance-time" class="settings-input small" value="${esc(scheduleValue(maintenance, 'time', '03:30'))}">
+        </div></div>
+        <div class="settings-row"><label>恢复补跑</label><div class="settings-control-row">
+          <label class="settings-check"><input id="settings-recovery-enabled" type="checkbox" ${recovery.enabled ? 'checked' : ''}>启用</label>
+          <input id="settings-recovery-minutes" class="settings-input small" type="number" min="5" value="${esc(scheduleValue(recovery, 'minutes', 240))}"><span class="settings-muted">分钟检查一次</span>
+        </div></div>
+        <div class="settings-row"><label>运行日志</label><div class="settings-control-row"><input id="settings-log-retention" class="settings-input small" type="number" min="1" max="365" value="${esc(logging.retention_days || 30)}"><span class="settings-muted">天后清理</span></div></div>
+        <div class="settings-row"><label>飞书摘要</label><div class="settings-control-row">
+          <label class="settings-check"><input id="settings-lark-enabled" type="checkbox" ${delivery.lark_summary_enabled ? 'checked' : ''}>发送摘要</label>
+          <input id="settings-lark-recipient" class="settings-input medium" value="${esc(delivery.lark_recipient_id || '')}" placeholder="ou_xxx">
+        </div></div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-h">${icon('clock', 13)}<span>定期读取来源</span><span class="hint">${sources.length} 个来源</span></div>
+      <div class="settings-form"><div class="settings-source-list">${sourceRows}</div></div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-h">${icon('info', 13)}<span>旧自动日报 / 周报</span><span class="hint">只读</span></div>
+      <div class="settings-form">
+        <div class="settings-row"><span class="settings-row-label">状态</span><span>${esc(report.decision || 'unasked')}</span></div>
+        <div class="settings-row"><span class="settings-row-label">日报</span><span>${report.daily?.enabled ? esc(report.daily.schedule || '已启用') : '未启用'}</span></div>
+        <div class="settings-row"><span class="settings-row-label">周报</span><span>${report.weekly?.enabled ? esc(report.weekly.schedule || '已启用') : '未启用'}</span></div>
+        <div class="settings-muted">旧自动报告依赖宿主定时任务，这里不创建或伪造宿主任务。迁移到后台信息助手需要走专门确认流程。</div>
+      </div>
+    </div>
+    <div class="settings-actions">
+      <button class="settings-secondary" id="settings-system-reload">重新读取</button>
+      <button class="settings-primary" id="settings-system-save" ${state.appSettingsSaving ? 'disabled' : ''}>${state.appSettingsSaving ? '保存中…' : '保存设置'}</button>
+    </div>`;
+}
 
 function renderSettings() {
   if (!state.settingsOpen) { D.settingsPortal.innerHTML = ''; return; }
@@ -3024,14 +3347,18 @@ function renderSettings() {
     `<button type="button" role="radio" aria-checked="${s[key] === o.v}" class="${s[key] === o.v ? 'on' : ''}" data-set="${key}" data-val="${o.v}">${o.icon ? icon(o.icon, 12) : ''}<span>${o.l}</span></button>`
   ).join('') + `</div>`;
   D.settingsPortal.innerHTML = `<div class="settings-bg" id="settings-bg">
-    <div class="settings" role="dialog" aria-modal="true" aria-label="显示设置">
+    <div class="settings" role="dialog" aria-modal="true" aria-label="设置">
       <header class="settings-h">
         ${icon('gear', 14)}
-        <div class="settings-h-title">显示设置</div>
+        <div class="settings-h-title">设置</div>
         <button class="settings-close" id="settings-close" aria-label="关闭">${icon('x', 12)}</button>
       </header>
+      <div class="settings-tabs">
+        <button class="settings-tab ${state.settingsTab === 'display' ? 'on' : ''}" data-settings-tab="display">${icon('sun', 12)}显示</button>
+        <button class="settings-tab ${state.settingsTab === 'system' ? 'on' : ''}" data-settings-tab="system">${icon('gear', 12)}系统</button>
+      </div>
       <div class="settings-body">
-        <div class="settings-group">
+        ${state.settingsTab === 'display' ? `<div class="settings-group">
           <div class="settings-label">主题</div>
           ${seg('theme', [{ v: 'light', l: '浅色', icon: 'sun' }, { v: 'dark', l: '深色', icon: 'moon' }])}
         </div>
@@ -3042,10 +3369,10 @@ function renderSettings() {
         <div class="settings-group">
           <div class="settings-label">阅读宽度</div>
           ${seg('width', [{ v: 'narrow', l: '窄' }, { v: 'normal', l: '中' }, { v: 'wide', l: '宽' }])}
-        </div>
+        </div>` : renderSystemSettings()}
       </div>
       <footer class="settings-foot">
-        <span>设置自动保存到本地</span>
+        <span>${state.settingsTab === 'display' ? '显示设置自动保存到浏览器本地' : '系统设置写入知识库本地配置'}</span>
         <span class="kbd">⌘,</span>
       </footer>
     </div>
@@ -3053,9 +3380,14 @@ function renderSettings() {
   const bg = document.getElementById('settings-bg');
   bg.addEventListener('mousedown', (e) => { if (e.target === bg) closeSettings(); });
   document.getElementById('settings-close').addEventListener('click', closeSettings);
+  D.settingsPortal.querySelectorAll('[data-settings-tab]').forEach(b => {
+    b.addEventListener('click', () => setSettingsTab(b.dataset.settingsTab));
+  });
   D.settingsPortal.querySelectorAll('[data-set]').forEach(b => {
     b.addEventListener('click', () => setSetting(b.dataset.set, b.dataset.val));
   });
+  document.getElementById('settings-system-reload')?.addEventListener('click', loadSystemSettings);
+  document.getElementById('settings-system-save')?.addEventListener('click', saveSystemSettings);
 }
 
 // ---- inline SVG icons ----------------------------------

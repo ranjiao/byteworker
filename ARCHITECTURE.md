@@ -366,7 +366,7 @@ Finding/Action 生命周期、维护和退出边界，并配置确认完整运�
 宿主差异只存在 Agent/harness 兼容层，不进入 scheduler。TRAE 产品家族环境按
 `references/dreaming-harness-trae.md` 先识别具体产品：TRAE IDE/TraeCode（包括内置 SOLO）
 没有 Dreaming 所需的本地定时任务入口，只提示用户切换到 TraeWork 桌面版；TraeWork 桌面版
-才可在“自动化”中创建本地 Code 任务、每 30 分钟执行 runner 并首次触发。产品未确认或没有
+才可在“自动化”中创建本地 Code 任务，按用户确认的唤醒间隔执行 runner 并首次触发。产品未确认或没有
 Schedule 工具回执时保持 `harness.status=pending`，不能猜私有 API、改应用配置或用
 cron/launchd 冒充 Agent task。TraeWork 网页版的云端任务不能访问本地 KB 和用户态 lark-cli，
 不是等价 fallback。
@@ -692,6 +692,7 @@ flowchart TB
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
 | `bin/dreaming.py` | Dreaming 控制面，以及 grant set-im、process prepare/abort | job/grant 回执与不含正文的 batch 摘要 |
+| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务与 token-gated `/api/settings` | JSON 设置视图、受控 PATCH 回执；不提供任意文件写入 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
 | `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |
@@ -943,6 +944,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `bin/repair_links.py` | links 修复底层执行器；Agent 通过 `doctor fix` 调用 | 仅由受保护事务调用 |
 | `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
 | `lib/report_automation.py` | 自动报告一次性引导、local-only 配置、运行轨迹、缺口判定与跨报告租约 | 仅写 Git 排除的 `state/report_automation.json` |
+| `lib/settings.py` | 面向用户和 viewer 的统一配置 façade；汇总 `.kbconfig`、`sources/`、`context.md`、自动报告和 Dreaming 状态 | 不自建新 truth source；更新只委派给既有 writer |
 | `lib/dreaming_state.py` | `byteworker-dreaming/v2` 安全路径、`0700/0600`、共享 state lock、原子 JSON 与 v1→v2 迁移 | 仅写 Git 排除的 `state/dreaming/` |
 | `lib/dreaming_models.py` | EvidenceBatch、batch、FindingBundle、ActionPlan、ActionClaim 的结构校验 | 否 |
 | `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、interval/daily/every-N-days、next due、harness truth、fairness、退避、lease/heartbeat、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
@@ -996,7 +998,8 @@ flowchart LR
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
-| `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/logging/grant/job/run/cursor/gap/receipt；enabled 与 operational 分离；默认不接管报告 |
+| `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；viewer 只可修改 Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；旧自动报告只读 |
+| `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt；enabled 与 operational 分离；默认不接管报告 |
 | `byteworker-dreaming-run-event/v1` | `dreaming_run_log.py` | 稳定 run_id；事件/stage/metrics 白名单；无业务正文；独立日志锁、5 MiB 轮转与 1..365 天保留 |
 | Dreaming 跨阶段结构契约 | `dreaming_models.py` | schema 白名单、必填结构、枚举和 evidence ref 形状；不复刻业务语义 |
 | `byteworker-evidence-batch/v1` | `dreaming_collection.py` + `dreaming_batch.py` | principal/grant revision、窗口、coverage、message anchors、私密 spool refs |
@@ -1265,6 +1268,7 @@ byteworker/
 │   ├── wiki_explorer.py # 按需 Wiki 树状态、主题与页面候选
 │   ├── digest_jobs.py # 已确认多页 digest 的租约 checkpoint
 │   ├── report_automation.py # 自动报告设置状态与跨任务租约
+│   ├── settings.py # 统一配置 façade；不替代底层 truth source
 │   ├── dreaming_state.py # Dreaming v2 local state、权限、锁与迁移
 │   ├── dreaming_models.py # Dreaming 跨阶段结构契约校验
 │   ├── dreaming_grants.py # IM grant revision 与撤销清理
@@ -1284,7 +1288,7 @@ byteworker/
 │   ├── dreaming_run_log.py # 白名单运行事件、轮转、保留期与查询
 │   ├── dreaming_scheduler.py # 默认关闭的 Dreaming 启停、due job、租约与回执
 │   └── sources/          # SourceBundle、adapter、provider conformance、registry、兼容投影
-├── viewer/               # 纯前端只读知识库浏览器
+├── viewer/               # 前端知识库浏览器；系统设置页经本机 token API 修改受控配置
 └── tests/                # 单元、集成和架构防漂移契约
 ```
 

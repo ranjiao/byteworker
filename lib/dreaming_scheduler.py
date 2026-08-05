@@ -234,6 +234,44 @@ def _positive(value: int, field: str) -> int:
     return value
 
 
+def _harness_preferences(
+    previous: Mapping[str, Any],
+    *,
+    wake_interval_minutes: int | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    old = previous.get("harness_preferences")
+    old = old if isinstance(old, Mapping) else {}
+    resolved_interval = (
+        wake_interval_minutes
+        if wake_interval_minutes is not None
+        else int(old.get("wake_interval_minutes", 120))
+    )
+    if resolved_interval < 5:
+        raise DreamingError(
+            "DREAMING_CONFIG_INVALID",
+            "本地任务唤醒间隔不能短于 5 分钟。",
+        )
+    resolved_model = (
+        str(model).strip() if model is not None else str(old.get("model", "")).strip()
+    )
+    lowered = resolved_model.lower()
+    if (
+        len(resolved_model) > 80
+        or "\n" in resolved_model
+        or "\r" in resolved_model
+        or any(token in lowered for token in ("token", "secret", "cookie"))
+    ):
+        raise DreamingError(
+            "DREAMING_CONFIG_INVALID",
+            "任务模型名称不能包含换行、凭据词或超过 80 字符。",
+        )
+    return {
+        "wake_interval_minutes": resolved_interval,
+        "model": resolved_model,
+    }
+
+
 def _process_schedule(
     *,
     kind: str,
@@ -344,6 +382,8 @@ def enable(
     maintenance_time: str | None = None,
     recovery_interval_minutes: int | None = None,
     log_retention_days: int | None = None,
+    harness_wake_interval_minutes: int | None = None,
+    harness_model: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if not acknowledge_capability_tour:
@@ -527,6 +567,11 @@ def enable(
                 "migration_epoch": int(previous.get("migration_epoch", 0)) + 1,
                 "state_revision": int(previous.get("state_revision", 0)),
                 "logging": log_config,
+                "harness_preferences": _harness_preferences(
+                    previous,
+                    wake_interval_minutes=harness_wake_interval_minutes,
+                    model=harness_model,
+                ),
                 "updated_at": _iso(current),
             }
         )
@@ -607,6 +652,8 @@ def configure(
     log_retention_days: int | None = None,
     lark_delivery_enabled: bool | None = None,
     lark_recipient_id: str | None = None,
+    harness_wake_interval_minutes: int | None = None,
+    harness_model: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
@@ -739,6 +786,11 @@ def configure(
         delivery["host"] = {"enabled": True}
         delivery["lark_bot"] = lark_delivery
         value["report_delivery"] = delivery
+        value["harness_preferences"] = _harness_preferences(
+            value,
+            wake_interval_minutes=harness_wake_interval_minutes,
+            model=harness_model,
+        )
         value["timezone"] = resolved_timezone
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)

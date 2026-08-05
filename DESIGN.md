@@ -62,6 +62,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
 | `bin/report-automation.py` + `lib/report_automation.py` | 自动报告首次设置状态、prompt 版本、跨日报/周报执行租约与真实运行回执；不创建宿主任务 |
+| `bin/viewer-server.py` + `lib/settings.py` | 本地 viewer 设置 API 与统一配置 façade；汇总现有配置 truth source，不把业务配置复制进 skill 仓库 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
@@ -89,6 +90,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `state/wiki/` | 可重新扫描得到的 Wiki baseline / 子树目录状态；完整 JSON 不进入 Agent context | `wiki scan` 按需原子写入 | 无 TTL；仅显式扫描替换 |
 | `state/digest_jobs/` | 用户已确认页面的批量 digest 运行 checkpoint、租约与逐页 receipt 定位 | `digest-job` 按需原子写入 | 跨 session 更新；可由 raw 部分 reconcile |
 | `state/report_automation.json` | 自动报告的一次性设置选择、宿主线索、prompt 版本、跨任务租约和最近真实运行回执 | `report-automation` 按需原子写入 | 本机运行状态；宿主任务系统仍是真相源 |
+| `state/dreaming/` | Dreaming 权限、运行计划、日志配置、运行状态、报告 outbox 和私密中间状态 | `dreaming` / `settings` façade 委派写入 | 本机后台状态；不进入 KB Git |
 
 数据目录路径由用户首次使用时指定(默认目录名 `byteworker_kb`,路径可配置),
 记于 skill 仓库的 `.kbconfig`(已 gitignore)。数据目录是**它自己的独立本地 git 仓库**
@@ -96,6 +98,14 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 数据目录含**公司机密内容**,绝不外传、绝不纳入 skill 仓库的 git。
 `state/` 是本地运行状态：首次使用 Wiki 功能时才创建，并加入知识库 Git 的本地
 `.git/info/exclude`；首次检查自动报告设置时也可创建。普通知识检索不扫描该目录。
+
+配置目前分布在不同 truth source：`.kbconfig` 只定位知识库；`context.md` 保存用户可读的长期偏好；
+`sources/*.json` 保存各来源的可重放 profile 和 routine；`state/report_automation.json` 保存旧自动报告
+本机状态；`state/dreaming/state.json` 保存后台信息助手的权限、频率、日志与摘要投递配置；viewer 的
+主题/密度/阅读宽度仅保存在浏览器 `localStorage`。`byteworker-settings/v1` 是这些配置的聚合视图，
+不是新的持久化文件。设置页写入时必须调用既有 writer：Dreaming 走 `dreaming_scheduler` /
+`dreaming_grants`，来源 routine 走 `source_profiles.save_profile`；旧自动报告在 viewer 中只读展示，
+不得由网页创建或伪造宿主定时任务。
 
 ### C. 真相源 vs 派生 —— 数据不变量
 
@@ -261,6 +271,8 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
 - `environment` 只能为 `local`；`owner_harness/timezone/enabled_at/disabled_at` 记录已确认设置。
   `harness.status` 为 `pending|installed|error`，并保存真实 `task_id/registered_at/last_tick_at`；
   `enabled=true` 只表示控制面允许运行，只有 harness installed 时派生 `operational=true`。
+- `harness_preferences` 保存本地任务期望配置：`wake_interval_minutes` 默认 120、最小 5；`model`
+  是短模型名提示，可为空。viewer 可修改期望值，但不能伪造宿主 Schedule 已同步。
 - `jobs` 固定包含 `process/morning/daily/weekly/maintenance/recovery`，分别维护 enabled、schedule、
   `configured_enabled`、`lease_epoch`、`last_attempt/last_run/last_success`、
   `next_attempt_at/consecutive_failures/deadline_at/blocked_by/ready_since/waiting_for_user`。

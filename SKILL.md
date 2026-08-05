@@ -200,7 +200,7 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
 - 检测到 TRAE 产品家族环境时必须加载 `references/dreaming-harness-trae.md`，先区分具体产品。
   只有 TraeWork 桌面版支持 Dreaming 所需的本地自动化任务；TRAE IDE/TraeCode（包括其内置
   SOLO 模式）不得创建或登记任务，必须提示用户切换到 TraeWork 桌面版。TraeWork 会话没有
-  Schedule 工具时，才引导用户在“自动化”面板创建本地 Code 任务、每 30 分钟执行 runner 并
+  Schedule 工具时，才引导用户在“自动化”面板创建本地 Code 任务，按用户确认的唤醒间隔执行 runner 并
   首次触发；没有真实任务和首次触发证据时保持 harness pending，禁止猜私有 API、改应用配置或
   用 cron/launchd 冒充 Agent task。
 - 每次 lease 都有稳定 `run_id`。runner 在采集、分析、整合、动作、报告、维护和恢复等长阶段
