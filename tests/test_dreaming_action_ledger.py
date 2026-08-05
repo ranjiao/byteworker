@@ -34,6 +34,7 @@ class DreamingActionLedgerTests(unittest.TestCase):
             timezone_name="Asia/Shanghai",
             acknowledge_machine_runtime=True,
             acknowledge_capability_tour=True,
+            acknowledge_schedule=True,
             now=enabled_at,
         )
         lease = run_due(

@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from dreaming_state import (
     DreamingError,
+    _secure_chmod,
     atomic_write_json,
     load_state_unlocked,
     secure_path,
@@ -138,9 +139,9 @@ def _projection_from_history(events: list[Mapping[str, Any]]) -> dict[str, Any]:
 
 def _append_event(path: Path, event: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(path.parent, 0o700)
+    _secure_chmod(path.parent, 0o700)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    os.chmod(path, 0o600)
+    _secure_chmod(path, 0o600)
     payload = json.dumps(
         event,
         ensure_ascii=False,
@@ -234,7 +235,7 @@ def purge_findings_for_batches_unlocked(
                 _append_event(temporary, event)
             if kept:
                 os.replace(temporary, history)
-                os.chmod(history, 0o600)
+                _secure_chmod(history, 0o600)
             else:
                 history.unlink(missing_ok=True)
                 temporary.unlink(missing_ok=True)

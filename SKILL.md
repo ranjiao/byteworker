@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、全局工作上下文、可选主动后台机制 Dreaming 和兼容诊断。当用户要保存或查询工作资料、沉淀自己的思考、管理待办提醒、生成工作报告、启用/关闭/查看 Dreaming、通过 Dreaming 分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help 时触发。
+description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、全局工作上下文、可选主动后台机制 Dreaming 和兼容诊断。当用户要保存或查询工作资料、沉淀自己的思考、管理待办提醒、生成工作报告、配置自动信息分析或摘要提醒、启用/关闭/查看 Dreaming、通过 Dreaming 分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help 时触发。
 ---
 
 # byteworker
@@ -17,7 +17,7 @@ description: 个人飞书工作知识库。把飞书文档、妙记、会议、�
 | todo | 用自然语言管理待办和提醒 |
 | context | 查看或维护全局工作上下文 |
 | thinking | 保存或持续更新用户自己的自然语言认知与推演 |
-| dreaming | 显式启用、关闭或查看主动后台运行；默认关闭 |
+| dreaming | 用自然语言设置、启停或查看后台信息助手；默认关闭 |
 | doctor | 检查或修复 schema/skill 兼容问题 |
 | help | 原样展示 `references/help.md` |
 
@@ -71,9 +71,11 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
   `references/digest-routine.md` + `references/kb-mutation.md` + `references/citations.md`
 - dreaming：`references/dreaming.md` + `references/dreaming-analysis.md` +
   `references/dreaming-consolidation.md` + `references/dreaming-actions.md` +
-  `references/dreaming-reports.md` + `references/dreaming-review.md`；启用时加
+  `references/dreaming-reports.md` + `references/dreaming-review.md`；配置时加
+  `references/dreaming-setup-guide.md`，首次启用再加
   `references/dreaming-onboarding.md`，maintenance job 加
-  `references/dreaming-maintenance.md`
+  `references/dreaming-maintenance.md`；当前环境或目标宿主属于 TRAE 产品家族时加
+  `references/dreaming-harness-trae.md`
 - doctor：`references/doctor.md`
 
 ## Context
@@ -175,12 +177,35 @@ doctor 默认只读调用 `bin/doctor.py` 对应 facade；交互请求只有用�
 ## Dreaming
 
 Dreaming 是可选后台 orchestration layer，默认关闭。用户明确要求启用时先读取
-`references/dreaming.md` 和 `references/dreaming-onboarding.md`，完整介绍它与 digest 的差异、
-全部能力、默认授权、Finding/Action 生命周期、隐私、成本、机器条件、maintenance 和退出方式；
-不能只给一句成本提示。导览后用户明确确认，才能传
-`--acknowledge-capability-tour --acknowledge-machine-runtime` 并创建宿主 local 任务。
+`references/dreaming.md`、`references/dreaming-onboarding.md` 和
+`references/dreaming-setup-guide.md`。用户说“设置自动信息分析”“每天汇总重要信息”“重要风险
+及时提醒”“调整后台频率/范围”“为什么没有自动运行/摘要”或“继续设置”时，也进入设置向导。
+优先使用 Codex / TraeWork 的结构化选项控件；不可用时使用编号选项。
+
+面向用户一律使用“后台信息助手、自动检查、待关注事项、定时摘要、紧急提醒、本地定时任务”等
+自然语言，不直接展示 `operational`、`persist_report`、`instant_alert`、`harness`、grant、
+Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项时只问该项和依赖。所有选择用
+自然语言汇总并取得确认后才写配置；完成后只展示 `dreaming-setup-guide.md` 定义的用户状态卡。
+
+首次启用仍须完整介绍它与 digest 的差异、能力、默认授权、隐私、成本、机器条件、维护和退出
+方式；不能只给一句成本提示。启用前必须让用户配置并确认完整 schedule；导览、schedule、机器
+条件都明确确认后，才能传 `--acknowledge-capability-tour --acknowledge-schedule
+--acknowledge-machine-runtime` 并创建宿主 local 任务。
 
 - 普通安装、升级、preflight 和其它命令不得自动启用或反复询问。
+- process 支持按分钟间隔、每天固定时间、每 N 天固定时间；不得静默套用默认频率。先运行
+  `dreaming configure`，回显所有 job、timezone、日志保留期和 `next_due_at`，再询问确认。
+- `enabled=true` 不等于会自动运行。宿主任务真实创建后必须 `dreaming harness register`；
+  只有 `harness.status=installed` 且 `operational=true` 才能声称后台已配置完成。
+- 检测到 TRAE 产品家族环境时必须加载 `references/dreaming-harness-trae.md`，先区分具体产品。
+  只有 TraeWork 桌面版支持 Dreaming 所需的本地自动化任务；TRAE IDE/TraeCode（包括其内置
+  SOLO 模式）不得创建或登记任务，必须提示用户切换到 TraeWork 桌面版。TraeWork 会话没有
+  Schedule 工具时，才引导用户在“自动化”面板创建本地 Code 任务、每 30 分钟执行 runner 并
+  首次触发；没有真实任务和首次触发证据时保持 harness pending，禁止猜私有 API、改应用配置或
+  用 cron/launchd 冒充 Agent task。
+- 每次 lease 都有稳定 `run_id`。runner 在采集、分析、整合、动作、报告、维护和恢复等长阶段
+  调用 `dreaming heartbeat`，最终 `complete`；用户可用 `dreaming runs list/show/tail` 查询
+  `0600` 结构化运行日志。日志只含阶段、耗时、计数、error code 和 artifact path，不含 IM 正文。
 - 启用默认不接管现有日报/周报；接管需要单独确认旧 scheduler owner 已释放。
 - Dreaming local state 使用 `byteworker-dreaming/v2`；读取已有 v1 时由确定性状态层先写本地私密
   备份再迁移。迁移失败保持 Dreaming 关闭，不得阻塞其它命令或让 Agent 手改 state JSON。
@@ -192,6 +217,11 @@ Dreaming 是可选后台 orchestration layer，默认关闭。用户明确要求
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
 - Dreaming owner 下的 morning/daily/weekly 按 `references/dreaming-reports.md` 消费 committed
   Finding 和 KB；不得再次完整 routine digest，也不得与旧 report automation 双 owner。
+- Dreaming 报告一次生成结构化语义结果，再确定性渲染 300–500 字消息摘要、Agent 内部 Markdown
+  和面向用户的自包含 HTML。所有宿主都回显摘要和 HTML 本地路径；支持时可预览，不支持时返回
+  文件链接。不得调用或假设 TraeWork、Codex、Claude Code 等宿主的私有 HTML 接口。
+- 飞书摘要仅在用户明确启用应用机器人投递并配置收件人后发送；真实 `message_id` 才表示送达。
+  飞书失败不影响本地报告，也不能对用户声称已经收到。
 - maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行 finding
   明确声明的确定性低风险修复；剩余重要 error/证据风险/自动化阻断项给用户有限摘要并等待决策。
 - 前台单次处理、Finding review/explain/feedback 和私有 shadow 评估按

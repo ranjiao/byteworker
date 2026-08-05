@@ -118,7 +118,7 @@ cd "$BYTEWORKER_ROOT"
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
 | `todo.py` | Agent | Todo 初始化、查询和状态维护 | 写命令事务化更新 todo、journal 和本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
-| `dreaming.py` | Agent / 自动化 | Dreaming 双确认启停、foreground process、Finding review/feedback、shadow、Action/report/maintenance job | 私密 state 与 KB 外评估指标 |
+| `dreaming.py` | Agent / 自动化 | Dreaming 三确认启停、灵活 schedule、harness truth、run heartbeat/log、foreground process、Finding/Action/report/maintenance | 私密 state、`run-logs/` 与 KB 外评估指标 |
 | `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 写 INDEX、journal 和本地 commit |
 | `kb-mutate.py` | Agent / 自动化 | 非 digest 内容的版本化事务写入 | 写目标、INDEX、journal 和本地 commit |
 | `context.py` | Agent / 自动化 | 按 intent 读取有限 context 投影 | 只读 |
@@ -859,6 +859,17 @@ person 新建/更新必须使用 JSON 模式：`resolved_at` 写入 `directory_v
 `enterprise_email` / `department_path` 同步到节点。部门为空不代表调动，不得清空已有非空值。
 身份字段解析不到时使用 `?`；可选通讯录字段不可见时为空字符串；进度写 stderr。需要
 `lark-cli`、`jq` 和用户态通讯录授权。
+
+### `dreaming.py`
+
+Dreaming 启用前先用 `configure` 选择 process 的 `interval`、`daily_time` 或 `every_n_days`
+策略，并确认 morning/maintenance/recovery 与日志保留期。`enable` 需要能力、schedule、机器条件
+三项确认。启用后 `harness.status=pending`；宿主任务真实创建后才运行
+`harness register --task-id ...`，此后 `operational=true`。
+
+每次后台 lease 都有 `run_id`。runner 用 `heartbeat` 记录阶段，用 `complete` 记录有限计数；
+`runs list/show/tail` 查询私有结构化日志。日志不保存消息或 Finding 正文。完整协议见
+`references/dreaming.md`。
 
 ### `inbox.py`
 

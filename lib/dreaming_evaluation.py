@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from dreaming_state import DreamingError, atomic_write_json
+from dreaming_state import DreamingError, _secure_chmod, atomic_write_json
 
 
 GOLDEN_FIELDS = {"sample_id", "priority", "slices", "expected"}
@@ -198,7 +198,7 @@ def evaluate_shadow(
         os.O_WRONLY | os.O_CREAT | os.O_APPEND,
         0o600,
     )
-    os.chmod(history_path, 0o600)
+    _secure_chmod(history_path, 0o600)
     with os.fdopen(descriptor, "ab") as handle:
         handle.write(
             json.dumps(

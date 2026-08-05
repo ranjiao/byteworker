@@ -60,7 +60,7 @@ def report_window(
                     if local_as_of.date() == day:
                         end_local = min(end_local, local_as_of)
             else:
-                end_local = datetime.combine(day, time(8, 30), zone)
+                end_local = datetime.combine(day, time(10), zone)
                 start_local = datetime.combine(day - timedelta(days=1), time(20, 30), zone)
         else:
             matched = WEEK_RE.fullmatch(period)
@@ -323,11 +323,25 @@ def enqueue_delivery(
     period: str,
     report_path: str,
     commit: str,
+    channel: str = "host",
+    artifact: str = "markdown",
+    recipient_id: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
     if kind not in REPORT_KINDS or not report_path.startswith(f"reports/{kind}/"):
         raise DreamingError("DREAMING_REPORT_INVALID", "报告路径与 kind 不一致。")
+    if channel not in {"host", "lark_bot"}:
+        raise DreamingError("DREAMING_REPORT_INVALID", "不支持的投递渠道。")
+    if artifact not in {"summary", "html", "markdown"}:
+        raise DreamingError("DREAMING_REPORT_INVALID", "不支持的报告产物。")
+    if channel == "lark_bot" and (
+        artifact != "summary" or not recipient_id.startswith("ou_")
+    ):
+        raise DreamingError(
+            "DREAMING_REPORT_INVALID",
+            "飞书机器人投递只接受 summary，且收件人必须是 open_id。",
+        )
     outbox_id = "OUT-" + uuid.uuid4().hex
     with state_lock(kb):
         state = load_state_unlocked(kb, current)
@@ -336,6 +350,9 @@ def enqueue_delivery(
             "period": period,
             "report_path": report_path,
             "commit": commit,
+            "channel": channel,
+            "artifact": artifact,
+            "recipient_id": recipient_id,
             "status": "pending",
             "created_at": utc_iso(current),
         }

@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from report_owner import report_owner_lock
+from dreaming_run_log import (
+    DEFAULT_MAX_FILE_BYTES,
+    DEFAULT_RETENTION_DAYS,
+    STAGES,
+    append_run_event,
+    logging_config,
+)
 
 from dreaming_state import (
     STATE_SCHEMA,
@@ -40,6 +47,7 @@ RUNTIME_NOTICE = (
     "休眠或关机期间只能在恢复后补跑。"
 )
 CAPABILITY_TOUR_VERSION = "byteworker-dreaming-tour/v1"
+PROCESS_SCHEDULE_KINDS = {"interval", "daily_time", "every_n_days"}
 
 
 def _now() -> datetime:
@@ -59,8 +67,14 @@ def _job(
     enabled: bool,
     schedule: Mapping[str, Any],
     previous: Mapping[str, Any] | None = None,
+    configured_enabled: bool | None = None,
 ) -> dict[str, Any]:
-    return build_job(enabled=enabled, schedule=schedule, previous=previous)
+    return build_job(
+        enabled=enabled,
+        schedule=schedule,
+        previous=previous,
+        configured_enabled=configured_enabled,
+    )
 
 
 def _empty_state(now: datetime) -> dict[str, Any]:
@@ -81,6 +95,15 @@ def _atomic_write(path: Path, value: Mapping[str, Any]) -> None:
 _state_lock = state_lock
 
 
+def _log_settings(value: Mapping[str, Any]) -> dict[str, int]:
+    raw = value.get("logging")
+    raw = raw if isinstance(raw, Mapping) else {}
+    return logging_config(
+        retention_days=int(raw.get("retention_days", DEFAULT_RETENTION_DAYS)),
+        max_file_bytes=int(raw.get("max_file_bytes", DEFAULT_MAX_FILE_BYTES)),
+    )
+
+
 def _lease_active(value: object, now: datetime) -> bool:
     if not isinstance(value, Mapping):
         return False
@@ -88,12 +111,32 @@ def _lease_active(value: object, now: datetime) -> bool:
     return expires_at is not None and expires_at > now
 
 
+def _lease_run_id(lease: Mapping[str, Any]) -> str:
+    current = str(lease.get("run_id", "")).strip()
+    if current:
+        return current
+    return (
+        f"DR-legacy-{str(lease.get('job', 'unknown'))}-"
+        f"{int(lease.get('epoch', 0))}"
+    )
+
+
 def _public_lease(value: object, now: datetime) -> dict[str, Any] | None:
     if not _lease_active(value, now) or not isinstance(value, Mapping):
         return None
     return {
         key: value.get(key)
-        for key in ("job", "period", "owner", "epoch", "acquired_at", "expires_at")
+        for key in (
+            "run_id",
+            "job",
+            "period",
+            "owner",
+            "epoch",
+            "acquired_at",
+            "expires_at",
+            "stage",
+            "last_heartbeat_at",
+        )
     }
 
 
@@ -115,7 +158,40 @@ def _status_value(value: Mapping[str, Any], now: datetime) -> dict[str, Any]:
     result["requires_capability_tour"] = (
         value.get("capability_tour_version") != CAPABILITY_TOUR_VERSION
     )
+    result["requires_schedule_acknowledgement"] = not bool(
+        value.get("schedule_acknowledged_at")
+    )
     result["machine_runtime_required"] = bool(value.get("enabled"))
+    harness = value.get("harness")
+    harness = dict(harness) if isinstance(harness, Mapping) else {}
+    result["harness"] = harness
+    result["operational"] = bool(
+        value.get("enabled") and harness.get("status") == "installed"
+    )
+    timezone_name = str(value.get("timezone", ""))
+    enabled_at = _parse_time(value.get("enabled_at"))
+    jobs = result.get("jobs")
+    if (
+        timezone_name
+        and enabled_at is not None
+        and isinstance(jobs, Mapping)
+    ):
+        zone = _timezone(timezone_name)
+        normalized_jobs: dict[str, Any] = {}
+        for name, raw_job in jobs.items():
+            job = dict(raw_job) if isinstance(raw_job, Mapping) else raw_job
+            if isinstance(job, dict):
+                next_due = _next_due(
+                    name,
+                    job,
+                    now=now,
+                    local_now=now.astimezone(zone),
+                    enabled_at=enabled_at,
+                )
+                job["next_due_at"] = next_due["at"] if next_due else None
+                job["due"] = bool(next_due and next_due["due"])
+            normalized_jobs[name] = job
+        result["jobs"] = normalized_jobs
     return result
 
 
@@ -158,6 +234,66 @@ def _positive(value: int, field: str) -> int:
     return value
 
 
+def _process_schedule(
+    *,
+    kind: str,
+    interval_minutes: int | None,
+    at_time: str | None,
+    every_days: int | None,
+    anchor_date: str | None,
+    local_now: datetime,
+) -> dict[str, Any]:
+    if kind not in PROCESS_SCHEDULE_KINDS:
+        raise DreamingError(
+            "DREAMING_CONFIG_INVALID",
+            "process schedule kind 必须是 interval、daily_time 或 every_n_days。",
+        )
+    if kind == "interval":
+        minutes = _positive(
+            interval_minutes if interval_minutes is not None else 120,
+            "process_interval_minutes",
+        )
+        return {"kind": kind, "minutes": minutes}
+    clock = at_time or "22:00"
+    _clock(clock)
+    if kind == "daily_time":
+        return {"kind": kind, "time": clock}
+    days = _positive(every_days if every_days is not None else 2, "process_every_days")
+    anchor = anchor_date or local_now.date().isoformat()
+    try:
+        datetime.strptime(anchor, "%Y-%m-%d")
+    except ValueError as exc:
+        raise DreamingError(
+            "DREAMING_CONFIG_INVALID",
+            f"process anchor_date 必须是 YYYY-MM-DD: {anchor}",
+        ) from exc
+    return {
+        "kind": kind,
+        "days": days,
+        "time": clock,
+        "anchor_date": anchor,
+    }
+
+
+def _validated_process_schedule(
+    value: Mapping[str, Any],
+    *,
+    local_now: datetime,
+) -> dict[str, Any]:
+    return _process_schedule(
+        kind=str(value.get("kind", "")),
+        interval_minutes=(
+            int(value["minutes"]) if isinstance(value.get("minutes"), int) else None
+        ),
+        at_time=str(value.get("time", "")) or None,
+        every_days=(
+            int(value["days"]) if isinstance(value.get("days"), int) else None
+        ),
+        anchor_date=str(value.get("anchor_date", "")) or None,
+        local_now=local_now,
+    )
+
+
 def _report_owner_conflict(kb: Path) -> bool:
     path = kb.resolve() / "state" / "report_automation.json"
     if not path.is_file():
@@ -195,14 +331,19 @@ def enable(
     timezone_name: str,
     acknowledge_machine_runtime: bool,
     acknowledge_capability_tour: bool = False,
+    acknowledge_schedule: bool = False,
     environment: str = "local",
-    process_interval_minutes: int = 120,
-    morning_time: str = "08:30",
-    daily_time: str = "20:30",
-    weekly_weekday: int = 0,
-    weekly_time: str = "09:30",
-    maintenance_time: str = "03:30",
-    recovery_interval_minutes: int = 240,
+    process_kind: str | None = None,
+    process_interval_minutes: int | None = None,
+    process_time: str | None = None,
+    process_every_days: int | None = None,
+    morning_time: str | None = None,
+    daily_time: str | None = None,
+    weekly_weekday: int | None = None,
+    weekly_time: str | None = None,
+    maintenance_time: str | None = None,
+    recovery_interval_minutes: int | None = None,
+    log_retention_days: int | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if not acknowledge_capability_tour:
@@ -217,24 +358,20 @@ def enable(
             "启用 Dreaming 前必须确认机器运行要求和额外开销。",
             hint=RUNTIME_NOTICE,
         )
+    if not acknowledge_schedule:
+        raise DreamingError(
+            "DREAMING_SCHEDULE_ACK_REQUIRED",
+            "启用 Dreaming 前必须先向用户展示并确认完整运行计划。",
+            hint="先运行 dreaming configure/status 核对 process、morning、maintenance、recovery。",
+        )
     if not harness.strip() or environment != "local":
         raise DreamingError(
             "DREAMING_CONFIG_INVALID",
             "harness 不能为空，environment 必须为 local。",
         )
     _timezone(timezone_name)
-    _clock(morning_time)
-    _clock(daily_time)
-    _clock(weekly_time)
-    _clock(maintenance_time)
-    if weekly_weekday not in range(7):
-        raise DreamingError(
-            "DREAMING_CONFIG_INVALID",
-            "weekly_weekday 必须是 0..6，0 表示周一。",
-        )
-    _positive(process_interval_minutes, "process_interval_minutes")
-    _positive(recovery_interval_minutes, "recovery_interval_minutes")
     current = now or _now()
+    zone = _timezone(timezone_name)
     with _state_lock(kb):
         previous = _load_unlocked(kb, current)
         if _lease_active(previous.get("active_lease"), current):
@@ -245,6 +382,104 @@ def enable(
             )
         previous_jobs = previous.get("jobs")
         previous_jobs = previous_jobs if isinstance(previous_jobs, Mapping) else {}
+        previous_process = previous_jobs.get("process")
+        previous_process_schedule = (
+            previous_process.get("schedule")
+            if isinstance(previous_process, Mapping)
+            and isinstance(previous_process.get("schedule"), Mapping)
+            else {"kind": "interval", "minutes": 120}
+        )
+        def previous_schedule(name: str, fallback: Mapping[str, Any]) -> Mapping[str, Any]:
+            raw = previous_jobs.get(name)
+            schedule = raw.get("schedule") if isinstance(raw, Mapping) else None
+            return schedule if isinstance(schedule, Mapping) else fallback
+
+        morning_schedule = previous_schedule(
+            "morning", {"kind": "weekday_time", "time": "08:30"}
+        )
+        daily_schedule = previous_schedule(
+            "daily", {"kind": "weekday_time", "time": "20:30"}
+        )
+        weekly_schedule = previous_schedule(
+            "weekly",
+            {"kind": "weekly_time", "weekday": 0, "time": "09:30"},
+        )
+        maintenance_schedule = previous_schedule(
+            "maintenance", {"kind": "weekday_time", "time": "03:30"}
+        )
+        recovery_schedule = previous_schedule(
+            "recovery", {"kind": "interval", "minutes": 240}
+        )
+        resolved_morning_time = morning_time or str(morning_schedule.get("time", "08:30"))
+        resolved_daily_time = daily_time or str(daily_schedule.get("time", "20:30"))
+        resolved_weekly_time = weekly_time or str(weekly_schedule.get("time", "09:30"))
+        resolved_weekly_weekday = (
+            weekly_weekday
+            if weekly_weekday is not None
+            else int(weekly_schedule.get("weekday", 0))
+        )
+        resolved_maintenance_time = maintenance_time or str(
+            maintenance_schedule.get("time", "03:30")
+        )
+        resolved_recovery_minutes = (
+            recovery_interval_minutes
+            if recovery_interval_minutes is not None
+            else int(recovery_schedule.get("minutes", 240))
+        )
+        for clock_value in (
+            resolved_morning_time,
+            resolved_daily_time,
+            resolved_weekly_time,
+            resolved_maintenance_time,
+        ):
+            _clock(clock_value)
+        if resolved_weekly_weekday not in range(7):
+            raise DreamingError(
+                "DREAMING_CONFIG_INVALID",
+                "weekly_weekday 必须是 0..6，0 表示周一。",
+            )
+        _positive(resolved_recovery_minutes, "recovery_interval_minutes")
+        if (
+            process_kind is None
+            and process_interval_minutes is None
+            and process_time is None
+            and process_every_days is None
+        ):
+            process_schedule = _validated_process_schedule(
+                previous_process_schedule,
+                local_now=current.astimezone(zone),
+            )
+        else:
+            inferred_kind = process_kind or (
+                "interval" if process_interval_minutes is not None else "daily_time"
+            )
+            process_schedule = _process_schedule(
+                kind=inferred_kind,
+                interval_minutes=process_interval_minutes,
+                at_time=process_time,
+                every_days=process_every_days,
+                anchor_date=None,
+                local_now=current.astimezone(zone),
+            )
+        previous_logging = previous.get("logging")
+        previous_logging = (
+            previous_logging if isinstance(previous_logging, Mapping) else {}
+        )
+        log_config = logging_config(
+            retention_days=(
+                log_retention_days
+                if log_retention_days is not None
+                else int(
+                    previous_logging.get(
+                        "retention_days",
+                        DEFAULT_RETENTION_DAYS,
+                    )
+                )
+            ),
+            max_file_bytes=int(
+                previous_logging.get("max_file_bytes", DEFAULT_MAX_FILE_BYTES)
+            ),
+        )
         value = _empty_state(current)
         for field in (
             "grants",
@@ -261,54 +496,80 @@ def enable(
             previous_value = previous.get(field)
             if isinstance(previous_value, Mapping):
                 value[field] = dict(previous_value)
+        previous_harness = previous.get("harness")
+        if (
+            isinstance(previous_harness, Mapping)
+            and previous.get("owner_harness") == harness.strip()
+        ):
+            harness_state = dict(previous_harness)
+        else:
+            harness_state = {
+                "status": "pending",
+                "task_id": "",
+                "registered_at": None,
+                "last_tick_at": None,
+            }
         value.update(
             {
                 "enabled": True,
                 "enabled_at": _iso(current),
                 "disabled_at": None,
                 "owner_harness": harness.strip(),
+                "harness": harness_state,
                 "environment": environment,
                 "timezone": timezone_name,
                 "runtime_notice_acknowledged_at": _iso(current),
                 "capability_tour_version": CAPABILITY_TOUR_VERSION,
                 "capability_tour_acknowledged_at": _iso(current),
+                "schedule_acknowledged_at": _iso(current),
                 "manage_reports": False,
                 "scheduler_owner": "dreaming",
                 "migration_epoch": int(previous.get("migration_epoch", 0)) + 1,
                 "state_revision": int(previous.get("state_revision", 0)),
+                "logging": log_config,
                 "updated_at": _iso(current),
             }
         )
-        specs = {
+        default_specs = {
             "process": (
                 True,
-                {"kind": "interval", "minutes": process_interval_minutes},
+                process_schedule,
             ),
             "morning": (
                 True,
-                {"kind": "weekday_time", "time": morning_time},
+                {"kind": "weekday_time", "time": resolved_morning_time},
             ),
             "daily": (
                 False,
-                {"kind": "weekday_time", "time": daily_time},
+                {"kind": "weekday_time", "time": resolved_daily_time},
             ),
             "weekly": (
                 False,
                 {
                     "kind": "weekly_time",
-                    "weekday": weekly_weekday,
-                    "time": weekly_time,
+                    "weekday": resolved_weekly_weekday,
+                    "time": resolved_weekly_time,
                 },
             ),
             "maintenance": (
                 True,
-                {"kind": "weekday_time", "time": maintenance_time},
+                {"kind": "weekday_time", "time": resolved_maintenance_time},
             ),
             "recovery": (
                 True,
-                {"kind": "interval", "minutes": recovery_interval_minutes},
+                {"kind": "interval", "minutes": resolved_recovery_minutes},
             ),
         }
+        specs = {}
+        for name, (default_enabled, schedule) in default_specs.items():
+            old = previous_jobs.get(name)
+            configured_enabled = (
+                bool(old.get("configured_enabled"))
+                if isinstance(old, Mapping)
+                and "configured_enabled" in old
+                else default_enabled
+            )
+            specs[name] = (configured_enabled, schedule)
         value["jobs"] = {
             name: _job(
                 enabled=enabled_value,
@@ -318,11 +579,216 @@ def enable(
                     if isinstance(previous_jobs.get(name), Mapping)
                     else None
                 ),
+                configured_enabled=enabled_value,
             )
             for name, (enabled_value, schedule) in specs.items()
         }
         active = previous.get("active_lease")
         value["active_lease"] = active if _lease_active(active, current) else None
+        _atomic_write(state_path(kb), value)
+    return status(kb, now=current)
+
+
+def configure(
+    kb: Path,
+    *,
+    timezone_name: str | None = None,
+    process_kind: str | None = None,
+    process_interval_minutes: int | None = None,
+    process_time: str | None = None,
+    process_every_days: int | None = None,
+    process_enabled: bool | None = None,
+    morning_time: str | None = None,
+    morning_enabled: bool | None = None,
+    maintenance_time: str | None = None,
+    maintenance_enabled: bool | None = None,
+    recovery_interval_minutes: int | None = None,
+    recovery_enabled: bool | None = None,
+    log_retention_days: int | None = None,
+    lark_delivery_enabled: bool | None = None,
+    lark_recipient_id: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current = now or _now()
+    with _state_lock(kb):
+        value = _load_unlocked(kb, current)
+        if _lease_active(value.get("active_lease"), current):
+            raise DreamingError(
+                "DREAMING_BUSY",
+                "Dreaming job 正在运行，不能修改配置。",
+            )
+        resolved_timezone = timezone_name or str(value.get("timezone", ""))
+        if not resolved_timezone:
+            raise DreamingError(
+                "DREAMING_CONFIG_INVALID",
+                "首次配置必须提供 timezone。",
+            )
+        zone = _timezone(resolved_timezone)
+        jobs = value.get("jobs")
+        if not isinstance(jobs, dict):
+            raise DreamingError("DREAMING_STATE_INVALID", "Dreaming jobs 状态缺失。")
+        process = jobs.get("process")
+        if not isinstance(process, dict):
+            raise DreamingError("DREAMING_STATE_INVALID", "Dreaming process job 缺失。")
+        if any(
+            item is not None
+            for item in (
+                process_kind,
+                process_interval_minutes,
+                process_time,
+                process_every_days,
+            )
+        ):
+            inferred_kind = process_kind or (
+                "interval"
+                if process_interval_minutes is not None
+                else "every_n_days"
+                if process_every_days is not None
+                else "daily_time"
+            )
+            process["schedule"] = _process_schedule(
+                kind=inferred_kind,
+                interval_minutes=process_interval_minutes,
+                at_time=process_time,
+                every_days=process_every_days,
+                anchor_date=None,
+                local_now=current.astimezone(zone),
+            )
+            process["ready_since"] = None
+            process["deadline_at"] = None
+        requested_enabled = {
+            "process": process_enabled,
+            "morning": morning_enabled,
+            "maintenance": maintenance_enabled,
+            "recovery": recovery_enabled,
+        }
+        for name, requested in requested_enabled.items():
+            job = jobs.get(name)
+            if not isinstance(job, dict):
+                raise DreamingError(
+                    "DREAMING_STATE_INVALID",
+                    f"Dreaming job 缺失: {name}",
+                )
+            if requested is not None:
+                job["configured_enabled"] = requested
+                job["enabled"] = bool(value.get("enabled")) and requested
+        if morning_time is not None:
+            _clock(morning_time)
+            jobs["morning"]["schedule"] = {
+                "kind": "weekday_time",
+                "time": morning_time,
+            }
+        if maintenance_time is not None:
+            _clock(maintenance_time)
+            jobs["maintenance"]["schedule"] = {
+                "kind": "weekday_time",
+                "time": maintenance_time,
+            }
+        if recovery_interval_minutes is not None:
+            jobs["recovery"]["schedule"] = {
+                "kind": "interval",
+                "minutes": _positive(
+                    recovery_interval_minutes,
+                    "recovery_interval_minutes",
+                ),
+            }
+        current_logging = value.get("logging")
+        current_logging = (
+            dict(current_logging) if isinstance(current_logging, Mapping) else {}
+        )
+        value["logging"] = logging_config(
+            retention_days=(
+                log_retention_days
+                if log_retention_days is not None
+                else int(
+                    current_logging.get(
+                        "retention_days",
+                        DEFAULT_RETENTION_DAYS,
+                    )
+                )
+            ),
+            max_file_bytes=int(
+                current_logging.get("max_file_bytes", DEFAULT_MAX_FILE_BYTES)
+            ),
+        )
+        delivery = value.get("report_delivery")
+        delivery = dict(delivery) if isinstance(delivery, Mapping) else {}
+        lark_delivery = delivery.get("lark_bot")
+        lark_delivery = (
+            dict(lark_delivery) if isinstance(lark_delivery, Mapping) else {}
+        )
+        if lark_recipient_id is not None:
+            recipient = lark_recipient_id.strip()
+            if recipient and not recipient.startswith("ou_"):
+                raise DreamingError(
+                    "DREAMING_CONFIG_INVALID",
+                    "飞书摘要收件人必须是 open_id。",
+                )
+            lark_delivery["recipient_id"] = recipient
+        if lark_delivery_enabled is not None:
+            lark_delivery["enabled"] = lark_delivery_enabled
+        lark_delivery.setdefault("enabled", False)
+        lark_delivery.setdefault("recipient_id", "")
+        if lark_delivery["enabled"] and not lark_delivery["recipient_id"].startswith(
+            "ou_"
+        ):
+            raise DreamingError(
+                "DREAMING_CONFIG_INVALID",
+                "启用飞书摘要前必须配置收件人。",
+            )
+        delivery["host"] = {"enabled": True}
+        delivery["lark_bot"] = lark_delivery
+        value["report_delivery"] = delivery
+        value["timezone"] = resolved_timezone
+        value["updated_at"] = _iso(current)
+        _atomic_write(state_path(kb), value)
+    return status(kb, now=current)
+
+
+def register_harness(
+    kb: Path,
+    *,
+    task_id: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    if not task_id.strip():
+        raise DreamingError("DREAMING_CONFIG_INVALID", "task_id 不能为空。")
+    current = now or _now()
+    with _state_lock(kb):
+        value = _load_unlocked(kb, current)
+        if not value.get("enabled"):
+            raise DreamingError("DREAMING_DISABLED", "Dreaming 尚未启用。")
+        value["harness"] = {
+            "status": "installed",
+            "task_id": task_id.strip(),
+            "registered_at": _iso(current),
+            "last_tick_at": None,
+        }
+        value["updated_at"] = _iso(current)
+        _atomic_write(state_path(kb), value)
+    return status(kb, now=current)
+
+
+def unregister_harness(
+    kb: Path,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current = now or _now()
+    with _state_lock(kb):
+        value = _load_unlocked(kb, current)
+        if _lease_active(value.get("active_lease"), current):
+            raise DreamingError(
+                "DREAMING_BUSY",
+                "Dreaming job 正在运行，不能注销 harness。",
+            )
+        value["harness"] = {
+            "status": "pending",
+            "task_id": "",
+            "registered_at": None,
+            "last_tick_at": None,
+        }
+        value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
     return status(kb, now=current)
 
@@ -383,6 +849,7 @@ def set_report_management(
                     f"Dreaming job 状态缺失: {name}",
                 )
             jobs[name]["enabled"] = enabled
+            jobs[name]["configured_enabled"] = enabled
             if enabled and isinstance(legacy, Mapping):
                 legacy_job = legacy.get(name)
                 legacy_success = (
@@ -445,6 +912,9 @@ def disable(kb: Path, *, now: datetime | None = None) -> dict[str, Any]:
         if isinstance(jobs, dict):
             for job in jobs.values():
                 if isinstance(job, dict):
+                    job["configured_enabled"] = bool(
+                        job.get("configured_enabled", job.get("enabled"))
+                    )
                     job["enabled"] = False
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
@@ -486,6 +956,52 @@ def _latest_weekly_target(
     if candidate > local_now:
         candidate -= timedelta(days=7)
     return candidate
+
+
+def _latest_daily_target(local_now: datetime, clock: time) -> datetime:
+    candidate = local_now.replace(
+        hour=clock.hour,
+        minute=clock.minute,
+        second=0,
+        microsecond=0,
+    )
+    return candidate if candidate <= local_now else candidate - timedelta(days=1)
+
+
+def _every_n_days_target(
+    local_now: datetime,
+    *,
+    days: int,
+    clock: time,
+    anchor_date: str,
+) -> datetime:
+    if days <= 0:
+        raise DreamingError(
+            "DREAMING_STATE_INVALID",
+            "every_n_days days 必须大于 0。",
+        )
+    try:
+        anchor = datetime.strptime(anchor_date, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise DreamingError(
+            "DREAMING_STATE_INVALID",
+            "every_n_days anchor_date 无效。",
+        ) from exc
+    elapsed = (local_now.date() - anchor).days
+    step = elapsed // days
+    target_date = anchor + timedelta(days=step * days)
+    target = local_now.replace(
+        year=target_date.year,
+        month=target_date.month,
+        day=target_date.day,
+        hour=clock.hour,
+        minute=clock.minute,
+        second=0,
+        microsecond=0,
+    )
+    if target > local_now:
+        target -= timedelta(days=days)
+    return target
 
 
 def _candidate(
@@ -533,7 +1049,25 @@ def _candidate(
             "ready_since": _iso(ready_since),
             "deadline_at": "",
         }
-    if kind == "weekday_time":
+    if kind == "daily_time":
+        target = _latest_daily_target(
+            local_now,
+            _clock(str(schedule.get("time", ""))),
+        )
+        if target.astimezone(timezone.utc) < enabled_at:
+            return None
+        period = target.date().isoformat()
+    elif kind == "every_n_days":
+        target = _every_n_days_target(
+            local_now,
+            days=int(schedule.get("days", 0)),
+            clock=_clock(str(schedule.get("time", ""))),
+            anchor_date=str(schedule.get("anchor_date", "")),
+        )
+        if target.astimezone(timezone.utc) < enabled_at:
+            return None
+        period = target.date().isoformat()
+    elif kind == "weekday_time":
         target = _latest_weekday_target(local_now, _clock(str(schedule.get("time", ""))))
         if target.astimezone(timezone.utc) < enabled_at:
             return None
@@ -563,6 +1097,82 @@ def _candidate(
     }
 
 
+def _next_due(
+    name: str,
+    job: Mapping[str, Any],
+    *,
+    now: datetime,
+    local_now: datetime,
+    enabled_at: datetime,
+) -> dict[str, Any] | None:
+    if not job.get("enabled"):
+        return None
+    if job.get("waiting_for_user"):
+        return None
+    blocked_by = job.get("blocked_by")
+    if isinstance(blocked_by, list) and blocked_by:
+        return None
+    next_attempt = _parse_time(job.get("next_attempt_at"))
+    if next_attempt is not None and next_attempt > now:
+        return {"at": _iso(next_attempt), "due": False}
+    candidate = _candidate(
+        name,
+        job,
+        now=now,
+        local_now=local_now,
+        enabled_at=enabled_at,
+    )
+    if candidate is not None:
+        at = candidate.get("deadline_at") or candidate.get("ready_since")
+        return {"at": at, "due": True}
+    schedule = job.get("schedule")
+    if not isinstance(schedule, Mapping):
+        return None
+    success = _last_success(job)
+    kind = schedule.get("kind")
+    if kind == "interval":
+        baseline = (
+            _parse_time(success.get("finished_at")) if success is not None else enabled_at
+        )
+        if baseline is None:
+            return None
+        target_utc = baseline + timedelta(minutes=int(schedule.get("minutes", 0)))
+    elif kind == "daily_time":
+        latest = _latest_daily_target(
+            local_now,
+            _clock(str(schedule.get("time", ""))),
+        )
+        target_utc = (latest + timedelta(days=1)).astimezone(timezone.utc)
+    elif kind == "every_n_days":
+        days = int(schedule.get("days", 0))
+        latest = _every_n_days_target(
+            local_now,
+            days=days,
+            clock=_clock(str(schedule.get("time", ""))),
+            anchor_date=str(schedule.get("anchor_date", "")),
+        )
+        target_utc = (latest + timedelta(days=days)).astimezone(timezone.utc)
+    elif kind == "weekday_time":
+        latest = _latest_weekday_target(
+            local_now,
+            _clock(str(schedule.get("time", ""))),
+        )
+        future = latest + timedelta(days=1)
+        while future.weekday() >= 5:
+            future += timedelta(days=1)
+        target_utc = future.astimezone(timezone.utc)
+    elif kind == "weekly_time":
+        latest = _latest_weekly_target(
+            local_now,
+            weekday=int(schedule.get("weekday", -1)),
+            clock=_clock(str(schedule.get("time", ""))),
+        )
+        target_utc = (latest + timedelta(days=7)).astimezone(timezone.utc)
+    else:
+        return None
+    return {"at": _iso(target_utc), "due": target_utc <= now}
+
+
 def _candidate_key(candidate: Mapping[str, Any], now: datetime) -> tuple[Any, ...]:
     deadline = _parse_time(candidate.get("deadline_at"))
     overdue = deadline is not None and deadline <= now
@@ -576,15 +1186,17 @@ def _candidate_key(candidate: Mapping[str, Any], now: datetime) -> tuple[Any, ..
     )
 
 
-def _expire_lease(value: dict[str, Any], now: datetime) -> None:
+def _expire_lease(kb: Path, value: dict[str, Any], now: datetime) -> None:
     lease = value.get("active_lease")
     if not isinstance(lease, Mapping) or _lease_active(lease, now):
         return
     job_name = str(lease.get("job", ""))
+    run_id = _lease_run_id(lease)
     jobs = value.get("jobs")
     job = jobs.get(job_name) if isinstance(jobs, Mapping) else None
     if isinstance(job, dict):
         run = {
+            "run_id": run_id,
             "status": "failed",
             "period": lease.get("period", ""),
             "owner": lease.get("owner", ""),
@@ -597,6 +1209,22 @@ def _expire_lease(value: dict[str, Any], now: datetime) -> None:
         }
         job["last_attempt"] = run
         job["last_run"] = run
+    log_settings = _log_settings(value)
+    append_run_event(
+        kb,
+        run_id=run_id,
+        event="lease_expired",
+        job=job_name,
+        period=str(lease.get("period", "")),
+        owner=str(lease.get("owner", "")),
+        epoch=int(lease.get("epoch", 0)),
+        stage=str(lease.get("stage", "scheduled")),
+        status="failed",
+        error_code="DREAMING_LEASE_EXPIRED",
+        retention_days=log_settings["retention_days"],
+        max_file_bytes=log_settings["max_file_bytes"],
+        now=now,
+    )
     value["active_lease"] = None
 
 
@@ -625,14 +1253,25 @@ def run_due(
                 "runtime_notice": RUNTIME_NOTICE,
                 "lease": None,
             }
+        harness = value.get("harness")
+        harness_tick = bool(
+            isinstance(harness, dict)
+            and harness.get("status") == "installed"
+            and harness.get("task_id") == owner.strip()
+        )
+        if harness_tick:
+            harness["last_tick_at"] = _iso(current)
         if _lease_active(value.get("active_lease"), current):
+            if harness_tick:
+                value["updated_at"] = _iso(current)
+                _atomic_write(state_path(kb), value)
             return {
                 "schema_version": STATE_SCHEMA,
                 "status": "busy",
                 "active_lease": _public_lease(value.get("active_lease"), current),
                 "lease": None,
             }
-        _expire_lease(value, current)
+        _expire_lease(kb, value, current)
         timezone_name = str(value.get("timezone", ""))
         zone = _timezone(timezone_name)
         enabled_at = _parse_time(value.get("enabled_at"))
@@ -722,31 +1361,53 @@ def run_due(
         job = jobs[job_name]
         epoch = int(job.get("lease_epoch", 0)) + 1
         token = uuid.uuid4().hex
+        run_id = f"DR-{uuid.uuid4().hex}"
         lease = {
             "token": token,
+            "run_id": run_id,
             "job": job_name,
             "period": selected["period"],
             "owner": owner.strip(),
             "epoch": epoch,
             "acquired_at": _iso(current),
             "expires_at": _iso(current + timedelta(seconds=lease_seconds)),
+            "stage": "scheduled",
+            "last_heartbeat_at": _iso(current),
         }
         if selected.get("dependency"):
             lease["dependency"] = selected["dependency"]
         job["lease_epoch"] = epoch
         job["last_attempt"] = {
+            "run_id": run_id,
             "status": "running",
             "period": selected["period"],
             "owner": owner.strip(),
             "epoch": epoch,
             "started_at": lease["acquired_at"],
             "lease_expires_at": lease["expires_at"],
+            "stage": "scheduled",
+            "last_heartbeat_at": _iso(current),
         }
         job["ready_since"] = selected["ready_since"]
         job["deadline_at"] = selected.get("deadline_at") or None
         value["active_lease"] = lease
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
+        log_settings = _log_settings(value)
+        append_run_event(
+            kb,
+            run_id=run_id,
+            event="leased",
+            job=job_name,
+            period=str(selected["period"]),
+            owner=owner.strip(),
+            epoch=epoch,
+            stage="scheduled",
+            status="running",
+            retention_days=log_settings["retention_days"],
+            max_file_bytes=log_settings["max_file_bytes"],
+            now=current,
+        )
     return {
         "schema_version": STATE_SCHEMA,
         "status": "leased",
@@ -783,13 +1444,94 @@ def renew_lease(
                 "Dreaming 租约不存在、已过期或 token 不匹配。",
             )
         lease["expires_at"] = _iso(current + timedelta(seconds=lease_seconds))
+        lease["last_heartbeat_at"] = _iso(current)
         jobs = value.get("jobs")
         job = jobs.get(lease.get("job")) if isinstance(jobs, Mapping) else None
         if isinstance(job, dict) and isinstance(job.get("last_attempt"), dict):
             job["last_attempt"]["lease_expires_at"] = lease["expires_at"]
+            job["last_attempt"]["last_heartbeat_at"] = _iso(current)
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
+        log_settings = _log_settings(value)
+        append_run_event(
+            kb,
+            run_id=_lease_run_id(lease),
+            event="renewed",
+            job=str(lease.get("job", "")),
+            period=str(lease.get("period", "")),
+            owner=str(lease.get("owner", "")),
+            epoch=int(lease.get("epoch", 0)),
+            stage=str(lease.get("stage", "scheduled")),
+            status="running",
+            retention_days=log_settings["retention_days"],
+            max_file_bytes=log_settings["max_file_bytes"],
+            now=current,
+        )
     return _public_lease(lease, current) or {}
+
+
+def heartbeat_run(
+    kb: Path,
+    *,
+    token: str,
+    stage: str,
+    detail_code: str = "",
+    progress_current: int | None = None,
+    progress_total: int | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    if stage not in STAGES:
+        raise DreamingError("DREAMING_RUN_LOG_INVALID", f"未知 run stage: {stage}")
+    current = now or _now()
+    metrics: dict[str, int] = {}
+    if progress_current is not None:
+        metrics["progress_current"] = progress_current
+    if progress_total is not None:
+        metrics["progress_total"] = progress_total
+    with _state_lock(kb):
+        value = _load_unlocked(kb, current)
+        lease = value.get("active_lease")
+        if (
+            not isinstance(lease, dict)
+            or lease.get("token") != token
+            or not _lease_active(lease, current)
+        ):
+            raise DreamingError(
+                "DREAMING_LEASE_MISMATCH",
+                "Dreaming 租约不存在、已过期或 token 不匹配。",
+            )
+        lease["stage"] = stage
+        lease["last_heartbeat_at"] = _iso(current)
+        jobs = value.get("jobs")
+        job = jobs.get(lease.get("job")) if isinstance(jobs, Mapping) else None
+        if isinstance(job, dict) and isinstance(job.get("last_attempt"), dict):
+            job["last_attempt"]["stage"] = stage
+            job["last_attempt"]["last_heartbeat_at"] = _iso(current)
+        value["updated_at"] = _iso(current)
+        _atomic_write(state_path(kb), value)
+        log_settings = _log_settings(value)
+        event = append_run_event(
+            kb,
+            run_id=_lease_run_id(lease),
+            event="heartbeat",
+            job=str(lease.get("job", "")),
+            period=str(lease.get("period", "")),
+            owner=str(lease.get("owner", "")),
+            epoch=int(lease.get("epoch", 0)),
+            stage=stage,
+            status="running",
+            detail_code=detail_code,
+            metrics=metrics,
+            retention_days=log_settings["retention_days"],
+            max_file_bytes=log_settings["max_file_bytes"],
+            now=current,
+        )
+    return {
+        "run_id": event["run_id"],
+        "stage": stage,
+        "last_heartbeat_at": event["timestamp"],
+        "metrics": event["metrics"],
+    }
 
 
 def retry_job(
@@ -848,6 +1590,9 @@ def complete_run(
     artifact_path: str = "",
     coverage_checkpoint: str = "",
     error_code: str = "",
+    item_count: int | None = None,
+    finding_count: int | None = None,
+    gap_count: int | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if run_status not in RUN_STATUSES:
@@ -859,6 +1604,14 @@ def complete_run(
         raise DreamingError(
             "DREAMING_RUN_RESULT_INVALID",
             "partial/failed 回执必须提供稳定错误码。",
+        )
+    if any(
+        value is not None and value < 0
+        for value in (item_count, finding_count, gap_count)
+    ):
+        raise DreamingError(
+            "DREAMING_RUN_RESULT_INVALID",
+            "item/finding/gap count 必须是非负整数。",
         )
     current = now or _now()
     with _state_lock(kb):
@@ -878,7 +1631,9 @@ def complete_run(
                 "Dreaming lease epoch 已过期。",
             )
         artifact = _validate_artifact(job_name, artifact_path)
+        run_id = _lease_run_id(lease)
         run = {
+            "run_id": run_id,
             "status": run_status,
             "period": lease.get("period", ""),
             "owner": lease.get("owner", ""),
@@ -916,4 +1671,36 @@ def complete_run(
         value["active_lease"] = None
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
+        started_at = _parse_time(lease.get("acquired_at"))
+        metrics: dict[str, int] = {}
+        if started_at is not None:
+            metrics["duration_ms"] = max(
+                0,
+                int((current - started_at).total_seconds() * 1000),
+            )
+        for key, count in (
+            ("item_count", item_count),
+            ("finding_count", finding_count),
+            ("gap_count", gap_count),
+        ):
+            if count is not None:
+                metrics[key] = count
+        log_settings = _log_settings(value)
+        append_run_event(
+            kb,
+            run_id=run_id,
+            event="completed",
+            job=job_name,
+            period=str(lease.get("period", "")),
+            owner=str(lease.get("owner", "")),
+            epoch=int(lease.get("epoch", 0)),
+            stage="complete",
+            status=run_status,
+            error_code=error_code,
+            artifact_path=artifact,
+            metrics=metrics,
+            retention_days=log_settings["retention_days"],
+            max_file_bytes=log_settings["max_file_bytes"],
+            now=current,
+        )
     return run

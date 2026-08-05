@@ -81,8 +81,11 @@ class ArchitectureContractTests(unittest.TestCase):
             "lib/dreaming_action_policy.py",
             "lib/dreaming_action_ledger.py",
             "lib/dreaming_reports.py",
+            "lib/dreaming_report_bundle.py",
+            "lib/dreaming_delivery_lark.py",
             "lib/report_owner.py",
             "lib/dreaming_evaluation.py",
+            "lib/dreaming_run_log.py",
             "lib/dreaming_scheduler.py",
             "bin/index.py",
             "lib/snapshot_store.py",
@@ -231,11 +234,28 @@ class ArchitectureContractTests(unittest.TestCase):
     def test_dreaming_tour_and_maintenance_boundaries_are_documented(self):
         for term in (
             "能力导览",
+            "`references/dreaming-setup-guide.md`",
+            "宿主结构化选项",
+            "后台信息助手、自动检查、待关注事项",
+            "不能成为用户理解或完成配置的前置条件",
+            "不得因修改单项设置而清空其它已授权项",
             "process / morning / maintenance / recovery",
             "`maintenance`",
             "`DOCTOR_USER_DECISION_REQUIRED`",
             "`waiting_for_user`",
             "公开 `doctor scan/fix` facade",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, self.architecture)
+
+    def test_dreaming_report_artifacts_are_host_neutral(self):
+        for term in (
+            "`byteworker-report-document/v1`",
+            "`byteworker-report-artifacts/v1`",
+            "不调用 TraeWork、Codex、",
+            "Claude Code 等宿主私有预览接口",
+            "HTML 必须自包含",
+            "飞书发送失败只影响对应 outbox",
         ):
             with self.subTest(term=term):
                 self.assertIn(term, self.architecture)

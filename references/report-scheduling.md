@@ -12,7 +12,7 @@ owner migration 必须使用 `report-automation release-owner/restore-owner`，�
 
 ## 1. 共同原则
 
-- skill 定义执行方法，Codex / Claude / TRAE 等 harness 定义时间。
+- skill 定义执行方法，Codex / Claude / TraeWork 等 harness 定义时间。
 - 任务必须在**知识库数据目录**本地运行；不得使用云端环境、临时 worktree 或 skill 仓库作为
   写入项目。
 - 日报和周报各用一个独立任务，并增加一个只做缺口检查、每次最多补跑一期的补偿任务。创建前按
@@ -88,6 +88,8 @@ bin/byteworker report-automation status --kb "<知识库绝对路径>"
 ### TRAE
 
 - 使用 TRAE Work 桌面端“自动化”，选择**本地**运行环境和知识库数据目录。
+- TRAE IDE/TraeCode（包括其内置 SOLO 模式）不提供这里所需的本地自动化任务；检测到时提示
+  用户切换到 TraeWork 桌面版。
 - 不使用 TRAE Work Web / 云端环境：云端任务不能访问宿主机知识库。
 - 通过“在对话中创建”或自动化面板手工创建。当前公开文档没有可依赖的稳定任务管理 API，
   不伪造 task ID；创建后以“已配置”和“执行历史”页面核验。

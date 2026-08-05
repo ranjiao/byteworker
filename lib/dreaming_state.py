@@ -5,11 +5,38 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import stat
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
+
+
+def _secure_chmod(path: Path, mode: int) -> None:
+    """Attempt chmod; if TCC/sandbox blocks it, verify existing mode is already secure."""
+    try:
+        os.chmod(path, mode)
+    except PermissionError:
+        try:
+            current = stat.S_IMODE(path.stat().st_mode)
+        except OSError:
+            raise
+        if (current & 0o077) != 0:
+            raise
+
+
+def _secure_fchmod(fd: int, mode: int) -> None:
+    """Attempt fchmod; if TCC/sandbox blocks it, verify existing mode is already secure."""
+    try:
+        os.fchmod(fd, mode)
+    except PermissionError:
+        try:
+            current = stat.S_IMODE(os.fstat(fd).st_mode)
+        except OSError:
+            raise
+        if (current & 0o077) != 0:
+            raise
 
 
 STATE_SCHEMA = "byteworker-dreaming/v2"
@@ -99,7 +126,7 @@ def _ensure_directory(path: Path) -> None:
             f"Dreaming state 目录不能是符号链接: {path}",
         )
     path.mkdir(parents=True, exist_ok=True, mode=DIRECTORY_MODE)
-    os.chmod(path, DIRECTORY_MODE)
+    _secure_chmod(path, DIRECTORY_MODE)
 
 
 def _ensure_state_ignored(kb: Path) -> None:
@@ -156,7 +183,7 @@ def state_lock(kb: Path) -> Iterator[None]:
     ensure_layout(kb)
     lock = _lock_path(kb)
     descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, FILE_MODE)
-    os.chmod(lock, FILE_MODE)
+    _secure_chmod(lock, FILE_MODE)
     with os.fdopen(descriptor, "a+", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
@@ -172,13 +199,13 @@ def atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
     ).encode("utf-8")
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
-        os.fchmod(fd, FILE_MODE)
+        _secure_fchmod(fd, FILE_MODE)
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        os.chmod(path, FILE_MODE)
+        _secure_chmod(path, FILE_MODE)
         directory_fd = os.open(path.parent, os.O_RDONLY)
         try:
             os.fsync(directory_fd)
@@ -196,10 +223,16 @@ def _job(
     enabled: bool,
     schedule: Mapping[str, Any],
     previous: Mapping[str, Any] | None = None,
+    configured_enabled: bool | None = None,
 ) -> dict[str, Any]:
     old = previous or {}
     return {
         "enabled": enabled,
+        "configured_enabled": (
+            configured_enabled
+            if configured_enabled is not None
+            else bool(old.get("configured_enabled", enabled))
+        ),
         "schedule": dict(schedule),
         "lease_epoch": int(old.get("lease_epoch", 0)),
         "last_attempt": old.get("last_attempt"),
@@ -221,11 +254,18 @@ def empty_state(now: datetime) -> dict[str, Any]:
         "enabled_at": None,
         "disabled_at": None,
         "owner_harness": "",
+        "harness": {
+            "status": "pending",
+            "task_id": "",
+            "registered_at": None,
+            "last_tick_at": None,
+        },
         "environment": "local",
         "timezone": "",
         "runtime_notice_acknowledged_at": None,
         "capability_tour_version": "",
         "capability_tour_acknowledged_at": None,
+        "schedule_acknowledged_at": None,
         "manage_reports": False,
         "scheduler_owner": "dreaming",
         "report_owner": {
@@ -236,6 +276,17 @@ def empty_state(now: datetime) -> dict[str, Any]:
         },
         "migration_epoch": 0,
         "state_revision": 0,
+        "logging": {
+            "retention_days": 30,
+            "max_file_bytes": 5 * 1024 * 1024,
+        },
+        "report_delivery": {
+            "host": {"enabled": True},
+            "lark_bot": {
+                "enabled": False,
+                "recipient_id": "",
+            },
+        },
         "grants": {
             "revision": 0,
             "im": {
@@ -254,26 +305,32 @@ def empty_state(now: datetime) -> dict[str, Any]:
             "process": _job(
                 enabled=False,
                 schedule={"kind": "interval", "minutes": 120},
+                configured_enabled=True,
             ),
             "morning": _job(
                 enabled=False,
                 schedule={"kind": "weekday_time", "time": "08:30"},
+                configured_enabled=True,
             ),
             "daily": _job(
                 enabled=False,
                 schedule={"kind": "weekday_time", "time": "20:30"},
+                configured_enabled=False,
             ),
             "weekly": _job(
                 enabled=False,
                 schedule={"kind": "weekly_time", "weekday": 0, "time": "09:30"},
+                configured_enabled=False,
             ),
             "maintenance": _job(
                 enabled=False,
                 schedule={"kind": "weekday_time", "time": "03:30"},
+                configured_enabled=True,
             ),
             "recovery": _job(
                 enabled=False,
                 schedule={"kind": "interval", "minutes": 240},
+                configured_enabled=True,
             ),
         },
         "runs": {},
@@ -294,8 +351,14 @@ def build_job(
     enabled: bool,
     schedule: Mapping[str, Any],
     previous: Mapping[str, Any] | None = None,
+    configured_enabled: bool | None = None,
 ) -> dict[str, Any]:
-    return _job(enabled=enabled, schedule=schedule, previous=previous)
+    return _job(
+        enabled=enabled,
+        schedule=schedule,
+        previous=previous,
+        configured_enabled=configured_enabled,
+    )
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -333,6 +396,7 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
         normalized_jobs["maintenance"] = _job(
             enabled=False,
             schedule={"kind": "weekday_time", "time": "03:30"},
+            configured_enabled=True,
         )
     for name in JOB_NAMES:
         job = normalized_jobs.get(name)
@@ -347,6 +411,72 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
     result["jobs"] = normalized_jobs
     result.setdefault("capability_tour_version", "")
     result.setdefault("capability_tour_acknowledged_at", None)
+    result.setdefault("schedule_acknowledged_at", None)
+    result.setdefault(
+        "harness",
+        {
+            "status": "pending",
+            "task_id": "",
+            "registered_at": None,
+            "last_tick_at": None,
+        },
+    )
+    result.setdefault(
+        "logging",
+        {
+            "retention_days": 30,
+            "max_file_bytes": 5 * 1024 * 1024,
+        },
+    )
+    result.setdefault(
+        "report_delivery",
+        {
+            "host": {"enabled": True},
+            "lark_bot": {"enabled": False, "recipient_id": ""},
+        },
+    )
+    harness = result["harness"]
+    if (
+        not isinstance(harness, Mapping)
+        or harness.get("status") not in {"pending", "installed", "error"}
+        or not isinstance(harness.get("task_id"), str)
+    ):
+        raise DreamingError(
+            "DREAMING_STATE_INVALID",
+            "Dreaming v2 harness 无效。",
+        )
+    logging = result["logging"]
+    if (
+        not isinstance(logging, Mapping)
+        or not isinstance(logging.get("retention_days"), int)
+        or not 1 <= logging["retention_days"] <= 365
+        or not isinstance(logging.get("max_file_bytes"), int)
+        or logging["max_file_bytes"] < 1024
+    ):
+        raise DreamingError(
+            "DREAMING_STATE_INVALID",
+            "Dreaming v2 logging 无效。",
+        )
+    delivery = result["report_delivery"]
+    host_delivery = delivery.get("host") if isinstance(delivery, Mapping) else None
+    lark_delivery = (
+        delivery.get("lark_bot") if isinstance(delivery, Mapping) else None
+    )
+    if (
+        not isinstance(host_delivery, Mapping)
+        or not isinstance(host_delivery.get("enabled"), bool)
+        or not isinstance(lark_delivery, Mapping)
+        or not isinstance(lark_delivery.get("enabled"), bool)
+        or not isinstance(lark_delivery.get("recipient_id"), str)
+        or (
+            lark_delivery.get("enabled")
+            and not lark_delivery.get("recipient_id", "").startswith("ou_")
+        )
+    ):
+        raise DreamingError(
+            "DREAMING_STATE_INVALID",
+            "Dreaming v2 report_delivery 无效。",
+        )
     normalized_grants = dict(grants)
     im_grant = normalized_grants.get("im")
     if (
@@ -420,14 +550,17 @@ def _migrate_v1(value: Mapping[str, Any], now: datetime) -> dict[str, Any]:
         "enabled_at",
         "disabled_at",
         "owner_harness",
+        "harness",
         "environment",
         "timezone",
         "runtime_notice_acknowledged_at",
         "capability_tour_version",
         "capability_tour_acknowledged_at",
+        "schedule_acknowledged_at",
         "manage_reports",
         "scheduler_owner",
         "migration_epoch",
+        "logging",
         "active_lease",
         "updated_at",
     ):

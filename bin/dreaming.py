@@ -17,14 +17,19 @@ if str(LIB) not in sys.path:
 from dreaming_scheduler import (  # noqa: E402
     DreamingError,
     complete_run,
+    configure,
     disable,
     enable,
+    heartbeat_run,
+    register_harness,
     renew_lease,
     retry_job,
     run_due,
     set_report_management,
     status,
+    unregister_harness,
 )
+from dreaming_run_log import list_runs, show_run, tail_events  # noqa: E402
 from dreaming_batch import abort_batch  # noqa: E402
 from dreaming_collection import (  # noqa: E402
     prepare_foreground_im_batch,
@@ -48,6 +53,11 @@ from dreaming_reports import (  # noqa: E402
     prepare_report_packet,
     report_migration_readiness,
 )
+from dreaming_report_bundle import (  # noqa: E402
+    load_report_document,
+    render_report_bundle,
+)
+from dreaming_delivery_lark import deliver_lark_bot_summary  # noqa: E402
 from dreaming_consolidation import (  # noqa: E402
     explain_finding,
     record_finding_feedback,
@@ -63,6 +73,15 @@ def _positive(value: str) -> int:
     return parsed
 
 
+def _optional_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise argparse.ArgumentTypeError("must be true or false")
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--pretty", action="store_true")
@@ -70,6 +89,27 @@ def parser() -> argparse.ArgumentParser:
 
     status_parser = sub.add_parser("status")
     status_parser.add_argument("--kb", required=True, type=Path)
+
+    configure_parser = sub.add_parser("configure")
+    configure_parser.add_argument("--kb", required=True, type=Path)
+    configure_parser.add_argument("--timezone")
+    configure_parser.add_argument(
+        "--process-kind",
+        choices=("interval", "daily_time", "every_n_days"),
+    )
+    configure_parser.add_argument("--process-interval-minutes", type=_positive)
+    configure_parser.add_argument("--process-time")
+    configure_parser.add_argument("--process-every-days", type=_positive)
+    configure_parser.add_argument("--process-enabled", type=_optional_bool)
+    configure_parser.add_argument("--morning-time")
+    configure_parser.add_argument("--morning-enabled", type=_optional_bool)
+    configure_parser.add_argument("--maintenance-time")
+    configure_parser.add_argument("--maintenance-enabled", type=_optional_bool)
+    configure_parser.add_argument("--recovery-interval-minutes", type=_positive)
+    configure_parser.add_argument("--recovery-enabled", type=_optional_bool)
+    configure_parser.add_argument("--log-retention-days", type=_positive)
+    configure_parser.add_argument("--lark-delivery-enabled", type=_optional_bool)
+    configure_parser.add_argument("--lark-recipient-id")
 
     enable_parser = sub.add_parser("enable")
     enable_parser.add_argument("--kb", required=True, type=Path)
@@ -82,30 +122,39 @@ def parser() -> argparse.ArgumentParser:
         help="确认已向用户完整介绍 Dreaming 能力、授权、成本和边界",
     )
     enable_parser.add_argument(
+        "--acknowledge-schedule",
+        action="store_true",
+        help="确认已向用户展示并由用户确认完整运行计划",
+    )
+    enable_parser.add_argument(
         "--acknowledge-machine-runtime",
         action="store_true",
         help="确认机器需保持开机、唤醒、联网，且 Dreaming 会产生额外开销",
     )
     enable_parser.add_argument(
+        "--process-kind",
+        choices=("interval", "daily_time", "every_n_days"),
+    )
+    enable_parser.add_argument(
         "--process-interval-minutes",
         type=_positive,
-        default=120,
     )
-    enable_parser.add_argument("--morning-time", default="08:30")
-    enable_parser.add_argument("--daily-time", default="20:30")
+    enable_parser.add_argument("--process-time")
+    enable_parser.add_argument("--process-every-days", type=_positive)
+    enable_parser.add_argument("--morning-time")
+    enable_parser.add_argument("--daily-time")
     enable_parser.add_argument(
         "--weekly-weekday",
         type=int,
         choices=range(7),
-        default=0,
     )
-    enable_parser.add_argument("--weekly-time", default="09:30")
-    enable_parser.add_argument("--maintenance-time", default="03:30")
+    enable_parser.add_argument("--weekly-time")
+    enable_parser.add_argument("--maintenance-time")
     enable_parser.add_argument(
         "--recovery-interval-minutes",
         type=_positive,
-        default=240,
     )
+    enable_parser.add_argument("--log-retention-days", type=_positive)
 
     disable_parser = sub.add_parser("disable")
     disable_parser.add_argument("--kb", required=True, type=Path)
@@ -132,6 +181,49 @@ def parser() -> argparse.ArgumentParser:
     retry = sub.add_parser("retry-job")
     retry.add_argument("--kb", required=True, type=Path)
     retry.add_argument("--job", required=True)
+
+    harness = sub.add_parser("harness")
+    harness_sub = harness.add_subparsers(dest="harness_operation", required=True)
+    harness_register = harness_sub.add_parser("register")
+    harness_register.add_argument("--kb", required=True, type=Path)
+    harness_register.add_argument("--task-id", required=True)
+    harness_unregister = harness_sub.add_parser("unregister")
+    harness_unregister.add_argument("--kb", required=True, type=Path)
+
+    heartbeat = sub.add_parser("heartbeat")
+    heartbeat.add_argument("--kb", required=True, type=Path)
+    heartbeat.add_argument("--token", required=True)
+    heartbeat.add_argument(
+        "--stage",
+        required=True,
+        choices=(
+            "scheduled",
+            "collection",
+            "analysis",
+            "consolidation",
+            "action",
+            "report",
+            "maintenance",
+            "recovery",
+            "complete",
+        ),
+    )
+    heartbeat.add_argument("--detail-code", default="")
+    heartbeat.add_argument("--progress-current", type=int)
+    heartbeat.add_argument("--progress-total", type=int)
+
+    runs = sub.add_parser("runs")
+    runs_sub = runs.add_subparsers(dest="runs_operation", required=True)
+    runs_list = runs_sub.add_parser("list")
+    runs_list.add_argument("--kb", required=True, type=Path)
+    runs_list.add_argument("--limit", type=_positive, default=50)
+    runs_show = runs_sub.add_parser("show")
+    runs_show.add_argument("--kb", required=True, type=Path)
+    runs_show.add_argument("run_id")
+    runs_tail = runs_sub.add_parser("tail")
+    runs_tail.add_argument("--kb", required=True, type=Path)
+    runs_tail.add_argument("--limit", type=_positive, default=50)
+    runs_tail.add_argument("--run-id", default="")
 
     grant = sub.add_parser("grant")
     grant_sub = grant.add_subparsers(dest="grant_operation", required=True)
@@ -230,6 +322,9 @@ def parser() -> argparse.ArgumentParser:
         choices=("morning", "daily", "weekly"),
     )
     report_prepare.add_argument("--period", required=True)
+    render = report_sub.add_parser("render")
+    render.add_argument("--kb", required=True, type=Path)
+    render.add_argument("--input", required=True, type=Path)
     enqueue = report_sub.add_parser("enqueue-delivery")
     enqueue.add_argument("--kb", required=True, type=Path)
     enqueue.add_argument(
@@ -240,6 +335,20 @@ def parser() -> argparse.ArgumentParser:
     enqueue.add_argument("--period", required=True)
     enqueue.add_argument("--report-path", required=True)
     enqueue.add_argument("--commit", required=True)
+    enqueue.add_argument(
+        "--channel",
+        choices=("host", "lark_bot"),
+        default="host",
+    )
+    enqueue.add_argument(
+        "--artifact",
+        choices=("summary", "html", "markdown"),
+        default="markdown",
+    )
+    enqueue.add_argument("--recipient-id", default="")
+    deliver = report_sub.add_parser("deliver")
+    deliver.add_argument("--kb", required=True, type=Path)
+    deliver.add_argument("--outbox-id", required=True)
     delivered = report_sub.add_parser("delivery-complete")
     delivered.add_argument("--kb", required=True, type=Path)
     delivered.add_argument("--outbox-id", required=True)
@@ -285,6 +394,9 @@ def parser() -> argparse.ArgumentParser:
     complete.add_argument("--artifact-path", default="")
     complete.add_argument("--coverage-checkpoint", default="")
     complete.add_argument("--error-code", default="")
+    complete.add_argument("--item-count", type=int)
+    complete.add_argument("--finding-count", type=int)
+    complete.add_argument("--gap-count", type=int)
     return result
 
 
@@ -307,6 +419,25 @@ def _run(args: argparse.Namespace) -> object:
     kb = _validate_kb(args.kb)
     if args.operation == "status":
         return status(kb)
+    if args.operation == "configure":
+        return configure(
+            kb,
+            timezone_name=args.timezone,
+            process_kind=args.process_kind,
+            process_interval_minutes=args.process_interval_minutes,
+            process_time=args.process_time,
+            process_every_days=args.process_every_days,
+            process_enabled=args.process_enabled,
+            morning_time=args.morning_time,
+            morning_enabled=args.morning_enabled,
+            maintenance_time=args.maintenance_time,
+            maintenance_enabled=args.maintenance_enabled,
+            recovery_interval_minutes=args.recovery_interval_minutes,
+            recovery_enabled=args.recovery_enabled,
+            log_retention_days=args.log_retention_days,
+            lark_delivery_enabled=args.lark_delivery_enabled,
+            lark_recipient_id=args.lark_recipient_id,
+        )
     if args.operation == "enable":
         return enable(
             kb,
@@ -315,13 +446,18 @@ def _run(args: argparse.Namespace) -> object:
             environment=args.environment,
             acknowledge_machine_runtime=args.acknowledge_machine_runtime,
             acknowledge_capability_tour=args.acknowledge_capability_tour,
+            acknowledge_schedule=args.acknowledge_schedule,
+            process_kind=args.process_kind,
             process_interval_minutes=args.process_interval_minutes,
+            process_time=args.process_time,
+            process_every_days=args.process_every_days,
             morning_time=args.morning_time,
             daily_time=args.daily_time,
             weekly_weekday=args.weekly_weekday,
             weekly_time=args.weekly_time,
             maintenance_time=args.maintenance_time,
             recovery_interval_minutes=args.recovery_interval_minutes,
+            log_retention_days=args.log_retention_days,
         )
     if args.operation == "disable":
         return disable(kb)
@@ -351,8 +487,35 @@ def _run(args: argparse.Namespace) -> object:
             token=args.token,
             lease_seconds=args.lease_seconds,
         )
+    if args.operation == "heartbeat":
+        return heartbeat_run(
+            kb,
+            token=args.token,
+            stage=args.stage,
+            detail_code=args.detail_code,
+            progress_current=args.progress_current,
+            progress_total=args.progress_total,
+        )
     if args.operation == "retry-job":
         return retry_job(kb, job_name=args.job)
+    if args.operation == "harness":
+        if args.harness_operation == "register":
+            return register_harness(kb, task_id=args.task_id)
+        if args.harness_operation == "unregister":
+            return unregister_harness(kb)
+        raise AssertionError(args.harness_operation)
+    if args.operation == "runs":
+        if args.runs_operation == "list":
+            return list_runs(kb, limit=args.limit)
+        if args.runs_operation == "show":
+            return show_run(kb, run_id=args.run_id)
+        if args.runs_operation == "tail":
+            return tail_events(
+                kb,
+                limit=args.limit,
+                run_id=args.run_id,
+            )
+        raise AssertionError(args.runs_operation)
     if args.operation == "grant":
         if args.grant_operation == "set-actions":
             from dreaming_grants import set_action_grants
@@ -425,6 +588,11 @@ def _run(args: argparse.Namespace) -> object:
                 kind=args.kind,
                 period=args.period,
             )
+        if args.report_operation == "render":
+            return render_report_bundle(
+                kb,
+                document=load_report_document(args.input, skill_root=ROOT),
+            )
         if args.report_operation == "enqueue-delivery":
             return enqueue_delivery(
                 kb,
@@ -432,7 +600,12 @@ def _run(args: argparse.Namespace) -> object:
                 period=args.period,
                 report_path=args.report_path,
                 commit=args.commit,
+                channel=args.channel,
+                artifact=args.artifact,
+                recipient_id=args.recipient_id,
             )
+        if args.report_operation == "deliver":
+            return deliver_lark_bot_summary(kb, outbox_id=args.outbox_id)
         if args.report_operation == "delivery-complete":
             return complete_delivery(
                 kb,
@@ -495,6 +668,9 @@ def _run(args: argparse.Namespace) -> object:
             artifact_path=args.artifact_path,
             coverage_checkpoint=args.coverage_checkpoint,
             error_code=args.error_code,
+            item_count=args.item_count,
+            finding_count=args.finding_count,
+            gap_count=args.gap_count,
         )
     raise AssertionError(args.operation)
 

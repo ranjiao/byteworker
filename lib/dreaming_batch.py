@@ -14,6 +14,7 @@ from typing import Any, Mapping
 from dreaming_models import validate_dreaming_batch, validate_evidence_batch
 from dreaming_state import (
     DreamingError,
+    _secure_chmod,
     atomic_write_json,
     load_state_unlocked,
     parse_time,
@@ -94,8 +95,8 @@ def create_collected_batch(
         spool_dir = secure_path(kb, "spool", batch_id)
         batch_dir.mkdir(parents=True, mode=0o700)
         spool_dir.mkdir(parents=True, mode=0o700)
-        os.chmod(batch_dir, 0o700)
-        os.chmod(spool_dir, 0o700)
+        _secure_chmod(batch_dir, 0o700)
+        _secure_chmod(spool_dir, 0o700)
         items = []
         for message in messages:
             message_id = str(message.get("message_id", "")).strip()

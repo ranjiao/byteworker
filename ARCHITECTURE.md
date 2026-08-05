@@ -17,7 +17,7 @@ Markdown 知识库共同组成：
 ```mermaid
 flowchart LR
     U["用户<br/>自然语言或子命令"]
-    H["宿主本地定时任务<br/>Codex / Claude / TRAE"]
+    H["宿主本地定时任务<br/>Codex / Claude / TraeWork"]
     A["Agent 语义层<br/>分类、依赖判断、冲突裁决、实体消解、写候选"]
     C["确定性工具层<br/>Python / Shell CLI"]
     K["私有知识库目录<br/>Markdown + JSON + 本地 Git"]
@@ -352,9 +352,24 @@ flowchart TB
 
 Dreaming 是新增的可选旁路控制面，默认关闭。用户明确确认额外网络/模型/存储开销以及机器需
 保持开机、唤醒、联网前，还必须先完成独立能力导览，讲清它与 digest 的差异、全部 job、授权、
-Finding/Action 生命周期、维护和退出边界。两个确认都记录后，宿主 local task 才可调用
+Finding/Action 生命周期、维护和退出边界，并配置确认完整运行计划。三项确认都记录后，宿主 local task 才可调用
 `dreaming run-due`。初始实现不接管上述自动报告；`daily/weekly` job 默认关闭。后续迁移必须先
 释放旧 scheduler owner，并由 `migration_epoch` 保证同一 period 只有一个 owner。
+
+配置入口属于 Agent 交互层，不新增另一套状态或配置 writer。自然语言中的“自动分析、定时摘要、
+紧急提醒、调整频率/范围、继续设置”路由到 `references/dreaming-setup-guide.md`；Agent 先读取
+公开 `dreaming status`，使用宿主结构化选项逐步收集选择，按依赖复验后再调用既有
+`configure/grant/enable/harness` facade。用户界面只展示“后台信息助手、自动检查、待关注事项、
+定时摘要、紧急提醒、本地定时任务”等产品语言；内部字段和原始 status JSON 只用于确定性映射和
+显式排障，不能成为用户理解或完成配置的前置条件。
+
+宿主差异只存在 Agent/harness 兼容层，不进入 scheduler。TRAE 产品家族环境按
+`references/dreaming-harness-trae.md` 先识别具体产品：TRAE IDE/TraeCode（包括内置 SOLO）
+没有 Dreaming 所需的本地定时任务入口，只提示用户切换到 TraeWork 桌面版；TraeWork 桌面版
+才可在“自动化”中创建本地 Code 任务、每 30 分钟执行 runner 并首次触发。产品未确认或没有
+Schedule 工具回执时保持 `harness.status=pending`，不能猜私有 API、改应用配置或用
+cron/launchd 冒充 Agent task。TraeWork 网页版的云端任务不能访问本地 KB 和用户态 lark-cli，
+不是等价 fallback。
 
 ```text
 宿主 local tick
@@ -515,6 +530,7 @@ flowchart TB
         RA["lib/report_automation.py<br/>自动报告状态、单租约与缺口判定"]
         DR["lib/dreaming_scheduler.py<br/>可选 Dreaming 启停、调度与回执"]
         DST["lib/dreaming_state.py<br/>v2 local state、权限、锁与迁移"]
+        DRL["lib/dreaming_run_log.py<br/>结构化运行日志、轮转与查询"]
         DM["lib/dreaming_models.py<br/>跨阶段结构契约校验"]
         DG["lib/dreaming_grants.py<br/>IM grant 与撤销清理"]
         DC["lib/dreaming_collection.py<br/>窗口、coverage、gap 与去重"]
@@ -526,6 +542,8 @@ flowchart TB
         DAP["lib/dreaming_action_policy.py<br/>有限动作与确定性门禁"]
         DAL["lib/dreaming_action_ledger.py<br/>claim fencing 与 receipt reconcile"]
         DREP["lib/dreaming_reports.py<br/>窗口、coverage、packet、outbox"]
+        DRB["lib/dreaming_report_bundle.py<br/>结构化报告校验与通用产物渲染"]
+        DDL["lib/dreaming_delivery_lark.py<br/>飞书机器人摘要投递 adapter"]
         ROWN["lib/report_owner.py<br/>跨 scheduler owner migration lock"]
         DEV["lib/dreaming_evaluation.py<br/>私有 shadow 指标与产品门槛"]
         DOC["lib/doctor.py"]
@@ -573,6 +591,8 @@ flowchart TB
     DIRECT --> RA
     DIRECT --> DR
     DR --> DST
+    DR --> DRL
+    DRL --> DST
     DIRECT --> DG
     DIRECT --> DC
     DIRECT --> DB
@@ -580,6 +600,8 @@ flowchart TB
     DIRECT --> DAP
     DIRECT --> DAL
     DIRECT --> DREP
+    DIRECT --> DRB
+    DIRECT --> DDL
     DIRECT --> DEV
     DC --> DB
     DC --> DFI
@@ -595,6 +617,10 @@ flowchart TB
     DAL --> DST
     DREP --> DCO
     DREP --> DST
+    DRB --> DST
+    DDL --> DREP
+    DDL --> DST
+    DDL --> EXT
     DR --> ROWN
     RA --> ROWN
     DFI --> EXT
@@ -919,7 +945,8 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/report_automation.py` | 自动报告一次性引导、local-only 配置、运行轨迹、缺口判定与跨报告租约 | 仅写 Git 排除的 `state/report_automation.json` |
 | `lib/dreaming_state.py` | `byteworker-dreaming/v2` 安全路径、`0700/0600`、共享 state lock、原子 JSON 与 v1→v2 迁移 | 仅写 Git 排除的 `state/dreaming/` |
 | `lib/dreaming_models.py` | EvidenceBatch、batch、FindingBundle、ActionPlan、ActionClaim 的结构校验 | 否 |
-| `lib/dreaming_scheduler.py` | 能力导览/机器条件双启用闸门、deadline/fairness 选择、退避、blocked job、maintenance、lease renew、成功历史与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
+| `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、interval/daily/every-N-days、next due、harness truth、fairness、退避、lease/heartbeat、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
+| `lib/dreaming_run_log.py` | 每个 run 的 leased/heartbeat/renewed/completed/expired 事件、白名单 metrics、按日/大小轮转、保留期清理与 list/show/tail | `state/dreaming/run-logs/*.jsonl`，仅 `0600` 元数据 |
 | `lib/dreaming_grants.py` | IM off/monitored/all_visible、persist_finding revision 与降级清理 | grant state、撤销范围内 spool/batch |
 | `lib/dreaming_collectors/feishu_im.py` | user identity 的 queryless discovery 和逐 chat 分页；provider response 规范化 | 否 |
 | `lib/dreaming_collection.py` | 时间窗口、Profile 选择、message revision 去重、coverage 与时间切片 gap | collected batch |
@@ -930,6 +957,8 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
 | `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
 | `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |
+| `lib/dreaming_report_bundle.py` | 校验单一结构化报告并确定性渲染 summary、内部 Markdown、自包含 HTML 和宿主无关 manifest | `state/dreaming/reports/<kind>-<period>/artifacts/` 私密产物 |
+| `lib/dreaming_delivery_lark.py` | 读取已渲染摘要，通过应用机器人 adapter 投递，并以真实 `message_id` 完成 outbox | 仅更新 delivery receipt |
 | `lib/report_owner.py` | legacy/Dreaming owner migration 的共同 advisory lock | 仅 `state/report-owner.lock` |
 | `lib/dreaming_evaluation.py` | KB/仓库外 Golden/legacy/Dreaming ID 对比、分层 recall 与两周门槛 | 私有评估目录 metrics/history |
 
@@ -967,7 +996,8 @@ flowchart LR
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
-| `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；grant/job/run/cursor/gap/receipt 空槽；默认不接管报告 |
+| `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/logging/grant/job/run/cursor/gap/receipt；enabled 与 operational 分离；默认不接管报告 |
+| `byteworker-dreaming-run-event/v1` | `dreaming_run_log.py` | 稳定 run_id；事件/stage/metrics 白名单；无业务正文；独立日志锁、5 MiB 轮转与 1..365 天保留 |
 | Dreaming 跨阶段结构契约 | `dreaming_models.py` | schema 白名单、必填结构、枚举和 evidence ref 形状；不复刻业务语义 |
 | `byteworker-evidence-batch/v1` | `dreaming_collection.py` + `dreaming_batch.py` | principal/grant revision、窗口、coverage、message anchors、私密 spool refs |
 | `byteworker-dreaming-batch/v1` | `dreaming_batch.py` | collected→analyzed→consolidated→committed/aborted；commit marker 先于 cursor |
@@ -975,6 +1005,8 @@ flowchart LR
 | `byteworker-findings/v1` | `dreaming_consolidation.py` | history 是恢复源、projection 可重建；事件键 `batch_id+finding_id` 幂等 |
 | `byteworker-action-plan/v1` | Agent + `dreaming_action_policy.py` | action kind 白名单；policy_result、确认、recapture 和 coverage 由 Python 重算 |
 | `byteworker-action-claim/v1` | `dreaming_action_ledger.py` | run/lease epoch/grant revision 绑定；dedupe key；真实下游 receipt 后才 committed |
+| `byteworker-report-document/v1` | Agent + `dreaming_report_bundle.py` | 单一语义结果；300–500 字消息摘要；章节引用只能指向已声明来源 |
+| `byteworker-report-artifacts/v1` | `dreaming_report_bundle.py` | 四类本地产物路径、media type、audience 与 hash；HTML 预览不要求宿主私有 API |
 | `byteworker-finding-event/v1` | `dreaming_consolidation.py` | proposal/feedback 事件；request-id 幂等；projection 可重建 |
 | `byteworker-shadow-evaluation/v1` | `dreaming_evaluation.py` | 只含指标与 sample IDs；评估输入拒绝业务文本字段 |
 | `byteworker-resolved-users/v1` | `bin/resolve-users.sh` | 精确 open_id 输入；身份失败不创建 person；部门为空不表示调动；`resolved_at` 带时区 |
@@ -1028,13 +1060,23 @@ IM 阈值不一致、未知 reason code、缺 message evidence 和 context 超�
 自动报告另有三条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
 digest 事务失败时不得继续生成“看似完整”的报告；报告、journal 或本地 Git 回滚点未完成时
 不得记录成功。获取到其他运行中的有效租约时应安静退出并保留现有租约，不能并发写同一 KB。
+Dreaming 报告核心只生成本地 summary、Markdown、HTML 和 manifest，不调用 TraeWork、Codex、
+Claude Code 等宿主私有预览接口。HTML 必须自包含且不加载外部脚本、样式、字体、图片或网络
+资源；宿主可自行预览，不能预览时返回本地文件链接。飞书发送失败只影响对应 outbox，不能删除
+本地产物、回滚报告 commit 或声称已经送达。
 
-Dreaming 另有五条边界：缺失状态必须等同关闭；未记录当前版本能力导览或机器运行要求确认时
-拒绝启用；旧自动报告仍声明 enabled 时拒绝接管 daily/weekly；maintenance 只能调用 doctor
+Dreaming 另有八条边界：缺失状态必须等同关闭；未记录当前版本能力导览、完整运行计划或机器
+运行要求确认时拒绝启用；`enabled=true` 但 harness 未登记时 `operational=false`，不能声称会
+自动运行；TRAE IDE/TraeCode 不得创建或 register Dreaming 任务，TraeWork 等支持的宿主没有
+真实任务与首次触发证据时也禁止 register；旧自动报告仍声明 enabled
+时拒绝接管 daily/weekly；maintenance 只能调用 doctor
 公开 facade 和 `auto_fix` 白名单，重要未决项必须等待用户；Dreaming 状态损坏、租约过期或 job 失败只影响
 Dreaming，不得阻塞、回滚或改变 digest/search/update 和旧自动报告。`partial/failed` 不覆盖
 job 的 `last_success`。v1→v2 迁移必须先写本地私密备份，再原子替换 state；未知 schema 或迁移
-失败保持 Dreaming fail closed，不能猜写或影响其它能力。
+失败保持 Dreaming fail closed，不能猜写或影响其它能力。运行日志只能保存白名单元数据和计数，
+不得保存 IM/Finding 正文、人员群名、URL、凭据、argv 或 stderr；日志失败不得被伪装为可审计成功。
+交互向导不得把推荐值当作用户确认，不得因修改单项设置而清空其它已授权项，也不得把
+`operational/persist_report/instant_alert/harness` 等内部名字作为面向用户的必答概念。
 
 ## 7. 怎样扩展而不让架构失控
 
@@ -1193,7 +1235,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | Session preflight | 更新先于 Python import、健康静默、blocking、更新 notice、Todo notice、报告迁移、PATH/NVM/显式 override |
 | Agent route / semantic | workflow 闭包、独立入口自足、context 字符预算、冲突唯一 owner、IM 阈值/reason/evidence |
 | 自动报告 | 首次/升级只询问一次、local-only 配置、宿主真相源、跨日报/周报租约、过期恢复、成功/失败回执、每次完整 routine digest |
-| Dreaming | 默认关闭无状态写、启用确认、local-only、due/idle/busy、fencing、独立 job 历史、旧报告 owner 冲突、既有命令不依赖 |
+| Dreaming | 默认关闭无状态写、三启用确认、三类 process schedule、next due、enabled/operational 分离、harness tick、run_id/heartbeat/log retention、due/idle/busy、fencing、旧报告 owner 冲突 |
 | End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle、会议妙记 + 文档 Bundles → batch 单 commit，以及 Bundle → commit → query/diff 闭环 |
 
 `tests/test_architecture_contract.py` 固化文档入口和核心模块清单；
@@ -1208,7 +1250,7 @@ byteworker/
 ├── DESIGN.md             # 持久化 schema 与数据不变量
 ├── AGENTS.md             # coding agent 仓库铁律
 ├── references/           # 按场景加载的执行细则
-├── templates/            # 节点、报告、plan、bundle 骨架
+├── templates/            # 节点、报告、plan、bundle 骨架；含 Dreaming 自包含 HTML 基础模板
 ├── bin/                  # CLI facade、直接入口和 shell 集成
 ├── lib/                  # 确定性 Python 实现
 │   ├── runtime_deps.py   # Python/Node/内部 CLI 发现、探测与运行环境
@@ -1235,8 +1277,11 @@ byteworker/
 │   ├── dreaming_action_policy.py # ActionPlan 确定性门禁
 │   ├── dreaming_action_ledger.py # claim fencing 与 receipt reconcile
 │   ├── dreaming_reports.py # 报告窗口、coverage、packet 与 outbox
+│   ├── dreaming_report_bundle.py # 结构化报告与宿主无关 TXT/MD/HTML 产物
+│   ├── dreaming_delivery_lark.py # 飞书机器人摘要投递 adapter
 │   ├── report_owner.py # legacy/Dreaming 跨 scheduler owner lock
 │   ├── dreaming_evaluation.py # 私有 shadow 指标与产品门槛
+│   ├── dreaming_run_log.py # 白名单运行事件、轮转、保留期与查询
 │   ├── dreaming_scheduler.py # 默认关闭的 Dreaming 启停、due job、租约与回执
 │   └── sources/          # SourceBundle、adapter、provider conformance、registry、兼容投影
 ├── viewer/               # 纯前端只读知识库浏览器

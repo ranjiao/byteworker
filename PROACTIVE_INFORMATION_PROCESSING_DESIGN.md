@@ -14,6 +14,9 @@
 > I6 foreground `process once`、review/explain/feedback、私有 shadow runner 与两周产品门槛已完成。
 > I7 Inbox 删除已按用户显式指令提前执行；未伪造 shadow 达标记录。旧入口仅保留无副作用
 > `INBOX_REMOVED` tombstone，历史 `reports/im/` 保持只读。
+> 2026-08-05 补充：Dreaming 启用增加运行计划确认；process 支持 interval、daily_time 与
+> every_n_days；enabled 与真实 harness operational 状态分离；新增带 heartbeat、轮转和保留期的
+> 私有结构化 run log。
 >
 > 产品边界更新：`inbox` 不再作为独立命令、报告类型或 review surface。它的 IM 发现、筛选、
 > 精判和知识晋升能力并入 `dream.process`；用户通过 Dreaming 状态、review 和晨报/日报消费结果。
@@ -776,8 +779,10 @@ Foreground `process --once` 与后台开关解耦：
 ### 8.1 启用边界
 
 - 初始状态和缺失状态都视为 `disabled`，不做后台读取、模型调用或调度检查。
-- 启用必须来自用户明确指示，并记录当前能力导览版本/确认时间，以及“机器需保持
-  开机/唤醒/联网”和额外成本提示的独立确认时间。
+- 启用必须来自用户明确指示，并记录当前能力导览、完整 schedule，以及“机器需保持
+  开机/唤醒/联网”和额外成本提示的三项独立确认。
+- process 频率由用户按 quota 选择：每 N 分钟、每天固定时间或每 N 天固定时间，不设不可见默认。
+- enabled 只表示控制面打开；真实宿主任务创建并登记 task id 后才是 operational。
 - `status` 可以只读检查；`enable/disable` 是唯一改变 Dreaming 开关的操作。
 - 普通 session preflight 不读取 Dreaming 状态，避免给既有能力增加启动成本或提示噪声。
 - 启用 Dreaming 默认只启用新 `process/morning/maintenance/recovery` job，不接管现有日报/周报。
@@ -789,7 +794,7 @@ Foreground `process --once` 与后台开关解耦：
 
 | Job | 建议周期 | 输入 | 输出 |
 |---|---|---|---|
-| `dream.process` | 工作日每 2 小时 | 到期 monitored 来源和有界 discovery | EvidenceBatch、FindingBundle、open findings、coverage checkpoint |
+| `dream.process` | 用户配置：每 N 分钟 / 每天 / 每 N 天 | 到期 monitored 来源和有界 discovery | EvidenceBatch、FindingBundle、open findings、coverage checkpoint |
 | `dream.morning` | 工作日 08:30 | 昨日/夜间 findings、今日 Todo/日程 | 晨报、待确认项 |
 | `dream.daily` | 工作日 20:30 | 当日 finding history、Goal、Todo | 日报、lifecycle 更新 |
 | `dream.weekly` | 周一 09:30 | 上一完整周 findings、Goal、反馈 | 周报、趋势和订阅建议 |
@@ -803,6 +808,11 @@ Foreground `process --once` 与后台开关解耦：
 - `deadline_at`：morning/daily/weekly/maintenance 的交付时限。
 - `blocked_by[]`：显式依赖的 job/window/checkpoint。
 - `ready_since`：用于公平调度，防止长期饥饿。
+- `next_due_at/due`：按 timezone 派生给用户查看，不作为第二份持久调度真相源。
+
+每次 lease 分配稳定 `run_id`，在阶段变化或单阶段超过 60 秒时追加 heartbeat。运行日志只保存
+阶段、耗时、有限计数、error code 和 artifact path，按 5 MiB 轮转并按用户配置的 1..365 天保留；
+禁止保存 IM/Finding 正文、人员群名、URL、argv 或 stderr。
 
 目标态只需要一个宿主定时入口，例如每 30 分钟调用：
 
@@ -1574,8 +1584,8 @@ git diff --check
 | Discovery spool | 默认 TTL 24 小时，单 KB 硬上限 512 MiB；用户可调低 |
 | Monitored spool | 默认 TTL 72 小时，单 KB 硬上限 1 GiB；用户可调低 |
 | 失败退避 | 5 分钟起步，指数退避，上限 4 小时；人工阻断等待状态变化 |
-| Dreaming host tick | 每 30 分钟执行一次 `run-due` |
-| `dream.process` | 工作日每 2 小时 |
+| Dreaming host tick | 宿主应足够频繁执行 `run-due`；真实 task id 登记后才 operational |
+| `dream.process` | 用户按 quota 配置 interval / daily_time / every_n_days |
 | 晨报 | 工作日 08:30 |
 | 日报 | 工作日 20:30 |
 | 周报 | 周一 09:30 |
@@ -1588,6 +1598,7 @@ git diff --check
 | Global Goal | 可选，自然语言优先 |
 | Claim / Knowledge Compiler | 首版关闭 |
 | Dreaming 总开关 | `disabled`，仅用户明确确认后启用 |
+| 运行日志 | 默认保留 30 天，用户可配 1..365 天；只保存白名单元数据 |
 | 机器运行要求 | 启用前提示保持开机、唤醒、联网；休眠后仅补跑 |
 | 既有日报/周报接管 | 默认关闭，需单独显式迁移 |
 
