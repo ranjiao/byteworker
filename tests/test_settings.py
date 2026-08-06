@@ -15,7 +15,7 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from settings import settings_view, update_settings
+from settings import settings_view, update_settings, viewer_access_token_required
 
 
 class SettingsFacadeTests(unittest.TestCase):
@@ -30,10 +30,25 @@ class SettingsFacadeTests(unittest.TestCase):
             kb = self.make_kb(Path(temporary))
             view = settings_view(kb)
             self.assertEqual("byteworker-settings/v1", view["schema_version"])
+            self.assertTrue(view["viewer"]["access_token_required"])
             self.assertTrue(view["dreaming"]["available"])
             self.assertEqual("Asia/Shanghai", view["kb"]["context"]["timezone_hint"])
             self.assertFalse(view["report_automation"]["editable_in_viewer"])
             self.assertEqual([], view["sources"])
+
+    def test_update_settings_persists_viewer_access_preference(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = self.make_kb(Path(temporary))
+            self.assertTrue(viewer_access_token_required(kb))
+            updated = update_settings(
+                kb,
+                {
+                    "viewer": {"access_token_required": False},
+                    "sources": [],
+                },
+            )
+            self.assertFalse(updated["viewer"]["access_token_required"])
+            self.assertFalse(viewer_access_token_required(kb))
 
     def test_update_settings_routes_to_dreaming_state(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
@@ -162,6 +177,7 @@ class ViewerSettingsApiTests(unittest.TestCase):
                     url,
                     token=token,
                     body={
+                        "viewer": {"access_token_required": True},
                         "dreaming": {
                             "timezone": "Asia/Shanghai",
                             "jobs": {
@@ -181,6 +197,8 @@ class ViewerSettingsApiTests(unittest.TestCase):
                         "sources": [],
                     },
                 )
+                self.assertTrue(updated["viewer"]["access_token_required"])
+                self.assertTrue(updated["viewer"]["session_access_token_required"])
                 self.assertEqual(
                     {"kind": "daily_time", "time": "21:30"},
                     updated["dreaming"]["jobs"]["process"]["schedule"],
@@ -195,6 +213,58 @@ class ViewerSettingsApiTests(unittest.TestCase):
                     "gpt-5.5",
                     updated["dreaming"]["harness_preferences"]["model"],
                 )
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+
+    def test_viewer_settings_api_can_run_without_access_token(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            serve_root = root / "serve"
+            serve_root.mkdir()
+            kb = self.make_kb(root)
+            port = self.free_port()
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(ROOT / "bin" / "viewer-server.py"),
+                    "--root",
+                    str(serve_root),
+                    "--kb",
+                    str(kb),
+                    "--port",
+                    str(port),
+                    "--auth-mode",
+                    "none",
+                ],
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                url = f"http://127.0.0.1:{port}/api/settings"
+                deadline = time.time() + 5
+                while True:
+                    try:
+                        payload = self.request_json(url)
+                        break
+                    except Exception:
+                        if time.time() > deadline:
+                            raise
+                        time.sleep(0.05)
+                self.assertFalse(payload["viewer"]["session_access_token_required"])
+                updated = self.request_json(
+                    url,
+                    body={
+                        "viewer": {"access_token_required": False},
+                        "sources": [],
+                    },
+                )
+                self.assertFalse(updated["viewer"]["access_token_required"])
             finally:
                 process.terminate()
                 try:

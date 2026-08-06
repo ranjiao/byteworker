@@ -999,8 +999,10 @@ bin/browse.sh 8765
 - 默认端口 `8765`；被占用时自动寻找其它可用端口。
 - 只绑定 `127.0.0.1`。
 - 临时服务目录只包含 `viewer/` 和知识库目录的符号链接。
-- `/api/settings` 要求启动时生成的一次性 token，只允许修改 Dreaming 安全开关/频率/日志/摘要和
-  Source Profile routine；旧自动报告只读展示。
+- `/api/settings` 默认要求启动时生成的一次性访问口令；用户可在设置页关闭访问保护以提升便捷性。
+  无论是否开启口令，服务仍只绑定本机。
+- 设置页只允许修改 viewer 访问保护、Dreaming 安全开关/频率/日志/摘要和 Source Profile routine；
+  旧自动报告只读展示。
 - 按 `Ctrl-C` 停止并清理临时目录。
 
 ### `check-deps.sh`

@@ -62,7 +62,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
 | `bin/report-automation.py` + `lib/report_automation.py` | 自动报告首次设置状态、prompt 版本、跨日报/周报执行租约与真实运行回执；不创建宿主任务 |
-| `bin/viewer-server.py` + `lib/settings.py` | 本地 viewer 设置 API、只读 Dreaming 日志调试 API 与统一配置 façade；汇总现有 truth source，不把业务数据复制进 skill 仓库 |
+| `bin/viewer-server.py` + `lib/settings.py` | 本地 viewer 设置 API、只读 Dreaming 日志调试 API 与统一配置 façade；汇总现有 truth source，读写 KB 私有 viewer 偏好，不把业务数据复制进 skill 仓库 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
@@ -88,6 +88,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `todo.md` | 用户确认过的行动项、截止 / 提醒时间与完成状态 | 用户通过 agent 维护 | 高频更新 |
 | `.last-routine-digest` | 上次「定期摄取」例程运行日期(一行 `YYYY-MM-DD`)—— 到期提醒据此判断 | skill 写入 | 每次定期摄取覆盖 |
 | `state/wiki/` | 可重新扫描得到的 Wiki baseline / 子树目录状态；完整 JSON 不进入 Agent context | `wiki scan` 按需原子写入 | 无 TTL；仅显式扫描替换 |
+| `state/viewer.json` | 本地 viewer 偏好，例如是否要求本次访问口令 | 设置页通过 `lib/settings.py` 写入 | 显式重配时更新 |
 | `state/digest_jobs/` | 用户已确认页面的批量 digest 运行 checkpoint、租约与逐页 receipt 定位 | `digest-job` 按需原子写入 | 跨 session 更新；可由 raw 部分 reconcile |
 | `state/report_automation.json` | 自动报告的一次性设置选择、宿主线索、prompt 版本、跨任务租约和最近真实运行回执 | `report-automation` 按需原子写入 | 本机运行状态；宿主任务系统仍是真相源 |
 | `state/dreaming/` | Dreaming 权限、运行计划、日志配置、运行状态、报告 outbox 和私密中间状态 | `dreaming` / `settings` façade 委派写入 | 本机后台状态；不进入 KB Git |

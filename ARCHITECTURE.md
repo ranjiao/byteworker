@@ -694,7 +694,7 @@ flowchart TB
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
 | `bin/dreaming.py` | Dreaming 控制面，以及 grant set-im、process prepare/abort | job/grant 回执与不含正文的 batch 摘要 |
-| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务、token-gated `/api/settings` 与只读 Dreaming 日志 API | JSON 设置视图、受控 PATCH 回执、运行日志白名单元数据；不提供任意文件写入 |
+| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务、默认 token 保护且可由用户关闭的 `/api/settings`、只读 Dreaming 日志 API | JSON 设置视图、受控 PATCH 回执、运行日志白名单元数据；不提供任意文件写入 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
 | `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |

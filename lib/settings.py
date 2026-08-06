@@ -14,6 +14,7 @@ updates through existing module APIs.
 from __future__ import annotations
 
 import copy
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -21,7 +22,7 @@ from typing import Any, Mapping
 from dreaming_grants import set_im_grant
 from dreaming_scheduler import configure as configure_dreaming
 from dreaming_scheduler import status as dreaming_status
-from dreaming_state import DreamingError
+from dreaming_state import DreamingError, atomic_write_json
 from report_automation import ReportAutomationError
 from report_automation import status as report_automation_status
 from source_profile_contract import SourceProfileError
@@ -29,6 +30,7 @@ from source_profiles import list_profiles, profile_relative_path, save_profile
 
 
 SETTINGS_SCHEMA = "byteworker-settings/v1"
+VIEWER_SETTINGS_SCHEMA = "byteworker-viewer-settings/v1"
 SOURCE_LABELS = {
     "aeolus": "风神看板",
     "meego": "飞书项目",
@@ -116,6 +118,35 @@ def _source_profiles(kb: Path) -> list[dict[str, Any]]:
     return result
 
 
+def viewer_settings_path(kb: Path) -> Path:
+    return kb.expanduser().resolve() / "state" / "viewer.json"
+
+
+def viewer_access_token_required(kb: Path) -> bool:
+    return bool(_viewer_settings(kb)["access_token_required"])
+
+
+def _viewer_settings(kb: Path) -> dict[str, Any]:
+    path = viewer_settings_path(kb)
+    result = {
+        "schema_version": VIEWER_SETTINGS_SCHEMA,
+        "access_token_required": True,
+    }
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return result
+    except (OSError, json.JSONDecodeError):
+        return result
+    if not isinstance(raw, Mapping):
+        return result
+    if raw.get("schema_version") == VIEWER_SETTINGS_SCHEMA:
+        result["access_token_required"] = bool(
+            raw.get("access_token_required", True)
+        )
+    return result
+
+
 def _safe_status(callable_, kb: Path) -> dict[str, Any]:
     try:
         return callable_(kb)
@@ -136,6 +167,7 @@ def settings_view(kb: Path) -> dict[str, Any]:
             "path": str(kb.expanduser().resolve()),
             "context": _context_summary(kb),
         },
+        "viewer": _public_viewer(kb),
         "dreaming": _public_dreaming(dreaming),
         "report_automation": _public_report_automation(report),
         "sources": sources,
@@ -147,6 +179,15 @@ def settings_view(kb: Path) -> dict[str, Any]:
                 "不创建或伪造宿主任务。"
             ),
         },
+    }
+
+
+def _public_viewer(kb: Path) -> dict[str, Any]:
+    value = _viewer_settings(kb)
+    return {
+        "access_token_required": bool(value["access_token_required"]),
+        "restart_required": True,
+        "note": "访问保护开关会在下次通过 bin/browse.sh 打开 viewer 时生效。",
     }
 
 
@@ -244,18 +285,36 @@ def update_settings(kb: Path, patch: Mapping[str, Any]) -> dict[str, Any]:
 
     if not isinstance(patch, Mapping):
         raise SettingsError("SETTINGS_PATCH_INVALID", "设置更新必须是 JSON 对象。")
-    unsupported = sorted(set(patch) - {"dreaming", "sources"})
+    unsupported = sorted(set(patch) - {"viewer", "dreaming", "sources"})
     if unsupported:
         raise SettingsError(
             "SETTINGS_PATCH_UNSUPPORTED",
             "这些设置暂不支持在 viewer 中修改。",
             details={"fields": unsupported},
         )
+    if "viewer" in patch:
+        _update_viewer(kb, patch["viewer"])
     if "dreaming" in patch:
         _update_dreaming(kb, patch["dreaming"])
     if "sources" in patch:
         _update_sources(kb, patch["sources"])
     return settings_view(kb)
+
+
+def _update_viewer(kb: Path, patch: Any) -> None:
+    if not isinstance(patch, Mapping):
+        raise SettingsError("SETTINGS_PATCH_INVALID", "Viewer 设置必须是对象。")
+    if "access_token_required" not in patch:
+        return
+    path = viewer_settings_path(kb)
+    atomic_write_json(
+        path,
+        {
+            "schema_version": VIEWER_SETTINGS_SCHEMA,
+            "access_token_required": bool(patch["access_token_required"]),
+            "updated_at": _now(),
+        },
+    )
 
 
 def _update_dreaming(kb: Path, patch: Any) -> None:
