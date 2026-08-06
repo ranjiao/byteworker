@@ -85,15 +85,36 @@ import secrets
 print(secrets.token_urlsafe(24))
 PY
 )
+AUTH_MODE=$("$PYTHON_BIN" - "$KBDIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1]).expanduser().resolve() / "state" / "viewer.json"
+try:
+    value = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    value = {}
+required = bool(value.get("access_token_required", True))
+print("token" if required else "none")
+PY
+)
 URL_WITH_TOKEN="$URL?api_token=$API_TOKEN"
-echo "byteworker viewer → $URL"
+if [ "$AUTH_MODE" = "token" ]; then
+  OPEN_URL="$URL_WITH_TOKEN"
+  echo "访问保护:已开启(本次访问口令已附在 URL 中)"
+else
+  OPEN_URL="$URL"
+  echo "访问保护:已关闭(仅绑定本机 127.0.0.1)"
+fi
+echo "byteworker viewer → $OPEN_URL"
 echo "Dreaming 调试日志 → $DEBUG_URL"
 echo "(本地 viewer server;Ctrl-C 停止)"
 
 # 1 秒后开浏览器(等服务器起来)
 ( sleep 1
-  if command -v open >/dev/null 2>&1; then open "$URL_WITH_TOKEN"
-  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL_WITH_TOKEN"
+  if command -v open >/dev/null 2>&1; then open "$OPEN_URL"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$OPEN_URL"
   fi ) &
 
 # 不用 exec —— 保留 trap,python 退出后能清理临时目录
@@ -101,4 +122,5 @@ echo "(本地 viewer server;Ctrl-C 停止)"
   --root "$SERVE_ROOT" \
   --kb "$KBDIR" \
   --port "$PORT" \
+  --auth-mode "$AUTH_MODE" \
   --token "$API_TOKEN"

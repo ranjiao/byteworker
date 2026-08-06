@@ -51,7 +51,8 @@ class ViewerDreamingDebugTests(unittest.TestCase):
         self.assertIn("/api/dreaming/runs?", page)
         self.assertIn("options.forceDetail || !state.detail", page)
         self.assertNotIn("summary?.status === \"running\"", page)
-        self.assertNotIn("dreaming-debug.html", index)
+        self.assertIn('href="/app/dreaming-debug.html"', index)
+        self.assertIn("查看运行日志", index)
 
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript syntax validation")

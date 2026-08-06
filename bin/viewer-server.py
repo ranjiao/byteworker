@@ -39,6 +39,7 @@ MAX_BODY_BYTES = 128 * 1024
 class ViewerHandler(SimpleHTTPRequestHandler):
     kb: Path
     api_token: str
+    auth_required: bool
 
     def _send_json(self, value: Any, *, status: HTTPStatus = HTTPStatus.OK) -> None:
         payload = json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -51,6 +52,8 @@ class ViewerHandler(SimpleHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _authorized(self) -> bool:
+        if not self.auth_required:
+            return True
         return self.headers.get("X-Byteworker-Token", "") == self.api_token
 
     def _reject_unauthorized(self) -> None:
@@ -76,12 +79,21 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             return {}
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
+    def _settings_view(self) -> dict[str, Any]:
+        view = settings_view(self.kb)
+        viewer = view.get("viewer") if isinstance(view.get("viewer"), dict) else {}
+        view["viewer"] = {
+            **viewer,
+            "session_access_token_required": self.auth_required,
+        }
+        return view
+
     def _handle_api_get(self) -> None:
         if not self._authorized():
             self._reject_unauthorized()
             return
         try:
-            self._send_json(settings_view(self.kb))
+            self._send_json(self._settings_view())
         except Exception as exc:  # pragma: no cover - defensive boundary
             normalized = normalize_settings_error(exc)
             self._send_json(
@@ -95,7 +107,8 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             return
         try:
             patch = self._read_json_body()
-            self._send_json(update_settings(self.kb, patch))
+            update_settings(self.kb, patch)
+            self._send_json(self._settings_view())
         except json.JSONDecodeError as exc:
             self._send_json(
                 {
@@ -204,7 +217,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--root", required=True, type=Path)
     result.add_argument("--kb", required=True, type=Path)
     result.add_argument("--port", required=True, type=int)
-    result.add_argument("--token", required=True)
+    result.add_argument("--token", default="")
+    result.add_argument("--auth-mode", choices=("token", "none"), default="token")
     return result
 
 
@@ -216,13 +230,14 @@ def main(argv: list[str] | None = None) -> int:
     kb = args.kb.expanduser().resolve()
     if not root.is_dir() or not kb.is_dir():
         raise SystemExit("viewer root and KB must exist")
-    if not args.token.strip():
+    if args.auth_mode == "token" and not args.token.strip():
         raise SystemExit("token must not be empty")
     class BoundViewerHandler(ViewerHandler):
         pass
 
     BoundViewerHandler.kb = kb
     BoundViewerHandler.api_token = args.token
+    BoundViewerHandler.auth_required = args.auth_mode == "token"
 
     def factory(*handler_args: Any, **handler_kwargs: Any) -> BoundViewerHandler:
         return BoundViewerHandler(

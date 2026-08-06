@@ -62,6 +62,33 @@ class ViewerLayoutContractTests(unittest.TestCase):
         self.assertIn(".sx-evidence .prose td:nth-child(3) { min-width: 360px; }", self.viewer)
         self.assertIn("width: max-content; min-width: 100%; table-layout: auto;", self.viewer)
 
+    def test_settings_use_domain_tabs_and_one_scrollable_body(self):
+        for tab in ("global", "digest", "dreaming", "legacy-report"):
+            with self.subTest(tab=tab):
+                self.assertIn(f'data-settings-tab="{tab}"', self.viewer)
+        self.assertNotIn('data-settings-tab="system"', self.viewer)
+        self.assertIn("flex: 1; min-height: 0; padding: 18px 18px 14px;", self.viewer)
+        self.assertIn("overflow-y: auto; overscroll-behavior: contain;", self.viewer)
+        self.assertNotIn(".settings-source-list.scroll", self.viewer)
+        self.assertIn("function renderGlobalSettings()", self.viewer)
+        self.assertIn("function renderDigestSettings()", self.viewer)
+        self.assertIn("function renderDreamingSettings()", self.viewer)
+        self.assertIn("function renderLegacyReportSettings()", self.viewer)
+        self.assertIn("function updateSettingsDialog()", self.viewer)
+        self.assertIn("if (document.getElementById('settings-bg'))", self.viewer)
+        self.assertIn("body.innerHTML = renderSettingsBody();", self.viewer)
+
+    def test_dreaming_schedule_and_lark_recipient_are_self_explanatory(self):
+        for kind in ("interval", "daily_time", "every_n_days"):
+            with self.subTest(kind=kind):
+                self.assertIn(f'data-process-kind="{kind}"', self.viewer)
+        self.assertIn("function updateProcessScheduleFields()", self.viewer)
+        self.assertIn("分钟检查一次", self.viewer)
+        self.assertIn("填写接收人的飞书用户 ID", self.viewer)
+        self.assertIn("不是手机号、邮箱或群聊 ID", self.viewer)
+        self.assertIn('href="/app/dreaming-debug.html"', self.viewer)
+        self.assertIn("查看运行日志", self.viewer)
+
 
 if __name__ == "__main__":
     unittest.main()
