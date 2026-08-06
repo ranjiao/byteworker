@@ -119,7 +119,7 @@ cd "$BYTEWORKER_ROOT"
 | `todo.py` | Agent | Todo 初始化、查询和状态维护 | 写命令事务化更新 todo、journal 和本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
 | `dreaming.py` | Agent / 自动化 | Dreaming 三确认启停、灵活 schedule、harness truth、run heartbeat/log、foreground process、Finding/Action/report/maintenance | 私密 state、`run-logs/` 与 KB 外评估指标 |
-| `viewer-server.py` | `browse.sh` 内部 | 本地 viewer 静态服务与 token-gated 设置 API | 只通过 `settings.py` 写受控配置 |
+| `viewer-server.py` | `browse.sh` 内部 | 本地 viewer 静态服务、token-gated 设置 API 与只读 Dreaming 日志 API | 只通过 `settings.py` 写受控配置 |
 | `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 写 INDEX、journal 和本地 commit |
 | `kb-mutate.py` | Agent / 自动化 | 非 digest 内容的版本化事务写入 | 写目标、INDEX、journal 和本地 commit |
 | `context.py` | Agent / 自动化 | 按 intent 读取有限 context 投影 | 只读 |
@@ -984,6 +984,12 @@ bin/byteworker preflight --require feishu
 
 在本机启动 Viewer。知识库浏览仍是静态只读；设置对话框里的系统设置通过
 `viewer-server.py` 暴露的本机会话 API 写入受控配置。
+
+Dreaming 运行日志调试页不加入主界面导航，服务启动后直接访问：
+
+```text
+http://localhost:<端口>/app/dreaming-debug.html
+```
 
 ```bash
 bin/browse.sh

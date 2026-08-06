@@ -25,6 +25,7 @@ reports/
 __pycache__/
 *.pyc
 *.tmp
+.vscode/
 .tmp/
 .gstack/
 .coverage

@@ -79,6 +79,7 @@ ln -s "$SKILL_DIR/viewer" "$SERVE_ROOT/app"
 ln -s "$KBDIR" "$SERVE_ROOT/kb"
 
 URL="http://localhost:$PORT/app/index.html"
+DEBUG_URL="http://localhost:$PORT/app/dreaming-debug.html"
 API_TOKEN=$("$PYTHON_BIN" - <<'PY'
 import secrets
 print(secrets.token_urlsafe(24))
@@ -86,6 +87,7 @@ PY
 )
 URL_WITH_TOKEN="$URL?api_token=$API_TOKEN"
 echo "byteworker viewer → $URL"
+echo "Dreaming 调试日志 → $DEBUG_URL"
 echo "(本地 viewer server;Ctrl-C 停止)"
 
 # 1 秒后开浏览器(等服务器起来)

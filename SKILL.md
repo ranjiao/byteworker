@@ -206,6 +206,7 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
 - 每次 lease 都有稳定 `run_id`。runner 在采集、分析、整合、动作、报告、维护和恢复等长阶段
   调用 `dreaming heartbeat`，最终 `complete`；用户可用 `dreaming runs list/show/tail` 查询
   `0600` 结构化运行日志。日志只含阶段、耗时、计数、error code 和 artifact path，不含 IM 正文。
+- process catch-up 成功后，runner 只能用该 `run_id` 受限 follow-up 一次报告 job；不得循环。
 - 启用默认不接管现有日报/周报；接管需要单独确认旧 scheduler owner 已释放。
 - Dreaming local state 使用 `byteworker-dreaming/v2`；读取已有 v1 时由确定性状态层先写本地私密
   备份再迁移。迁移失败保持 Dreaming 关闭，不得阻塞其它命令或让 Agent 手改 state JSON。

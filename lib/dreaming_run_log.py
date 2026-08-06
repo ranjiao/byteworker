@@ -17,6 +17,7 @@ from dreaming_state import (
     DreamingError,
     _secure_chmod,
     _secure_fchmod,
+    parse_time,
     secure_path,
     utc_iso,
 )
@@ -46,6 +47,7 @@ STAGES = {
     "complete",
 }
 MACHINE_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+BATCH_ID = re.compile(r"^EB-[0-9a-f]{32}$")
 
 
 def logging_config(
@@ -145,6 +147,7 @@ def _event(
     error_code: str,
     artifact_path: str,
     detail_code: str,
+    batch_id: str,
     metrics: Mapping[str, Any] | None,
     now: datetime,
 ) -> dict[str, Any]:
@@ -165,6 +168,11 @@ def _event(
             "DREAMING_RUN_LOG_INVALID",
             "error_code 必须是大写稳定机器码。",
         )
+    if batch_id and not BATCH_ID.fullmatch(batch_id):
+        raise DreamingError(
+            "DREAMING_RUN_LOG_INVALID",
+            "batch_id 必须是稳定 EvidenceBatch id。",
+        )
     return {
         "schema_version": RUN_EVENT_SCHEMA,
         "timestamp": utc_iso(now),
@@ -179,6 +187,7 @@ def _event(
         "error_code": _bounded(error_code, 128),
         "artifact_path": _bounded(artifact_path, 512),
         "detail_code": _bounded(detail_code, 128),
+        "batch_id": batch_id,
         "metrics": _validate_metrics(metrics),
     }
 
@@ -236,6 +245,7 @@ def append_run_event(
     error_code: str = "",
     artifact_path: str = "",
     detail_code: str = "",
+    batch_id: str = "",
     metrics: Mapping[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -256,6 +266,7 @@ def append_run_event(
         error_code=error_code,
         artifact_path=artifact_path,
         detail_code=detail_code,
+        batch_id=batch_id,
         metrics=metrics,
         now=current,
     )
@@ -290,41 +301,58 @@ def _read_events(kb: Path) -> list[dict[str, Any]]:
     if not root.exists():
         return []
     events: list[dict[str, Any]] = []
-    with _log_lock(kb) as locked_root:
-        for path in _log_files(locked_root):
+    for path in _log_files(root):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise DreamingError(
+                "DREAMING_RUN_LOG_INVALID",
+                f"无法读取 Dreaming run log: {path.name}",
+            ) from exc
+        lines = content.splitlines()
+        for index, line in enumerate(lines):
             try:
-                lines = path.read_text(encoding="utf-8").splitlines()
-            except OSError as exc:
+                value = json.loads(line)
+            except json.JSONDecodeError as exc:
+                if index == len(lines) - 1 and not content.endswith("\n"):
+                    continue
                 raise DreamingError(
                     "DREAMING_RUN_LOG_INVALID",
-                    f"无法读取 Dreaming run log: {path.name}",
+                    f"Dreaming run log JSON 损坏: {path.name}",
                 ) from exc
-            for line in lines:
-                try:
-                    value = json.loads(line)
-                except json.JSONDecodeError as exc:
-                    raise DreamingError(
-                        "DREAMING_RUN_LOG_INVALID",
-                        f"Dreaming run log JSON 损坏: {path.name}",
-                    ) from exc
-                if (
-                    not isinstance(value, dict)
-                    or value.get("schema_version") != RUN_EVENT_SCHEMA
-                ):
-                    raise DreamingError(
-                        "DREAMING_RUN_LOG_INVALID",
-                        f"Dreaming run log schema 无效: {path.name}",
-                    )
-                events.append(value)
+            if (
+                not isinstance(value, dict)
+                or value.get("schema_version") != RUN_EVENT_SCHEMA
+            ):
+                raise DreamingError(
+                    "DREAMING_RUN_LOG_INVALID",
+                    f"Dreaming run log schema 无效: {path.name}",
+                )
+            events.append(value)
     events.sort(key=lambda item: str(item.get("timestamp", "")))
     return events
 
 
-def list_runs(kb: Path, *, limit: int = 50) -> dict[str, Any]:
+def list_runs(
+    kb: Path,
+    *,
+    limit: int = 50,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> dict[str, Any]:
     if limit < 1 or limit > MAX_EVENTS_PER_QUERY:
         raise DreamingError("DREAMING_RUN_LOG_INVALID", "limit 必须是 1..1000。")
+    if since is not None and until is not None and since > until:
+        raise DreamingError("DREAMING_RUN_LOG_INVALID", "since 不能晚于 until。")
     summaries: dict[str, dict[str, Any]] = {}
     for event in _read_events(kb):
+        timestamp = parse_time(event.get("timestamp"))
+        if since is not None and (timestamp is None or timestamp < since):
+            continue
+        if until is not None and (timestamp is None or timestamp > until):
+            continue
         run_id = str(event.get("run_id", ""))
         current = summaries.setdefault(
             run_id,
@@ -338,6 +366,7 @@ def list_runs(kb: Path, *, limit: int = 50) -> dict[str, Any]:
                 "stage": event.get("stage"),
                 "status": event.get("status"),
                 "error_code": event.get("error_code"),
+                "batch_id": event.get("batch_id"),
                 "event_count": 0,
             },
         )
@@ -347,6 +376,7 @@ def list_runs(kb: Path, *, limit: int = 50) -> dict[str, Any]:
                 "stage": event.get("stage"),
                 "status": event.get("status"),
                 "error_code": event.get("error_code"),
+                "batch_id": event.get("batch_id") or current.get("batch_id"),
             }
         )
         current["event_count"] += 1

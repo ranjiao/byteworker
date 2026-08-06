@@ -377,6 +377,7 @@ cron/launchd 冒充 Agent task。TraeWork 网页版的云端任务不能访问�
   → process / morning / maintenance / recovery（初始启用）
   → daily / weekly（显式迁移后）
   → dreaming complete
+  → 若本轮 process 是 catch-up 且成功，最多一次受限 follow-up 领取被解锁的报告 job
 ```
 
 Dreaming 只通过 `bin/byteworker` 公开入口调用 source、query、mutation 或 DigestTxn，不 import
@@ -543,6 +544,7 @@ flowchart TB
         DAL["lib/dreaming_action_ledger.py<br/>claim fencing 与 receipt reconcile"]
         DREP["lib/dreaming_reports.py<br/>窗口、coverage、packet、outbox"]
         DRB["lib/dreaming_report_bundle.py<br/>结构化报告校验与通用产物渲染"]
+        DRC["lib/dreaming_report_completion.py<br/>报告完成、lease 回执与配置化投递编排"]
         DDL["lib/dreaming_delivery_lark.py<br/>飞书机器人摘要投递 adapter"]
         ROWN["lib/report_owner.py<br/>跨 scheduler owner migration lock"]
         DEV["lib/dreaming_evaluation.py<br/>私有 shadow 指标与产品门槛"]
@@ -692,7 +694,7 @@ flowchart TB
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
 | `bin/dreaming.py` | Dreaming 控制面，以及 grant set-im、process prepare/abort | job/grant 回执与不含正文的 batch 摘要 |
-| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务与 token-gated `/api/settings` | JSON 设置视图、受控 PATCH 回执；不提供任意文件写入 |
+| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务、token-gated `/api/settings` 与只读 Dreaming 日志 API | JSON 设置视图、受控 PATCH 回执、运行日志白名单元数据；不提供任意文件写入 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
 | `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |
@@ -947,8 +949,10 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/settings.py` | 面向用户和 viewer 的统一配置 façade；汇总 `.kbconfig`、`sources/`、`context.md`、自动报告和 Dreaming 状态 | 不自建新 truth source；更新只委派给既有 writer |
 | `lib/dreaming_state.py` | `byteworker-dreaming/v2` 安全路径、`0700/0600`、共享 state lock、原子 JSON 与 v1→v2 迁移 | 仅写 Git 排除的 `state/dreaming/` |
 | `lib/dreaming_models.py` | EvidenceBatch、batch、FindingBundle、ActionPlan、ActionClaim 的结构校验 | 否 |
-| `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、interval/daily/every-N-days、next due、harness truth、fairness、退避、lease/heartbeat、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
+| `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、interval/daily/every-N-days、next due、harness truth、fairness、退避、lease/heartbeat、process catch-up 后受限报告 follow-up、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
 | `lib/dreaming_run_log.py` | 每个 run 的 leased/heartbeat/renewed/completed/expired 事件、白名单 metrics、按日/大小轮转、保留期清理与 list/show/tail | `state/dreaming/run-logs/*.jsonl`，仅 `0600` 元数据 |
+| `lib/dreaming_debug.py` | 本地调试页按 run 关联 batch/report 产物，校验 Finding/evidence 一致性并按需投影原文片段 | 只读 `state/dreaming/`，不复制正文到日志 |
+| `lib/dreaming_run_result.py` | 校验 maintenance/recovery 的结构化结果摘要、检查项与修复明细 | `state/dreaming/run-results/<run_id>.json` 私密审计产物 |
 | `lib/dreaming_grants.py` | IM off/monitored/all_visible、persist_finding revision 与降级清理 | grant state、撤销范围内 spool/batch |
 | `lib/dreaming_collectors/feishu_im.py` | user identity 的 queryless discovery 和逐 chat 分页；provider response 规范化 | 否 |
 | `lib/dreaming_collection.py` | 时间窗口、Profile 选择、message revision 去重、coverage 与时间切片 gap | collected batch |
@@ -959,7 +963,8 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
 | `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
 | `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |
-| `lib/dreaming_report_bundle.py` | 校验单一结构化报告并确定性渲染 summary、内部 Markdown、自包含 HTML 和宿主无关 manifest | `state/dreaming/reports/<kind>-<period>/artifacts/` 私密产物 |
+| `lib/dreaming_report_bundle.py` | 校验单一结构化报告并确定性渲染 summary、内部 Markdown、自包含 HTML、归档快照和宿主无关 manifest | `state/dreaming/reports/<kind>-<period>/artifacts/` 私密产物；`reports/<kind>/<period>.md` |
+| `lib/dreaming_report_completion.py` | 报告 job 的唯一成功出口：渲染产物、写 run artifact、完成 lease，并按 `report_delivery` 自动入队/投递 | 更新 run 状态和 outbox；不吞掉本地产物 |
 | `lib/dreaming_delivery_lark.py` | 读取已渲染摘要，通过应用机器人 adapter 投递，并以真实 `message_id` 完成 outbox | 仅更新 delivery receipt |
 | `lib/report_owner.py` | legacy/Dreaming owner migration 的共同 advisory lock | 仅 `state/report-owner.lock` |
 | `lib/dreaming_evaluation.py` | KB/仓库外 Golden/legacy/Dreaming ID 对比、分层 recall 与两周门槛 | 私有评估目录 metrics/history |
@@ -1009,7 +1014,7 @@ flowchart LR
 | `byteworker-action-plan/v1` | Agent + `dreaming_action_policy.py` | action kind 白名单；policy_result、确认、recapture 和 coverage 由 Python 重算 |
 | `byteworker-action-claim/v1` | `dreaming_action_ledger.py` | run/lease epoch/grant revision 绑定；dedupe key；真实下游 receipt 后才 committed |
 | `byteworker-report-document/v1` | Agent + `dreaming_report_bundle.py` | 单一语义结果；300–500 字消息摘要；章节引用只能指向已声明来源 |
-| `byteworker-report-artifacts/v1` | `dreaming_report_bundle.py` | 四类本地产物路径、media type、audience 与 hash；HTML 预览不要求宿主私有 API |
+| `byteworker-report-artifacts/v1` | `dreaming_report_bundle.py` | 四类私密产物路径、归档快照路径、media type、audience 与 hash；HTML 预览不要求宿主私有 API |
 | `byteworker-finding-event/v1` | `dreaming_consolidation.py` | proposal/feedback 事件；request-id 幂等；projection 可重建 |
 | `byteworker-shadow-evaluation/v1` | `dreaming_evaluation.py` | 只含指标与 sample IDs；评估输入拒绝业务文本字段 |
 | `byteworker-resolved-users/v1` | `bin/resolve-users.sh` | 精确 open_id 输入；身份失败不创建 person；部门为空不表示调动；`resolved_at` 带时区 |
@@ -1063,10 +1068,10 @@ IM 阈值不一致、未知 reason code、缺 message evidence 和 context 超�
 自动报告另有三条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
 digest 事务失败时不得继续生成“看似完整”的报告；报告、journal 或本地 Git 回滚点未完成时
 不得记录成功。获取到其他运行中的有效租约时应安静退出并保留现有租约，不能并发写同一 KB。
-Dreaming 报告核心只生成本地 summary、Markdown、HTML 和 manifest，不调用 TraeWork、Codex、
-Claude Code 等宿主私有预览接口。HTML 必须自包含且不加载外部脚本、样式、字体、图片或网络
-资源；宿主可自行预览，不能预览时返回本地文件链接。飞书发送失败只影响对应 outbox，不能删除
-本地产物、回滚报告 commit 或声称已经送达。
+Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `reports/<kind>/<period>.md`
+归档快照，不调用 TraeWork、Codex、Claude Code 等宿主私有预览接口。HTML 必须自包含且不加载
+外部脚本、样式、字体、图片或网络资源；宿主可自行预览，不能预览时返回本地文件链接。飞书发送失败只影响对应 outbox，
+不能删除本地产物或声称已经送达。
 
 Dreaming 另有八条边界：缺失状态必须等同关闭；未记录当前版本能力导览、完整运行计划或机器
 运行要求确认时拒绝启用；`enabled=true` 但 harness 未登记时 `operational=false`，不能声称会
@@ -1281,7 +1286,8 @@ byteworker/
 │   ├── dreaming_action_policy.py # ActionPlan 确定性门禁
 │   ├── dreaming_action_ledger.py # claim fencing 与 receipt reconcile
 │   ├── dreaming_reports.py # 报告窗口、coverage、packet 与 outbox
-│   ├── dreaming_report_bundle.py # 结构化报告与宿主无关 TXT/MD/HTML 产物
+│   ├── dreaming_report_bundle.py # 结构化报告、归档快照与宿主无关 TXT/MD/HTML 产物
+│   ├── dreaming_report_completion.py # 报告完成、lease 回执与配置化投递编排
 │   ├── dreaming_delivery_lark.py # 飞书机器人摘要投递 adapter
 │   ├── report_owner.py # legacy/Dreaming 跨 scheduler owner lock
 │   ├── dreaming_evaluation.py # 私有 shadow 指标与产品门槛

@@ -4,7 +4,8 @@
 
 ## Coverage 与 Packet
 
-窗口未覆盖时 `run-due` 返回 process catch-up lease；commit 后下一 tick 领取报告。
+窗口未覆盖时 `run-due` 返回 process catch-up lease；commit 后用该 run_id 调一次
+`run-due --followup-after-run-id`，只领被本轮解锁的 morning/daily/weekly；否则 idle。
 
 报告 lease 到手后：
 
@@ -28,37 +29,26 @@ Finding 数量和 coverage：
 3. 将候选保存到 KB 外临时文件，调用：
 
 ```bash
-bin/byteworker dreaming report render --kb "<KB>" --input "<report.json>"
+bin/byteworker dreaming report complete \
+  --kb "<KB>" --token "<lease.token>" --input "<report.json>" \
+  --item-count "<n>" --finding-count "<n>" --gap-count "<n>"
 ```
 
-render 确定性生成 manifest 和四个私有文件：
+`report complete` 是报告 job 的唯一成功出口；它会确定性生成 manifest、私有产物、
+`reports/<kind>/<period>.md` 归档快照，完成 Dreaming lease，并按配置处理投递：
 
 - `report.json`：唯一语义结果。
 - `summary.txt`：所有宿主回显的用户消息摘要。
 - `report.md`：Agent 内部记录和引用审计。
 - `report.html`：详细自包含页面；宿主预览或返回本地链接。
+- `reports/<kind>/<period>.md`：用户可编辑归档快照，重跑时保留“手动补充 / 备注”。
 
 HTML 禁止宿主私有 API 和外部脚本、样式、字体、图片或网络资源。TraeWork、Codex、Claude
 Code 只消费 manifest。
-4. 按 `references/dreaming-actions.md` plan/claim/validate `include_report`。
-5. 用 `kb-mutate execute` 写内部 Markdown，保留“手动补充 / 备注”。
-6. 将真实 mutation receipt 包装为 action downstream receipt，含 `status=committed`、
-   `idempotency_key=<claim.dedupe_key>` 和 `commit=<KB commit>`。
-7. `action complete` 后才成功完成 Dreaming job。
-
-生成与投递分别判定。需要投递时：
-
-```bash
-bin/byteworker dreaming report enqueue-delivery \
-  --kb "<KB>" --kind "<kind>" --period "<period>" \
-  --report-path "<reports/...>" --commit "<commit>" \
-  --channel lark_bot --artifact summary --recipient-id "<ou_...>"
-
-bin/byteworker dreaming report deliver \
-  --kb "<KB>" --outbox-id "<OUT-id>"
-```
-
-飞书固定用应用机器人发送 summary；`message_id` 是送达回执。不得猜收件人；无回执只能说已生成。
+4. 飞书固定用应用机器人发送 summary；仅当 `report_delivery.lark_bot.enabled=true` 且已有
+   `ou_` 收件人时，`report complete` 才自动创建 outbox 并投递。`message_id` 是送达回执。
+   投递失败时 outbox 保持 pending，报告 job 仍可成功，因为本地产物已经落地；不得猜收件人，
+   无回执只能说已生成。
 
 ## Owner Migration
 

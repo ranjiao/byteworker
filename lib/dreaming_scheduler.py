@@ -17,6 +17,7 @@ from dreaming_run_log import (
     append_run_event,
     logging_config,
 )
+from dreaming_run_result import save_run_result
 
 from dreaming_state import (
     STATE_SCHEMA,
@@ -26,6 +27,7 @@ from dreaming_state import (
     empty_state,
     load_state_unlocked,
     parse_time,
+    secure_path,
     state_lock,
     state_path,
     utc_iso,
@@ -1285,6 +1287,7 @@ def run_due(
     *,
     owner: str,
     lease_seconds: int = 7200,
+    followup_after_run_id: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if not owner.strip() or lease_seconds <= 0:
@@ -1335,18 +1338,48 @@ def run_due(
         jobs = value.get("jobs")
         if not isinstance(jobs, Mapping):
             raise DreamingError("DREAMING_STATE_INVALID", "Dreaming jobs 状态缺失。")
+        followup_run_id = followup_after_run_id.strip()
+        followup_reports_only = False
+        if followup_run_id:
+            process = jobs.get("process")
+            last_success = (
+                process.get("last_success")
+                if isinstance(process, Mapping)
+                and isinstance(process.get("last_success"), Mapping)
+                else None
+            )
+            if (
+                not isinstance(last_success, Mapping)
+                or last_success.get("run_id") != followup_run_id
+                or last_success.get("status") != "success"
+                or not str(last_success.get("period", "")).startswith("catchup:")
+                or str(last_success.get("owner", "")) != owner.strip()
+            ):
+                value["updated_at"] = _iso(current)
+                _atomic_write(state_path(kb), value)
+                return {
+                    "schema_version": STATE_SCHEMA,
+                    "status": "idle",
+                    "lease": None,
+                }
+            followup_reports_only = True
         candidates: list[dict[str, Any]] = []
         report_blockers: list[dict[str, Any]] = []
         for name in JOBS:
+            if followup_reports_only and name not in {"morning", "daily", "weekly"}:
+                continue
             job = jobs.get(name)
             if not isinstance(job, Mapping):
                 raise DreamingError(
                     "DREAMING_STATE_INVALID",
                     f"Dreaming job 状态缺失: {name}",
                 )
+            candidate_job = dict(job) if followup_reports_only else job
+            if followup_reports_only:
+                candidate_job["blocked_by"] = []
             candidate = _candidate(
                 name,
-                job,
+                candidate_job,
                 now=current,
                 local_now=current.astimezone(zone),
                 enabled_at=enabled_at,
@@ -1376,7 +1409,7 @@ def run_due(
                     job["ready_since"] = candidate["ready_since"]
                 if candidate.get("deadline_at") and not job.get("deadline_at"):
                     job["deadline_at"] = candidate["deadline_at"]
-        if report_blockers:
+        if report_blockers and not followup_reports_only:
             process = jobs.get("process")
             if isinstance(process, Mapping) and process.get("enabled"):
                 next_attempt = _parse_time(process.get("next_attempt_at"))
@@ -1645,6 +1678,8 @@ def complete_run(
     item_count: int | None = None,
     finding_count: int | None = None,
     gap_count: int | None = None,
+    batch_id: str = "",
+    result_document: Mapping[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if run_status not in RUN_STATUSES:
@@ -1682,8 +1717,51 @@ def complete_run(
                 "DREAMING_LEASE_MISMATCH",
                 "Dreaming lease epoch 已过期。",
             )
+        normalized_batch_id = batch_id.strip()
+        if normalized_batch_id:
+            manifest = secure_path(
+                kb,
+                "batches",
+                normalized_batch_id,
+                "manifest.json",
+            )
+            try:
+                manifest_value = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                manifest_value = {}
+            created_at = (
+                _parse_time(manifest_value.get("created_at"))
+                if isinstance(manifest_value, Mapping)
+                else None
+            )
+            acquired_at = _parse_time(lease.get("acquired_at"))
+            if (
+                job_name != "process"
+                or not manifest.is_file()
+                or manifest_value.get("batch_id") != normalized_batch_id
+                or created_at is None
+                or acquired_at is None
+                or created_at < acquired_at
+                or created_at > current
+            ):
+                raise DreamingError(
+                    "DREAMING_RUN_RESULT_INVALID",
+                    "batch_id 只接受当前 process 产出的 EvidenceBatch。",
+                )
         artifact = _validate_artifact(job_name, artifact_path)
         run_id = _lease_run_id(lease)
+        result_path = (
+            save_run_result(
+                kb,
+                document=result_document,
+                job=job_name,
+                period=str(lease.get("period", "")),
+                run_id=run_id,
+                now=current,
+            )
+            if result_document is not None
+            else ""
+        )
         run = {
             "run_id": run_id,
             "status": run_status,
@@ -1695,6 +1773,8 @@ def complete_run(
             "artifact_path": artifact,
             "coverage_checkpoint": coverage_checkpoint.strip(),
             "error_code": error_code.strip(),
+            "batch_id": normalized_batch_id,
+            "result_path": result_path,
         }
         job["last_attempt"] = run
         job["last_run"] = run
@@ -1750,6 +1830,7 @@ def complete_run(
             status=run_status,
             error_code=error_code,
             artifact_path=artifact,
+            batch_id=normalized_batch_id,
             metrics=metrics,
             retention_days=log_settings["retention_days"],
             max_file_bytes=log_settings["max_file_bytes"],
