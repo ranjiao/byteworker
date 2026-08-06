@@ -95,8 +95,7 @@ bin/byteworker dreaming retry-job --kb "<知识库绝对路径>" --job maintenan
 
 ## 宿主 tick
 
-local 宿主任务按唤醒间隔运行 `templates/dreaming-runner.md`；推荐 2 小时，最短
-5 分钟。runner 调用：
+local 宿主按唤醒间隔运行 `templates/dreaming-runner.md`；推荐 2 小时，最短 5 分钟：
 
 ```bash
 bin/byteworker dreaming run-due \
@@ -105,16 +104,9 @@ bin/byteworker dreaming run-due \
   --lease-seconds 7200
 ```
 
-返回值：
-
-- `disabled`：安静退出。
-- `idle`：没有到期 job，安静退出。
-- `busy`：已有有效租约，安静退出。
-- `leased`：只执行返回的 `job/period`，并保存 `lease.token`。
-
-一轮最多领取并执行一个 job。不要在 Agent 内自行计算另一个 period，也不要循环直到清空。
-候选按 deadline、ready age 和稳定 job name 选择；失败 job 遵守 `next_attempt_at`，不会持续压住
-morning/recovery。授权等人工阻断修复后显式运行 `retry-job`。
+`disabled/idle/busy` 安静退出；`leased` 只执行返回的 `job/period` 并保存 `lease.token`。
+唯一例外：完成 `process catchup:*` 后，可用 `--followup-after-run-id <run_id>`
+再领一次报告。除此之外一轮最多一个 job，不自行算 period 或清空队列。失败 job 遵守 `next_attempt_at`。
 
 长任务在租约到期前可续租：
 
@@ -142,7 +134,7 @@ heartbeat 不保存业务文本，`detail-code` 必须是有限机器码。
 - run/job/period/owner/epoch 与时间；
 - leased/heartbeat/renewed/completed/lease_expired；
 - stage、status、error code、artifact path；
-- duration/item/finding/gap/progress 等非负计数。
+- process batch id、duration/item/finding/gap/progress 等非负计数。
 
 禁止写消息正文、Finding summary、人员、群名、URL、凭据、命令 argv 或 stderr 原文。查询：
 
@@ -151,6 +143,11 @@ bin/byteworker dreaming runs list --kb "<KB>" --limit 20
 bin/byteworker dreaming runs show --kb "<KB>" "<run_id>"
 bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 ```
+
+本地 viewer 提供专用调试页，路径固定为 `/app/dreaming-debug.html`；启动 `bin/browse.sh` 后访问：
+`http://localhost:<端口>/app/dreaming-debug.html`。该页面不挂到主页面导航，供 Agent 和维护者直接
+通过 URL 查看 run list、阶段事件、process Finding/evidence、报告产物和 maintenance/recovery
+结构化结果。
 
 ## Job 执行
 

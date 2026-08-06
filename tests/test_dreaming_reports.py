@@ -25,8 +25,9 @@ from dreaming_reports import (  # noqa: E402
     report_window,
 )
 from dreaming_report_bundle import render_report_bundle  # noqa: E402
+from dreaming_report_completion import complete_report_run  # noqa: E402
 from dreaming_delivery_lark import deliver_lark_bot_summary  # noqa: E402
-from dreaming_scheduler import complete_run, enable, run_due  # noqa: E402
+from dreaming_scheduler import complete_run, configure, enable, run_due  # noqa: E402
 from dreaming_state import (  # noqa: E402
     DreamingError,
     load_state_unlocked,
@@ -242,11 +243,134 @@ class DreamingReportTests(unittest.TestCase):
             self.assertNotIn("{{TITLE}}", html_text)
             self.assertIn("byteworker dreaming", html_text.lower())
             self.assertIn("Daily Intel Brief", html_text)
+            archive = kb / rendered["report_path"]
+            self.assertTrue(archive.is_file())
+            self.assertEqual("reports/morning/2026-08-04.md", rendered["report_path"])
+            self.assertIn("# 晨报 · 2026-08-04", archive.read_text(encoding="utf-8"))
             for artifact in manifest["artifacts"].values():
                 self.assertEqual(
                     0o600,
                     stat.S_IMODE(Path(artifact["absolute_path"]).stat().st_mode),
                 )
+
+    def test_render_bundle_preserves_existing_manual_notes(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            now = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), now)
+            archive = kb / "reports" / "morning" / "2026-08-04.md"
+            archive.parent.mkdir(parents=True)
+            archive.write_text(
+                "# old\n\n## 手动补充 / 备注\n- 保留这条人工备注\n",
+                encoding="utf-8",
+            )
+
+            render_report_bundle(kb, document=self.report_document())
+
+            updated = archive.read_text(encoding="utf-8")
+            self.assertIn("- 保留这条人工备注", updated)
+
+    def test_render_bundle_does_not_follow_archive_symlink_for_manual_notes(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            now = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+            kb = self.make_kb(root, now)
+            outside = root / "outside.md"
+            outside.write_text(
+                "# outside\n\n## 手动补充 / 备注\n- 不应读取\n",
+                encoding="utf-8",
+            )
+            archive = kb / "reports" / "morning" / "2026-08-04.md"
+            archive.parent.mkdir(parents=True)
+            os.symlink(outside, archive)
+
+            render_report_bundle(kb, document=self.report_document())
+
+            self.assertEqual(
+                "# outside\n\n## 手动补充 / 备注\n- 不应读取\n",
+                outside.read_text(encoding="utf-8"),
+            )
+            self.assertFalse(archive.is_symlink())
+            self.assertNotIn("- 不应读取", archive.read_text(encoding="utf-8"))
+
+    def test_complete_report_records_artifact_and_skips_disabled_delivery(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            enabled_at = datetime(2026, 8, 3, 0, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), enabled_at)
+            configure(
+                kb,
+                process_enabled=False,
+                maintenance_enabled=False,
+                recovery_enabled=False,
+                morning_time="10:00",
+                now=enabled_at,
+            )
+            due_at = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+            leased = run_due(kb, owner="host", now=due_at)
+            self.assertEqual("morning", leased["job"])
+
+            completed = complete_report_run(
+                kb,
+                token=leased["lease"]["token"],
+                document=self.report_document(),
+                item_count=1,
+                finding_count=1,
+                gap_count=0,
+            )
+
+            self.assertEqual("completed", completed["status"])
+            self.assertEqual("skipped", completed["delivery"]["status"])
+            self.assertEqual(
+                "reports/morning/2026-08-04.md",
+                completed["run"]["artifact_path"],
+            )
+            with state_lock(kb):
+                state = load_state_unlocked(kb, due_at)
+            self.assertEqual({}, state["outbox"])
+
+    @mock.patch("dreaming_delivery_lark.subprocess.run")
+    def test_complete_report_delivers_when_lark_summary_enabled(self, run):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            enabled_at = datetime(2026, 8, 3, 0, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), enabled_at)
+            configure(
+                kb,
+                process_enabled=False,
+                maintenance_enabled=False,
+                recovery_enabled=False,
+                morning_time="10:00",
+                lark_delivery_enabled=True,
+                lark_recipient_id="ou_test",
+                now=enabled_at,
+            )
+            due_at = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+            leased = run_due(kb, owner="host", now=due_at)
+            run.return_value = mock.Mock(
+                returncode=0,
+                stdout=json.dumps(
+                    {"ok": True, "data": {"message_id": "om_report"}}
+                ),
+                stderr="",
+            )
+
+            completed = complete_report_run(
+                kb,
+                token=leased["lease"]["token"],
+                document=self.report_document(),
+                item_count=1,
+                finding_count=1,
+                gap_count=0,
+                delivery_binary="lark-cli",
+            )
+
+            self.assertEqual("delivered", completed["delivery"]["status"])
+            self.assertEqual("om_report", completed["delivery"]["delivery_id"])
+            command = run.call_args.args[0]
+            self.assertEqual("ou_test", command[command.index("--user-id") + 1])
+            with state_lock(kb):
+                state = load_state_unlocked(kb, due_at)
+            outbox_item = state["outbox"][completed["delivery"]["outbox_id"]]
+            self.assertEqual("delivered", outbox_item["status"])
+            self.assertEqual("reports/morning/2026-08-04.md", outbox_item["report_path"])
 
     def test_html_template_is_self_contained_and_has_required_slots(self):
         template_path = ROOT / "templates" / "report-template.html"

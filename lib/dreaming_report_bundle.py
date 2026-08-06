@@ -12,7 +12,14 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from dreaming_state import DreamingError, FILE_MODE, _secure_chmod, _secure_fchmod, atomic_write_json, secure_path
+from dreaming_state import (
+    DreamingError,
+    FILE_MODE,
+    _secure_chmod,
+    _secure_fchmod,
+    atomic_write_json,
+    secure_path,
+)
 
 
 REPORT_DOCUMENT_SCHEMA = "byteworker-report-document/v1"
@@ -330,6 +337,20 @@ def _render_markdown(document: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _existing_manual_notes(path: Path) -> str:
+    if path.is_symlink():
+        return ""
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    marker = "\n## 手动补充 / 备注\n"
+    if marker not in content:
+        return ""
+    notes = content.split(marker, 1)[1].strip()
+    return "" if notes == "- 暂无" else notes
+
+
 def _render_html(document: Mapping[str, Any]) -> str:
     esc = lambda value: html.escape(str(value), quote=True)
     coverage = document["coverage"]
@@ -594,12 +615,41 @@ def _write_private(path: Path, content: str) -> None:
         raise
 
 
+def _write_archive(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".report-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), 0o644)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o644)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def render_report_bundle(
     kb: Path,
     *,
     document: Mapping[str, Any],
 ) -> dict[str, Any]:
     normalized = _validate_document(document)
+    archive_path = (
+        kb.resolve()
+        / "reports"
+        / normalized["kind"]
+        / f"{normalized['period']}.md"
+    )
+    if not normalized["manual_notes"]:
+        preserved_notes = _existing_manual_notes(archive_path)
+        if preserved_notes:
+            normalized["manual_notes"] = preserved_notes
     directory = secure_path(
         kb,
         "reports",
@@ -612,8 +662,10 @@ def render_report_bundle(
     html_path = directory / "report.html"
     atomic_write_json(document_path, normalized)
     _write_private(summary_path, normalized["message_summary"] + "\n")
-    _write_private(markdown_path, _render_markdown(normalized))
+    markdown = _render_markdown(normalized)
+    _write_private(markdown_path, markdown)
     _write_private(html_path, _render_html(normalized))
+    _write_archive(archive_path, markdown)
     artifacts = {}
     for name, path, media_type, audience in (
         ("document", document_path, "application/json", "internal"),
@@ -632,6 +684,7 @@ def render_report_bundle(
         "schema_version": REPORT_ARTIFACT_SCHEMA,
         "kind": normalized["kind"],
         "period": normalized["period"],
+        "archive_path": str(archive_path.relative_to(kb.resolve())),
         "artifacts": artifacts,
         "host_delivery": {
             "summary": "return_inline",
@@ -646,6 +699,7 @@ def render_report_bundle(
         "kind": normalized["kind"],
         "period": normalized["period"],
         "manifest_path": str(manifest_path.relative_to(kb.resolve())),
+        "report_path": str(archive_path.relative_to(kb.resolve())),
         "summary": normalized["message_summary"],
         "html_path": str(html_path),
         "markdown_path": str(markdown_path),

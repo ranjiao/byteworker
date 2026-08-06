@@ -57,6 +57,7 @@ from dreaming_report_bundle import (  # noqa: E402
     load_report_document,
     render_report_bundle,
 )
+from dreaming_report_completion import complete_report_run  # noqa: E402
 from dreaming_delivery_lark import deliver_lark_bot_summary  # noqa: E402
 from dreaming_consolidation import (  # noqa: E402
     explain_finding,
@@ -172,6 +173,11 @@ def parser() -> argparse.ArgumentParser:
     due.add_argument("--kb", required=True, type=Path)
     due.add_argument("--owner", required=True)
     due.add_argument("--lease-seconds", type=_positive, default=7200)
+    due.add_argument(
+        "--followup-after-run-id",
+        default="",
+        help="仅在刚完成 process catchup 后领取被解锁的报告 job",
+    )
 
     renew = sub.add_parser("renew")
     renew.add_argument("--kb", required=True, type=Path)
@@ -325,6 +331,14 @@ def parser() -> argparse.ArgumentParser:
     render = report_sub.add_parser("render")
     render.add_argument("--kb", required=True, type=Path)
     render.add_argument("--input", required=True, type=Path)
+    report_complete = report_sub.add_parser("complete")
+    report_complete.add_argument("--kb", required=True, type=Path)
+    report_complete.add_argument("--token", required=True)
+    report_complete.add_argument("--input", required=True, type=Path)
+    report_complete.add_argument("--item-count", type=int)
+    report_complete.add_argument("--finding-count", type=int)
+    report_complete.add_argument("--gap-count", type=int)
+    report_complete.add_argument("--delivery-binary")
     enqueue = report_sub.add_parser("enqueue-delivery")
     enqueue.add_argument("--kb", required=True, type=Path)
     enqueue.add_argument(
@@ -397,6 +411,8 @@ def parser() -> argparse.ArgumentParser:
     complete.add_argument("--item-count", type=int)
     complete.add_argument("--finding-count", type=int)
     complete.add_argument("--gap-count", type=int)
+    complete.add_argument("--batch-id", default="")
+    complete.add_argument("--result-input", type=Path)
     return result
 
 
@@ -480,6 +496,7 @@ def _run(args: argparse.Namespace) -> object:
             kb,
             owner=args.owner,
             lease_seconds=args.lease_seconds,
+            followup_after_run_id=args.followup_after_run_id,
         )
     if args.operation == "renew":
         return renew_lease(
@@ -593,6 +610,16 @@ def _run(args: argparse.Namespace) -> object:
                 kb,
                 document=load_report_document(args.input, skill_root=ROOT),
             )
+        if args.report_operation == "complete":
+            return complete_report_run(
+                kb,
+                token=args.token,
+                document=load_report_document(args.input, skill_root=ROOT),
+                item_count=args.item_count,
+                finding_count=args.finding_count,
+                gap_count=args.gap_count,
+                delivery_binary=args.delivery_binary,
+            )
         if args.report_operation == "enqueue-delivery":
             return enqueue_delivery(
                 kb,
@@ -661,6 +688,26 @@ def _run(args: argparse.Namespace) -> object:
             )
         raise AssertionError(args.action_operation)
     if args.operation == "complete":
+        result_document = None
+        if args.result_input is not None:
+            try:
+                if args.result_input.stat().st_size > 1024 * 1024:
+                    raise DreamingError(
+                        "DREAMING_RUN_RESULT_INVALID",
+                        "运行结果文档超过 1 MiB。",
+                    )
+                loaded = json.loads(args.result_input.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise DreamingError(
+                    "DREAMING_RUN_RESULT_INVALID",
+                    "无法读取运行结果文档。",
+                ) from exc
+            if not isinstance(loaded, dict):
+                raise DreamingError(
+                    "DREAMING_RUN_RESULT_INVALID",
+                    "运行结果文档必须是 JSON object。",
+                )
+            result_document = loaded
         return complete_run(
             kb,
             token=args.token,
@@ -671,6 +718,8 @@ def _run(args: argparse.Namespace) -> object:
             item_count=args.item_count,
             finding_count=args.finding_count,
             gap_count=args.gap_count,
+            batch_id=args.batch_id,
+            result_document=result_document,
         )
     raise AssertionError(args.operation)
 

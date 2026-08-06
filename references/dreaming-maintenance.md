@@ -11,6 +11,36 @@
    确定性白名单修复，自带共享写锁、Git 回滚、复扫、journal 和本地 commit；不要手工改文件。
 3. 再读取最终 scan/transaction。完全健康或只有无需用户处理的 info/低价值 warning 时，以
    `success` 完成；coverage checkpoint 只写计数与 commit，不写业务内容。
+4. 完成前必须把本轮结构化结果写入 KB 外临时 JSON，并通过 `dreaming complete --result-input`
+   保存到 `state/dreaming/run-results/<run_id>.json`，供调试页复核。结构包含：
+
+```json
+{
+  "schema_version": "byteworker-dreaming-run-result/v1",
+  "job": "maintenance",
+  "period": "<lease.period>",
+  "summary": "本轮 doctor 扫描、自动修复和剩余问题的一句话结论",
+  "checks": [
+    {
+      "name": "doctor_errors",
+      "status": "pass",
+      "detail": "复扫后 0 个 error"
+    }
+  ],
+  "repairs": [
+    {
+      "path": "INDEX.md",
+      "code": "INDEX_STALE",
+      "action": "rebuild_index",
+      "detail": "重建索引，补回 3 个缺失节点并移除 1 个失效条目。"
+    }
+  ]
+}
+```
+
+`repairs[]` 逐条记录 doctor 事务实际修复了哪个 KB 相对路径、问题码、动作和简短结果；没有自动
+修复时写空数组。不得把节点正文、raw 内容、聊天消息、URL token、完整 diff 或 stdout/stderr 放入
+`summary/checks/repairs`。
 
 ## 选择用户需要决策的信息
 
@@ -29,7 +59,8 @@
 ```bash
 bin/byteworker dreaming complete --kb "<KB>" --token "<lease.token>" \
   --run-status partial --error-code DOCTOR_USER_DECISION_REQUIRED \
-  --coverage-checkpoint "doctor:error=<N>,warning=<N>,commit=<short-or-none>"
+  --coverage-checkpoint "doctor:error=<N>,warning=<N>,commit=<short-or-none>" \
+  --result-input "<临时运行结果 JSON>"
 ```
 
 该错误进入 `waiting_for_user`，避免每个 tick 重复提醒。用户处理或明确忽略后，运行

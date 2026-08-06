@@ -15,6 +15,7 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,9 @@ from settings import (  # noqa: E402
     settings_view,
     update_settings,
 )
+from dreaming_debug import inspect_run  # noqa: E402
+from dreaming_run_log import list_runs  # noqa: E402
+from dreaming_state import DreamingError, parse_time  # noqa: E402
 
 
 MAX_BODY_BYTES = 128 * 1024
@@ -119,9 +123,66 @@ class ViewerHandler(SimpleHTTPRequestHandler):
                 status=HTTPStatus.BAD_REQUEST,
             )
 
+    def _handle_dreaming_runs_get(self) -> None:
+        request = urlsplit(self.path)
+        prefix = "/api/dreaming/runs/"
+        try:
+            if request.path.startswith(prefix):
+                run_id = unquote(request.path[len(prefix) :]).strip()
+                if not run_id or "/" in run_id or len(run_id) > 96:
+                    raise DreamingError(
+                        "VIEWER_DREAMING_RUN_INVALID",
+                        "run_id 无效。",
+                    )
+                self._send_json(inspect_run(self.kb, run_id=run_id))
+                return
+            raw_limit = parse_qs(request.query).get("limit", ["100"])[0]
+            try:
+                limit = int(raw_limit)
+            except ValueError as exc:
+                raise DreamingError(
+                    "VIEWER_DREAMING_QUERY_INVALID",
+                    "limit 必须是整数。",
+                ) from exc
+            query = parse_qs(request.query)
+            since = parse_time(query.get("since", [""])[0])
+            until = parse_time(query.get("until", [""])[0])
+            if query.get("since", [""])[0] and since is None:
+                raise DreamingError(
+                    "VIEWER_DREAMING_QUERY_INVALID",
+                    "since 必须是 ISO 时间。",
+                )
+            if query.get("until", [""])[0] and until is None:
+                raise DreamingError(
+                    "VIEWER_DREAMING_QUERY_INVALID",
+                    "until 必须是 ISO 时间。",
+                )
+            self._send_json(list_runs(self.kb, limit=limit, since=since, until=until))
+        except DreamingError as exc:
+            status = (
+                HTTPStatus.NOT_FOUND
+                if exc.code == "DREAMING_RUN_NOT_FOUND"
+                else HTTPStatus.BAD_REQUEST
+            )
+            self._send_json({"error": exc.as_dict()}, status=status)
+        except Exception as exc:  # pragma: no cover - defensive boundary
+            self._send_json(
+                {
+                    "error": {
+                        "code": "VIEWER_DREAMING_LOG_FAILED",
+                        "message": f"读取 Dreaming 运行日志失败: {exc}",
+                    }
+                },
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+
     def do_GET(self) -> None:  # noqa: N802
-        if self.path.split("?", 1)[0] == "/api/settings":
+        path = urlsplit(self.path).path
+        if path == "/api/settings":
             self._handle_api_get()
+            return
+        if path == "/api/dreaming/runs" or path.startswith("/api/dreaming/runs/"):
+            self._handle_dreaming_runs_get()
             return
         super().do_GET()
 

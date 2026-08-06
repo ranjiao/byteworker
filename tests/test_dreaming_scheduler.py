@@ -222,6 +222,57 @@ class DreamingSchedulerTests(unittest.TestCase):
             )
             self.assertEqual("idle", not_due["status"])
 
+    def test_process_catchup_can_chain_one_unblocked_report(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = self.make_kb(Path(temporary))
+            enabled_at = datetime(2026, 8, 5, 0, 0, tzinfo=timezone.utc)
+            value = self.enable_at(kb, enabled_at)
+            value["grants"]["im"] = {
+                "mode": "all_visible",
+                "persist_finding": True,
+                "updated_at": enabled_at.isoformat(),
+            }
+            atomic_write_json(state_path(kb), value)
+
+            due_at = datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
+            catchup = run_due(kb, owner="host-task", now=due_at)
+
+            self.assertEqual("process", catchup["job"])
+            self.assertTrue(catchup["period"].startswith("catchup:"))
+            complete_run(
+                kb,
+                token=catchup["lease"]["token"],
+                run_status="success",
+                now=due_at + timedelta(minutes=5),
+            )
+
+            wrong_followup = run_due(
+                kb,
+                owner="host-task",
+                followup_after_run_id="DR-missing",
+                now=due_at + timedelta(minutes=6),
+            )
+            self.assertEqual("idle", wrong_followup["status"])
+
+            value = json.loads(state_path(kb).read_text(encoding="utf-8"))
+            value["cursors"]["im:discovery"] = {
+                "through": "2026-08-05T02:00:00+00:00",
+                "committed_batch_id": "EB-catchup",
+                "updated_at": (due_at + timedelta(minutes=5)).isoformat(),
+            }
+            atomic_write_json(state_path(kb), value)
+
+            report = run_due(
+                kb,
+                owner="host-task",
+                followup_after_run_id=catchup["lease"]["run_id"],
+                now=due_at + timedelta(minutes=6),
+            )
+
+            self.assertEqual("leased", report["status"])
+            self.assertEqual("morning", report["job"])
+            self.assertEqual("2026-08-05", report["period"])
+
     def test_maintenance_runs_on_schedule_and_waits_for_user_decision(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))

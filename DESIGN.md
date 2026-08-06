@@ -62,7 +62,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
 | `bin/report-automation.py` + `lib/report_automation.py` | 自动报告首次设置状态、prompt 版本、跨日报/周报执行租约与真实运行回执；不创建宿主任务 |
-| `bin/viewer-server.py` + `lib/settings.py` | 本地 viewer 设置 API 与统一配置 façade；汇总现有配置 truth source，不把业务配置复制进 skill 仓库 |
+| `bin/viewer-server.py` + `lib/settings.py` | 本地 viewer 设置 API、只读 Dreaming 日志调试 API 与统一配置 façade；汇总现有 truth source，不把业务数据复制进 skill 仓库 |
 | `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
@@ -318,12 +318,20 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
 - `logging.retention_days` 可配置 1..365，默认 30；append 时确定性清理过期日文件。
 - 事件只允许 leased/heartbeat/renewed/completed/lease_expired，stage 和 metrics 使用固定白名单。
 - 允许保存 run/job/period/owner/epoch、时间、status、error code、KB 相对 artifact path，以及
-  duration/item/finding/gap/progress 非负计数。
+  process 完成时的 EvidenceBatch id、duration/item/finding/gap/progress 非负计数。
 - 禁止保存 IM/Finding 正文、人员或群名、URL、凭据、完整 argv、stdout/stderr；日志不是知识证据。
 
 Dreaming 运行正文、checkpoint 和后续 findings 均位于 `state/dreaming/` 或系统临时目录，继续
 受 `/state/` Git 排除规则保护。任何长期知识仍必须通过现有 SourceBundle + DigestTxn；Dreaming
 状态不能作为事实证据或绕过事务。
+
+本地 Dreaming 调试页通过只读聚合层把 run id 关联到 EvidenceBatch、FindingBundle、report
+artifacts 和 evidence spool；正文只在用户主动打开本机调试页时按需读取，不复制进 run log。
+历史 run 没有显式 batch id 时允许按 run 时间窗口保守关联，并必须在界面标明推断关系。
+maintenance/recovery 使用 `byteworker-dreaming-run-result/v1` 保存本轮 summary、有限
+`pass/warning/fail/noop` 检查项和 `repairs[]` 修复明细到
+`state/dreaming/run-results/<run_id>.json`；修复明细只含 KB 相对路径、问题码、动作和摘要。
+历史任务没有该文档时调试页必须明确提示证据不足，不能从成功状态推断结果正确。
 
 `lib/dreaming_models.py` 定义并结构校验以下瞬时契约，不负责语义正确性，也不自行持久化：
 
@@ -342,6 +350,7 @@ I2 状态布局：
 state/dreaming/
   state.json
   run-logs/<UTC-date>[-NNNN].jsonl
+  run-results/<run_id>.json
   spool/<batch_id>/<message_hash>.json
   batches/<batch_id>/
     manifest.json
@@ -418,25 +427,31 @@ state/dreaming/
   state.json.report_dependencies
   state.json.report_owner
   state.json.outbox
+reports/<kind>/<period>.md
 ```
 
 - 报告窗口：morning 为前一日 20:30 至当日 10:00；当期自动 daily 为当日 00:00 至当前 tick，
   历史补跑 daily 为完整自然日；weekly 为完整 ISO 周。均按 Dreaming timezone 计算后保存 UTC。
 - IM cursor 落后或 gap 与窗口重叠时，报告 job 写 `blocked_by`，scheduler 先领取独立 process
-  catch-up lease；process commit 清除已覆盖 gap 并刷新 dependency，下一 tick 才领取报告。
+  catch-up lease；process commit 清除已覆盖 gap 并刷新 dependency 后，runner 可用该 catch-up
+  `run_id` 做一次受限 follow-up 领取报告。follow-up 只考虑 morning/daily/weekly，不参与普通
+  process/recovery/maintenance 竞争，也不得循环领取。
 - all_visible discovery 即使追平也只能标 partial/best-effort。存在 Dreaming 尚未支持的 routine
   provider 时 morning 可 partial，但禁止 daily/weekly owner migration。
 - report packet 只包含 committed Finding 投影、coverage 和 durable KB 查询指针，不读取 spool；
   文件 `0600`。报告事实仍必须通过 citations 回到原始 evidence。
-- Agent 只生成一次 `byteworker-report-document/v1` 语义结果；`dreaming_report_bundle.py` 校验后
-  确定性派生 300–500 字 `summary.txt`、内部审计用 `report.md`、面向用户的 `report.html` 和
-  `byteworker-report-artifacts/v1` manifest。所有文件为 `0600`，manifest 记录相对/绝对路径、
-  media type、audience 与 SHA-256。
+- Agent 只生成一次 `byteworker-report-document/v1` 语义结果；`dreaming_report_completion.py`
+  是报告 job 的唯一成功出口，调用 `dreaming_report_bundle.py` 校验并确定性派生 300–500 字
+  `summary.txt`、内部审计用 `report.md`、面向用户的 `report.html`、用户可编辑的
+  `reports/<kind>/<period>.md` 归档快照和 `byteworker-report-artifacts/v1` manifest。私密产物
+  为 `0600`，归档快照为普通用户文件；manifest 记录相对/绝对路径、media type、audience 与
+  SHA-256。
 - HTML 是单文件自包含页面，业务文本必须转义，禁止外部 JS/CSS/字体/图片和网络请求。报告核心
   不识别 TraeWork、Codex 或 Claude Code；宿主只按 manifest 回显摘要，并自行选择直接预览 HTML
   或返回本地文件链接。
-- 报告提交必须走 include_report Action claim 和 KB Mutation。生成 commit 后才能完成 action 和
-  Dreaming job；delivery outbox 独立维护 pending/delivered，不以报告 commit 冒充送达。
+- `report complete` 必须在完成 lease 时写入 `artifact_path=reports/<kind>/<period>.md`。归档快照
+  重跑时保留“手动补充 / 备注”；delivery outbox 独立维护 pending/delivered，不以报告落地冒充
+  送达。
 - outbox 每项保存 `channel/artifact/recipient_id`。飞书通道只接受 summary 和明确的用户 open ID，
   使用 outbox id 作为幂等键；仅应用机器人返回真实 `message_id` 后标记 delivered。投递失败保持
   pending，不删除本地产物、不回滚报告 commit。
