@@ -187,9 +187,14 @@ class AgentRouteContractTests(unittest.TestCase):
             "TraeWork 网页版仅提供云端运行环境",
             "即使当前会话暴露 Schedule 工具",
             "不创建任务，也不执行",
+            "KB 绝对路径已经作为工作目录加入当前 TraeWork 项目",
+            "不会扩大 TraeWork Sandbox 的目录访问范围",
+            "不要用 `sudo`、`chmod`",
         ):
             self.assertIn(term, trae_harness)
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("KB 绝对路径已作为", skill)
+        self.assertIn("TraeWork Sandbox 目录权限", skill)
         architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
         for text in (skill, architecture):
             self.assertIn("TRAE IDE/TraeCode", text)

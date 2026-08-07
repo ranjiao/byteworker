@@ -30,6 +30,23 @@ Dreaming 需要用户本地 KB、用户态 lark-cli 和 Agent 模型分析，因
 任务**。TraeWork 网页版仅提供云端运行环境，不能访问这些本机状态，不作为等价替代；用户必须
 使用 TraeWork 桌面版。
 
+## KB 工作目录与 Sandbox 权限
+
+TraeWork 桌面版只允许 Agent 访问当前项目已登记的工作目录。执行任何 byteworker 命令前，必须
+确认用户的 **KB 绝对路径已经作为工作目录加入当前 TraeWork 项目**；项目中可以同时保留
+byteworker skill 仓库和 KB 两个工作目录。仅打开 skill 仓库、在 `.kbconfig` 中写入 KB 路径，
+或在命令中传入 `--kb`，都不会扩大 TraeWork Sandbox 的目录访问范围。
+
+如果 KB 尚未加入项目，先停止 preflight、查询、摄取、报告和 Dreaming 操作，并提示用户：
+
+> 请先在 TraeWork 当前项目中，把 `<KB 绝对路径>` 添加为工作目录，然后回到本地会话继续。
+> byteworker 的 `.kbconfig` 只能定位知识库，不能替 TraeWork 授予目录访问权限。
+
+`Operation not permitted`、`Permission denied`，或 Agent 能读取 skill 仓库但不能读写 KB 时，
+优先检查这一项。不要用 `sudo`、`chmod`、复制 KB 到 skill 仓库或反复重试来绕过 Sandbox；
+KB 已加入项目但当前会话仍不可访问时，让用户刷新或重新打开该项目会话后再验证。此项检查独立于
+飞书资源共享权限和 macOS 文件权限。
+
 ## TRAE IDE/TraeCode 中的提示
 
 检测到 TRAE IDE、TraeCode 或其内置 SOLO 模式时，不展示创建步骤，直接使用自然语言说明：
@@ -49,7 +66,8 @@ Dreaming 需要用户本地 KB、用户态 lark-cli 和 Agent 模型分析，因
 
 1. 打开 TraeWork 桌面版左侧的“自动化”，点击“手动新建”或“在对话中创建”。
 2. 任务名使用稳定名称 `byteworker-dreaming-local`。
-3. 选择 **Code 模式**、**本地环境**；工作目录选择用户的 KB 绝对路径。
+3. 选择 **Code 模式**、**本地环境**；工作目录选择已经加入当前项目的 KB 绝对路径。不能只把
+   byteworker skill 仓库设为工作目录。
 4. 触发频率使用用户刚刚确认的**本地任务唤醒间隔**；推荐 2 小时，可根据 quota 和时效要求调整。
    这是检查是否有工作到期，不等于每次唤醒都会调用模型；真正的自动检查、定时摘要、健康检查和
    离线补跑时间仍按用户刚刚确认的计划执行。
@@ -63,8 +81,8 @@ TASK_ID 使用 byteworker-dreaming-local。
 
 6. 本地任务要求电脑开机、唤醒、联网。需要夜间运行时，提示用户检查 TraeWork 的防睡眠/设备
    在线设置；不要承诺休眠期间按时执行。
-7. 创建后在任务面板点击一次“触发任务/Run now”。必须看到任务记录，并确认没有等待权限或用户
-   输入的步骤。
+7. 创建后在任务面板点击一次“触发任务/Run now”。必须看到任务记录，确认任务能够读写 KB，
+   且没有等待 Sandbox 权限或用户输入的步骤。
 8. 用户确认任务已存在且首次触发完成后，才运行：
 
 ```bash
