@@ -522,6 +522,11 @@ I6 foreground/review/shadow：
 - **raw 文件**:`raw_data/<YYYY-MM-DD>-<slug>.md`,`raw_id` = `raw-<YYYY-MM-DD>-<slug>`。
   若目标文件或 `raw_id` 已存在,**不得覆盖**;追加 `-2`/`-3`,或在 slug 中加入规范化周期 / revision / hash
   短后缀,直到文件名与 `raw_id` 唯一。
+- **来源标题与库内标题分离**:`raw_data` frontmatter 的 `source_title` / SourceBundle
+  `identity.title` 保存来源原始标题，不做消歧改写；`knowledge` 节点 `title` 是面向检索和浏览的
+  库内标题。Agent 生成候选节点时，若原题缺少作者、团队、业务、项目、周期或会议场景等限定语
+  (如“个人工作总结”“复盘”“算法方案”“直播模型算法方案”)，必须用来源中可证实的信息补成更具体
+  的标题；无法确认限定范围时保留原题并在正文披露“归属待确认”，不得臆造归属。
 - **节点文件 / id**:
   - 实体:`knowledge/<类型复数>/<前缀><slug>.md`,如 `project-q2-roadmap`、`area-rec-system`、`org-data-platform-team`。
     - `person` 与其它实体同规则:slug 取姓名核心关键词(英文 / 拼音 kebab-case),id `person-<slug>`、文件名同名。**id 一经生成永不改**(仅同名碰撞才追 `-2`/`-3`)。同名 / 同人消歧不靠 id,靠 frontmatter 的 `feishu_id` 字段(见 §4.1、§4.3);**新建 person 前必须解析出 `feishu_id`**,解析不到就暂不建 person。历史遗留 `feishu_id: ?` 日后解析到了**回填该字段**即可 —— 纯字段编辑,不动 id、不改名、不级联。
@@ -810,6 +815,7 @@ links:                                        # 图的边,双向维护(写 A→B
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `id` | ✓ | `<前缀><slug>`,全局唯一 |
+| `title` | ✓ | 面向知识库检索 / 浏览的库内标题，可不同于 raw `source_title`。当来源原题不够具体时，必须包含可证实的作者、团队、业务、项目、周期或会议场景限定语；正文 H1 必须与它一致 |
 | `type` | ✓ | 8 类之一,决定子目录与 body 结构 |
 | `tags` | ✓ | 自由二级标签,承载角色特异性(数据集名、渠道、技术栈…);优先复用已有 tag |
 | `status` | ✓ | `current` / `stale` 疑似过期 / `superseded` 已被取代 |
