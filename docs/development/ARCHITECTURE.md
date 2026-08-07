@@ -47,7 +47,7 @@ flowchart LR
 
 | 层 | 负责 | 不负责 |
 |---|---|---|
-| Agent 语义层 | 理解内容、按唯一 policy 产出带 reason/evidence 的语义决定、生成完整候选、解释结果 | 不手算 hash，不自行发明冲突/晋升阈值，不绕过事务直接写 KB |
+| Agent 语义层 | 理解内容、按唯一 policy 产出带 reason/evidence 的语义决定、生成完整候选、为库内节点生成可消歧标题、解释结果 | 不手算 hash，不自行发明冲突/晋升阈值，不绕过事务直接写 KB，不改写 raw 原始标题 |
 | Python / Shell 工具层 | 授权检查、抓取、规范化、hash、幂等、schema 校验、原子写入、回滚、查询、修复 | 不理解业务语义，不决定“这是什么项目/决策” |
 | 私有知识库 | 保存原文、出处、知识节点、用户状态、报告和本地回滚历史 | 不进入本 skill 仓库，不配置 remote |
 
@@ -203,7 +203,7 @@ sequenceDiagram
         Agent-->>User: 已摄取，不重复写入
     else 新来源或新版本
         Txn-->>Agent: new_source / new_version
-        Agent->>Agent: 依赖闸门、冲突检测、实体消解
+        Agent->>Agent: 依赖闸门、冲突检测、标题消歧、实体消解
         Agent->>Agent: 生成完整候选节点和 evidence 映射
         Agent->>Txn: DigestPlan v2 execute
         Txn->>Txn: 写入前 schema / links / baseline / provenance 校验
@@ -223,6 +223,7 @@ flowchart LR
         S1["重要依赖是否纳入"]
         S2["是否存在事实冲突"]
         S3["创建或更新哪些节点"]
+        S3a["节点库内标题如何消歧"]
         S4["哪条事实绑定哪个 anchor"]
     end
 

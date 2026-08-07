@@ -82,6 +82,13 @@
    supersede 或用户明确确认才可按对应 disposition 更新，时间较新本身不构成覆盖依据。
 7. **digest 扇出**(docs/development/DESIGN.md §4.3):
    - 必产 1 个主记录节点(会议、群聊窗口 → `event`;外部读物、内部路线思考/方法论/调研/白皮书 → `reading`)。**会议簇**(同一场会的日历 + 投屏文档 + 妙记)仍只产 1 个 `event`,不按物件拆 —— 见 `references/digest-meeting.md`。
+   - **库内标题消歧**:生成主记录和扇出节点前，先判断原始 `source_title` / 会议标题 / 视图标题
+     是否足够具体。若标题只是“个人工作总结”“复盘”“算法方案”“直播模型算法方案”“项目规划”
+     这类宽泛名称，候选节点的 `title`、正文 H1 和 TL;DR 首句必须补上来源中可证实的作者本人、
+     团队、业务、项目、周期或会议场景，例如“张三：2026 H1 个人工作总结”或
+     “抖音直播推荐团队：XX 项目直播模型算法方案”。raw frontmatter 和 SourceBundle 仍保留
+     原始标题；不得为了消歧改写 raw 正文或 `source_title`。若来源无法证明归属，先保留为
+     `reading` / `event` 并标注“归属待确认”，不要臆造团队或项目，必要时询问用户。
    - **同源主记录去重**:若同一 `source_uid + digest_period/source_window` 已有主记录节点(可从
      历史 raw `digest_targets`、节点 `sources` 或标题/链接召回),更新该节点,不要新建重复
      `reading` / `event`。`decision` 也按同一事实/同一来源去重;新版本改变原决策时,走

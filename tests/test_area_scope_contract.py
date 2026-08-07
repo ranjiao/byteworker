@@ -30,6 +30,35 @@ class AreaScopeContractTests(unittest.TestCase):
         self.assertIn("明确不代表其它业务/团队或公司级共识", template)
         self.assertIn("首句重申业务/团队/个人适用范围", template)
 
+    def test_digest_requires_disambiguated_knowledge_titles(self):
+        skill = self.read("SKILL.md")
+        digest_core = self.read("references/digest-core.md")
+        write_rules = self.read("references/write-rules.md")
+        design = self.read("docs/development/DESIGN.md")
+        architecture = self.read("docs/development/ARCHITECTURE.md")
+
+        self.assertIn("raw / Bundle 的", skill)
+        self.assertIn("按来源可确认的作者、团队", skill)
+        self.assertIn("库内标题消歧", digest_core)
+        self.assertIn("不得为了消歧改写 raw 正文或 `source_title`", digest_core)
+        self.assertIn("raw / SourceBundle 的 `source_title` 保留来源原题", write_rules)
+        self.assertIn("无法确认范围时，不得臆造团队或项目归属", write_rules)
+        self.assertIn("来源标题与库内标题分离", design)
+        self.assertIn("为库内节点生成可消歧标题", architecture)
+
+    def test_reading_template_prompts_for_disambiguated_title(self):
+        template = self.read("templates/node-reading.md")
+        scoped_title = "<库内消歧标题:必要时包含作者/团队/业务/项目/周期限定语>"
+        self.assertEqual(2, template.count(scoped_title))
+        self.assertIn("这篇文章 / 资料在什么作者/团队/业务/项目/周期范围内成立", template)
+        self.assertIn("原始标题", template)
+
+    def test_reading_reference_handles_ambiguous_internal_titles(self):
+        reading = self.read("references/digest-reading.md")
+        self.assertIn("内部资料标题消歧", reading)
+        self.assertIn("`个人工作总结` → `<作者>：<周期>个人工作总结`", reading)
+        self.assertIn("原始标题继续保存在 raw 的 `source_title`", reading)
+
 
 if __name__ == "__main__":
     unittest.main()

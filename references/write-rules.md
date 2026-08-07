@@ -27,6 +27,14 @@
   `git add` / `git commit`，不手工补写 journal。
 - **Todo 写入**:`todo.md` 由 `bin/todo.py` 原子维护，Agent 通过统一机器协议调用;用户确认前的 digest 候选不得写入。新增 / 完成 / 延期 / 取消 / 真正发出提醒后,只暂存 `todo.md` 与本次 journal 路径创建本地回滚点。todo id 是内部键,用户侧按自然语言标题和当前对话消解。
 - **命名 / 字段**:严格按 docs/development/DESIGN.md §2(命名)与 §4.1(字段)。
+- **库内标题消歧**:raw / SourceBundle 的 `source_title` 保留来源原题；`knowledge` 节点的
+  `title` 和正文 H1 是库内浏览与检索标题。若原题缺少具体限定语(如“个人工作总结”“复盘”
+  “算法方案”“直播模型算法方案”“项目规划”),Agent 必须先从来源正文、作者、owner、团队路径、
+  项目名、会议名、文档路径或用户上下文中提取可证实限定范围，再生成
+  “`<作者 / 团队 / 业务 / 项目 / 周期限定语>：<原主题>`”或等价自然标题。标题、H1、TL;DR
+  首句和「来源」/「事件信息」必须一致披露该范围；不能只在 tag、links 或正文深处补限定语。
+  无法确认范围时，不得臆造团队或项目归属；保留原题并标注“归属待确认”，必要时先询问用户。
+  内部 id / slug 取消歧后的核心标题，但已有节点 id 保持稳定，修正标题时不强制改名。
 - **thinking 例外**:`thinking` 不创建 raw、不走 digest transaction；按
   `references/thinking.md` 生成候选，并通过 `byteworker-kb-mutation/v1` 原子写入。允许最小
   frontmatter 和自由正文，但仍维护双向 links、INDEX、journal 和本地 Git 回滚点。

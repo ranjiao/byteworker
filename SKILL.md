@@ -121,9 +121,9 @@ feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 hash、幂等、schema、INDEX、journal、精确 commit 和 rollback 由事务负责。只有
 `status=committed` receipt 表示写入成功。
 
-关键事实使用 `[E1]` 等标记映射到 raw anchor，主记录声明 `primary_source`。新建/更新 person
-时运行 `bin/resolve-users.sh --format json`，按 feishu_id 消解并同步可见通讯录字段；空查询不
-清除旧值。
+事实 `[E1]` 绑raw，主记录设 `primary_source`。raw / Bundle 的 `source_title`
+留原题；宽泛时，按来源可确认的作者、团队、项目/周期命名；不明标“归属待确认”。
+person 用 `bin/resolve-users.sh --format json` 按 feishu_id 消解。
 
 Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用户并取得登录授权；运行时
 `source inspect / capture` 仍 fail closed。资源 Permission Denied 请求所有者共享，**禁止用重复登录或静默切 bot 掩盖**。
