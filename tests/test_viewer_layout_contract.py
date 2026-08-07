@@ -84,8 +84,8 @@ class ViewerLayoutContractTests(unittest.TestCase):
                 self.assertIn(f'data-process-kind="{kind}"', self.viewer)
         self.assertIn("function updateProcessScheduleFields()", self.viewer)
         self.assertIn("分钟检查一次", self.viewer)
-        self.assertIn("填写接收人的飞书用户 ID", self.viewer)
-        self.assertIn("不是手机号、邮箱或群聊 ID", self.viewer)
+        self.assertIn("填写日常使用的字母用户名", self.viewer)
+        self.assertIn("系统会自动查找对应飞书账号", self.viewer)
         self.assertIn('href="/app/dreaming-debug.html"', self.viewer)
         self.assertIn("查看运行日志", self.viewer)
 

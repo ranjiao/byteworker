@@ -77,7 +77,11 @@ class DreamingRuntimeTests(unittest.TestCase):
                 configured["jobs"]["process"]["schedule"],
             )
             self.assertEqual(
-                {"enabled": True, "recipient_id": "ou_test"},
+                {
+                    "enabled": True,
+                    "recipient_id": "ou_test",
+                    "recipient_key": "ou_test",
+                },
                 configured["report_delivery"]["lark_bot"],
             )
             self.assertEqual(

@@ -59,6 +59,7 @@ from dreaming_report_bundle import (  # noqa: E402
 )
 from dreaming_report_completion import complete_report_run  # noqa: E402
 from dreaming_delivery_lark import deliver_lark_bot_summary  # noqa: E402
+from lark_recipient import resolve_lark_recipient  # noqa: E402
 from dreaming_consolidation import (  # noqa: E402
     explain_finding,
     record_finding_feedback,
@@ -110,7 +111,15 @@ def parser() -> argparse.ArgumentParser:
     configure_parser.add_argument("--recovery-enabled", type=_optional_bool)
     configure_parser.add_argument("--log-retention-days", type=_positive)
     configure_parser.add_argument("--lark-delivery-enabled", type=_optional_bool)
-    configure_parser.add_argument("--lark-recipient-id")
+    recipient_group = configure_parser.add_mutually_exclusive_group()
+    recipient_group.add_argument(
+        "--lark-recipient",
+        help="飞书字母用户名（如 ranjiao）或 ou_ 开头的 open_id",
+    )
+    recipient_group.add_argument(
+        "--lark-recipient-id",
+        help="兼容旧调用；接受字母用户名或 ou_ 开头的 open_id",
+    )
 
     enable_parser = sub.add_parser("enable")
     enable_parser.add_argument("--kb", required=True, type=Path)
@@ -436,6 +445,16 @@ def _run(args: argparse.Namespace) -> object:
     if args.operation == "status":
         return status(kb)
     if args.operation == "configure":
+        recipient_input = (
+            args.lark_recipient
+            if args.lark_recipient is not None
+            else args.lark_recipient_id
+        )
+        resolved_recipient = (
+            resolve_lark_recipient(recipient_input)
+            if recipient_input is not None
+            else None
+        )
         return configure(
             kb,
             timezone_name=args.timezone,
@@ -452,7 +471,12 @@ def _run(args: argparse.Namespace) -> object:
             recovery_enabled=args.recovery_enabled,
             log_retention_days=args.log_retention_days,
             lark_delivery_enabled=args.lark_delivery_enabled,
-            lark_recipient_id=args.lark_recipient_id,
+            lark_recipient_id=(
+                resolved_recipient["recipient_id"] if resolved_recipient else None
+            ),
+            lark_recipient_key=(
+                resolved_recipient["recipient_key"] if resolved_recipient else None
+            ),
         )
     if args.operation == "enable":
         return enable(

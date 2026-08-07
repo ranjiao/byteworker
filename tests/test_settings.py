@@ -8,6 +8,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,6 +112,32 @@ class SettingsFacadeTests(unittest.TestCase):
                 },
                 dreaming["harness_preferences"],
             )
+
+    @mock.patch("settings.resolve_lark_recipient")
+    def test_username_recipient_is_resolved_but_remains_user_facing(self, resolve):
+        resolve.return_value = {
+            "recipient_id": "ou_ranjiao",
+            "recipient_key": "ranjiao",
+            "display_name": "冉娇",
+        }
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = self.make_kb(Path(temporary))
+            updated = update_settings(
+                kb,
+                {
+                    "dreaming": {
+                        "timezone": "Asia/Shanghai",
+                        "delivery": {
+                            "lark_summary_enabled": True,
+                            "lark_recipient": "ranjiao",
+                        },
+                    }
+                },
+            )
+        delivery = updated["dreaming"]["delivery"]
+        self.assertEqual("ranjiao", delivery["lark_recipient"])
+        self.assertEqual("ou_ranjiao", delivery["lark_recipient_id"])
+        resolve.assert_called_once_with("ranjiao")
 
 
 class ViewerSettingsApiTests(unittest.TestCase):

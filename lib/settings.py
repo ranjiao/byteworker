@@ -23,6 +23,7 @@ from dreaming_grants import set_im_grant
 from dreaming_scheduler import configure as configure_dreaming
 from dreaming_scheduler import status as dreaming_status
 from dreaming_state import DreamingError, atomic_write_json
+from lark_recipient import resolve_lark_recipient
 from report_automation import ReportAutomationError
 from report_automation import status as report_automation_status
 from source_profile_contract import SourceProfileError
@@ -232,6 +233,8 @@ def _public_dreaming(value: Mapping[str, Any]) -> dict[str, Any]:
         },
         "delivery": {
             "lark_summary_enabled": bool(lark.get("enabled")),
+            "lark_recipient": lark.get("recipient_key")
+            or lark.get("recipient_id", ""),
             "lark_recipient_id": lark.get("recipient_id", ""),
         },
     }
@@ -342,10 +345,34 @@ def _update_dreaming(kb: Path, patch: Any) -> None:
             config_kwargs["lark_delivery_enabled"] = bool(
                 delivery["lark_summary_enabled"]
             )
-        if "lark_recipient_id" in delivery:
-            config_kwargs["lark_recipient_id"] = str(
-                delivery["lark_recipient_id"]
-            ).strip()
+        recipient_field = (
+            "lark_recipient"
+            if "lark_recipient" in delivery
+            else "lark_recipient_id"
+            if "lark_recipient_id" in delivery
+            else ""
+        )
+        if recipient_field:
+            recipient = str(delivery[recipient_field]).strip()
+            current = dreaming_status(kb)
+            current_lark = current.get("report_delivery", {}).get("lark_bot", {})
+            if (
+                isinstance(current_lark, Mapping)
+                and recipient
+                in {
+                    str(current_lark.get("recipient_key", "")),
+                    str(current_lark.get("recipient_id", "")),
+                }
+                and str(current_lark.get("recipient_id", "")).startswith("ou_")
+            ):
+                resolved = {
+                    "recipient_id": str(current_lark["recipient_id"]),
+                    "recipient_key": recipient,
+                }
+            else:
+                resolved = resolve_lark_recipient(recipient)
+            config_kwargs["lark_recipient_id"] = resolved["recipient_id"]
+            config_kwargs["lark_recipient_key"] = resolved["recipient_key"]
     harness_preferences = patch.get("harness_preferences")
     if harness_preferences is not None:
         if not isinstance(harness_preferences, Mapping):

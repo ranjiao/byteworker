@@ -654,6 +654,7 @@ def configure(
     log_retention_days: int | None = None,
     lark_delivery_enabled: bool | None = None,
     lark_recipient_id: str | None = None,
+    lark_recipient_key: str | None = None,
     harness_wake_interval_minutes: int | None = None,
     harness_model: str | None = None,
     now: datetime | None = None,
@@ -774,10 +775,18 @@ def configure(
                     "飞书摘要收件人必须是 open_id。",
                 )
             lark_delivery["recipient_id"] = recipient
+            if lark_recipient_key is None:
+                lark_delivery["recipient_key"] = recipient
+        if lark_recipient_key is not None:
+            lark_delivery["recipient_key"] = lark_recipient_key.strip()
         if lark_delivery_enabled is not None:
             lark_delivery["enabled"] = lark_delivery_enabled
         lark_delivery.setdefault("enabled", False)
         lark_delivery.setdefault("recipient_id", "")
+        lark_delivery.setdefault(
+            "recipient_key",
+            lark_delivery["recipient_id"],
+        )
         if lark_delivery["enabled"] and not lark_delivery["recipient_id"].startswith(
             "ou_"
         ):
