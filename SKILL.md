@@ -26,6 +26,12 @@ description: 个人飞书工作知识库。把飞书文档、妙记、会议、�
 
 ## 每个 Session 先做
 
+TraeWork 桌面版中，运行 preflight 或访问 KB 前，先确认 `.kbconfig` 指向的 KB 绝对路径已作为
+工作目录加入当前 TraeWork 项目；只加入 byteworker skill 仓库不够，`.kbconfig` 和 `--kb`
+也不会授予 TraeWork Sandbox 目录权限。未加入时先提示用户添加，禁止用 `sudo`、`chmod`、复制
+KB 或反复重试绕过。出现 `Operation not permitted` / `Permission denied` 且 skill 仓库可访问时，
+优先检查此项；Dreaming 场景的完整提示见 `references/dreaming-harness-trae.md`。
+
 首次使用本 skill 时只运行一次：
 
 ```bash
