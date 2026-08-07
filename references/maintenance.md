@@ -8,7 +8,7 @@
 
 ## 数据不变量
 
-**数据不变量(DESIGN.md §1.C)**:`raw_data/` + `knowledge/` 节点 + `reports/` + `dashboard.md` 的 📌/⚠️ 手动项 = **真相源**;`INDEX.md` 与 `dashboard.md` 的派生部分 = **派生物**,可随时丢弃并从真相源 100% 重建。派生物与真相源不一致时,**永远重建派生物,绝不反向改真相源**。
+**数据不变量(docs/development/DESIGN.md §1.C)**:`raw_data/` + `knowledge/` 节点 + `reports/` + `dashboard.md` 的 📌/⚠️ 手动项 = **真相源**;`INDEX.md` 与 `dashboard.md` 的派生部分 = **派生物**,可随时丢弃并从真相源 100% 重建。派生物与真相源不一致时,**永远重建派生物,绝不反向改真相源**。
 
 ## 重建 INDEX
 
@@ -18,7 +18,7 @@
    `bin/byteworker index rebuild --kb <数据目录> --dry-run` 预演，确认后去掉
    `--dry-run` 执行；人工排障仍可运行 `bin/rebuild-index.sh`。
 2. 脚本扫 `knowledge/` 下全部 8 类节点的 frontmatter，并在存在时读取 body 首行 TL;DR，
-   按 DESIGN.md §6 的分节格式重新生成整个 `INDEX.md`。
+   按 docs/development/DESIGN.md §6 的分节格式重新生成整个 `INDEX.md`。
 3. 「定期摄取清单」优先由 `sources/` profiles 的 routine 派生；没有 profile 的旧来源才兼容
    `raw_data/` 的 `routine`。同一 `source_uid` 有 profile 时，profile 的启用/禁用和 cadence
    覆盖历史 raw。「群聊摄取进度」仍由 `feishu_chat` raw 的
@@ -39,7 +39,7 @@
 
 ## 灾难恢复
 
-数据目录是独立本地 git(DESIGN.md §1.B):
+数据目录是独立本地 git(docs/development/DESIGN.md §1.B):
 
 - 误删 / 错改某节点 → `git restore <文件>` 或 `git checkout <commit> -- <文件>` 回滚。
 - `INDEX.md` 损坏 / 丢失 → 直接「重建 INDEX」,无需动 git。

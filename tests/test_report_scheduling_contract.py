@@ -81,7 +81,7 @@ class ReportSchedulingContractTests(unittest.TestCase):
 
     def test_scheduler_is_local_and_harness_owned(self):
         scheduling = self.read("references/report-scheduling.md")
-        architecture = self.read("ARCHITECTURE.md")
+        architecture = self.read("docs/development/ARCHITECTURE.md")
         self.assertIn("宿主任务系统仍是真相源", scheduling)
         self.assertIn("系统 cron / launchd", scheduling)
         self.assertIn("宿主本地定时任务", architecture)

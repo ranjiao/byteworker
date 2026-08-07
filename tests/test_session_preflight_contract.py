@@ -17,7 +17,7 @@ class SessionPreflightContractTests(unittest.TestCase):
         self.assertIn("不要再分别运行", skill)
 
     def test_architecture_owns_bootstrap_and_preflight(self):
-        architecture = self.read("ARCHITECTURE.md")
+        architecture = self.read("docs/development/ARCHITECTURE.md")
         for value in (
             "bin/byteworker",
             "lib/runtime_deps.py",

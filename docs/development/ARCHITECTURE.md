@@ -3,7 +3,7 @@
 > 本文件是 byteworker 的**系统流程与代码边界约束**，面向人类维护者和 coding agent。
 > 它回答两个问题：信息怎样从外部来源进入知识库并再次被查询；代码模块应该怎样协作而不失控。
 >
-> - 行为入口与 Agent 工作流以 [`SKILL.md`](SKILL.md) 为准。
+> - 行为入口与 Agent 工作流以 [`SKILL.md`](../../SKILL.md) 为准。
 > - 持久化 schema、目录和数据不变量以 [`DESIGN.md`](DESIGN.md) 为准。
 > - 系统流程、模块职责和依赖方向以本文件为准。
 > - 代码与测试是“当前真实实现”的验证。若它们与本文件不一致，必须在同一变更中修正代码或文档，
@@ -100,8 +100,8 @@ flowchart TB
 ```mermaid
 flowchart LR
     S["SKILL.md<br/>Agent 应该怎样行动"]
-    A["ARCHITECTURE.md<br/>系统怎样流动、模块怎样依赖"]
-    D["DESIGN.md<br/>数据怎样持久化、schema 是什么"]
+    A["docs/development/ARCHITECTURE.md<br/>系统怎样流动、模块怎样依赖"]
+    D["docs/development/DESIGN.md<br/>数据怎样持久化、schema 是什么"]
     R["references/<br/>分场景执行细则"]
     T["templates/<br/>产物结构骨架"]
     C["bin/ + lib/<br/>确定性实现"]
@@ -376,7 +376,9 @@ cron/launchd 冒充 Agent task。TraeWork 网页版的云端任务不能访问�
   → dreaming run-due
   → process / morning / maintenance / recovery（初始启用）
   → daily / weekly（显式迁移后）
-  → dreaming complete
+  → process / maintenance / recovery：dreaming complete
+  → morning / daily / weekly 成功：dreaming report complete（内部完成 lease）
+  → 报告生成前 partial / failed：dreaming complete
   → 若本轮 process 是 catch-up 且成功，最多一次受限 follow-up 领取被解锁的报告 job
 ```
 
@@ -404,10 +406,12 @@ workflow 闭包：每个入口声明 `required/on_error`，digest 再按 `source
 或主 Agent 的隐式记忆。
 
 大型输入采用单一语义 owner：主 Agent 只做抓取、规模/依赖确认与 receipt 收尾；worker 必须用
-`fork_turns="none"` 启动，只接收自足 prompt 和系统临时 artifact 路径。worker 从 SourceBundle
-生成一次临时 semantic work packet，正文、评论与白板结构 JSON 各只进入一次，后续仅按 anchor
-定点回读。主 Agent 不同时读取 component、生成候选或轮询临时文件；worker 只在有限阶段或需要
-用户裁决时回报，最终返回紧凑 receipt 摘要。该约束避免主/子双重语义分析和历史对话重放。
+宿主提供的全新隔离上下文启动，只接收自足 prompt 和系统临时 artifact 路径。`fork_turns` 仅是
+Codex adapter 参数，`fork_turns="all"` 表示继承全部历史，不能作为跨宿主协议，也不得用于该
+worker。worker 从 SourceBundle 生成一次临时 semantic work packet，正文、评论与白板结构 JSON
+各只进入一次，后续仅按 anchor 定点回读。主 Agent 不同时读取 component、生成候选或轮询临时
+文件；worker 只在有限阶段或需要用户裁决时回报，最终返回紧凑 receipt 摘要。该约束避免主/子
+双重语义分析和历史对话重放。
 
 search/update/brief/dashboard/context 分别使用独立 reference；公共机器协议只定义 envelope 和
 成功判定，工具参数从对应 workflow 或 `--help` 发现。CI 对 reference-only 闭包设置字符预算，
@@ -686,7 +690,7 @@ flowchart TB
 | `bin/byteworker` + `bin/byteworker-launcher.py` | shell 先定位 Python 并完成 update-check，再 exec 当前版本 launcher；统一执行 preflight、机器 CLI 或外部工具 | 单一版本模块、静默健康路径、机器 envelope 或下游输出 |
 | `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、Todo 与自动报告设置检查，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；默认仅异常输出 |
 | `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
-| `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI | `byteworker-cli/v1` envelope |
+| `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI；已注册工具的顶层 `-h/--help` 原样透传到底层 argparse | 普通调用返回 `byteworker-cli/v1` envelope；顶层 help 返回底层文本和退出码 |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
 | `bin/source.py` | capabilities / auth / inspect / capture / bundle-spec / bundle / profile / diff 参数入口 | request 契约、capture、SourceBundle、profile receipt、ChangeSet |
@@ -705,7 +709,9 @@ flowchart TB
 | `bin/resolve-users.sh` | 按 open_id 只读解析 person 身份与当前通讯录画像；默认 TSV 兼容旧调用 | `byteworker-resolved-users/v1` JSON 或兼容三列 TSV |
 | 其它 `bin/*.sh` | 外部拉取、索引/links 重建、viewer、安装与更新辅助 | 明确的文件或 JSON/文本回执 |
 
-机器协议只统一执行边界，不做插件发现，也不改变底层业务语义。
+机器协议只统一执行边界，不做插件发现，也不改变底层业务语义。普通工具调用的成功或失败由
+`byteworker-cli/v1` envelope 表达；`bin/byteworker <tool> --help` 是只读发现路径，必须绕过
+envelope 并原样继承已注册底层工具的 argparse 文本与退出码，成功时退出码为 0。
 
 ### 4.3 Source 子系统
 
@@ -919,6 +925,10 @@ Agent 提供候选、目标 `base_sha256`、章节模式、冲突处置、journa
 `lib/kb_mutation.py` 在锁内重新校验，执行完整替换/固定章节替换/保留手动章节替换，按需重建
 INDEX，并统一完成 journal、精确暂存、commit 和 rollback。它不允许写 raw/provenance/sources/
 todo。
+
+Dashboard mutation 只保存派生视图和用户明确维护的手动章节。刷新从既有节点、Todo、context 和
+当天 journal 渲染，不得为了填充“今日进展”创建 journal 或其它业务事实；新进展必须先由其对应
+的 update/thinking/report/digest 入口持久化。
 
 postflight 在共享锁内扫描和修复；repair、路径检查、暂存、commit 或 receipt 失败时恢复目标文件、
 Git index 和必要的 HEAD ref。事务成功的唯一证明是 `status=committed` 和 commit hash。Agent
@@ -1138,7 +1148,7 @@ Profile，不能为了矩阵好看而保存不可执行配置。
 2. 确定性命令通过 `bin/byteworker-cli.py` 暴露统一 envelope。
 3. 外部来源写 raw/节点必须复用 digest transaction；无新来源的节点更新和
    context/dashboard/report 写入必须复用 KB mutation；可重建且不提交的派生预览可使用独立工具。
-4. 新的真相源字段或目录必须先修改 `DESIGN.md`。
+4. 新的真相源字段或目录必须先修改 `docs/development/DESIGN.md`。
 5. 新的主流程或模块依赖必须同时修改本文件。
 
 ### 7.3 禁止的演进方式
@@ -1175,8 +1185,8 @@ Profile，不能为了矩阵好看而保存不可执行配置。
 flowchart LR
     C["代码或行为变更"]
     I{"有架构影响？"}
-    A["同步 ARCHITECTURE.md"]
-    D["若 schema 改变，同步 DESIGN.md"]
+    A["同步 docs/development/ARCHITECTURE.md"]
+    D["若 schema 改变，同步 docs/development/DESIGN.md"]
     S["若 Agent 行为改变，同步 SKILL / references"]
     T["增加或更新契约测试"]
     V["compileall + shell syntax + targeted tests + full tests + branch coverage gate + git diff --check"]
@@ -1253,10 +1263,15 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 
 ```text
 byteworker/
-├── ARCHITECTURE.md       # 本文件：流程和模块边界
 ├── SKILL.md              # Agent 行为入口
-├── DESIGN.md             # 持久化 schema 与数据不变量
 ├── AGENTS.md             # coding agent 仓库铁律
+├── docs/
+│   └── development/
+│       ├── README.md      # 开发文档导航
+│       ├── ARCHITECTURE.md # 本文件：流程和模块边界
+│       ├── DESIGN.md      # 持久化 schema 与数据不变量
+│       ├── PROACTIVE_INFORMATION_PROCESSING_DESIGN.md
+│       └── TODOS.md
 ├── references/           # 按场景加载的执行细则
 ├── templates/            # 节点、报告、plan、bundle 骨架；含 Dreaming 自包含 HTML 基础模板
 ├── bin/                  # CLI facade、直接入口和 shell 集成
@@ -1302,6 +1317,6 @@ byteworker/
 
 1. 第一次理解项目：先读本文件第 0、2、4 节。
 2. 修改 Agent 行为：再读 `SKILL.md` 和对应 `references/`。
-3. 修改数据结构：再读 `DESIGN.md`。
+3. 修改数据结构：再读 `docs/development/DESIGN.md`。
 4. 修改 Source：再读本文件第 4.3、7.1 节和 Source 重构账本。
 5. 修改事务或查询：先确认没有把 provider 特例带回 core。

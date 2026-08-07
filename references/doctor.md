@@ -5,7 +5,7 @@
 
 ## 原则
 
-- `scan` 永远只读；以当前 `DESIGN.md`、节点/报告模板和代码常量生成目标 profile 与 fingerprint。
+- `scan` 永远只读；以当前 `docs/development/DESIGN.md`、节点/报告模板和代码常量生成目标 profile 与 fingerprint。
 - 把“兼容历史格式”与“损坏/不兼容”分开。历史 raw 没有最新 `payload_schema` 只记兼容信息，
   不强迫改写不可变原文。
 - 只自动修复可确定重建的问题：`INDEX.md`、重复 links、缺失反向 links；加

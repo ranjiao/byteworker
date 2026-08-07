@@ -23,20 +23,20 @@ byteworker 用到的骨架。`node-*.md` 是 8 类知识节点的骨架；来源
 用法:
 
 1. 复制对应模板。
-2. 填 frontmatter(字段定义见 `DESIGN.md` §4.1;命名规范见 §2)。
+2. 填 frontmatter(字段定义见 `docs/development/DESIGN.md` §4.1;命名规范见 §2)。
 3. 按 body 里的 `<!-- 指引 -->` 注释填写各章节。
 4. 生成正式节点时**删除所有指引注释**。
 5. 无法判定类型时不得写入；按 `references/semantic-policy.md` 给出有限候选和证据，请用户确认。
 
 ## context.md 模板
 
-`context.md` —— 数据目录顶层「全局工作上下文」文件的骨架(见 `DESIGN.md` §10)。
+`context.md` —— 数据目录顶层「全局工作上下文」文件的骨架(见 `docs/development/DESIGN.md` §10)。
 
 **与节点模板不同**:它是整文件骨架 —— 首次使用、或数据目录缺 `context.md` 时,由 skill
 **整份复制**为初始 `context.md`,之后由用户通过 agent 对话维护。它的 `<!-- 指引 -->` 注释**保留不删**
 (持续引导用户按统一格式填写)。统一模板 = 避免不同用户写出五花八门的格式。
 
-schema 以 `DESIGN.md` 为唯一真相源。
+schema 以 `docs/development/DESIGN.md` 为唯一真相源。
 
 ## digest plan 模板
 

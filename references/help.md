@@ -81,5 +81,5 @@ help       用法说明
 存储:知识库数据目录(用户指定,独立于本 skill,不进 git)——
       knowledge/(节点)· raw_data/(原始输入)· provenance/(精确出处)· journal/(日志)· reports/(日报/周报/晨报)
       · INDEX.md · dashboard.md · context.md(全局上下文)· todo.md(确认后的个人待办)
-文档:DESIGN.md(存储 schema)· TODOS.md(延后功能)
+文档:docs/development/DESIGN.md(存储 schema)· docs/development/TODOS.md(延后功能)
 安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git;Todo 仅本地,不创建飞书任务

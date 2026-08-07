@@ -26,7 +26,7 @@
   精确暂存实际路径并创建本地 commit；已有 staged 变更或目标路径脏时 fail closed。Agent 不运行
   `git add` / `git commit`，不手工补写 journal。
 - **Todo 写入**:`todo.md` 由 `bin/todo.py` 原子维护，Agent 通过统一机器协议调用;用户确认前的 digest 候选不得写入。新增 / 完成 / 延期 / 取消 / 真正发出提醒后,只暂存 `todo.md` 与本次 journal 路径创建本地回滚点。todo id 是内部键,用户侧按自然语言标题和当前对话消解。
-- **命名 / 字段**:严格按 DESIGN.md §2(命名)与 §4.1(字段)。
+- **命名 / 字段**:严格按 docs/development/DESIGN.md §2(命名)与 §4.1(字段)。
 - **thinking 例外**:`thinking` 不创建 raw、不走 digest transaction；按
   `references/thinking.md` 生成候选，并通过 `byteworker-kb-mutation/v1` 原子写入。允许最小
   frontmatter 和自由正文，但仍维护双向 links、INDEX、journal 和本地 Git 回滚点。
@@ -100,7 +100,7 @@
 
 ## 时间格式
 
-严格按 DESIGN.md §2.1。写入任何 raw frontmatter、knowledge 节点、INDEX、journal、dashboard、reports、todo 前,先把可结构化时间规范化:
+严格按 docs/development/DESIGN.md §2.1。写入任何 raw frontmatter、knowledge 节点、INDEX、journal、dashboard、reports、todo 前,先把可结构化时间规范化:
 
 - 日期写 `YYYY-MM-DD`。
 - 人读时间写 `YYYY-MM-DD HH:MM`。

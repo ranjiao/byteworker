@@ -16,7 +16,7 @@
 节点之间用 `links` 互链。一个项目会在多个会议、文档里被反复讨论 —— 它们全部汇聚到同一个 `project` 节点上持续生长,而不是散落各处。查「关于张三我都知道什么」= 他的 `person` 节点 + 所有链回他的事件/决策/项目。不用会漂移的「标签分类」,实体本身就是组织方式。
 
 **2. 逻辑与数据严格分离**
-**本仓库只含 agent 逻辑**(`SKILL.md` + `DESIGN.md` + `templates/` + `bin/`),不含任何业务数据。你的知识库内容存在**另一个你指定的目录**,绝不进本仓库、绝不上传 —— 因为它通常含机密工作内容。本仓库可公开,你的知识库私有,两者物理隔离。
+**本仓库只含 agent 逻辑**(`SKILL.md` + `docs/development/DESIGN.md` + `templates/` + `bin/`),不含任何业务数据。你的知识库内容存在**另一个你指定的目录**,绝不进本仓库、绝不上传 —— 因为它通常含机密工作内容。本仓库可公开,你的知识库私有,两者物理隔离。
 
 **3. 消化,不只是存档**
 摄取时 agent 会真正「消化」原始信息:抽取决策与结论、分析各参与方的立场与动机、持续更新项目的目标/进展/风险。立场分析严格基于发言证据,区分【观察】与【推断】,证据不足就说证据有限 —— 不做无依据的猜测。
@@ -128,16 +128,17 @@ AI 助手安装完成后会直接带你走 **上手引导**：指定一个持久
 - `reports/` —— 日报 / 周报归档快照
 - `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板 · `context.md` —— 格式化用户上下文 · `todo.md` —— 本地个人待办
 
-该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`DESIGN.md`](DESIGN.md)。
+该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`docs/development/DESIGN.md`](docs/development/DESIGN.md)。
 风神按 dashboard sheet 注册：每个 sheet 在 `sources/` 中有独立参数，skill 仓库不保存任何
 用户 dashboard、report 或 filter 配置。
 
 ## 文档
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) —— 信息处理流程、代码分层、模块边界与演进约束
+- [`docs/development/README.md`](docs/development/README.md) —— 开发者与 coding agent 文档导航
+- [`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md) —— 信息处理流程、代码分层、模块边界与演进约束
 - [`bin/README.md`](bin/README.md) —— 确定性命令的用途、参数、示例与写入边界
 - [`INSTALL.md`](INSTALL.md) —— 安装与残留修复说明(可直接交给 AI 助手执行)
 - [`TUTORIAL.md`](TUTORIAL.md) —— 首次使用的上手引导剧本
 - [`SKILL.md`](SKILL.md) —— skill 行为定义
-- [`DESIGN.md`](DESIGN.md) —— 存储结构与字段设计
-- [`TODOS.md`](TODOS.md) —— 延后的功能
+- [`docs/development/DESIGN.md`](docs/development/DESIGN.md) —— 存储结构与字段设计
+- [`docs/development/TODOS.md`](docs/development/TODOS.md) —— 延后的功能

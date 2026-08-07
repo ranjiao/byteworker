@@ -9,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "bin" / "byteworker-cli.py"
+LAUNCHER = ROOT / "bin" / "byteworker"
 
 
 class MachineProtocolTests(unittest.TestCase):
@@ -124,6 +125,37 @@ class MachineProtocolTests(unittest.TestCase):
         self.assertEqual("error", payload["status"])
         self.assertEqual("CLI_USAGE_ERROR", payload["error"]["code"])
         self.assertEqual("cli", payload["context"]["tool"])
+
+    def test_registered_tool_help_passes_through_launcher(self):
+        tools = [
+            "todo",
+            "source",
+            "digest-txn",
+            "kb-mutate",
+            "kb-query",
+            "context",
+            "doctor",
+            "wiki",
+            "digest-job",
+            "report-automation",
+            "dreaming",
+            "provenance-backfill",
+            "index",
+        ]
+        for tool in tools:
+            with self.subTest(tool=tool):
+                result = subprocess.run(
+                    [str(LAUNCHER), tool, "--help"],
+                    cwd=ROOT,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                self.assertEqual(0, result.returncode, msg=result.stderr)
+                self.assertTrue(result.stdout.startswith("usage:"), msg=result.stdout)
+                self.assertNotIn("CLI_USAGE_ERROR", result.stdout)
+                self.assertEqual("", result.stderr)
 
     def test_update_status_uses_same_envelope(self):
         result = self.run_cli("update-status")

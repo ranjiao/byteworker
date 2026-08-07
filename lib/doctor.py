@@ -96,7 +96,7 @@ EXPECTED_DIRS = (
 TRUTH_FILES = ("context.md", "todo.md", "dashboard.md")
 SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 SCHEMA_CONTRACT_PATHS = (
-    "DESIGN.md",
+    "docs/development/DESIGN.md",
     "lib/constants.py",
     "lib/digest_txn.py",
     "lib/provenance.py",

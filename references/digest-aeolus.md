@@ -106,8 +106,9 @@ bin/byteworker source diff \
 ```
 
 raw frontmatter 保存 profile path/revision 和本次实际参数，作为历史执行证据；后续调度只读
-profile，不从 raw 恢复配置。把 capture 的 `anchors[]` 原样放入 plan 的
-`provenance.anchors`，另补 source anchor。
+profile，不从 raw 恢复配置。capture adapter 把 `anchors[]` 和 source anchor 写入
+SourceBundle；`digest-plan/v2` 只引用该 Bundle，顶层 provenance 只允许 `enrichment`，不得复制
+anchors。
 
 首次 digest 创建代表该看板口径的 `reading`；同源新快照更新同一 reading。普通数值变化只留
 raw + provenance；明确越过用户阈值、连续多期显著变化、口径异常或已生效的资源决策，才晋升

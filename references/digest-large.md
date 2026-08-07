@@ -10,10 +10,11 @@
   2. 按 `references/digest-dependencies.md` 做重要依赖初筛,需要时**与用户确认是否扩展本次 digest**;
   3. 规模预估,需要时**与用户确认摄取深度**;
   4. 滚动文档 / 群聊**首次是否纳入定期摄取**的询问。
-- **隔离硬约束**:宿主支持子 agent / 多代理工具时，调用必须显式设置
-  `fork_turns="none"`；**禁止**省略该参数或使用 `fork_turns="all"`。任务 prompt 必须自足，只写
-  来源 URL/路径、`source_type`、用户确认的依赖/深度、KB 绝对路径和系统临时 artifact 路径，
-  不复制主对话、旧文档正文、旧工具输出或先前 digest 结果。
+- **隔离硬约束**:宿主支持子 agent / 多代理工具时，必须创建不继承主对话的全新上下文。任务
+  prompt 必须自足，只写来源 URL/路径、`source_type`、用户确认的依赖/深度、KB 绝对路径和系统
+  临时 artifact 路径，不复制主对话、旧文档正文、旧工具输出或先前 digest 结果。
+  `fork_turns` 是 Codex adapter 专有参数；`fork_turns="all"` 表示继承全部历史，在本流程中
+  **禁止使用**。其他宿主使用自身的 fresh-context 能力，不得被要求传这个参数。
 - **委派给子 agent 的**(重量、无需用户交互):要求它先解析
   `references/workflow-routes.json` 的 `large_digest_worker`（递归展开 `extends=digest`），完整读取
   公共 required、对应 source type/feature、`on_error` 和本文件；然后执行读全文 → 冲突检测 →

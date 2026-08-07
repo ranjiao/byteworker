@@ -12,7 +12,9 @@
    recovery 阶段时调用 `dreaming heartbeat`；单阶段超过 60 秒时至少再写一次 heartbeat。
    `detail-code` 只用有限机器码，禁止放业务正文。
 7. 所有来源操作只调用 `bin/byteworker` 公开命令；禁止直接 import digest/query 内部模块。
-8. 成功、部分或失败路径都调用 `dreaming complete`；`partial/failed` 提供稳定错误码。已知时传
+8. process / maintenance / recovery 的成功、部分或失败路径调用通用 `dreaming complete`。
+   morning / daily / weekly 只有在报告生成前失败或只能 partial 时才调用通用
+   `dreaming complete`；报告成功路径不得调用它。`partial/failed` 提供稳定错误码。已知时传
    `--item-count/--finding-count/--gap-count`，不得用字符串 checkpoint 代替可结构化计数。
    process 已生成 EvidenceBatch 时还必须传 `--batch-id "<EB-...>"`，供运行审计关联本轮输入、
    FindingBundle 和 evidence。
@@ -27,7 +29,8 @@
    只处理返回的 morning/daily/weekly；`disabled/idle/busy` 安静结束。本轮最多这一个 follow-up。
 10. morning/daily/weekly 按 `references/dreaming-reports.md` 一次生成结构化报告 JSON 后，
     必须调用 `dreaming report complete`。该命令会渲染 summary、内部 Markdown、自包含 HTML、
-    `reports/<kind>/<period>.md` 归档快照，完成 lease，并按配置投递摘要。不要再分开调用
+    `reports/<kind>/<period>.md` 归档快照，完成 lease，并按配置投递摘要；它是报告成功路径唯一
+    的完成调用，之后禁止再调用通用 `dreaming complete`。不要再分开调用
     `report render`、`complete`、`enqueue-delivery` 和 `report deliver`。
 11. 任务结果必须回显 300-500 字 summary 和 HTML 绝对路径；宿主支持本地产物预览时可直接预览，
     否则返回可点击文件链接。不得调用宿主私有 HTML API。飞书失败不删除本地产物，也不得冒充

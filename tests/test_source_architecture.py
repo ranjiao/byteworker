@@ -40,8 +40,8 @@ class SourceArchitectureTests(unittest.TestCase):
         self.assertNotIn('args.source_type == "', source)
 
     def test_final_source_contract_is_persisted_in_root_architecture(self):
-        architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
-        design = (ROOT / "DESIGN.md").read_text(encoding="utf-8")
+        architecture = (ROOT / "docs/development/ARCHITECTURE.md").read_text(encoding="utf-8")
+        design = (ROOT / "docs/development/DESIGN.md").read_text(encoding="utf-8")
         self.assertFalse(
             (ROOT / "references/source-architecture-refactor.md").exists()
         )
@@ -55,7 +55,7 @@ class SourceArchitectureTests(unittest.TestCase):
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, architecture)
-        self.assertIn("`ARCHITECTURE.md` §4.3、§8.3", design)
+        self.assertIn("`docs/development/ARCHITECTURE.md` §4.3、§8.3", design)
 
 
 if __name__ == "__main__":

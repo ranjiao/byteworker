@@ -32,6 +32,13 @@ class ByteworkerCliDirectTests(unittest.TestCase):
         self.assertEqual("auth-status", CLI._operation("wiki", args.args))
         self.assertEqual("check", CLI._operation("todo", ["kb", "check"]))
         self.assertEqual("", CLI._operation("source", []))
+        self.assertEqual("source", CLI._tool_help_request(["source", "--help"]))
+        self.assertEqual(
+            "source",
+            CLI._tool_help_request(["--pretty", "source", "-h"]),
+        )
+        self.assertIsNone(CLI._tool_help_request(["unknown", "--help"]))
+        self.assertIsNone(CLI._tool_help_request(["source", "bundle", "--help"]))
         self.assertEqual({"ok": True}, CLI._parse_json('{"ok":true}'))
         self.assertEqual("text", CLI._parse_json("text"))
         self.assertIsNone(CLI._parse_json(""))
@@ -123,6 +130,10 @@ class ByteworkerCliDirectTests(unittest.TestCase):
         ):
             self.assertEqual(0, CLI.main(["digest-job", "list", "--kb", "/tmp"]))
         run.assert_called_once()
+
+        with patch.object(CLI, "_run_tool_help", return_value=0) as run_help:
+            self.assertEqual(0, CLI.main(["todo", "--help"]))
+        run_help.assert_called_once_with("todo")
 
         output = io.StringIO()
         with redirect_stdout(output):

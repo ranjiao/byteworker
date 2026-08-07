@@ -33,7 +33,7 @@ class CoverageContractTests(unittest.TestCase):
                 self.assertIn(required, workflow)
 
     def test_delivery_docs_keep_the_coverage_gate_visible(self) -> None:
-        architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+        architecture = (ROOT / "docs/development/ARCHITECTURE.md").read_text(encoding="utf-8")
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
         self.assertIn("branch coverage", architecture)

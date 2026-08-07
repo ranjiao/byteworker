@@ -24,8 +24,8 @@
 > 目标：降低用户主动 `digest` 的负担，在授权范围内持续发现工作信息，结合用户职责、目标、
 > 重要 Stakeholder 和已有知识，找出值得行动、提醒或沉淀的内容。
 >
-> 本文确认并进入实现后，持久化 schema 必须同步到 `DESIGN.md`，模块和信息流必须同步到
-> `ARCHITECTURE.md`，Agent 行为必须同步到 `SKILL.md`、相关 `references/` 和 route contract。
+> 本文确认并进入实现后，持久化 schema 必须同步到 `docs/development/DESIGN.md`，模块和信息流必须同步到
+> `docs/development/ARCHITECTURE.md`，Agent 行为必须同步到 `SKILL.md`、相关 `references/` 和 route contract。
 
 ---
 
@@ -1205,7 +1205,7 @@ provider adapter
   持久化 Finding、接管报告和自动入库分别使用独立开关，不能由升级隐式开启。
 - 业务 Evidence、Golden Set、Finding 和评估明细只存在知识库 `state/dreaming/` 或系统临时目录；
   仓库测试只使用合成 fixture。
-- 每个工程批次同时更新受影响的 `ARCHITECTURE.md`、`DESIGN.md`、`SKILL.md`、`references/` 和
+- 每个工程批次同时更新受影响的 `docs/development/ARCHITECTURE.md`、`docs/development/DESIGN.md`、`SKILL.md`、`references/` 和
   contract tests，不允许代码先行造成已知文档漂移。
 - 现有 digest/query/mutation core 不 import Dreaming。Dreaming 只通过公开
   `bin/byteworker` facade 和已有 plan/receipt 契约调用它们。
@@ -1283,7 +1283,7 @@ I0-I6 可以在不改变现有 Inbox 行为的前提下逐批合并。I7、I8 �
 - 将 `lib/dreaming_scheduler.py` 中通用文件读写下沉到 `dreaming_state.py`，scheduler 只保留
   配置和选择逻辑。
 - `bin/dreaming.py` 继续保持薄 facade；`bin/byteworker-cli.py` 只登记公开子命令。
-- 更新 `DESIGN.md` 定义 v2 state 和本地排除边界，更新 `ARCHITECTURE.md` 模块依赖。
+- 更新 `docs/development/DESIGN.md` 定义 v2 state 和本地排除边界，更新 `docs/development/ARCHITECTURE.md` 模块依赖。
 
 测试：
 
@@ -1447,7 +1447,7 @@ Inbox 删除。
   专属测试；清除 SKILL/help/workflow/context intent/tutorial/bin README/periodic report 中的入口。
 - 新知识库不创建 `reports/im/`；旧目录和内容保持不变，doctor 视为合法历史派生产物。
 - CLI tombstone 一个 major 版本内只返回 `INBOX_REMOVED`，不得读取 IM 或写 KB。
-- 同步更新 `ARCHITECTURE.md`、`DESIGN.md` 的报告目录、Mutation owner 和信息流。
+- 同步更新 `docs/development/ARCHITECTURE.md`、`docs/development/DESIGN.md` 的报告目录、Mutation owner 和信息流。
 
 测试：
 
