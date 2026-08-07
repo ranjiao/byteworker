@@ -227,8 +227,11 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
 - Dreaming 报告一次生成结构化语义结果，再确定性渲染 300–500 字消息摘要、Agent 内部 Markdown
   和面向用户的自包含 HTML。所有宿主都回显摘要和 HTML 本地路径；支持时可预览，不支持时返回
   文件链接。不得调用或假设 TraeWork、Codex、Claude Code 等宿主的私有 HTML 接口。
-- 飞书摘要仅在用户明确启用应用机器人投递并配置收件人后发送；真实 `message_id` 才表示送达。
-  飞书失败不影响本地报告，也不能对用户声称已经收到。
+- 飞书摘要仅在用户明确启用应用机器人投递并配置收件人后发送；投递固定使用
+  `bin/byteworker lark im +messages-send --as bot --user-id <ou_...> --text <格式化摘要>
+  --idempotency-key <outbox_id>`。不要给 `lark auth status` 传 `--as`；该命令按当前
+  lark-cli 契约直接返回 user/bot 状态。真实 `message_id` 才表示送达。飞书失败不影响本地报告，
+  也不能对用户声称已经收到。
 - maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行 finding
   明确声明的确定性低风险修复；剩余重要 error/证据风险/自动化阻断项给用户有限摘要并等待决策。
 - 前台单次处理、Finding review/explain/feedback 和私有 shadow 评估按

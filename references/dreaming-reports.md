@@ -46,9 +46,12 @@ bin/byteworker dreaming report complete \
 HTML 禁止宿主私有 API 和外部脚本、样式、字体、图片或网络资源。TraeWork、Codex、Claude
 Code 只消费 manifest。
 4. 飞书固定用应用机器人发送 summary；仅当 `report_delivery.lark_bot.enabled=true` 且已有
-   `ou_` 收件人时，`report complete` 才自动创建 outbox 并投递。`message_id` 是送达回执。
-   投递失败时 outbox 保持 pending，报告 job 仍可成功，因为本地产物已经落地；不得猜收件人，
-   无回执只能说已生成。
+   `ou_` 收件人时，`report complete` 才自动创建 outbox 并投递。投递命令固定为
+   `bin/byteworker lark im +messages-send --as bot --user-id <ou_...> --text <格式化摘要>
+   --idempotency-key <outbox_id>`；不要给 `lark auth status` 传 `--as`。发送前必须把
+   `summary.txt` 转成可读文本消息，至少包含报告标题、项目符号摘要和完整报告路径，不得直接发送
+   一整段未分组长文本。`message_id` 是送达回执。投递失败时 outbox 保持 pending，报告 job 仍可
+   成功，因为本地产物已经落地；不得猜收件人，无回执只能说已生成。
 
 ## Owner Migration
 
