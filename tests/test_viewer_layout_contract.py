@@ -89,6 +89,12 @@ class ViewerLayoutContractTests(unittest.TestCase):
         self.assertIn('href="/app/dreaming-debug.html"', self.viewer)
         self.assertIn("查看运行日志", self.viewer)
 
+    def test_system_settings_auto_save_without_explicit_save_button(self):
+        self.assertIn("function scheduleSystemSettingsSave()", self.viewer)
+        self.assertIn("修改后会自动生效", self.viewer)
+        self.assertIn("当前页设置会自动写入知识库本地配置", self.viewer)
+        self.assertNotIn('id="settings-system-save"', self.viewer)
+
 
 if __name__ == "__main__":
     unittest.main()

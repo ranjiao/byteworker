@@ -1580,6 +1580,8 @@ const state = {
   appSettingsLoading: false,
   appSettingsSaving: false,
   appSettingsError: '',
+  appSettingsDirty: false,
+  appSettingsSaveTimer: null,
   paletteOpen: false,
   paletteQ: '',
   paletteSel: 0,
@@ -3136,7 +3138,12 @@ function openSettings() {
   renderSettings();
   if (state.settingsTab !== 'display') loadSystemSettings();
 }
-function closeSettings() { state.settingsOpen = false; D.settingsPortal.innerHTML = ''; }
+function closeSettings() {
+  state.settingsOpen = false;
+  state.appSettingsDirty = false;
+  clearSettingsSaveTimer();
+  D.settingsPortal.innerHTML = '';
+}
 async function settingsApi(method, body) {
   const options = {
     method,
@@ -3165,6 +3172,7 @@ async function loadSystemSettings() {
   renderSettings();
   try {
     state.appSettings = await settingsApi('GET');
+    state.appSettingsDirty = false;
   } catch (e) {
     state.appSettingsError = e.message || String(e);
   } finally {
@@ -3172,8 +3180,27 @@ async function loadSystemSettings() {
     renderSettings();
   }
 }
+function clearSettingsSaveTimer() {
+  if (state.appSettingsSaveTimer) {
+    clearTimeout(state.appSettingsSaveTimer);
+    state.appSettingsSaveTimer = null;
+  }
+}
+function scheduleSystemSettingsSave() {
+  if (!state.settingsOpen || state.settingsTab === 'display') return;
+  state.appSettingsDirty = true;
+  state.appSettingsError = '';
+  clearSettingsSaveTimer();
+  state.appSettingsSaveTimer = setTimeout(() => {
+    state.appSettingsSaveTimer = null;
+    saveSystemSettings();
+  }, 250);
+  updateSettingsStatus();
+}
 function setSettingsTab(tab) {
   state.settingsTab = tab;
+  state.appSettingsDirty = false;
+  clearSettingsSaveTimer();
   renderSettings();
   if (tab !== 'display' && !state.appSettings && !state.appSettingsLoading) {
     loadSystemSettings();
@@ -3197,6 +3224,7 @@ function updateProcessScheduleFields() {
 }
 async function saveSystemSettings() {
   if (!state.appSettings || state.appSettingsSaving) return;
+  let saved = false;
   try {
     let patch;
     if (state.settingsTab === 'global') {
@@ -3274,15 +3302,22 @@ async function saveSystemSettings() {
     } else {
       return;
     }
+    clearSettingsSaveTimer();
     state.appSettingsSaving = true;
     state.appSettingsError = '';
-    renderSettings();
+    updateSettingsStatus();
     state.appSettings = await settingsApi('PATCH', patch);
+    state.appSettingsDirty = false;
+    saved = true;
   } catch (e) {
     state.appSettingsError = e.message || String(e);
   } finally {
     state.appSettingsSaving = false;
-    renderSettings();
+    if (saved) {
+      renderSettings();
+    } else {
+      updateSettingsStatus();
+    }
   }
 }
 function scheduleValue(job, key, fallback = '') {
@@ -3304,9 +3339,16 @@ function renderAppSettingsState() {
   return '';
 }
 function renderSystemActions(readOnly = false) {
-  return `<div class="settings-actions">
+  const statusText = state.appSettingsError
+    ? `<span class="settings-status error">${esc(state.appSettingsError)}</span>`
+    : state.appSettingsSaving
+      ? '<span class="settings-muted">正在保存…</span>'
+      : state.appSettingsDirty
+        ? '<span class="settings-muted">正在同步修改…</span>'
+        : '<span class="settings-muted">修改后会自动生效</span>';
+  return `<div class="settings-actions" id="settings-system-actions">
     <button class="settings-secondary" id="settings-system-reload">重新读取</button>
-    ${readOnly ? '' : `<button class="settings-primary" id="settings-system-save" ${state.appSettingsSaving ? 'disabled' : ''}>${state.appSettingsSaving ? '保存中…' : '保存设置'}</button>`}
+    ${readOnly ? '' : statusText}
   </div>`;
 }
 function renderGlobalSettings() {
@@ -3317,7 +3359,6 @@ function renderGlobalSettings() {
   const viewer = cfg.viewer || {};
   const timezone = d.timezone || cfg.kb?.context?.timezone_hint || 'Asia/Shanghai';
   return `
-    ${state.appSettingsError ? `<div class="settings-status error">${esc(state.appSettingsError)}</div>` : ''}
     <div class="settings-section">
       <div class="settings-section-h">${icon('gear', 13)}<span>全局设置</span><span class="hint">本地 viewer</span></div>
       <div class="settings-section-note">控制 viewer 的访问方式和后台任务共用的时区。关闭访问保护后服务仍只监听本机，但同机进程可以直接访问设置接口。</div>
@@ -3481,15 +3522,40 @@ function renderSettingsBody() {
 function settingsFooterText() {
   if (state.settingsTab === 'display') return '显示设置自动保存到浏览器本地';
   if (state.settingsTab === 'legacy-report') return '旧版报告仅展示历史兼容状态';
-  return '当前页设置写入知识库本地配置';
+  if (state.appSettingsError) return `保存失败：${state.appSettingsError}`;
+  if (state.appSettingsSaving) return '正在把修改写入本地配置';
+  if (state.appSettingsDirty) return '修改后会自动生效';
+  return '当前页设置会自动写入知识库本地配置';
 }
 function bindSettingsBodyEvents() {
   D.settingsPortal.querySelectorAll('[data-set]').forEach(button => {
     button.addEventListener('click', () => setSetting(button.dataset.set, button.dataset.val));
   });
   document.getElementById('settings-system-reload')?.addEventListener('click', loadSystemSettings);
-  document.getElementById('settings-system-save')?.addEventListener('click', saveSystemSettings);
   document.getElementById('settings-process-kind')?.addEventListener('change', updateProcessScheduleFields);
+  D.settingsPortal.querySelectorAll(
+    '.settings-body input:not([type="button"]):not([type="submit"]), .settings-body select, .settings-body textarea'
+  ).forEach(element => {
+    const eventName =
+      element.tagName === 'SELECT' || element.type === 'checkbox' || element.type === 'radio'
+        ? 'change'
+        : 'input';
+    element.addEventListener(eventName, () => {
+      if (element.id === 'settings-process-kind') updateProcessScheduleFields();
+      if (state.settingsTab !== 'display' && state.settingsTab !== 'legacy-report') {
+        scheduleSystemSettingsSave();
+      }
+    });
+  });
+}
+function updateSettingsStatus() {
+  const footer = D.settingsPortal.querySelector('.settings-foot-text');
+  if (footer) footer.textContent = settingsFooterText();
+  const actions = D.settingsPortal.querySelector('#settings-system-actions');
+  if (actions && state.settingsTab !== 'display') {
+    actions.outerHTML = renderSystemActions(state.settingsTab === 'legacy-report');
+    document.getElementById('settings-system-reload')?.addEventListener('click', loadSystemSettings);
+  }
 }
 function updateSettingsDialog() {
   D.settingsPortal.querySelectorAll('[data-settings-tab]').forEach(button => {
