@@ -47,7 +47,7 @@ bin/byteworker preflight
 - Dreaming 是默认关闭的独立旁路；普通 preflight 不检查、不启用也不提示 Dreaming。
 
 首次无 `.kbconfig` 时，询问用户要上手引导还是常规建库。引导读 `TUTORIAL.md`；常规建库询问
-父目录，默认创建 `byteworker_kb`。按 `DESIGN.md` 初始化 8 类 knowledge 目录、sources、
+父目录，默认创建 `byteworker_kb`。按 `docs/development/DESIGN.md` 初始化 8 类 knowledge 目录、sources、
 raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模板。KB 必须是无 remote
 的独立本地 Git 仓库。
 
@@ -131,8 +131,10 @@ Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用�
 查询具体记录用 `kb-query source-record`，不让 Agent 扫完整 raw。
 
 大型输入 worker 和 Wiki resume page 必须从 workflow manifest 解析完整 digest 闭包；子 Agent
-必须显式使用 `fork_turns="none"`，prompt 自足且只传来源、确认范围、KB 和临时 artifact 路径，
-不得继承主对话。主 Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终紧凑回执。
+必须使用宿主提供的**全新隔离上下文**，prompt 自足且只传来源、确认范围、KB 和临时 artifact
+路径，不得继承主对话。`fork_turns` 是 Codex adapter 的专有参数；其中
+`fork_turns="all"` 表示继承全部历史，违反本流程，其他宿主不得被要求理解或伪造该参数。主
+Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终紧凑回执。
 
 ## 写入
 
@@ -251,5 +253,5 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
 - 长流程只在真实阶段变化时给一行元信息状态；单阶段超过 60 秒可发一次 heartbeat，不粘贴业务
   原文、不为发状态主动轮询。大型 worker 由主 Agent 使用有界等待，避免主/子双重处理。
 
-系统边界以 [`ARCHITECTURE.md`](ARCHITECTURE.md) 为准，schema 以 `DESIGN.md` 为准。修改模块、
-依赖、信息流、失败边界或成功判定时，必须在**同一变更**同步架构文档和契约测试。
+系统边界见[架构文档](docs/development/ARCHITECTURE.md)，schema 见
+[存储设计](docs/development/DESIGN.md)。边界变化必须在**同一变更**同步文档和契约测试。

@@ -42,8 +42,8 @@ byteworker 由**两个物理隔离**的部分组成。
 | 文件/目录 | 存什么 |
 |-----------|--------|
 | `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help + 自动日报/周报) |
-| `ARCHITECTURE.md` | 信息处理流程、代码分层、模块边界、依赖方向与演进约束 |
-| `DESIGN.md` | 本文档:存储 schema |
+| `docs/development/ARCHITECTURE.md` | 信息处理流程、代码分层、模块边界、依赖方向与演进约束 |
+| `docs/development/DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 8 类节点骨架模板 |
 | `bin/digest-txn.py` + `lib/digest_txn.py` | digest 确定性 hash / 幂等 / 校验 / 写入事务;不含业务语义 |
 | `lib/sources/` | 来源适配器注册表、`SourceBundle` 契约及 provider → transaction 兼容边界；provider payload 保持异构 |
@@ -63,7 +63,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
 | `bin/report-automation.py` + `lib/report_automation.py` | 自动报告首次设置状态、prompt 版本、跨日报/周报执行租约与真实运行回执；不创建宿主任务 |
 | `bin/viewer-server.py` + `lib/settings.py` | 本地 viewer 设置 API、只读 Dreaming 日志调试 API 与统一配置 façade；汇总现有 truth source，读写 KB 私有 viewer 偏好，不把业务数据复制进 skill 仓库 |
-| `TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
+| `docs/development/TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
 launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不切换登录身份，也不构成远程工具
@@ -687,7 +687,7 @@ Bundle 从文件重载后还必须经 registry 调用 provider adapter 的 `vali
 Base、风神从唯一 records snapshot 重新派生并比较 identity、坐标、anchor、record index 与
 `snapshot_hash`，不能把通用 schema 通过当作 provider 一致。通用 bundle request 对结构化
 capture 只接受 `capture_path`，不接受与路径并存的内联副本。
-最终 Source 模块边界、领域模型和兼容删除条件见 `ARCHITECTURE.md` §4.3、§8.3。
+最终 Source 模块边界、领域模型和兼容删除条件见 `docs/development/ARCHITECTURE.md` §4.3、§8.3。
 
 **`feishu_chat` 变体**:群聊摄取按「群 + 时间窗」进行,**同一群可多次增量摄取**。
 frontmatter 不用 `source_url` / `source_title`,改用 `source_chat_id`(oc_xxx)、
@@ -1105,7 +1105,7 @@ code 与证据，请用户确认。
 2. **会议待办不接飞书任务** — `event` 的"待办事项"仅以 md 形式存在节点内;
    skill **不调用 lark-task 创建真实任务**。
 3. **raw_data 永久保留** — v1 原始输入文件永久保留,不自动删除/归档;
-   归档策略见 TODOS.md(P2,规模触发后再做)。
+   归档策略见 docs/development/TODOS.md(P2,规模触发后再做)。
 4. **逻辑与数据严格分离** — skill 仓库只含 agent 逻辑(可进 git/GitHub);所有业务数据
    (`knowledge/`、`raw_data/`、`provenance/`、`journal/`、`INDEX.md`)存在用户指定的独立目录(默认名
    `byteworker_kb`),**绝不进 skill 仓库的 git**。数据目录路径记于 `.kbconfig`(gitignore)。
@@ -1197,7 +1197,7 @@ code 与证据，请用户确认。
    transport 和 payload，只在 bundle 边界统一身份、component、coverage、anchor 和可选
    record index。plan 不复制来源或 anchors；事务核心不新增 provider 分支。
    `digest-plan/v1`、Aeolus profile v1 和既有 raw/query 解析作为迁移期兼容层保留，达到
-   `ARCHITECTURE.md` §8.3 的删除条件后再移除。
+   `docs/development/ARCHITECTURE.md` §8.3 的删除条件后再移除。
 25. **person 通讯录画像随身份解析补全** — `bin/resolve-users.sh --format json` 除姓名 /
    `feishu_id` 外返回企业邮箱、当前部门路径和核验时间；新建 person 必须记录
    `directory_verified_at`，可见时同步 `enterprise_email` / `department_path`。部门是可变的
@@ -1248,8 +1248,10 @@ code 与证据，请用户确认。
 
 - **📌 关注项**:`绑定节点` 列填知识节点 id(能绑则绑),或留空(自由文本项)。
   `当前状态` 列刷新时从绑定节点拉 TL;DR/状态;自由文本项写"—"。
-- **📅 今日进展**:**不独立存储**,刷新时从当天 `journal/` 渲染;用户报告的进展先写入
-  journal、再渲染到此。跨天自动重置(journal 即历史归档)。
+- **📅 今日进展**:**不独立存储**,刷新时只从当天既有 `journal/` 渲染；Dashboard 不为刷新
+  反向创建 journal 或其它业务事实。用户主动要求记录的新进展先按其语义进入
+  update/thinking/report/digest 等正常写流程，再由后续刷新读取。跨天自动重置(journal 即历史
+  归档)。
 - **⚠️**:派生项刷新时由轻量新鲜度/冲突扫描得到;手动提醒持久存在文件内。
 - 看板是 view —— 每次"看板"触发都重新渲染,**不会过时**。
 
@@ -1274,7 +1276,8 @@ dashboard / todo 的「透镜」。
 - **与「思路与视角」章节的分工**:`context.md` 是**跨主题**的工作底色;节点的「思路与视角」
   章节(§4.6)是**挂在具体 project/area 上**的观点。
 
-**结构由模板锁定** —— 骨架见 skill 目录的 [`templates/context.md`](templates/context.md):固定七个
+**结构由模板锁定** —— 骨架见 skill 目录的
+[`templates/context.md`](../../templates/context.md):固定七个
 章节 `我的身份` / `我的职责范围` / `我的当前重点` / `主管方向` / `当前约束` /
 `交互与提醒偏好` / `背景信息`。身份使用固定表格(姓名、别名、`feishu_id`、person 节点、时区);
 其它章节使用简短条目,变更型信息优先带日期(`- <YYYY-MM-DD> —— <一句话>`)。

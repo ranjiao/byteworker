@@ -36,7 +36,7 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertTrue((ROOT / "templates/digest-batch-plan-v2.json").is_file())
 
     def test_schema_keeps_old_raw_compatible(self):
-        design = self.read("DESIGN.md")
+        design = self.read("docs/development/DESIGN.md")
         transaction = self.read("references/digest-transaction.md")
         self.assertIn("byteworker-payload-v1", design)
         self.assertIn("旧 raw 永不改写", transaction)
@@ -53,21 +53,33 @@ class DigestTransactionContractTests(unittest.TestCase):
     def test_large_digest_isolated_context_and_compact_handoff(self):
         large = self.read("references/digest-large.md")
         wiki_jobs = self.read("references/wiki-digest-jobs.md")
-        self.assertIn('fork_turns="none"', large)
+        self.assertIn("全新上下文", large)
+        self.assertIn("Codex adapter 专有参数", large)
         self.assertIn('禁止', large)
         self.assertIn('fork_turns="all"', large)
         self.assertIn("semantic-work-packet", large)
         self.assertIn("不得", large)
         self.assertIn("list_agents", large)
         self.assertIn("紧凑返回", large)
-        self.assertIn('fork_turns="none"', wiki_jobs)
+        self.assertIn("全新隔离上下文", wiki_jobs)
+        self.assertIn("Codex adapter 专有参数", wiki_jobs)
         self.assertIn("不得继承主对话", wiki_jobs)
         self.assertIn("不主动轮询", wiki_jobs)
+
+    def test_v2_provenance_anchors_belong_to_source_bundle(self):
+        provenance = self.read("references/provenance.md")
+        base = self.read("references/digest-base.md")
+        aeolus = self.read("references/digest-aeolus.md")
+        for text in (provenance, base, aeolus):
+            self.assertIn("SourceBundle", text)
+            self.assertIn("不得复制", text)
+        self.assertIn("唯一运行配置", base)
+        self.assertIn("不得从最近 raw", base)
 
     def test_digest_execute_is_single_standard_post_plan_call(self):
         core = self.read("references/digest-core.md")
         transaction = self.read("references/digest-transaction.md")
-        architecture = self.read("ARCHITECTURE.md")
+        architecture = self.read("docs/development/ARCHITECTURE.md")
         self.assertIn("直接运行 `bin/digest-txn.py execute`", core)
         self.assertIn("execute 会重复完成全部安全校验", transaction)
         self.assertIn("标准 digest 在 plan 完成后直接调用 execute", architecture)

@@ -10,7 +10,7 @@ MERMAID_BLOCK_RE = re.compile(r"```mermaid\n(.*?)\n```", re.DOTALL)
 class ArchitectureContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.architecture = (ROOT / "ARCHITECTURE.md").read_text(
+        cls.architecture = (ROOT / "docs/development/ARCHITECTURE.md").read_text(
             encoding="utf-8"
         )
 
@@ -107,11 +107,11 @@ class ArchitectureContractTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
         self.assertIn("## 架构治理", agents)
-        self.assertIn("[`ARCHITECTURE.md`](ARCHITECTURE.md)", agents)
+        self.assertIn("[`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md)", agents)
         self.assertIn("同一变更", agents)
-        self.assertIn("[`ARCHITECTURE.md`](ARCHITECTURE.md)", skill)
+        self.assertIn("(docs/development/ARCHITECTURE.md)", skill)
         self.assertIn("同一变更", skill)
-        self.assertIn("[`ARCHITECTURE.md`](ARCHITECTURE.md)", readme)
+        self.assertIn("[`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md)", readme)
 
     def test_provider_neutral_core_rule_is_explicit(self):
         self.assertIn(

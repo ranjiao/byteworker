@@ -91,15 +91,17 @@ bin/byteworker source diff \
 }
 ```
 
-把 capture 的 `anchors[]` 原样放入 plan 的 `provenance.anchors`，另补一个 source anchor。
+capture adapter 把 `anchors[]` 和 source anchor 写入 SourceBundle；`digest-plan/v2` 只引用该
+Bundle，顶层 provenance 只允许 `enrichment`，不得复制 anchors。
 首次 digest 创建代表该视图的 `reading` 主记录；同源新快照更新同一 reading。普通记录变化只留
 raw + provenance；只有长期项目、明确生效决策、时间事件或跨记录稳定主题达到晋升门槛时才更新
 `project / decision / event / area`，不要一行一个节点或因负责人列自动创建 person。
 
 ## 5. 定期摄取
 
-用户确认纳入 routine 后，在 raw 加 `routine: weekly`。后续从最近 raw 读取
-`source_url / source_base_token / source_table_id / source_view_id / source_fields`，重新 capture
-完整视图并走 `digest-txn preflight`。完全相同则只记录“已复查、无变化”；不同则运行
-`source diff`，只把差异记录交给语义层，raw 仍保存完整快照。任何权限或分页不完整错误都不得
-写 raw，也不得把该来源标成复查成功。
+用户确认纳入 routine 后，保存带 cadence 的 v2 Profile；它是 selector、fields、page size、
+max records 和 routine 状态的唯一运行配置。后续按 `source_uid` 原样重放 Profile，重新 capture
+完整视图并走 `digest-txn preflight`，不得从最近 raw 恢复或拼接 Base 坐标与字段。raw 只记录
+本次实际参数、Profile path/revision 和 capture 结果，作为历史执行证据，不是下一次配置真相源。
+完全相同则只记录“已复查、无变化”；不同则运行 `source diff`，只把差异记录交给语义层，raw
+仍保存完整快照。任何权限或分页不完整错误都不得写 raw，也不得把该来源标成复查成功。

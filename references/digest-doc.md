@@ -33,9 +33,9 @@
   飞书文档 adapter 把正文、评论、白板 component、coverage 和 anchors 统一写入
   `byteworker-source-bundle/v2`，再通过机器协议交给 `bin/digest-txn.py preflight`:脚本计算
   `body_hash`、`comment_hash`、每个白板 hash 与组合 `content_hash` 并组成 `digest_key`
-  (见 DESIGN.md §3 / `references/digest-transaction.md`)。完全相同 key 已存在时
+  (见 docs/development/DESIGN.md §3 / `references/digest-transaction.md`)。完全相同 key 已存在时
   直接 no-op;同一 `document_id` 但 hash 变化时,按同源新版本更新已有主记录节点。
-- **滚动周会 / 周报文档(默认只取最近周期)**:有的文档是「一篇持续追加」的滚动周会 / 周报 —— 每个周期是一个顶层标题块(通常为日期,如 `# 20260520`,**新周期排在最前**),整篇累积数周乃至数月、可能很大。digest 这类文档**默认只摄取最近一个周期**(最靠前的日期块),跳过「模版 / template」之类占位块。`raw_data` 只落该周期内容(非整篇),frontmatter 标注周期标识(`digest_period`)。`digest_period` 若是日期,必须按 DESIGN.md §2.1 规范化为 `YYYY-MM-DD`(如 `20260520` → `2026-05-20`,`5-21` 在当前年份语境下 → `2026-05-21`);raw 正文标题仍逐字保留。摄取后告诉用户「取了哪个规范化周期、文档里还有哪些更早周期」;用户要更早某期或全部,再单独 digest。识别特征:顶层标题是一串连续日期、各周期结构雷同。首次摄取此类文档后,**询问用户是否纳入「定期摄取」**(见 `references/digest-routine.md`)。
+- **滚动周会 / 周报文档(默认只取最近周期)**:有的文档是「一篇持续追加」的滚动周会 / 周报 —— 每个周期是一个顶层标题块(通常为日期,如 `# 20260520`,**新周期排在最前**),整篇累积数周乃至数月、可能很大。digest 这类文档**默认只摄取最近一个周期**(最靠前的日期块),跳过「模版 / template」之类占位块。`raw_data` 只落该周期内容(非整篇),frontmatter 标注周期标识(`digest_period`)。`digest_period` 若是日期,必须按 docs/development/DESIGN.md §2.1 规范化为 `YYYY-MM-DD`(如 `20260520` → `2026-05-20`,`5-21` 在当前年份语境下 → `2026-05-21`);raw 正文标题仍逐字保留。摄取后告诉用户「取了哪个规范化周期、文档里还有哪些更早周期」;用户要更早某期或全部,再单独 digest。识别特征:顶层标题是一串连续日期、各周期结构雷同。首次摄取此类文档后,**询问用户是否纳入「定期摄取」**(见 `references/digest-routine.md`)。
   - 滚动文档的 `digest_key` 必须按
     `document_id + digest_period + 本周期实际 payload content_hash` 判重,不是整篇文档的最新
   revision。若最新周期正文不变但相关评论 / 回复或本周期白板变化,仍是增量;若只有其它旧周期

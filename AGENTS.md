@@ -1,8 +1,7 @@
 # byteworker skill —— 仓库须知
 
-本仓库**只包含 agent 逻辑**:`SKILL.md`、`ARCHITECTURE.md`、`DESIGN.md`、`templates/`、
-`references/`(SKILL.md 按需加载的细则)、`bin/`、`lib/`、`tests/`、`viewer/`、`INSTALL.md`、
-`TUTORIAL.md`。
+本仓库**只包含 agent 逻辑**:`SKILL.md`、`docs/development/`、`templates/`、`references/`
+(SKILL.md 按需加载的细则)、`bin/`、`lib/`、`tests/`、`viewer/`、`INSTALL.md`、`TUTORIAL.md`。
 
 ## 铁律
 
@@ -11,15 +10,15 @@
 - 知识库数据存在用户指定的**独立目录**(路径见 `.kbconfig`,已 gitignore),含公司机密,
   绝不外传、绝不进本仓库。
 - 改 skill 行为 → 改 `SKILL.md`(深层 digest 细则在 `references/digest-*.md`,SKILL.md 按场景路由过去);
-  改存储 schema → 改 `DESIGN.md`。
+  改存储 schema → 改 `docs/development/DESIGN.md`。
 
 ## 架构治理（代码与流程变更必读）
 
-- 修改 `bin/`、`lib/` 或信息处理主流程前，先读 [`ARCHITECTURE.md`](ARCHITECTURE.md) 的相关章节；
+- 修改 `bin/`、`lib/` 或信息处理主流程前，先读 [`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md) 的相关章节；
   不允许只凭局部代码继续堆叠分支。
 - 模块、职责、依赖方向、跨层契约、信息流、失败边界或成功判定发生变化时，必须在**同一变更**
-  中同步 `ARCHITECTURE.md`。不能用“后续补文档”交付已知漂移。
-- schema 或知识库目录变化时还要同步 `DESIGN.md`；Agent 行为变化时还要同步 `SKILL.md`
+  中同步 `docs/development/ARCHITECTURE.md`。不能用“后续补文档”交付已知漂移。
+- schema 或知识库目录变化时还要同步 `docs/development/DESIGN.md`；Agent 行为变化时还要同步 `SKILL.md`
   和对应 `references/`。
 - 新 provider 的差异留在 adapter / compatibility 层，不得把 provider 分支重新带入
   `lib/digest_txn.py` 或 `lib/kb_query.py`。

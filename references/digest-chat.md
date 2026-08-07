@@ -28,7 +28,7 @@
   `department_path` 与 `directory_verified_at`;不要仅凭中文名新建 `feishu_id: ?` 的 person。
   若某个发言人解析失败,事件正文可保留其姓名和 open_id,但不要新建 person 节点;在汇报里列为
   「待解析人物」,等用户补充或权限恢复后再建。
-- **落原文**:raw_data 用 `feishu_chat` 变体 frontmatter(`source_chat_id` / `source_chat_name` / `source_window`,见 DESIGN.md §3)。**`source_window` 必须写本次窗口的完整 ISO8601 起止** —— 它是下次 `--since-last` 的续拉点,务必准确。每窗口一个独立 raw,只增不改。
+- **落原文**:raw_data 用 `feishu_chat` 变体 frontmatter(`source_chat_id` / `source_chat_name` / `source_window`,见 docs/development/DESIGN.md §3)。**`source_window` 必须写本次窗口的完整 ISO8601 起止** —— 它是下次 `--since-last` 的续拉点,务必准确。每窗口一个独立 raw,只增不改。
 - **登记进度**:raw frontmatter 准确写 `source_chat_id` / `source_chat_name` / `source_window`;
   `digest-txn execute` 重建 INDEX 后会据此派生「群聊摄取进度」行(群名 + `chat_id` + 已摄取至
   =本窗口结束点 + 最近 raw_id)—— 这是下次「查表判断首次 / 增量」的依据,不要手工另维护一份。

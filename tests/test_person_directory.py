@@ -267,7 +267,7 @@ links: []
 
 class PersonDirectoryArchitectureContractTests(unittest.TestCase):
     def test_architecture_and_agent_rules_name_versioned_directory_contract(self):
-        architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+        architecture = (ROOT / "docs/development/ARCHITECTURE.md").read_text(encoding="utf-8")
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         digest_core = (ROOT / "references/digest-core.md").read_text(
             encoding="utf-8"

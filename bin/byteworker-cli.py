@@ -124,6 +124,24 @@ def _structured_error(data: Any) -> dict[str, Any] | None:
     )
 
 
+def _tool_help_request(values: list[str]) -> str | None:
+    candidates = values[1:] if values[:1] == ["--pretty"] else values
+    if len(candidates) == 2 and candidates[0] in TOOLS and candidates[1] in {
+        "-h",
+        "--help",
+    }:
+        return candidates[0]
+    return None
+
+
+def _run_tool_help(tool: str) -> int:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "bin" / TOOLS[tool]), "--help"],
+        check=False,
+    )
+    return completed.returncode
+
+
 def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
     start = time.monotonic()
     forwarded = list(args)
@@ -206,6 +224,9 @@ def _update_status(*, pretty: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     values = sys.argv[1:] if argv is None else argv
+    help_tool = _tool_help_request(values)
+    if help_tool is not None:
+        return _run_tool_help(help_tool)
     try:
         args = parser().parse_args(values)
     except ProtocolUsageError as exc:

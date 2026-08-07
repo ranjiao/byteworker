@@ -38,7 +38,7 @@ byteworker skill 负责报告方法，Codex / Claude / TraeWork 等 harness 负�
    - 自动周报：上一完整 ISO 周；补跑给定 `YYYY-Www` 时取对应 ISO 周。
 4. **召回事实源**
    - 读范围内 `journal/` 行。
-   - 扫范围内新增/更新的 `raw_data/` frontmatter:按 `ingested`、`source_window`、`digest_period` 判断归属。先按 DESIGN.md §2.1 规范化时间:`ingested` / `source_window` 用完整 ISO8601,日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`。
+   - 扫范围内新增/更新的 `raw_data/` frontmatter:按 `ingested`、`source_window`、`digest_period` 判断归属。先按 docs/development/DESIGN.md §2.1 规范化时间:`ingested` / `source_window` 用完整 ISO8601,日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`。
    - 扫范围内新建/更新的 `knowledge/` 节点:优先读取 `event` / `decision`,再读取被它们 links 指向的 `project` / `person` / `org` / `area`。
    - 对用户本人、团队、直属主管方向、`dashboard.md` 长期关注项做一跳图遍历补充。
 5. **筛选重要性**

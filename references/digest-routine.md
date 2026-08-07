@@ -15,7 +15,7 @@
      - 滚动周会文档:优先从 `byteworker-source-profile/v2` 读取 document identity、周期、
        评论/白板策略，再重新 `lark-doc +fetch --api-version v2 --detail with-ids`,并按
        `references/digest-comments.md` **独立复查评论**(含已解决和完整回复),正文有白板时按
-       `references/digest-whiteboard.md` 复查。把顶层最新周期按 DESIGN.md §2.1 规范化后,将本
+       `references/digest-whiteboard.md` 复查。把顶层最新周期按 docs/development/DESIGN.md §2.1 规范化后,将本
        周期正文、评论、白板等 component 交给 `digest-txn preflight`,与最近 raw 做兼容幂等
        比对。有新周期或任一实际 payload component 变化,都按 `references/digest-doc.md` 更新
        同一个主记录;`state=noop` 才跳过。`body_hash` / `comment_hash` /

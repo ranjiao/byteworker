@@ -66,6 +66,23 @@ class AgentRouteContractTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertTrue(required.issubset(self.closure(name)))
 
+    def test_declared_core_sources_have_machine_checked_routes(self):
+        source_routes = self.workflows["digest"]["source_type"]
+        self.assertIn("feishu_minutes", source_routes)
+        self.assertIn("references/digest-meeting.md", source_routes["feishu_minutes"])
+        self.assertIn(
+            "references/digest-comments.md",
+            source_routes["feishu_doc"],
+        )
+        self.assertIn("wiki_space", self.workflows)
+        self.assertEqual(
+            {
+                "references/machine-protocol.md",
+                "references/digest-wiki-space.md",
+            },
+            set(self.closure("wiki_space")),
+        )
+
     def test_unattended_prompts_reference_machine_checked_route(self):
         for relative in (
             "templates/report-automation-daily.md",
@@ -195,7 +212,7 @@ class AgentRouteContractTests(unittest.TestCase):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("KB 绝对路径已作为", skill)
         self.assertIn("TraeWork Sandbox 目录权限", skill)
-        architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+        architecture = (ROOT / "docs/development/ARCHITECTURE.md").read_text(encoding="utf-8")
         for text in (skill, architecture):
             self.assertIn("TRAE IDE/TraeCode", text)
             self.assertIn("TraeWork 桌面版", text)
@@ -203,7 +220,7 @@ class AgentRouteContractTests(unittest.TestCase):
     def test_core_policies_have_no_known_contradictory_fallbacks(self):
         paths = [
             ROOT / "SKILL.md",
-            ROOT / "DESIGN.md",
+            ROOT / "docs/development/DESIGN.md",
             *(ROOT / "references").glob("*.md"),
             *(ROOT / "templates").glob("*.md"),
         ]

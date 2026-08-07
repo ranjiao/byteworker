@@ -1,6 +1,7 @@
 # byteworker · dashboard
 
-> 仅在查看、刷新或维护工作看板时加载。任何写入走 `kb-mutation.md`。
+> 仅在查看、刷新或维护工作看板时加载。保存 dashboard 视图或手动章节时才走
+> `kb-mutation.md`；刷新不得创建 KB 业务事实。
 
 `dashboard.md` 是实时视图：用户维护的“长期关注/需要关注”手动项是真相源，其余内容可重算。
 
@@ -16,6 +17,8 @@
 
 - 新增/删除长期关注或手动提醒，只修改对应固定章节。
 - 刷新完整看板时生成完整候选，并用 `replace_preserving_sections` 保留用户手动章节。
-- 今日进展先通过 mutation 写 journal 对应事实，再刷新派生视图。
+- 今日进展只从当天既有 journal 渲染；不得为了刷新 Dashboard 反向创建 journal 或其它业务事实。
+  用户主动要求记录一项新进展时，先退出 Dashboard 刷新流程，按该内容对应的
+  update/thinking/report/digest 入口持久化；随后再刷新视图。
 - 通过 `kb-mutate validate/execute` 写入；收到 commit receipt 前不得宣称完成。
 - 带明确时间的一次性提醒走 Todo；长期/一次性无法判断时询问一次。

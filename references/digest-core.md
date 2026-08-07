@@ -80,7 +80,7 @@
    已有 raw 的 `digest_targets`、同源历史主记录节点在 INDEX 找可能涉及的已有节点,读取候选,
    语义比对是否与新输入矛盾。独立来源冲突时高亮矛盾点并等待用户裁决；只有可验证 revision、
    supersede 或用户明确确认才可按对应 disposition 更新，时间较新本身不构成覆盖依据。
-7. **digest 扇出**(DESIGN.md §4.3):
+7. **digest 扇出**(docs/development/DESIGN.md §4.3):
    - 必产 1 个主记录节点(会议、群聊窗口 → `event`;外部读物、内部路线思考/方法论/调研/白皮书 → `reading`)。**会议簇**(同一场会的日历 + 投屏文档 + 妙记)仍只产 1 个 `event`,不按物件拆 —— 见 `references/digest-meeting.md`。
    - **同源主记录去重**:若同一 `source_uid + digest_period/source_window` 已有主记录节点(可从
      历史 raw `digest_targets`、节点 `sources` 或标题/链接召回),更新该节点,不要新建重复
@@ -96,7 +96,7 @@
    - **资料型 `reading` 扇出规则**:若 `reading` 是外部读物,默认只产 `reading`,一般不抽 `decision`、不更新实体;若是内部路线思考 / 方法论 / 调研 / 白皮书,则 `reading` 是"这篇资料本身"的主记录,同时可按内容抽取明确决策、更新相关 `project`/`area`/`person`/`org`。不要把整篇资料硬塞进某个 `project` 或 `event`;项目节点只摘项目相关事实,决策节点只摘真正生效的决定。
    - 抽取 N 个 `decision`:输入中每个明确决策一节点。
    - 创建或更新涉及的实体节点(`person`/`project`/`org`/`area`)。
-   - **实体消解与通讯录补全**(DESIGN.md §4.3):建实体前在 INDEX 比对,命中则更新而非新建。
+   - **实体消解与通讯录补全**(docs/development/DESIGN.md §4.3):建实体前在 INDEX 比对,命中则更新而非新建。
      `person` 必须把文档/群聊里的 open_id 交给
      `bin/byteworker run bin/resolve-users.sh --format json`，按 `feishu_id` 消解，并消费同一次查询返回的
      `enterprise_email`、`department_path` 与顶层 `resolved_at`。新建 person 必须写

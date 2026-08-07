@@ -30,8 +30,10 @@ bin/byteworker digest-job next \
 
 对返回的每个页面先解析 `references/workflow-routes.json` 的 `wiki_resume_page`，递归展开
 `extends=digest` 并读取完整公共闭包与 `digest-doc.md`；不要依赖上个 session 已读过“普通
-feishu_doc 流程”。每页 worker 必须显式使用 `fork_turns="none"`，只接收页面身份、确认范围、
-KB 与临时 artifact 路径；不得继承主对话，也不得由主 Agent 重复读取正文。必须以
+feishu_doc 流程”。每页 worker 必须使用宿主提供的全新隔离上下文，只接收页面身份、确认范围、
+KB 与临时 artifact 路径；不得继承主对话，也不得由主 Agent 重复读取正文。`fork_turns` 是
+Codex adapter 专有参数，若使用该 adapter，禁止 `fork_turns="all"`；其他宿主使用自身的
+fresh-context 能力。必须以
 `digest-txn execute` receipt 标记：
 
 ```bash

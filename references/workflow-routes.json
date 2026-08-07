@@ -21,7 +21,11 @@
         "references/error-handling.md"
       ],
       "source_type": {
-        "feishu_doc": ["references/digest-doc.md"],
+        "feishu_doc": [
+          "references/digest-doc.md",
+          "references/digest-comments.md"
+        ],
+        "feishu_minutes": ["references/digest-meeting.md"],
         "feishu_chat": ["references/digest-chat.md"],
         "meego": ["references/digest-meego.md"],
         "feishu_base": ["references/digest-base.md"],
@@ -48,6 +52,13 @@
         "references/wiki-digest-jobs.md",
         "references/digest-doc.md"
       ]
+    },
+    "wiki_space": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/digest-wiki-space.md"
+      ],
+      "on_error": ["references/error-handling.md"]
     },
     "search": {
       "required": [
@@ -144,7 +155,7 @@
     "context": 20000,
     "thinking": 22000,
     "dashboard": 26000,
-    "dreaming": 18000,
+    "dreaming": 18500,
     "report": 40000,
     "digest": 48000
   }

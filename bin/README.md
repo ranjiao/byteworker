@@ -97,7 +97,7 @@ cd "$BYTEWORKER_ROOT"
 - capture、SourceBundle、DigestPlan、backfill plan 和候选节点可能含业务内容，只能放系统临时
   目录或知识库目录，不能放 byteworker skill 仓库。
 - 知识库是独立本地 Git 仓库，禁止配置 remote，禁止 push。
-- 修改命令前先读根目录 `ARCHITECTURE.md`。模块、信息流或跨层契约变化时，必须在同一变更中
+- 修改命令前先读 `docs/development/ARCHITECTURE.md`。模块、信息流或跨层契约变化时，必须在同一变更中
   同步架构文档和测试。
 - 不确定命令参数时，优先运行对应的 `--help`，不要猜测。
 
@@ -1099,8 +1099,8 @@ bin/byteworker update-status
 1. 先判断命令属于 Agent 语义、确定性应用服务、Provider adapter 还是维护工具。
 2. Agent 可调用的确定性 Python 工具应接入 `byteworker-cli.py` 的稳定 envelope。
 3. 新增、删除或重命名 `bin/` 命令时，同一变更更新本文件。
-4. 信息流、模块职责或跨层契约变化时，同步根目录 `ARCHITECTURE.md`。
-5. schema 或知识库目录变化时，同步 `DESIGN.md`。
+4. 信息流、模块职责或跨层契约变化时，同步 `docs/development/ARCHITECTURE.md`。
+5. schema 或知识库目录变化时，同步 `docs/development/DESIGN.md`。
 6. Agent 行为变化时，同步 `SKILL.md` 和对应 `references/`。
 7. 更新或新增命令测试，并运行：
 
