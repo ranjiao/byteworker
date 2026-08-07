@@ -14,47 +14,99 @@ byteworker 是一个 agent skill —— 一个含 `SKILL.md` 的目录。安装 
 ### 0. 基本信息
 
 - 仓库:`https://github.com/ranjiao/byteworker` · git URL:`https://github.com/ranjiao/byteworker.git`
-- 安装方式:把仓库 **`git clone` 直接进宿主 agent 的 skills 目录**,目录名 `byteworker`。
-- **优先直接 clone,不要「clone 到别处再 symlink」** —— 某些 agent(见下)对
-  workspace 级 skills 的符号链接有安全限制;直接 clone 一个真实目录在所有环境都稳,
-  而且 `git clone` 会带上 `origin` remote,自动更新才能工作。
+- 安装前必须让用户明确选择安装范围:
+  - **全局安装**:把仓库 `git clone` 到一个用户指定的真实目录(默认建议 `~/byteworker`),
+    再自动检测并软链接到本机已安装且支持的 agent 工具全局 skills 目录。适合本机多个工具
+    共用同一份 byteworker。
+  - **局部安装**:把仓库 `git clone` 直接放进当前运行环境的 skills 目录。只保证当前工具可见,
+    本机其它 agent 工具不会自动拥有这个 skill。
+- 不要用没有 `.git` / `origin` remote 的手工拷贝目录来安装；自动更新需要合法 git clone。
 
-### 1. 判定宿主 agent 的 skills 目录
+### 1. 选择安装范围并判定 skills 目录
 
-你最清楚自己运行在什么 agent 里。据此确定 `SKILLS_DIR`:
+先用自然语言询问用户:
+
+> 你要全局安装还是局部安装？
+> - 全局安装：clone 到一个固定目录（默认 `~/byteworker`），自动检测本机已安装且支持的
+>   TraeWork / TraeCode、Codex、Claude Code、OpenClaw 等环境，并软链接到检测到的各工具
+>   skills 目录。
+> - 局部安装：直接安装到当前运行环境的 skills 目录；本机其它工具不会看到这个 skill。
+
+用户选择前不得开始 clone、删除残留或创建软链接。
+
+根据用户选择继续：
+
+- **局部安装**：你最清楚自己运行在什么 agent 里。据此确定 `SKILLS_DIR`，并设置
+  `TARGET="$SKILLS_DIR/byteworker"`。
+- **全局安装**：询问源目录 `SOURCE_DIR`，默认 `~/byteworker`；设置
+  `TARGET="$SOURCE_DIR"`。然后自动检测本机已有且支持的 agent 环境，按下表确定每个检测到
+  工具的 `SKILLS_DIR`，安装成功后把 `TARGET` 软链接为对应的 `$SKILLS_DIR/byteworker`。
+  检测结果要先展示给用户；不需要用户逐个选择，除非用户要补充未检测到的工具。
+
+全局安装的检测规则：
+
+- 当前正在运行的 agent 环境必须纳入链接目标，即使对应配置目录尚未存在。
+- TraeWork / TraeCode / TRAE IDE：检测到 `~/.trae-cn`，或当前环境属于 TRAE 产品家族。
+- Codex：检测到 `${CODEX_HOME:-$HOME/.codex}`，或当前环境是 Codex。
+- Claude Code：检测到 `~/.claude`，或当前环境是 Claude Code。
+- OpenClaw：检测到 `~/.openclaw`，或当前环境是 OpenClaw。
+- 其它工具只有在用户明确给出其 skills 目录时才纳入。
 
 | 宿主 agent | skills 目录(SKILLS_DIR)|
 |-----------|--------------------------|
+| TraeWork / TraeCode / TRAE IDE | `~/.trae-cn/skills` |
 | Codex | `${CODEX_HOME:-$HOME/.codex}/skills` |
 | Claude Code | `~/.claude/skills` |
 | OpenClaw | `~/.openclaw/skills` —— **装这里**(本机所有 agent 可见);装好后**务必**再做下面的「OpenClaw 专项」 |
 | 其它 | 该 agent 发现 skill / `SKILL.md` 的目录;不确定就问用户 |
 
-执行 `mkdir -p "$SKILLS_DIR"`。最终安装位置:`TARGET = $SKILLS_DIR/byteworker`。
+对每个要使用的 `SKILLS_DIR` 执行 `mkdir -p "$SKILLS_DIR"`。全局安装时还要确认
+`SOURCE_DIR` 的父目录存在；不存在则先创建父目录。
 
 ### 2. 先修复历史残留(若有)
 
 安装前检查 `TARGET` 现状,把之前没装好的残留处理掉 —— 这一步保证可重复运行:
 
-- **`TARGET` 是符号链接**(旧式 symlink 安装)→ `rm "$TARGET"` 删掉链接本身
+- **局部安装且 `TARGET` 是符号链接**(旧式 symlink 安装)→ `rm "$TARGET"` 删掉链接本身
   (不动它指向的真实目录)。继续。
+- **全局安装且 `TARGET` 是符号链接** → 不要把源目录建立在符号链接上。先问用户是否换一个真实
+  `SOURCE_DIR`；只有用户明确同意删除该链接时才 `rm "$TARGET"`。
 - **`TARGET` 是目录、且是合法 byteworker 克隆**(同时存在 `TARGET/.git` 与 `TARGET/SKILL.md`)
   → 已装过,更新即可:
   - 若 `git -C "$TARGET" remote get-url origin` 没有 origin →
     `git -C "$TARGET" remote add origin https://github.com/ranjiao/byteworker.git`
   - `git -C "$TARGET" pull --ff-only`(失败不致命,跳过)
-  - 直接跳到第 4 步。
+  - 直接跳到第 3 步；按第 3 步说明跳过 clone，并在全局安装时创建 / 刷新软链接。
 - **`TARGET` 是目录、但不是合法克隆**(缺 `.git` 或缺 `SKILL.md`,即半成品 / 空目录)
   → 残留。**先保住用户数据**:若存在 `TARGET/.kbconfig`,复制到临时处;
   然后 `rm -rf "$TARGET"`,继续第 3 步重装,装完把 `.kbconfig` 放回 `TARGET/`。
 - **`TARGET` 不存在** → 干净安装,继续第 3 步。
-- 顺带看旧式残留 `~/byteworker`:是合法克隆可作来源;是半成品则清掉,避免混淆。
+- 全局安装时还要检查每个链接目标 `$SKILLS_DIR/byteworker`：
+  - 若已经是指向 `TARGET` 的符号链接 → 保留。
+  - 若是悬空符号链接或指向其它 byteworker 安装 → 先说明将替换该链接，只删除链接本身。
+  - 若是非符号链接目录且是合法 byteworker 克隆 → 这是另一份真实安装，先问用户是否改为共用
+    `TARGET`；用户同意后再迁移或删除，不能静默覆盖。
+  - 若是非符号链接目录且不是合法克隆 → 按半成品残留处理，先保住 `.kbconfig` 再清理。
+- 顺带看旧式残留 `~/byteworker`:是合法克隆可作为全局安装默认来源;是半成品则清掉,避免混淆。
 
 ### 3. 取得 byteworker
+
+若 `TARGET` 在第 2 步已确认是合法 byteworker clone，并且已经完成 `pull --ff-only`，本步不要再
+`git clone`；直接使用现有 `TARGET` 继续。只有 `TARGET` 不存在或刚刚清理了半成品残留时才执行：
 
 ```bash
 git clone https://github.com/ranjiao/byteworker.git "$TARGET"
 ```
+
+全局安装时，clone 或更新 `TARGET` 后，对自动检测到或用户补充的每个 `SKILLS_DIR` 创建软链接：
+
+```bash
+mkdir -p "$SKILLS_DIR"
+ln -sfn "$TARGET" "$SKILLS_DIR/byteworker"
+```
+
+局部安装时，不创建其它 agent 工具的软链接，并明确告诉用户：本机其它工具不会自动拥有
+byteworker skill。
 
 - 没有 `git` → 先装(macOS:`brew install git`;Debian/Ubuntu:`sudo apt install git`)。
 - `git clone` 报网络错误 → 你大概在**无外网的沙箱**里(见末尾「沙箱 / 云环境」)。
@@ -188,9 +240,16 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
     `executionEnvironment=local`；不用 heartbeat、不用 worktree。需要电脑开机且应用运行。
   - **Claude Code Desktop**：创建 Local scheduled task，folder 选择知识库。不要用 `/loop`
     或云端 `/schedule` Routine。
-  - **TRAE Work 桌面端**：在“自动化”中选择本地环境和知识库目录；可在对话中创建或手工创建。
-    不使用 Web / 云端任务。当前没有可依赖的公开稳定管理 API 时，以“已配置”和执行历史核验，
-    不伪造 task ID。
+  - **TRAE Work 桌面端**：先把知识库绝对路径作为工作目录加入当前 TraeWork 项目；只加入
+    byteworker skill 仓库或配置 `.kbconfig`，不会授予 TraeWork Sandbox 对 KB 的访问权限。
+    再在“自动化”中选择本地环境和该知识库目录；可在对话中创建或手工创建。不使用 Web / 云端
+    任务。当前没有可依赖的公开稳定管理 API 时，以“已配置”和执行历史核验，不伪造 task ID。
+    如果出现 `Operation not permitted` / `Permission denied`，且 skill 仓库可访问而 KB 不可
+    访问，先检查 KB 是否已加入项目工作目录；不要用 `sudo`、`chmod` 或复制 KB 绕过 Sandbox。
+  - **TraeCode / TRAE IDE**：只能安装并手动调用 byteworker skill；没有可用的本地定时任务
+    运行机制。安装助手必须提醒用户：不能在 TraeCode 自动创建日报 / 周报更新任务，也不能运行
+    Dreaming 后台信息助手。若用户需要这些自动运行能力，请改用 TraeWork 桌面端打开同一
+    知识库目录后继续设置。
   - **其它宿主**：没有经核实的原生定时能力时，只展示 prompt 和缺口；不要擅自改用系统
     cron / launchd。
 - 若用户选择“稍后再说”,明确告诉他:第一次摄取 Meego / Base / 风神时 skill 会再次给出同样的
@@ -204,7 +263,8 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
 
 ## Codex 专项:确保被自动发现
 
-宿主是 Codex 时,按上表装进 `${CODEX_HOME:-$HOME/.codex}/skills/byteworker` 即可被自动发现。
+宿主是 Codex 时,确保 `${CODEX_HOME:-$HOME/.codex}/skills/byteworker` 存在即可被自动发现：
+全局安装时它通常是指向 `SOURCE_DIR` 的符号链接；局部安装时它是直接 clone 出来的真实目录。
 本仓库的 Codex 兼容入口是 `SKILL.md`:
 
 - `SKILL.md` frontmatter 只保留 `name` 与 `description`,这是 Codex 的触发依据。
@@ -212,6 +272,24 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
 - 不需要额外修改 Codex 配置。安装或更新后,新开一个 Codex 会话即可加载最新 skill。
 - 自动日报 / 周报只能用 Codex 桌面端的 local scheduled task。Codex CLI / IDE 没有 Scheduled
   管理界面；知识库是 Git 仓库也仍要选择 local，不能让默认 worktree 隔离掉报告写入。
+
+---
+
+## TraeWork / TraeCode 专项:发现与自动运行边界
+
+宿主是 TraeWork、TraeCode 或 TRAE IDE 时，必须确保 `~/.trae-cn/skills/byteworker` 存在。
+全局安装时它通常是指向 `SOURCE_DIR` 的符号链接；局部安装时它是直接 clone 出来的真实目录。
+这是 TRAE 产品家族本机发现 skill 的目录；不要只装进 `~/.agents/skills`、
+`~/.openclaw/skills`、`~/.claude/skills` 或 workspace 内目录来期待 TraeWork 自动发现。
+
+安装或更新后，新开一个 TraeWork / TraeCode 会话让 skill 列表刷新。
+
+- **TraeWork 桌面端**支持本地“自动化”任务。若当前任务涉及 Dreaming 或自动日报 / 周报，
+  还要按第 6 步把**知识库绝对路径**加入 TraeWork 当前项目的工作目录；skill 安装目录只负责
+  发现 `SKILL.md`，不会授予 TraeWork Sandbox 读写 KB 的权限。
+- **TraeCode / TRAE IDE**没有可用的本地定时任务运行机制。安装完成后必须明确提醒用户：
+  byteworker 可以手动使用，但无法在 TraeCode 自动创建日报 / 周报更新任务，也无法运行
+  Dreaming 后台信息助手；需要自动运行时请切换到 TraeWork 桌面端。
 
 ---
 
@@ -230,15 +308,18 @@ skill 的可见范围由它所在目录决定:
 | `<workspace>/skills` · `<workspace>/.agents/skills` | 只有该 workspace 的 agent |
 | `~/.agents/skills` · `~/.openclaw/skills` | 本机**所有** agent |
 
-→ 要对所有 agent 生效,装进 **`~/.openclaw/skills/byteworker`**(本文件默认位置)。
-不要装进任何 `<workspace>` 目录。
+→ OpenClaw 的有效入口必须是 **`~/.openclaw/skills/byteworker`**。全局安装时这里通常是指向
+`SOURCE_DIR` 的符号链接；局部安装且当前宿主就是 OpenClaw 时,这里可以是真实 clone。不要只装进
+任何 `<workspace>` 目录。
 
 ### b. 全机去重 —— 同名 skill 只能有一份
 
 OpenClaw 规则是「同名 skill,最高优先级来源胜出」。若 byteworker 同时存在于多个来源
 (装过两次、或半成品残留),你会**静默跑到旧的那一份**,新装的被遮蔽。安装后检查这些
-位置,**只保留 `~/.openclaw/skills/byteworker` 一份**,其余(含悬空 symlink)删掉:
+位置,**只保留 `~/.openclaw/skills/byteworker` 这个 OpenClaw 发现入口**,其余 OpenClaw 发现入口
+(含悬空 symlink)删掉:
 `~/.agents/skills/byteworker`、各 `<workspace>/skills/byteworker`、`<workspace>/.agents/skills/byteworker`。
+全局安装时不要删除 `SOURCE_DIR`；它是真实代码源，`~/.openclaw/skills/byteworker` 应指向它。
 
 ### c. 排查 openclaw.json,别让配置盖掉 skill
 
@@ -293,15 +374,56 @@ OpenClaw 或新开 session**,并确认每个 agent 都能列出 / 调用 bytewor
 
 ## 人工安装
 
+先选择一种方式。
+
+### 全局安装：本机多个工具共用
+
 ```bash
-# 1. 按你实际用的 agent 设 SKILLS_DIR(见上表)——
+# 1. clone 一份真实仓库到固定源目录；也可以把 SOURCE_DIR 改成你指定的位置
+SOURCE_DIR=~/byteworker
+git clone https://github.com/ranjiao/byteworker.git "$SOURCE_DIR"
+
+# 2. 自动检测本机已有且支持的 agent 环境，并链接到检测到的 skills 目录。
+#    如果某个工具未被检测到但你确认要安装，手动把它的 skills 目录追加到 LINK_DIRS。
+LINK_DIRS=()
+[ -d "$HOME/.trae-cn" ] && LINK_DIRS+=("$HOME/.trae-cn/skills")
+[ -d "$HOME/.claude" ] && LINK_DIRS+=("$HOME/.claude/skills")
+[ -d "${CODEX_HOME:-$HOME/.codex}" ] && LINK_DIRS+=("${CODEX_HOME:-$HOME/.codex}/skills")
+[ -d "$HOME/.openclaw" ] && LINK_DIRS+=("$HOME/.openclaw/skills")
+
+printf '将安装软链接到以下 skills 目录:\n'
+if [ "${#LINK_DIRS[@]}" -eq 0 ]; then
+  printf '  未检测到已支持的 agent 环境；请手动把目标 skills 目录追加到 LINK_DIRS 后重试。\n'
+  exit 1
+fi
+printf '  %s\n' "${LINK_DIRS[@]}"
+
+for SKILLS_DIR in "${LINK_DIRS[@]}"; do
+  mkdir -p "$SKILLS_DIR"
+  ln -sfn "$SOURCE_DIR" "$SKILLS_DIR/byteworker"
+done
+
+# 3. 自查依赖
+"$SOURCE_DIR/bin/check-deps.sh"
+
+# 4. 可选:只读检查 Meego / Base / 风神授权状态(不会打开 OAuth)
+"$SOURCE_DIR/bin/byteworker" source auth-status --source-type meego
+"$SOURCE_DIR/bin/byteworker" source auth-status --source-type feishu_base
+"$SOURCE_DIR/bin/byteworker" source auth-status --source-type aeolus
+```
+
+### 局部安装：只给当前工具使用
+
+```bash
+# 1. 按你当前运行环境设置 SKILLS_DIR(见上表)——
+#      TraeWork / TraeCode / TRAE IDE: ~/.trae-cn/skills
 #      Claude Code: ~/.claude/skills
 #      Codex:       ${CODEX_HOME:-$HOME/.codex}/skills
 #      OpenClaw:    ~/.openclaw/skills
-SKILLS_DIR=~/.claude/skills
+SKILLS_DIR=~/.trae-cn/skills
 mkdir -p "$SKILLS_DIR"
 
-# 2. 直接 clone 进去
+# 2. 直接 clone 到当前工具的 skills 目录；本机其它工具不会自动拥有这个 skill
 git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 
 # 3. 自查依赖
@@ -322,36 +444,46 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 严重错误会请求用户决策，warning/info 只给简短摘要。固定版本环境可设置
 `BYTEWORKER_NO_AUTO_UPDATE=1` 显式停用。
 
-## 多个 agent 共用一份代码
+## 全局安装细节:多个 agent 共用一份代码
 
 只想维护一份代码、供多个 agent 使用:**任选一个位置作为"源"clone 一次**,其它 agent
 的 skills 目录用 symlink 指过去。源放哪都可以(独立目录如 `~/byteworker`、或你最常用的
 那个 agent 的 skills 目录都行)—— 关键是只 `git clone` 一次,其余都是 symlink。
 
-示例:以独立目录 `~/byteworker` 作源,链接给三家 agent。**只跑你实际用的那些 agent 对应的行**:
+示例:以独立目录 `~/byteworker` 作源,自动检测并链接到本机已有的已支持 agent 环境:
 
 ```bash
 # 1. clone 一次到固定位置(源)
 git clone https://github.com/ranjiao/byteworker.git ~/byteworker
 
-# 2. 把它链接进各 agent 的 skills 目录(用哪个就跑哪行)
-ln -sfn ~/byteworker ~/.claude/skills/byteworker
-ln -sfn ~/byteworker "${CODEX_HOME:-$HOME/.codex}/skills/byteworker"
-ln -sfn ~/byteworker ~/.openclaw/skills/byteworker
+# 2. 自动检测并链接
+LINK_DIRS=()
+[ -d "$HOME/.trae-cn" ] && LINK_DIRS+=("$HOME/.trae-cn/skills")
+[ -d "$HOME/.claude" ] && LINK_DIRS+=("$HOME/.claude/skills")
+[ -d "${CODEX_HOME:-$HOME/.codex}" ] && LINK_DIRS+=("${CODEX_HOME:-$HOME/.codex}/skills")
+[ -d "$HOME/.openclaw" ] && LINK_DIRS+=("$HOME/.openclaw/skills")
+
+for SKILLS_DIR in "${LINK_DIRS[@]}"; do
+  mkdir -p "$SKILLS_DIR"
+  ln -sfn ~/byteworker "$SKILLS_DIR/byteworker"
+done
 ```
 
 也可以把源就放在某个 agent 的 skills 目录(例如已经 clone 在 `~/.claude/skills/byteworker`),
-再把其它两家的 symlink 指过去 —— 方向不重要,**只要全机只有一份真实 clone**即可:
+再把其它已检测到的 agent skills 目录用 symlink 指过去 —— 方向不重要,
+**只要全机只有一份真实 clone**即可:
 
 ```bash
 ln -sfn ~/.claude/skills/byteworker "${CODEX_HOME:-$HOME/.codex}/skills/byteworker"
 ln -sfn ~/.claude/skills/byteworker ~/.openclaw/skills/byteworker
+ln -sfn ~/.claude/skills/byteworker ~/.trae-cn/skills/byteworker
 ```
 
 **注意**:
 - 符号链接只在 agent 的**全局 / 托管** skills 目录可靠(`~/.claude/skills`、
-  `${CODEX_HOME:-$HOME/.codex}/skills`、`~/.openclaw/skills`)。OpenClaw 的 **workspace 级**
-  skills 目录会拒绝指向目录之外的符号链接 —— 那里请直接 `git clone`,不要 symlink。
+  `${CODEX_HOME:-$HOME/.codex}/skills`、`~/.openclaw/skills`、`~/.trae-cn/skills`)。
+  OpenClaw 的 **workspace 级** skills 目录会拒绝指向目录之外的符号链接 —— 那里请直接
+  `git clone`,不要 symlink。
 - 共用一份后,**自动更新只在源那份生效**(`bin/update-check.sh` 在源目录执行 fetch +
   fast-forward merge，symlink 那几家直接看到更新)。所以源目录要是合法 clone(有 `.git` 与
   `origin` remote)。
