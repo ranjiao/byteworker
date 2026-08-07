@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,39 @@ def _artifact_path(kb: Path, item: Mapping[str, Any]) -> Path:
             "晨报摘要产物不存在，无法投递。",
         )
     return path
+
+
+def _delivery_title(item: Mapping[str, Any]) -> str:
+    labels = {"morning": "晨报", "daily": "日报", "weekly": "周报"}
+    kind = str(item.get("kind", ""))
+    period = str(item.get("period", ""))
+    label = labels.get(kind, kind or "报告")
+    return f"Byteworker Dreaming {label} · {period}".strip()
+
+
+def _summary_bullets(summary: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", summary).strip()
+    if not normalized:
+        return []
+    parts = [
+        item.strip(" \t\r\n。；")
+        for item in re.split(r"[。；]\s*", normalized)
+        if item.strip(" \t\r\n。；")
+    ]
+    return parts or [normalized]
+
+
+def format_lark_summary_message(summary: str, item: Mapping[str, Any]) -> str:
+    """Format the host-neutral summary as a readable Lark text message."""
+
+    title = _delivery_title(item)
+    report_path = str(item.get("report_path", "")).strip()
+    bullets = _summary_bullets(summary)
+    lines = [title, "", "重点摘要"]
+    lines.extend(f"- {bullet}" for bullet in bullets)
+    if report_path:
+        lines.extend(["", f"完整报告：{report_path}"])
+    return "\n".join(lines).strip()
 
 
 def deliver_lark_bot_summary(
@@ -74,6 +108,7 @@ def deliver_lark_bot_summary(
             )
         summary_path = _artifact_path(kb, item)
     summary = summary_path.read_text(encoding="utf-8").strip()
+    message_text = format_lark_summary_message(summary, item)
     executable = binary or os.environ.get("BYTEWORKER_LARK_CLI_BIN", "lark-cli")
     environment = dict(os.environ)
     environment["LARKSUITE_CLI_NO_UPDATE_NOTIFIER"] = "1"
@@ -89,7 +124,7 @@ def deliver_lark_bot_summary(
                 "--user-id",
                 recipient_id,
                 "--text",
-                summary,
+                message_text,
                 "--idempotency-key",
                 outbox_id,
             ],

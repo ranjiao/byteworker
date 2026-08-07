@@ -965,7 +965,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |
 | `lib/dreaming_report_bundle.py` | 校验单一结构化报告并确定性渲染 summary、内部 Markdown、自包含 HTML、归档快照和宿主无关 manifest | `state/dreaming/reports/<kind>-<period>/artifacts/` 私密产物；`reports/<kind>/<period>.md` |
 | `lib/dreaming_report_completion.py` | 报告 job 的唯一成功出口：渲染产物、写 run artifact、完成 lease，并按 `report_delivery` 自动入队/投递 | 更新 run 状态和 outbox；不吞掉本地产物 |
-| `lib/dreaming_delivery_lark.py` | 读取已渲染摘要，通过应用机器人 adapter 投递，并以真实 `message_id` 完成 outbox | 仅更新 delivery receipt |
+| `lib/dreaming_delivery_lark.py` | 读取已渲染摘要，格式化为标题 + 项目符号 + 报告路径的飞书文本消息，通过应用机器人 adapter 投递，并以真实 `message_id` 完成 outbox | 仅更新 delivery receipt |
 | `lib/report_owner.py` | legacy/Dreaming owner migration 的共同 advisory lock | 仅 `state/report-owner.lock` |
 | `lib/dreaming_evaluation.py` | KB/仓库外 Golden/legacy/Dreaming ID 对比、分层 recall 与两周门槛 | 私有评估目录 metrics/history |
 

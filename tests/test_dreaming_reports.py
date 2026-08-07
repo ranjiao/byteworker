@@ -26,7 +26,10 @@ from dreaming_reports import (  # noqa: E402
 )
 from dreaming_report_bundle import render_report_bundle  # noqa: E402
 from dreaming_report_completion import complete_report_run  # noqa: E402
-from dreaming_delivery_lark import deliver_lark_bot_summary  # noqa: E402
+from dreaming_delivery_lark import (  # noqa: E402
+    deliver_lark_bot_summary,
+    format_lark_summary_message,
+)
 from dreaming_scheduler import complete_run, configure, enable, run_due  # noqa: E402
 from dreaming_state import (  # noqa: E402
     DreamingError,
@@ -541,6 +544,10 @@ class DreamingReportTests(unittest.TestCase):
             self.assertIn("--as", command)
             self.assertEqual("bot", command[command.index("--as") + 1])
             self.assertEqual("ou_test", command[command.index("--user-id") + 1])
+            text = command[command.index("--text") + 1]
+            self.assertIn("Byteworker Dreaming 晨报 · 2026-08-04", text)
+            self.assertIn("\n- ", text)
+            self.assertIn("完整报告：reports/morning/2026-08-04.md", text)
             repeated = deliver_lark_bot_summary(
                 kb,
                 outbox_id=queued["outbox_id"],
@@ -549,6 +556,32 @@ class DreamingReportTests(unittest.TestCase):
             )
             self.assertEqual("om_test", repeated["delivery_id"])
             self.assertEqual(1, run.call_count)
+
+    def test_lark_summary_message_is_structured_text(self):
+        message = format_lark_summary_message(
+            "组织调整方案待确认。绩效校准进入关键阶段；风险需要跟进。",
+            {
+                "kind": "morning",
+                "period": "2026-08-07",
+                "report_path": "reports/morning/2026-08-07.md",
+            },
+        )
+
+        self.assertEqual(
+            "\n".join(
+                [
+                    "Byteworker Dreaming 晨报 · 2026-08-07",
+                    "",
+                    "重点摘要",
+                    "- 组织调整方案待确认",
+                    "- 绩效校准进入关键阶段",
+                    "- 风险需要跟进",
+                    "",
+                    "完整报告：reports/morning/2026-08-07.md",
+                ]
+            ),
+            message,
+        )
 
     @mock.patch("dreaming_delivery_lark.subprocess.run")
     def test_lark_failure_keeps_outbox_pending_and_local_artifacts(self, run):
