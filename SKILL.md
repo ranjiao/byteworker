@@ -231,9 +231,9 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
   文件链接。不得调用或假设 TraeWork、Codex、Claude Code 等宿主的私有 HTML 接口。
 - 飞书摘要仅在用户明确启用应用机器人投递并配置收件人后发送；投递固定使用
   `bin/byteworker lark im +messages-send --as bot --user-id <ou_...> --text <格式化摘要>
-  --idempotency-key <outbox_id>`。不要给 `lark auth status` 传 `--as`；该命令按当前
-  lark-cli 契约直接返回 user/bot 状态。真实 `message_id` 才表示送达。飞书失败不影响本地报告，
-  也不能对用户声称已经收到。
+  --idempotency-key <outbox_id>`。不要给 `lark auth status` 传 `--as`。配置可填字母用户名，
+  但必须唯一解析为 open_id；歧义或查不到时拒绝。真实 `message_id` 才表示送达；发送失败不能
+  声称用户已收到。
 - maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行 finding
   明确声明的确定性低风险修复；剩余重要 error/证据风险/自动化阻断项给用户有限摘要并等待决策。
 - 前台单次处理、Finding review/explain/feedback 和私有 shadow 评估按

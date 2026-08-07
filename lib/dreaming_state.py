@@ -289,6 +289,7 @@ def empty_state(now: datetime) -> dict[str, Any]:
             "lark_bot": {
                 "enabled": False,
                 "recipient_id": "",
+                "recipient_key": "",
             },
         },
         "grants": {
@@ -443,7 +444,11 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
         "report_delivery",
         {
             "host": {"enabled": True},
-            "lark_bot": {"enabled": False, "recipient_id": ""},
+            "lark_bot": {
+                "enabled": False,
+                "recipient_id": "",
+                "recipient_key": "",
+            },
         },
     )
     harness = result["harness"]
@@ -489,12 +494,24 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
     lark_delivery = (
         delivery.get("lark_bot") if isinstance(delivery, Mapping) else None
     )
+    if isinstance(lark_delivery, Mapping):
+        normalized_delivery = dict(delivery)
+        normalized_lark_delivery = dict(lark_delivery)
+        normalized_lark_delivery.setdefault(
+            "recipient_key",
+            str(normalized_lark_delivery.get("recipient_id", "")),
+        )
+        normalized_delivery["lark_bot"] = normalized_lark_delivery
+        result["report_delivery"] = normalized_delivery
+        delivery = normalized_delivery
+        lark_delivery = normalized_lark_delivery
     if (
         not isinstance(host_delivery, Mapping)
         or not isinstance(host_delivery.get("enabled"), bool)
         or not isinstance(lark_delivery, Mapping)
         or not isinstance(lark_delivery.get("enabled"), bool)
         or not isinstance(lark_delivery.get("recipient_id"), str)
+        or not isinstance(lark_delivery.get("recipient_key"), str)
         or (
             lark_delivery.get("enabled")
             and not lark_delivery.get("recipient_id", "").startswith("ou_")

@@ -291,8 +291,10 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
   `grant set-actions` 是整组替换；任何 grant revision 变化会取消未 claim action，并把 claimed
   action 转入 reconcile。
 - `report_delivery.host.enabled` 默认开启，表示 runner 在宿主任务结果中返回摘要和 HTML 本地路径；
-  `report_delivery.lark_bot` 保存 `enabled` 与 `recipient_id`，默认关闭。启用飞书投递必须已有
-  `ou_` 开头的用户 open ID；旧 v2 state 缺字段时只补默认值，不因升级自动发送。
+  `report_delivery.lark_bot` 保存 `enabled`、实际投递使用的 `recipient_id` 和用户侧展示用的
+  `recipient_key`，默认关闭。配置入口接受字母用户名或 `ou_`，字母用户名必须经 user 身份通讯录
+  唯一解析；持久化和 outbox 仍只使用 `ou_` 开头的 open_id。旧 v2 state 缺 `recipient_key` 时
+  从 `recipient_id` 补值，不因升级自动发送。
 - `runs/cursors/gaps/receipt_index` 由 Batch Commit Protocol 维护。queryless discovery 只能标
   `best_effort`；预算截断保存时间切片 gap，不持久化 provider page token。
 - 初次启用只开启 `process/morning/maintenance/recovery`；`daily/weekly` 默认关闭，避免与现有

@@ -136,6 +136,8 @@ class DreamingStateTests(unittest.TestCase):
             value["jobs"].pop("maintenance")
             value.pop("capability_tour_version")
             value.pop("capability_tour_acknowledged_at")
+            value["report_delivery"]["lark_bot"]["recipient_id"] = "ou_legacy"
+            value["report_delivery"]["lark_bot"].pop("recipient_key")
             with state_lock(kb):
                 atomic_write_json(state_path(kb), value)
                 loaded = load_state_unlocked(kb, now)
@@ -147,8 +149,16 @@ class DreamingStateTests(unittest.TestCase):
             )
             self.assertEqual("", loaded["capability_tour_version"])
             self.assertIsNone(loaded["capability_tour_acknowledged_at"])
+            self.assertEqual(
+                "ou_legacy",
+                loaded["report_delivery"]["lark_bot"]["recipient_key"],
+            )
             persisted = json.loads(state_path(kb).read_text(encoding="utf-8"))
             self.assertNotIn("maintenance", persisted["jobs"])
+            self.assertNotIn(
+                "recipient_key",
+                persisted["report_delivery"]["lark_bot"],
+            )
 
     def test_failed_migration_write_does_not_replace_v1(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

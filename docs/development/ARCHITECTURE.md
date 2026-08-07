@@ -364,6 +364,10 @@ Finding/Action 生命周期、维护和退出边界，并配置确认完整运�
 定时摘要、紧急提醒、本地定时任务”等产品语言；内部字段和原始 status JSON 只用于确定性映射和
 显式排障，不能成为用户理解或完成配置的前置条件。
 
+飞书摘要收件人同样遵守配置层与运行层分离：用户可输入日常字母用户名，`lark_recipient.py`
+在配置时通过 user 身份通讯录唯一解析为 open_id；state 同时保存展示 key 与 open_id。报告完成和
+投递阶段只消费已复验的 open_id，不查询通讯录，也不在歧义时选择第一条。
+
 宿主差异只存在 Agent/harness 兼容层，不进入 scheduler。TRAE 产品家族环境按
 `references/dreaming-harness-trae.md` 先识别具体产品：TRAE IDE/TraeCode（包括内置 SOLO）
 没有 Dreaming 所需的本地定时任务入口，只提示用户切换到 TraeWork 桌面版；TraeWork 桌面版
@@ -958,6 +962,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
 | `lib/report_automation.py` | 自动报告一次性引导、local-only 配置、运行轨迹、缺口判定与跨报告租约 | 仅写 Git 排除的 `state/report_automation.json` |
 | `lib/settings.py` | 面向用户和 viewer 的统一配置 façade；汇总 `.kbconfig`、`sources/`、`context.md`、自动报告和 Dreaming 状态 | 不自建新 truth source；更新只委派给既有 writer |
+| `lib/lark_recipient.py` | 配置期把字母用户名通过 user 身份通讯录唯一解析为 open_id；open_id 直填兼容 | 否；失败或歧义时拒绝配置 |
 | `lib/dreaming_state.py` | `byteworker-dreaming/v2` 安全路径、`0700/0600`、共享 state lock、原子 JSON 与 v1→v2 迁移 | 仅写 Git 排除的 `state/dreaming/` |
 | `lib/dreaming_models.py` | EvidenceBatch、batch、FindingBundle、ActionPlan、ActionClaim 的结构校验 | 否 |
 | `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、interval/daily/every-N-days、next due、harness truth、fairness、退避、lease/heartbeat、process catch-up 后受限报告 follow-up、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
@@ -1283,6 +1288,7 @@ byteworker/
 │   ├── kb_mutation.py    # 非 digest 内容事务
 │   ├── context_view.py   # 按意图裁剪 context
 │   ├── semantic_policy.py # 可校验语义阈值
+│   ├── lark_recipient.py # 配置期字母用户名 → open_id
 │   ├── doctor_sources.py # Profile/routine/raw 来源契约只读审计
 │   ├── source_chat_operations.py # 群聊 Profile capture 与高水位 transport 编排
 │   ├── source_profile_providers.py # v2 provider selector/capture-policy 校验

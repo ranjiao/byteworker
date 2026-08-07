@@ -3291,7 +3291,7 @@ async function saveSystemSettings() {
           },
           delivery: {
             lark_summary_enabled: inputChecked('settings-lark-enabled'),
-            lark_recipient_id: inputValue('settings-lark-recipient'),
+            lark_recipient: inputValue('settings-lark-recipient'),
           },
           harness_preferences: {
             wake_interval_minutes: numberValue('settings-harness-wake-minutes', 120),
@@ -3469,8 +3469,8 @@ function renderDreamingSettings() {
         <div class="settings-row"><label>运行日志</label><div class="settings-control-row"><input id="settings-log-retention" class="settings-input small" type="number" min="1" max="365" value="${esc(logging.retention_days || 30)}"><span class="settings-muted">天后清理</span></div></div>
         <div class="settings-row"><label>飞书摘要</label><label class="settings-check"><input id="settings-lark-enabled" type="checkbox" ${delivery.lark_summary_enabled ? 'checked' : ''}>生成晨报后发送飞书消息</label></div>
         <div class="settings-row"><label>摘要接收人</label><div>
-          <input id="settings-lark-recipient" class="settings-input medium" value="${esc(delivery.lark_recipient_id || '')}" placeholder="飞书用户 ID，如 ou_xxx">
-          <div class="settings-muted">填写接收人的飞书用户 ID，必须以 <code>ou_</code> 开头，通常填你自己的。不是手机号、邮箱或群聊 ID；不知道时可以让 Agent 按姓名查询。</div>
+          <input id="settings-lark-recipient" class="settings-input medium" value="${esc(delivery.lark_recipient || delivery.lark_recipient_id || '')}" placeholder="飞书用户名，如 ranjiao">
+          <div class="settings-muted">填写日常使用的字母用户名，系统会自动查找对应飞书账号；也兼容 <code>ou_</code> 开头的 open_id。</div>
         </div></div>
       </div>
     </div>
