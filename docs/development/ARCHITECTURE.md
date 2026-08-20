@@ -954,7 +954,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `bin/todo.py` | Todo 解析、状态变更及共享锁内 journal/commit/rollback | 写命令显式执行 |
 | `lib/provenance.py` | anchor schema、sidecar、节点 `[E]` 物化、raw 扫描 | 仅由事务调用 |
 | `lib/provenance_backfill.py` | 历史出处 audit → plan → validate → apply | 仅显式 apply |
-| `lib/doctor.py` | 编排布局、节点、raw、provenance、links、报告、INDEX 与来源契约扫描 | scan 否；fix 受白名单限制 |
+| `lib/doctor.py` | 编排布局、节点、raw、provenance、links、报告、Dreaming state、INDEX 与来源契约扫描 | scan 否；fix 受白名单限制 |
 | `lib/doctor_sources.py` | 只读检测 Profile/routine 覆盖、raw/Profile 绑定、payload component/digest key 与 record index 漂移 | 否 |
 | `bin/rebuild_index.py` | 从真相源重建 INDEX | 是，可确定重建 |
 | `bin/index.py` | INDEX 预演/执行 facade；apply 复用 postflight 事务 | INDEX、journal、本地 commit |
@@ -1044,6 +1044,8 @@ Profile schema/path、raw component 元数据和 digest key、Profile 绑定、r
 闭环。历史 routine 缺 Profile 按来源能力分级：Meego/Base/Aeolus/群聊缺失为 error，
 飞书文档兼容 raw 但提示 warning；尚无 Profile schema 的来源才记兼容 info。任何 Profile 创建或迁移都
 包含 selector/capture policy 的语义判断，因此不属于 `doctor fix` 或 post-update auto-fix。
+Dreaming state 是本地后台控制面的配置真相源；doctor 只读校验 v2 schema 和飞书投递等关键
+配置，不调用会写入迁移备份的 state loader，也不修复 `state/dreaming/`。
 
 ## 6. 失败边界与安全策略
 

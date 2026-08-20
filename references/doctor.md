@@ -80,7 +80,9 @@ error/warning；`2` 扫描完成但仍有问题；`1` 参数、目录或执行�
 - 节点 sources/primary source、`[E]` 标记/证据表/raw/anchor 的闭环；
 - links 重复、自链接、悬空、反向边、正文已存在节点 id 的漏登记；其中自链接属于可确定
   删除的 error，悬空链接仍需人工裁决；
-- 日报/周报/IM 报告 `[S]` 正文标记与「引用」条目；
+- 日报/周报/Dreaming 晨报/历史 IM 报告 `[S]` 正文标记与「引用」条目；
+- `state/dreaming/state.json` 的 v2 schema、job/grant/report delivery 配置；scan 只读校验，
+  不触发 v1→v2 迁移，也不修复本地后台状态；
 - `INDEX.md` 与当前确定性重建结果。
 
 SourceBundle 和 DigestPlan 属于事务临时输入，成功后可以删除；doctor 不要求它们留在知识库。

@@ -1,76 +1,40 @@
-# Dreaming · TraeWork 定时任务接入
+# Dreaming · TRAE 定时任务接入
 
-当前运行环境或用户选择的 Dreaming 宿主属于 TRAE 产品家族时加载。该文件是 harness 兼容层，
-负责区分 TraeWork 与 TRAE IDE/TraeCode，不改变 Dreaming scheduler、job schedule 或业务处理
-语义。
+只在当前运行环境或用户选择的 Dreaming 宿主是 TRAE 时加载。该文件是 harness 兼容层，不改变
+Dreaming scheduler、job schedule 或业务处理语义。
 
 ## 识别与边界
 
-先识别具体产品，不得把名称中的 `TRAE` 当成支持定时任务的充分条件：
+满足任一条件时视为 TRAE：
 
-- **TraeWork**：独立的 TraeWork 桌面版，旧名称可能显示为 TRAE SOLO；可进入后续接入流程。
-- **TRAE IDE/TraeCode**：代码编辑器及其内置 SOLO 模式；不能创建 Dreaming 所需的本地定时
-  任务，必须停止接入并提示用户切换到 TraeWork 桌面版。
-- **无法判断**：先用自然语言询问用户当前使用的是 TraeWork 还是 TRAE IDE/TraeCode；确认前
-  不创建任务，也不执行 `dreaming harness register`。
+- 当前会话由 TRAE / TRAE SOLO / TraeWork 承载；
+- 用户明确选择 TRAE 作为宿主；
+- `owner_harness` 配置为 `trae` 或 `trae-*`。
 
-官方文档将 TraeWork 定义为独立于 TRAE IDE 运行的应用；TraeWork 的“自动化”支持按时间或频率
-执行任务，并配置 Work/Code 模式与云端/本地环境。TRAE IDE 的任务管理只描述交互式创建和并行
-任务，不提供该自动化入口。官方说明：
+TRAE SOLO/TraeWork 的桌面端和网页端支持定时自动化任务，可按时间/频率执行 Prompt，并选择本地
+或云端环境。官方说明：
 
-- <https://docs.trae.cn/work_what-is-trae-solo>
-- <https://docs.trae.cn/work_automated-tasks>
-- <https://docs.trae.cn/ide_task-management>
+- <https://forum.trae.cn/t/topic/15182>
+- <https://forum.trae.cn/t/topic/15566>
 
-即使当前会话暴露 Schedule 工具，也必须先确认产品是 TraeWork；在 TRAE IDE/TraeCode 中不得
-调用该工具创建 Dreaming 任务。TraeWork 会话没有真实工具回执时，禁止猜内部接口、修改应用
-私有配置、用 `launchd/cron` 冒充 Agent task，或直接执行 `dreaming harness register`。
+但当前 Agent 会话不一定暴露 Schedule 工具或定时任务 API。没有真实工具回执时，禁止猜内部
+接口、修改 TRAE 私有配置、用 `launchd/cron` 冒充 Agent task，或直接执行
+`dreaming harness register`。
 
 Dreaming 需要用户本地 KB、用户态 lark-cli 和 Agent 模型分析，因此必须创建**本地 Agent
-任务**。TraeWork 网页版仅提供云端运行环境，不能访问这些本机状态，不作为等价替代；用户必须
-使用 TraeWork 桌面版。
-
-## KB 工作目录与 Sandbox 权限
-
-TraeWork 桌面版只允许 Agent 访问当前项目已登记的工作目录。执行任何 byteworker 命令前，必须
-确认用户的 **KB 绝对路径已经作为工作目录加入当前 TraeWork 项目**；项目中可以同时保留
-byteworker skill 仓库和 KB 两个工作目录。仅打开 skill 仓库、在 `.kbconfig` 中写入 KB 路径，
-或在命令中传入 `--kb`，都不会扩大 TraeWork Sandbox 的目录访问范围。
-
-如果 KB 尚未加入项目，先停止 preflight、查询、摄取、报告和 Dreaming 操作，并提示用户：
-
-> 请先在 TraeWork 当前项目中，把 `<KB 绝对路径>` 添加为工作目录，然后回到本地会话继续。
-> byteworker 的 `.kbconfig` 只能定位知识库，不能替 TraeWork 授予目录访问权限。
-
-`Operation not permitted`、`Permission denied`，或 Agent 能读取 skill 仓库但不能读写 KB 时，
-优先检查这一项。不要用 `sudo`、`chmod`、复制 KB 到 skill 仓库或反复重试来绕过 Sandbox；
-KB 已加入项目但当前会话仍不可访问时，让用户刷新或重新打开该项目会话后再验证。此项检查独立于
-飞书资源共享权限和 macOS 文件权限。
-
-## TRAE IDE/TraeCode 中的提示
-
-检测到 TRAE IDE、TraeCode 或其内置 SOLO 模式时，不展示创建步骤，直接使用自然语言说明：
-
-> 当前 TRAE IDE 不能创建后台信息助手所需的本地定时任务。请改用 TraeWork 桌面版打开同一
-> 知识库目录，再继续设置自动运行。
-
-同时保持“自动运行：待完成”。不得把当前对话继续运行、IDE Hook、shell cron 或 launchd 描述为
-等价能力，也不得登记虚构 task id。
+任务**；云端任务不能访问这些本机状态，不作为等价替代。
 
 ## 必须提示用户的操作
 
-确认当前产品是 TraeWork 桌面版后，如果会话没有可调用的 Schedule 工具，启用后必须立即告诉
-用户：
+如果当前会话没有可调用的 TRAE Schedule 工具，启用后必须立即告诉用户：
 “设置已经保存，但自动运行还没有接通；完成下面的本地定时任务后，助手才会按时工作。”
 不得向用户输出 `enabled=true`、`operational=false` 或其它内部诊断串。然后提供以下步骤：
 
-1. 打开 TraeWork 桌面版左侧的“自动化”，点击“手动新建”或“在对话中创建”。
+1. 打开 TRAE SOLO/TraeWork 桌面端的任务管理面板，点击 `+ 新任务` 或创建定时/自动化任务。
 2. 任务名使用稳定名称 `byteworker-dreaming-local`。
-3. 选择 **Code 模式**、**本地环境**；工作目录选择已经加入当前项目的 KB 绝对路径。不能只把
-   byteworker skill 仓库设为工作目录。
-4. 触发频率使用用户刚刚确认的**本地任务唤醒间隔**；推荐 2 小时，可根据 quota 和时效要求调整。
-   这是检查是否有工作到期，不等于每次唤醒都会调用模型；真正的自动检查、定时摘要、健康检查和
-   离线补跑时间仍按用户刚刚确认的计划执行。
+3. 选择 **Code 模式**、**本地环境**；工作目录选择用户的 KB 绝对路径。
+4. 触发频率设为**每 30 分钟**。这是检查是否有工作到期，不等于每 30 分钟调用模型；真正的
+   自动检查、定时摘要、健康检查和离线补跑时间仍按用户刚刚确认的计划执行。
 5. Prompt 使用：
 
 ```text
@@ -79,10 +43,10 @@ byteworker 仓库路径为 <BYTEWORKER_REPO>，KB 路径为 <KB>，
 TASK_ID 使用 byteworker-dreaming-local。
 ```
 
-6. 本地任务要求电脑开机、唤醒、联网。需要夜间运行时，提示用户检查 TraeWork 的防睡眠/设备
-   在线设置；不要承诺休眠期间按时执行。
-7. 创建后在任务面板点击一次“触发任务/Run now”。必须看到任务记录，确认任务能够读写 KB，
-   且没有等待 Sandbox 权限或用户输入的步骤。
+6. 本地任务要求电脑开机、唤醒、联网。需要夜间运行时，提示用户检查 TRAE 的防睡眠/设备在线
+   设置；不要承诺休眠期间按时执行。
+7. 创建后在任务面板点击一次“触发任务/Run now”。必须看到任务记录，并确认没有等待权限或用户
+   输入的步骤。
 8. 用户确认任务已存在且首次触发完成后，才运行：
 
 ```bash
@@ -94,13 +58,13 @@ bin/byteworker dreaming status --kb "<KB>"
 9. 内部只有在本地定时任务已登记、自动运行状态通过，且首次触发时间非空时，才可以向用户显示
    “自动运行：已接通”。否则显示“自动运行：待完成”，不得暴露内部字段。
 
-如果 UI 中没有“自动化”入口，先判断是否误用了 TRAE IDE/TraeCode；是则提示切换到 TraeWork
-桌面版，不是则提示检查 TraeWork 版本。不要引导到 TraeWork 网页版执行本地 Dreaming。
+如果 UI 中没有自动化任务入口，提示用户确认正在使用支持定时任务的 TRAE SOLO/TraeWork
+桌面端或网页端。不要把普通 IDE 的 Agent 会话、当前对话继续运行或 shell cron 描述为同一能力。
 
 ## Prompt 与日志安全
 
 - Prompt 只放仓库路径、KB 路径、稳定 TASK_ID，不放 lark token、消息正文或其它凭据。
-- TraeWork 自动化面板的运行历史是宿主审计；Dreaming 的 `runs list/show/tail` 是内部阶段
-  审计，两者都需要保留，不能互相冒充。
+- TRAE 任务面板的运行历史是宿主审计；Dreaming 的 `runs list/show/tail` 是内部阶段审计，两者
+  都需要保留，不能互相冒充。
 - 首次 Run now 失败时保持 `harness.status=pending`。修复后重新触发；不得先 register 再等待
   将来成功。
