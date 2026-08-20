@@ -66,8 +66,6 @@ Dreaming 不是“自动 digest 所有内容”，也不替代 search/update/tod
 设置向导定义的状态卡。真实本地定时任务尚未创建和首次触发时，明确显示“自动运行：待完成；
 设置已经保存，但还不会按时自动执行”，不得输出内部诊断串或声称已经完成。
 
-当前环境或用户选择的宿主属于 TRAE 产品家族时，额外加载
-`references/dreaming-harness-trae.md` 并先区分具体产品。TRAE IDE/TraeCode 不能创建所需的
-本地定时任务，必须提示用户切换到 TraeWork 桌面版；只有确认处于 TraeWork 桌面版后，才能调用
-Schedule 工具或逐步引导用户创建本地 Code 自动化任务并首次触发。不能把控制面已开启当成任务
-已创建。
+当前环境或用户选择的宿主是 TRAE / TRAE SOLO / TraeWork 时，额外加载
+`references/dreaming-harness-trae.md`。如果当前会话没有 Schedule 工具，必须逐步提示用户在
+TRAE 任务面板创建本地 Code 自动化任务并首次 Run now；不能把 `enabled=true` 当成任务已创建。

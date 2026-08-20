@@ -14,6 +14,9 @@ from typing import Any, Dict, Iterable, List, Mapping
 from constants import NODE_ID_PREFIXES, NODE_TYPES
 from digest_txn import ALLOWED_SOURCE_TYPES, PAYLOAD_SCHEMA
 from doctor_sources import scan_source_contracts
+from dreaming_state import DreamingError, _read_json as read_dreaming_json
+from dreaming_state import _validate_v2 as validate_dreaming_v2
+from dreaming_state import state_path as dreaming_state_path
 from frontmatter import extract_tldr, extract_title, parse_file
 from provenance import (
     EVIDENCE_MARKER_RE,
@@ -84,14 +87,9 @@ EXPECTED_DIRS = (
     "provenance",
     "journal",
     "reports/daily",
+    "reports/morning",
     "reports/weekly",
-    "knowledge/people",
-    "knowledge/projects",
-    "knowledge/areas",
-    "knowledge/orgs",
-    "knowledge/events",
-    "knowledge/decisions",
-    "knowledge/readings",
+    *(f"knowledge/{dir_name}" for dir_name, _, _ in NODE_TYPES),
 )
 TRUTH_FILES = ("context.md", "todo.md", "dashboard.md")
 SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
@@ -259,6 +257,7 @@ class Doctor:
         self.scan_cross_references()
         self.scan_links()
         self.scan_reports()
+        self.scan_dreaming_state()
         self.scan_index()
         if self.legacy_raw_paths:
             sample = ", ".join(self.legacy_raw_paths[:5])
@@ -1024,6 +1023,7 @@ class Doctor:
             return
         patterns = {
             "daily": re.compile(r"^\d{4}-\d{2}-\d{2}\.md$"),
+            "morning": re.compile(r"^\d{4}-\d{2}-\d{2}\.md$"),
             "weekly": re.compile(r"^\d{4}-W\d{2}\.md$"),
             "im": re.compile(
                 r"^(?:\d{4}-\d{2}-\d{2}|.+__.+)\.md$"
@@ -1073,6 +1073,23 @@ class Doctor:
                         relative,
                         "引用条目未被正文使用: " + ", ".join(unused),
                     )
+
+    def scan_dreaming_state(self) -> None:
+        path = dreaming_state_path(self.kb)
+        if not path.exists():
+            return
+        relative = _relative(path, self.kb)
+        try:
+            value = read_dreaming_json(path)
+            validate_dreaming_v2(value)
+        except DreamingError as exc:
+            self.add(
+                "error",
+                exc.code,
+                relative,
+                str(exc),
+                repair="先备份 state/dreaming/state.json，再通过 dreaming configure/status 重新生成或迁移。",
+            )
 
     def scan_index(self) -> None:
         knowledge_dir = self.kb / "knowledge"

@@ -3,6 +3,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 import unittest
 from unittest import mock
@@ -13,7 +14,13 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from doctor import SCHEMA_CONTRACT_PATHS, apply_repairs, scan  # noqa: E402
+from doctor import (  # noqa: E402
+    EXPECTED_DIRS,
+    SCHEMA_CONTRACT_PATHS,
+    apply_repairs,
+    scan,
+)
+from dreaming_state import empty_state  # noqa: E402
 from source_profiles import profile_relative_path, validate_profile  # noqa: E402
 import update_postflight  # noqa: E402
 from update_postflight import render_message, run_postflight  # noqa: E402
@@ -39,7 +46,7 @@ class DoctorTests(unittest.TestCase):
             (self.kb / "knowledge" / directory).mkdir(parents=True)
         for directory in ("sources", "raw_data", "provenance", "journal"):
             (self.kb / directory).mkdir()
-        for directory in ("daily", "weekly", "im"):
+        for directory in ("daily", "morning", "weekly", "im"):
             (self.kb / "reports" / directory).mkdir(parents=True)
         for name in ("context.md", "todo.md", "dashboard.md"):
             (self.kb / name).write_text(f"# {name}\n", encoding="utf-8")
@@ -392,6 +399,17 @@ legacy routine body
         self.assertEqual(0, report.counts["profiles"])
         self.assertEqual(0, report.counts["routine_sources"])
 
+    def test_layout_requires_all_current_node_directories(self):
+        (self.kb / "knowledge/thinkings").rmdir()
+
+        findings = scan(self.kb, ROOT).findings
+
+        self.assertIn("knowledge/thinkings", EXPECTED_DIRS)
+        self.assertIn(
+            "LAYOUT_MISSING_DIRECTORY",
+            [item.code for item in findings if item.path == "knowledge/thinkings"],
+        )
+
     def test_sources_directory_is_part_of_current_layout(self):
         (self.kb / "sources").rmdir()
         findings = scan(self.kb, ROOT).findings
@@ -729,6 +747,47 @@ links: []
         self.assertNotIn("REPORT_CITATION_MISSING", codes)
         self.assertNotIn("RAW_TARGET_MISSING_NODE", codes)
         self.assertNotIn("RAW_TARGET_MISSING_REPORT", codes)
+
+    def test_morning_report_citations_are_checked(self):
+        report = self.kb / "reports/morning/2026-08-07.md"
+        report.write_text(
+            """# 晨报 · 2026-08-07
+
+## 待关注
+
+- 示例风险。[S1]
+""",
+            encoding="utf-8",
+        )
+
+        findings = scan(self.kb, ROOT).findings
+
+        self.assertIn(
+            "REPORT_CITATION_MISSING",
+            [
+                item.code
+                for item in findings
+                if item.path == "reports/morning/2026-08-07.md"
+            ],
+        )
+
+    def test_dreaming_state_is_validated_read_only(self):
+        value = empty_state(datetime(2026, 8, 7, tzinfo=timezone.utc))
+        value["report_delivery"]["lark_bot"] = {
+            "enabled": True,
+            "recipient_id": "ranjiao",
+            "recipient_key": "ranjiao",
+        }
+        state = self.kb / "state/dreaming/state.json"
+        state.parent.mkdir(parents=True)
+        state.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
+
+        findings = scan(self.kb, ROOT).findings
+
+        self.assertIn(
+            "DREAMING_STATE_INVALID",
+            [item.code for item in findings if item.path == "state/dreaming/state.json"],
+        )
 
     def test_postflight_repairs_commits_and_preserves_unrelated_dirty_file(self):
         self.add_one_way_area_link()

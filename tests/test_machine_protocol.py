@@ -479,11 +479,12 @@ class MachineProtocolTests(unittest.TestCase):
                 "events",
                 "decisions",
                 "readings",
+                "thinkings",
             ):
                 (kb / "knowledge" / directory).mkdir(parents=True)
             for directory in ("raw_data", "sources", "provenance", "journal"):
                 (kb / directory).mkdir()
-            for directory in ("daily", "weekly", "im"):
+            for directory in ("daily", "morning", "weekly", "im"):
                 (kb / "reports" / directory).mkdir(parents=True)
             for name in ("context.md", "todo.md", "dashboard.md"):
                 (kb / name).write_text(f"# {name}\n", encoding="utf-8")

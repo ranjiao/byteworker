@@ -55,7 +55,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/context.py` + `lib/context_view.py` | 按 intent 读取固定章节的有限 context 投影 |
 | `bin/semantic.py` + `lib/semantic_policy.py` | 校验 IM 分数/阈值/reason/evidence，不保存模型输出 |
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
-| `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index，主 doctor 编排 INDEX/links 的确定性修复 |
+| `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index；主 doctor 覆盖报告引用、Dreaming state v2 schema，并编排 INDEX/links 的确定性修复 |
 | `bin/byteworker` + `bin/byteworker-launcher.py` + `lib/runtime_deps.py` | 无需 Agent 猜路径的稳定启动入口；解析 Python >=3.10、Node、lark-cli、meegle 并向子进程注入同一 runtime |
 | `bin/session-preflight.py` + `lib/session_preflight.py` | shell 更新完成后，每个新 session 一次合并 KB、依赖、Todo 与自动报告设置检查；健康路径静默 |
 | `bin/byteworker-cli.py` + `lib/machine_protocol.py` | 为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
