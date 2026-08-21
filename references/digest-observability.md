@@ -30,7 +30,7 @@ bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" \
 | stage | 记录范围 |
 |---|---|
 | `classify` | 输入类型、workflow 与 feature 路由 |
-| `capture` | inspect/auth 后的完整正文、评论、白板、分页或快照抓取 |
+| `capture` | inspect/auth 后的完整正文、评论、白板、分页或快照抓取；可含有界并发 |
 | `bundle` | SourceBundle、coverage、components 与 anchors 构造 |
 | `preflight` | payload hash、幂等和同源状态；由 `digest-txn --run-id` 自动记录 |
 | `analysis_prepare` | 一次性 analysis packet 构造；由 `digest-analysis --run-id` 自动记录 |
@@ -59,7 +59,8 @@ bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" \
 
 `detail-code` 只能是大写稳定机器码。可选 metrics 只允许非负整数：`item_count`、
 `component_count`、`input_bytes`、`output_count`、`warning_count`、`retry_count`、`page_count`、
-`node_count`、`evidence_count`。禁止写标题、人员/群名、正文摘要、URL、token、完整
+`node_count`、`evidence_count`、`worker_count`、`shard_count`。并发阶段只由 coordinator 在外层
+成对记录一次，worker 不打点，duration 是真实墙钟时间。禁止写标题、人员/群名、正文摘要、URL、token、完整
 argv、stdout/stderr 或自由文本错误。阶段超过 60 秒仍按既有用户 heartbeat 规则回显；不要为了日志
 主动轮询，阶段完成后一次性记录真实耗时即可。
 

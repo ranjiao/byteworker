@@ -95,6 +95,43 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertIn("byteworker-conflict-candidates/v1", architecture)
         self.assertIn("byteworker-digest-analysis-packet/v1", design)
 
+    def test_digest_concurrency_is_bounded_and_single_reducer_owned(self):
+        skill = self.read("SKILL.md")
+        core = self.read("references/digest-core.md")
+        concurrency = self.read("references/digest-concurrency.md")
+        routes = json.loads(self.read("references/workflow-routes.json"))
+        architecture = self.read("docs/development/ARCHITECTURE.md")
+        design = self.read("docs/development/DESIGN.md")
+
+        self.assertIn("digest-concurrency.md", skill)
+        self.assertIn("digest-parallel plan --stage semantic", core)
+        self.assertIn(
+            "references/digest-concurrency.md",
+            routes["workflows"]["digest"]["required"],
+        )
+        for route in (
+            "digest_dependency_worker",
+            "digest_semantic_worker",
+            "digest_conflict_worker",
+            "digest_final_reducer",
+        ):
+            self.assertIn(route, routes["workflows"])
+            self.assertIn(route, concurrency)
+        for term in (
+            "最大并发度为 4",
+            "dependency 候选 `<12` inline",
+            "500 text_items",
+            "conflict query `<8`",
+            "单一 reducer",
+            "不得让每个 semantic worker\n各扫一遍 KB",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, concurrency)
+        self.assertIn("lib/digest_capture.py", architecture)
+        self.assertIn("lib/digest_parallel.py", architecture)
+        self.assertIn("byteworker-digest-capture-plan/v1", design)
+        self.assertIn("byteworker-digest-reduce-packet/v1", design)
+
     def test_core_requires_receipt_before_claiming_write_completed(self):
         core = self.read("references/digest-core.md")
         self.assertIn("status=committed", core)

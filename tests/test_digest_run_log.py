@@ -66,10 +66,16 @@ class DigestRunLogTests(unittest.TestCase):
             stage="capture",
             status="completed",
             detail_code="SOURCE_COMPONENTS_READY",
-            metrics={"component_count": 3, "input_bytes": 4096},
+            metrics={
+                "component_count": 3,
+                "input_bytes": 4096,
+                "worker_count": 3,
+                "shard_count": 3,
+            },
             now=self.started_at + timedelta(seconds=7, milliseconds=250),
         )
         self.assertEqual(6250, completed["duration_ms"])
+        self.assertEqual(3, completed["metrics"]["worker_count"])
 
         finish_run(
             self.kb,

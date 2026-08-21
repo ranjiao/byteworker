@@ -97,7 +97,7 @@ bin/byteworker context view --kb "<KB>" --intent "<intent>"
 
 ## Digest
 
-标准 digest 的公共闭包必须包含：
+digest：
 
 - `references/digest-core.md`
 - `references/digest-dependencies.md`
@@ -106,25 +106,25 @@ bin/byteworker context view --kb "<KB>" --intent "<intent>"
 - `references/write-rules.md`
 - `references/conflict-policy.md`
 
-按来源加读：飞书文档 `digest-doc.md`（评论加 `references/digest-comments.md`，白板只读取
+来源：飞书文档 `digest-doc.md`（评论加 `references/digest-comments.md`，白板只读取
 结构 JSON 并加读 `digest-whiteboard.md`）；群聊 `digest-chat.md`；Meego `digest-meego.md`；Base
 `digest-base.md`；风神 `digest-aeolus.md`；网页/本地资料 `digest-reading.md`；会议簇
 `digest-meeting.md`；立场分析 `digest-analysis.md`；大型输入 `digest-large.md`；routine
 `digest-routine.md`。Wiki 空间探索先读 `references/digest-wiki-space.md`，确认页面后按
 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
-生成 `byteworker-source-bundle/v2`；按 `digest-analysis-pipeline.md` 生成
+`SourceBundle v2` 经 `digest-analysis-pipeline.md` / `digest-concurrency.md` 生成
 `digest-plan/v2`；
 preflight 后直接运行 `execute`（含锁内复验）；独立 `validate` 只用于失败排障，多来源用
-`digest-batch-plan/v2`。Agent 负责语义判断、冲突分类，事务负责 hash/schema/INDEX/journal/
+`digest-batch-plan/v2`。Agent 做语义判断、冲突分类；事务负责 hash/schema/INDEX/journal/
 commit/rollback；只认 `status=committed`。
 
-分类前按 `references/digest-observability.md` 建 `run_id`；事务传 `--run-id`，终态须
+按 `references/digest-observability.md` 建 `run_id`；事务传 `--run-id`，终态须
 `digest-run complete`。
 
 事实 `[E1]` 绑raw，主记录设 `primary_source`。raw / Bundle 的 `source_title`
 留原题；宽泛时，按来源可确认的作者、团队、项目/周期命名；不明标“归属待确认”。
-person 用 `bin/resolve-users.sh --format json` 按 feishu_id 消解。
+person 用 `bin/resolve-users.sh --format json --jobs 4` 按 feishu_id 消解。
 
 Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用户并取得登录授权；运行时
 `source inspect / capture` 仍 fail closed。资源 Permission Denied 请求所有者共享，**禁止用重复登录或静默切 bot 掩盖**。

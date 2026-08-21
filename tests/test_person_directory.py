@@ -140,6 +140,26 @@ printf '%s\\n' '{"data":{"user":{}}}'
         self.assertEqual("?", user["feishu_id"])
         self.assertTrue(user["is_cross_tenant"])
 
+    def test_parallel_resolution_preserves_sorted_input_order(self):
+        result = self.run_resolver(
+            "--ids",
+            "ou_external,ou_alpha",
+            "--format",
+            "json",
+            "--jobs",
+            "2",
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        users = json.loads(result.stdout)["users"]
+        self.assertEqual(["ou_alpha", "ou_external"], [item["open_id"] for item in users])
+        self.assertIn("resolved=1/2", result.stderr)
+
+    def test_parallel_resolution_rejects_more_than_four_jobs(self):
+        result = self.run_resolver("--ids", "ou_alpha", "--jobs", "5")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("--jobs 必须为 1-4", result.stderr)
+
 
 class PersonDirectoryCandidateTests(unittest.TestCase):
     def setUp(self):

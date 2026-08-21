@@ -4,7 +4,8 @@
 
 飞书文档(尤其调研 / 规划类)常是「枢纽文档」,摄取规则:
 
-- **正文与评论必须双路读取**:先读 `references/digest-comments.md`。正文用
+- **正文与评论必须双路并发读取**:先读 `references/digest-comments.md` 和
+  `references/digest-concurrency.md`，用 `digest-capture` 同时启动两条独立只读 job。正文用
   `lark-doc +fetch --api-version v2 --detail with-ids`;评论用
   `bin/byteworker run bin/pull_doc_comments.py --url "<URL>"`,固定拉取全部评论(含已解决)、完整回复链与
   relation 锚点。正文 fetch 成功不代表评论已读取;评论状态必须在 raw frontmatter 明示。
@@ -14,7 +15,8 @@
   `references/digest-whiteboard.md`,只读取每个白板的结构化节点 JSON，不抓取或分析预览图片；
   结构 JSON 以独立 `kind=whiteboard` component 进入 source bundle。不能只保留占位 token、截图
   或 OCR 结果。
-  当前文档自身白板不算递归子文档;外部白板和其它文档里的白板仍走重要依赖闸门。
+  正文完成并发现 token 后，白板按最多 3 路组成第二批 capture job。当前文档自身白板不算递归
+  子文档;外部白板和其它文档里的白板仍走重要依赖闸门。
 - **统一交接**:正文、评论和白板 artifact 抓取完成后，调用
   `source bundle --source-type feishu_doc --request <request.json> --out <bundle.json>`。
   `--request` 是临时 JSON 文件路径，不是内联 JSON；不清楚字段时先运行
@@ -48,7 +50,7 @@
   - 同一 `document_id` 的内部资料型文档重复 digest 时,默认更新已有 `reading` 主记录;只有用户
     明确要求把不同版本作为独立资料归档,才新建带版本后缀的 `reading`。
 - **人员 @ 提及解析**:`lark-doc` 返回的 `<cite type="user">` 是裸 `open_id`。digest 前运行
-  `bin/byteworker run bin/resolve-users.sh --from-doc <原文文件> --format json`(或 `--ids ou_x,ou_y`)取得
+  `bin/byteworker run bin/resolve-users.sh --from-doc <原文文件> --format json --jobs 4`(或 `--ids ou_x,ou_y`)取得
   `open_id / 姓名 / feishu_id / enterprise_email / department_path` 与顶层 `resolved_at`。
   建 / 更新 `person` 时按 `references/digest-core.md` 同步身份和当前通讯录画像：
   `resolved_at` 写为 `directory_verified_at`，可见的企业邮箱/部门写进 frontmatter 与「基本信息」。

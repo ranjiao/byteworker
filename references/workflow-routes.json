@@ -12,6 +12,7 @@
         "references/digest-core.md",
         "references/digest-observability.md",
         "references/digest-analysis-pipeline.md",
+        "references/digest-concurrency.md",
         "references/digest-dependencies.md",
         "references/digest-transaction.md",
         "references/provenance.md",
@@ -45,6 +46,33 @@
       }
     },
     "large_digest_worker": {
+      "extends": "digest",
+      "required": ["references/digest-large.md"]
+    },
+    "digest_dependency_worker": {
+      "required": [
+        "references/digest-concurrency.md",
+        "references/digest-dependencies.md"
+      ],
+      "on_error": ["references/error-handling.md"]
+    },
+    "digest_semantic_worker": {
+      "required": [
+        "references/digest-concurrency.md",
+        "references/digest-analysis-pipeline.md",
+        "references/semantic-policy.md",
+        "references/provenance.md"
+      ],
+      "on_error": ["references/error-handling.md"]
+    },
+    "digest_conflict_worker": {
+      "required": [
+        "references/digest-concurrency.md",
+        "references/conflict-policy.md"
+      ],
+      "on_error": ["references/error-handling.md"]
+    },
+    "digest_final_reducer": {
       "extends": "digest",
       "required": ["references/digest-large.md"]
     },

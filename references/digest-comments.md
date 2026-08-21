@@ -13,7 +13,8 @@
 
    临时文件只能放系统临时目录或知识库数据目录,**不得写进 skill 仓库**。脚本固定请求
    `solved_status=all`、`comment_scope=all` 和 docx relation,自动翻完评论分页;某条评论的
-   `has_more=true` 时继续翻完回复分页。不能用 `lark-doc +fetch` 的成功替代这一步。
+   `has_more=true` 时继续翻完回复分页。评论列表及单链分页保持串行，同一页的独立回复链由脚本最多
+   3 路并发。不能用 `lark-doc +fetch` 的成功替代这一步。
 2. **已解决评论也必须读**:解决只表示评论卡片被关闭,不表示其中的指令、否决理由或历史判断
    已失去证据价值。保留 `is_solved`、`solved_time`、`solver_user_id` 及完整回复演进。
 3. raw 正文先放文档原文,再以 `## 文档评论原始快照` 附加脚本输出的 `comments` canonical JSON;
@@ -43,7 +44,7 @@
 ## 人员优先级
 
 先读 `context.md`,再把评论 / 回复里的 `user_id` 批量交给
-`bin/byteworker run bin/resolve-users.sh --ids ... --format json`，解析姓名、`feishu_id` 与当前通讯录画像;
+   `bin/byteworker run bin/resolve-users.sh --ids ... --format json --jobs 4`，解析姓名、`feishu_id` 与当前通讯录画像;
 新建 / 更新 person 的规则仍按 `references/digest-doc.md`。
 
 - **P0 必看**:
