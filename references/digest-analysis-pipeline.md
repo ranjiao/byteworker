@@ -32,10 +32,12 @@ worker 启动和规则闭包加载不得计入 `dependency_review` 或 `conflict
 
 ## 2. 依赖与语义顺序
 
-1. `dependency_review` 只消费 `dependency_candidates`，批量判断哪些候选满足
+1. `dependency_review` 先按 `references/digest-concurrency.md` 运行
+   `digest-parallel plan --stage dependency`，只消费各 shard 的 `dependency_candidates`，批量判断哪些候选满足
    `references/digest-dependencies.md`。不得再对正文运行多轮 `rg/jq`，也不得读取未授权依赖正文。
-2. 用户确认依赖边界后进入 `semantic_analysis`，只消费 packet，形成事实、实体、决策、立场、
-   evidence anchor，以及紧凑的冲突查询清单。
+2. 用户确认依赖边界后进入 `semantic_analysis`，按 planner 的 inline/parallel 决定只消费 packet 或
+   各 shard；merge 后由单一 reducer 形成事实、实体、决策、立场、evidence anchor，以及紧凑的
+   冲突查询清单。
 3. 评论和白板只从 `sections` 读取一次；schema 不确定是预处理器缺陷，不得由 Agent 用探测命令循环
    猜字段。确需补证时只按 packet 的 component/path 或 anchor 定点回读。
 
@@ -68,6 +70,9 @@ bin/byteworker kb-query conflict-search \
 工具只扫描 KB 节点一次，先按 `source_uid → raw_id → sources/primary_source` 精确返回同源节点，
 再为每条 query 返回有界候选、TL;DR 和最多两段短 snippet。Agent 依据
 `references/conflict-policy.md` 分类；工具不会宣称 `no_conflict/revision/supersede`。
+
+召回后再运行 `digest-parallel plan --stage conflict`；只有达到固定 query/候选阈值时才并发分类，
+且必须 merge 完整 coverage 后由单一 reducer 应用 `references/conflict-policy.md`。
 
 不要再用多轮 `rg INDEX.md knowledge` 做标准冲突召回，也不要默认读取所有候选的完整正文。只有
 snippet 显示可能影响某条事实且不足以裁决时，才定点读取对应 `path`。`conflict_review` 不得包含

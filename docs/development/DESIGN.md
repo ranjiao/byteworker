@@ -230,7 +230,8 @@ cancelled。完成事件根据同阶段最近未关闭的 start 自动计算 `du
 派生总耗时和最慢阶段，不另存可漂移索引。
 
 目录权限 `0700`，日志与独立锁 `0600`，单文件 5 MiB 轮转，append 时清理 30 天前日志。只允许
-source type、source ref SHA-256、固定 action/stage/status/detail code、时间和非负计数；禁止业务正文、
+source type、source ref SHA-256、固定 action/stage/status/detail code、时间和非负计数；并发阶段可加
+`worker_count/shard_count`，但仍只由 coordinator 写一对外层事件。禁止业务正文、
 标题、人员/群名、URL、凭据、完整 argv、stdout/stderr 或自由文本错误。该状态不是知识证据，不参与
 raw/provenance/节点/INDEX/journal/Git transaction，也不能覆盖 transaction receipt 的成功语义。
 
@@ -248,6 +249,27 @@ provider 坐标/样式噪声，也不判断依赖重要性、事实含义或冲�
 `source_uid → raw_id → sources/primary_source` 定位同源节点，再返回
 `byteworker-conflict-candidates/v1` 的有限候选、TL;DR 和最多两段短 snippet。该结果是召回证据，
 不是 `no_conflict/revision/supersede` 裁决，也不得自动触发写入。
+
+### E.3 Digest 有界并发协议
+
+`byteworker-digest-capture-plan/v1` 只存在于系统临时目录或 KB 私密 state，包含 `max_workers<=4` 和
+最多 16 个唯一只读 job。每个 job 只能选择 allowlist 中的 `lark` 或 `comments` runner、字符串 argv、
+显式输出路径、`max_attempts<=3` 和有限 timeout。`digest_capture.py` 在 provider adapter 边界构造
+真实命令，将 stdout 原子写成 `0600` artifact；receipt 只保存 job id/status/attempt/duration/bytes，
+任一失败则整体 coverage failed。顺序 page token/offset 不因该协议变成可并发。
+
+`byteworker-digest-parallel-plan/v1` 保存 stage、输入 hash、inline/parallel 决定、稳定 reason code、
+最多 4 个 shard 路径及 item/weight 计数。固定阈值为 dependency 12 candidates、semantic 500
+text items 或 1 MiB、conflict 8 queries 或超过 20 candidates；planner 而非 Agent 决定是否并发。
+`byteworker-digest-parallel-shard/v1` 只含本 shard 的候选或语义文本，以及必要的 identity/outline/
+anchor/source-match 投影。
+
+worker 写 `byteworker-digest-parallel-result/v1`，必须匹配 stage/input hash/shard id。dependency 和
+conflict 要逐项完整覆盖；semantic record 必须带稳定 id/type/dedupe key、属于本 shard 的
+component/path source refs 和 payload。merge 缺任何 shard 都 fail closed，只把已验证结果写入
+`byteworker-digest-reduce-packet/v1`；重复 semantic dedupe key 仅作为 reducer 待处理集合，不由工具
+宣称语义相同。所有 plan/shard/result/reduce 文件均为 `0600` 私密临时产物，不进入 raw、节点、日志
+或 Git transaction。单一 coordinator/reducer 独占用户交互与最终 `digest-txn execute`。
 
 ### F. 自动报告设置状态与执行租约
 

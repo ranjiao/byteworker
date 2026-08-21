@@ -56,7 +56,9 @@ Bundle、plan 和候选节点必须全部放系统临时目录或知识库目录
    `lark-minutes` 取得妙记元数据、总结/待办/章节和逐字稿。
 2. 用日历描述/附件、会议产物和妙记里的文档引用定位投屏文档；用 `lark-doc +fetch
    --api-version v2 --detail with-ids` 抓取正文，并按 `digest-doc.md` 另抓评论/白板。
-3. 把找到和没找到的物件一次列给用户确认。只有确认后的妙记与文档进入本次 batch。
+3. 把找到和没找到的物件一次列给用户确认。只有确认后的妙记与文档进入本次 batch；确认后各物件
+   的只读 capture 按 `references/digest-concurrency.md` 最多 3 路并发，逐来源 Bundle/preflight
+   完成后再统一生成 batch plan。
 
 不要猜 provider request。先查询实际契约：
 

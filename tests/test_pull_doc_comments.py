@@ -1,6 +1,8 @@
 import importlib.util
 import json
 from pathlib import Path
+import threading
+import time
 import unittest
 
 
@@ -30,6 +32,58 @@ class FakeRunner:
 
 
 class PullDocCommentsTests(unittest.TestCase):
+    def test_expands_independent_reply_threads_with_bounded_concurrency(self):
+        class ConcurrentRunner:
+            def __init__(self):
+                self.active = 0
+                self.peak = 0
+                self.lock = threading.Lock()
+
+            def __call__(self, args, **kwargs):
+                command = " ".join(args)
+                if "+list-comments" in command:
+                    return Result(
+                        {
+                            "data": {
+                                "file_token": "doc-token",
+                                "file_type": "docx",
+                                "items": [
+                                    {"comment_id": "c1", "has_more": True},
+                                    {"comment_id": "c2", "has_more": True},
+                                ],
+                            }
+                        }
+                    )
+                with self.lock:
+                    self.active += 1
+                    self.peak = max(self.peak, self.active)
+                time.sleep(0.04)
+                comment_id = args[args.index("--comment-id") + 1]
+                with self.lock:
+                    self.active -= 1
+                return Result(
+                    {
+                        "data": {
+                            "items": [
+                                {
+                                    "reply_id": f"reply-{comment_id}",
+                                    "create_time": 1,
+                                }
+                            ]
+                        }
+                    }
+                )
+
+        runner = ConcurrentRunner()
+        snapshot = MODULE.fetch_snapshot(
+            "https://example.test/docx/a",
+            runner=runner,
+            fetched_at="now",
+            jobs=2,
+        )
+        self.assertGreaterEqual(runner.peak, 2)
+        self.assertEqual(2, snapshot["coverage"]["expanded_reply_threads"])
+
     def test_fetches_all_comment_pages_and_complete_reply_chain(self):
         comment_a = {
             "comment_id": "c1",
@@ -221,6 +275,10 @@ class PullDocCommentsTests(unittest.TestCase):
         )
         with self.assertRaises(MODULE.CommentFetchError):
             MODULE.fetch_snapshot("https://example.test/docx/a", runner=runner)
+
+    def test_rejects_unbounded_reply_workers(self):
+        with self.assertRaises(MODULE.CommentFetchError):
+            MODULE.fetch_snapshot("https://example.test/docx/a", jobs=5)
 
 
 if __name__ == "__main__":

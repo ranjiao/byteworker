@@ -27,6 +27,8 @@ bin/byteworker <tool> [tool arguments...]
 - `digest-txn`
 - `digest-run`
 - `digest-analysis`
+- `digest-capture`
+- `digest-parallel`
 - `kb-query`
 - `doctor`
 - `todo`
@@ -114,6 +116,8 @@ cd "$BYTEWORKER_ROOT"
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
 | `digest-run.py` | Agent / 维护者 | 单输入全流程阶段、计数和耗时日志 | 写 KB 已排除的 `state/digest/run-logs/` |
 | `digest-analysis.py` | Agent / 维护者 | SourceBundle 单次结构去噪与分析 packet | 只写显式系统临时输出，不写 KB truth |
+| `digest-capture.py` | Agent / 维护者 | 最多 4 路执行已声明的只读 lark/comments 抓取 job | 原子写显式私密临时输出，不写 KB truth |
+| `digest-parallel.py` | Agent / 维护者 | dependency/semantic/conflict 阈值分片、coverage 校验与结果归并 | 只写显式私密临时 shard/result reduce packet |
 | `source.py` | Agent / 维护者 | 来源能力、授权、抓取、Profile、Bundle、diff | capture/Bundle 写输出；Profile 操作可写 KB |
 | `wiki.py` | Agent / 维护者 | 按需探索 Wiki 空间/子树并筛选页面 | 写可重建树状态、候选文件或子树 Profile |
 | `digest-job.py` | Agent / 维护者 | 管理已确认多页 digest 的可恢复任务 | 写本地任务 checkpoint，不写 raw/节点 |
@@ -208,7 +212,26 @@ bin/byteworker digest-analysis prepare \
 相同输入 hash 和输出路径会命中 packet cache。输出路径位于 skill 仓库时拒绝执行；传 `--run-id`
 时自动记录 `analysis_prepare` 的开始、完成或失败。
 
-## 5B. `digest-txn.py`：摄取事务
+## 5B. `digest-capture.py`：有界只读抓取
+
+接收系统临时 `byteworker-digest-capture-plan/v1`，最多 4 路执行独立 lark/comments job。每个 stdout
+原子写入显式 `0600` 输出；回执只含 job 状态、耗时、重试和字节数，不含正文。
+
+```bash
+bin/byteworker digest-capture execute --request "$CAPTURE_PLAN"
+```
+
+## 5C. `digest-parallel.py`：语义分片与归并
+
+按固定阈值为 dependency、semantic、conflict 生成最多 4 个私密 shard；worker 结果必须完整覆盖
+plan，merge 才生成 reducer packet。工具只校验和分片，不做语义裁决。
+
+```bash
+bin/byteworker digest-parallel plan --stage semantic --input "$PACKET" --out-dir "$WORK"
+bin/byteworker digest-parallel merge --plan "$PLAN" --result "$R1" --result "$R2" --out "$REDUCE"
+```
+
+## 5D. `digest-txn.py`：摄取事务
 
 `txn` 是 transaction 的缩写。该工具保证一次摄取要么完整写入，要么回滚，不留下半成品。
 

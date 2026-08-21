@@ -183,6 +183,7 @@ sequenceDiagram
     participant Source as 外部来源适配
     participant Bundle as SourceBundle v2
     participant Prep as digest analysis preprocessing
+    participant Workers as bounded semantic workers
     participant Txn as digest transaction
     participant KB as 私有知识库
 
@@ -190,7 +191,7 @@ sequenceDiagram
     Agent->>Agent: 分类 source_type，读取对应 references
     Agent->>Source: auth-status / inspect
     Source-->>Agent: 授权、坐标、字段、规模
-    Agent->>Source: capture 完整原文或完整快照
+    Agent->>Source: 有界并发 capture 独立组件；顺序分页保持串行
     Source-->>Agent: provider 原始材料
     Agent->>Source: source bundle 或 capture --bundle-out
     Source->>Bundle: adapter 构造并严格校验
@@ -206,10 +207,14 @@ sequenceDiagram
         Txn-->>Agent: new_source / new_version
         Agent->>Prep: 一次生成 analysis packet
         Prep-->>Agent: 依赖候选、语义文本、参与者、anchor 索引
+        Agent->>Workers: 按固定阈值 fan-out dependency / semantic shards
+        Workers-->>Agent: 完整 worker results；单一 reducer 归并
         Agent->>Agent: 依赖闸门、语义分析、冲突 query
         Agent->>Prep: 单次 KB 扫描批量召回冲突候选
         Prep-->>Agent: 同源节点、有限候选与 snippet
-        Agent->>Agent: 冲突分类、标题消歧、实体消解
+        Agent->>Workers: 达阈值时 fan-out conflict shards
+        Workers-->>Agent: 完整 results；单一 reducer 冲突分类
+        Agent->>Agent: 标题消歧、实体消解
         Agent->>Agent: 生成完整候选节点和 evidence 映射
         Agent->>Txn: DigestPlan v2 execute
         Txn->>Txn: 写入前 schema / links / baseline / provenance 校验
@@ -228,6 +233,10 @@ preflight、诊断 validate 和 execute。最终
 committed/noop/failed/cancelled 都写终态，`list/show` 从事件流派生总耗时、当前阶段和最慢阶段。
 该旁路只观察既有信息流，不读取 component/candidate 正文，不参与语义判断，也不改变 transaction
 receipt 的成功真相源。
+
+并发阶段只由 coordinator 记录一对外层事件，`duration_ms` 是 fan-out 到 fan-in 的墙钟时间；worker
+不持有 run id。`worker_count/shard_count` 只记录非负数量，job/shard 细节留在权限 `0600` 的临时
+receipt，避免运行日志泄露正文或把多个分支耗时错误相加。
 
 其中只有 Agent 做语义判断；事务层只接受完整、显式的结果：
 
@@ -523,7 +532,8 @@ frontmatter 和自由正文；写入通过通用 KB mutation 原子维护双向 
 `effective` thinking 可作为用户当前视角参与综合，`inactive` 只在明确查询历史时使用。
 
 `person` 的实体消解与通讯录画像在 Agent 策略层和只读外部 helper 的边界完成：
-`bin/resolve-users.sh --format json` 以来源中的精确 `open_id` 查询 lark-contact，返回版本化的
+`bin/resolve-users.sh --format json --jobs 4` 以来源中的精确 `open_id` 最多 4 路查询 lark-contact，
+按排序后的 ID 确定性归并并返回版本化的
 `byteworker-resolved-users/v1`；Agent 按 `feishu_id` 选择 person，并把同次查询的企业邮箱、
 当前部门路径和核验时间写入完整候选。事务层只校验候选契约，不调用通讯录。部门路径是可变属性，
 不是 provider-neutral org id；空结果不清除旧值，只有明确匹配已有 org 时才连边。
@@ -551,6 +561,8 @@ flowchart TB
     subgraph L2["L2 · 应用服务层"]
         DT["lib/digest_txn.py"]
         DPREP["lib/digest_analysis.py<br/>Bundle 单次去噪与临时分析包"]
+        DCAP["lib/digest_capture.py<br/>只读 provider job 有界调度"]
+        DPAR["lib/digest_parallel.py<br/>语义分片、coverage 与归并"]
         KQ["lib/kb_query.py"]
         SO["lib/source_operations.py"]
         SCO["lib/source_chat_operations.py"]
@@ -616,6 +628,8 @@ flowchart TB
     CLI --> MP
     DIRECT --> DT
     DIRECT --> DPREP
+    DIRECT --> DCAP
+    DIRECT --> DPAR
     DIRECT --> KQ
     DIRECT --> SO
     DIRECT --> WX
@@ -665,6 +679,7 @@ flowchart TB
     DIRECT --> SEM
     DT --> SRC
     DPREP --> SRC
+    DCAP --> EXT
     DT --> PR
     DT --> SS
     KQ --> SRC
@@ -723,6 +738,8 @@ flowchart TB
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
 | `bin/digest-run.py` | 单输入 start/stage/complete/list/show；只接受固定阶段、状态、机器码和计数 | `byteworker-digest-run-event/v1` 时间线、总耗时与最慢阶段 |
 | `bin/digest-analysis.py` | SourceBundle components 单次读取、结构去噪、依赖候选/语义文本/参与者/anchor 索引整理；不做语义判断 | 系统临时 `byteworker-digest-analysis-packet/v1` 和无正文 receipt |
+| `bin/digest-capture.py` | 执行最多 4 个显式、独立、只读的 lark/comments capture job；provider 命令构造留在该 adapter，不进入事务 core | `byteworker-digest-capture-receipt/v1` 和显式 `0600` artifact |
+| `bin/digest-parallel.py` | 按固定阈值平衡 dependency/semantic/conflict shards，校验 worker 完整覆盖并归并；不做语义裁决 | `byteworker-digest-parallel-plan/v1` / shard / result / reduce packet |
 | `bin/source.py` | capabilities / auth / inspect / capture / bundle-spec / bundle / profile / diff 参数入口 | request 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
@@ -736,7 +753,7 @@ flowchart TB
 | `bin/kb-query.py` | search / conflict-search / evidence / source-record；conflict-search 对多 query 只扫描节点一次 | 有覆盖信息的有限候选、同源定位与短 snippet |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
 | `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
-| `bin/resolve-users.sh` | 按 open_id 只读解析 person 身份与当前通讯录画像；默认 TSV 兼容旧调用 | `byteworker-resolved-users/v1` JSON 或兼容三列 TSV |
+| `bin/resolve-users.sh` | 按 open_id 最多 4 路只读解析 person 身份与当前通讯录画像，按 ID 确定性归并；默认 TSV 兼容旧调用 | `byteworker-resolved-users/v1` JSON 或兼容三列 TSV |
 | 其它 `bin/*.sh` | 外部拉取、索引/links 重建、viewer、安装与更新辅助 | 明确的文件或 JSON/文本回执 |
 
 机器协议只统一执行边界，不做插件发现，也不改变底层业务语义。普通工具调用的成功或失败由
@@ -1048,6 +1065,9 @@ flowchart LR
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
 | `byteworker-digest-run-event/v1` | `digest_run_log.py` + Agent stage protocol | 一个输入一个稳定 run_id；固定阶段/状态/metrics；自动耗时；无业务正文；30 天保留和 5 MiB 轮转 |
 | `byteworker-digest-analysis-packet/v1` | `digest_analysis.py` | 私有临时产物；一次读取 Bundle；去除结构噪声但保留 component/path/anchor；不得进入 skill/运行日志 |
+| `byteworker-digest-capture-plan/v1` / `byteworker-digest-capture-receipt/v1` | `digest_capture.py` | 最多 4 个 allowlisted 只读 provider job；输出原子写入；任一失败则 coverage failed |
+| `byteworker-digest-parallel-plan/v1` / `byteworker-digest-parallel-shard/v1` | `digest_parallel.py` | 固定阈值、最多 4 shards、输入 hash 和私密路径；planner 决定 inline/parallel |
+| `byteworker-digest-parallel-result/v1` / `byteworker-digest-reduce-packet/v1` | Agent workers + `digest_parallel.py` | 完整 shard coverage 和边界校验；单一 reducer 处理语义重复、跨分片关系和用户闸门 |
 | `byteworker-conflict-query/v1` / `byteworker-conflict-candidates/v1` | Agent + `kb_query.py` | 最多 32 条短 query；同源精确定位；单次节点扫描；工具只召回不裁决 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
 | `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；viewer 只可修改 Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；旧自动报告只读 |

@@ -61,6 +61,8 @@ METRIC_FIELDS = {
     "page_count",
     "node_count",
     "evidence_count",
+    "worker_count",
+    "shard_count",
 }
 
 

@@ -12,10 +12,12 @@ import hashlib
 import json
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 
 MAX_PAGES = 1000
+MAX_REPLY_WORKERS = 4
 
 
 class CommentFetchError(RuntimeError):
@@ -122,6 +124,25 @@ def _canonical_comment(comment, replies):
     return normalized
 
 
+def _expand_page_comments(items, file_token, file_type, identity, runner, jobs):
+    def expand(item):
+        if not item.get("comment_id"):
+            raise CommentFetchError("评论记录缺少 comment_id")
+        replies, expanded = _fetch_all_replies(
+            item,
+            file_token,
+            file_type,
+            identity,
+            runner,
+        )
+        return _canonical_comment(item, replies), expanded
+
+    if len(items) < 2 or jobs == 1:
+        return [expand(item) for item in items]
+    with ThreadPoolExecutor(max_workers=min(jobs, len(items))) as executor:
+        return list(executor.map(expand, items))
+
+
 def _hash_comments(comments):
     encoded = json.dumps(
         comments,
@@ -132,7 +153,15 @@ def _hash_comments(comments):
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def fetch_snapshot(url, identity="user", runner=subprocess.run, fetched_at=None):
+def fetch_snapshot(
+    url,
+    identity="user",
+    runner=subprocess.run,
+    fetched_at=None,
+    jobs=3,
+):
+    if not isinstance(jobs, int) or isinstance(jobs, bool) or not 1 <= jobs <= MAX_REPLY_WORKERS:
+        raise CommentFetchError("jobs 必须为 1-%d" % MAX_REPLY_WORKERS)
     args = [
         "lark-cli",
         "drive",
@@ -168,18 +197,17 @@ def fetch_snapshot(url, identity="user", runner=subprocess.run, fetched_at=None)
                 raise CommentFetchError("评论分页返回了不一致的 file_type")
             file_type = page_type_value
 
-        for item in page.get("items", []):
-            if not item.get("comment_id"):
-                raise CommentFetchError("评论记录缺少 comment_id")
-            replies, expanded = _fetch_all_replies(
-                item,
-                file_token or page_token_value,
-                file_type or page_type_value,
-                identity,
-                runner,
-            )
+        expanded_items = _expand_page_comments(
+            page.get("items", []),
+            file_token or page_token_value,
+            file_type or page_type_value,
+            identity,
+            runner,
+            jobs,
+        )
+        for comment, expanded in expanded_items:
             expanded_threads += int(expanded)
-            comments.append(_canonical_comment(item, replies))
+            comments.append(comment)
 
     comments.sort(
         key=lambda item: (
@@ -222,10 +250,18 @@ def main(argv=None):
         help="lark-cli 身份类型，默认 user",
     )
     parser.add_argument("--pretty", action="store_true", help="缩进输出 JSON")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        choices=range(1, MAX_REPLY_WORKERS + 1),
+        default=3,
+        metavar="N",
+        help="并发展开独立回复链，默认 3，最大 4",
+    )
     args = parser.parse_args(argv)
 
     try:
-        snapshot = fetch_snapshot(args.url, identity=args.identity)
+        snapshot = fetch_snapshot(args.url, identity=args.identity, jobs=args.jobs)
     except CommentFetchError as exc:
         print("评论抓取失败: %s" % exc, file=sys.stderr)
         return 1
