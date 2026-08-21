@@ -30,7 +30,7 @@ facade 输出一行 `byteworker-cli/v1` JSON：
 - 人工阅读可把全局 `--pretty` 放在 tool 前。
 
 可用工具以 `bin/byteworker --help` 为准，当前包括：
-`digest-txn`、`kb-mutate`、`kb-query`、`context`、`doctor`、`todo`、`source`、`wiki`、
+`digest-txn`、`digest-run`、`kb-mutate`、`kb-query`、`context`、`doctor`、`todo`、`source`、`wiki`、
 `digest-job`、`report-automation`、`dreaming`、`provenance-backfill`、`index`、`update-status`。
 
 ## SourceBundle request 快速参考

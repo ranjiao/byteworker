@@ -90,7 +90,8 @@ batch 采用一个短时锁、一次 INDEX 重建、一条 journal 和一个 com
 ```bash
 bin/byteworker digest-txn preflight \
   --kb "<知识库数据目录>" \
-  --source "<临时 source-bundle-v2.json>"
+  --source "<临时 source-bundle-v2.json>" \
+  --run-id "<DIGEST_RUN_ID>"
 ```
 
 处理返回值：
@@ -119,7 +120,8 @@ bin/byteworker digest-txn snapshot-node \
 ```bash
 bin/byteworker digest-txn validate \
   --kb "<知识库数据目录>" \
-  --plan "<临时 digest-plan.json>"
+  --plan "<临时 digest-plan.json>" \
+  --run-id "<DIGEST_RUN_ID>"
 ```
 
 新增 link 时，反向节点必须一并提供候选更新；历史遗留的非对称/悬空 link 只 warning，不借本次
@@ -131,12 +133,16 @@ report、候选或 diff 再打印给模型；execute 会重复完成全部安全
 ```bash
 bin/byteworker digest-txn execute \
   --kb "<知识库数据目录>" \
-  --plan "<临时 digest-plan.json>"
+  --plan "<临时 digest-plan.json>" \
+  --run-id "<DIGEST_RUN_ID>"
 ```
 
 execute 会在获取知识库写锁后重新做 preflight 和基线校验。知识库已有 staged 变更，或本次目标
 路径已有未提交改动时中止；无关未暂存改动保留且不进入 commit。知识库 Git 若配置了任何
 remote 也中止,避免机密数据目录进入可推送状态；脚本自身没有 push 功能。
+`--run-id` 必须来自本次输入的 `digest-run start`；CLI 自动成对记录 preflight、诊断 validate 或
+execute 的阶段耗时和有限计数，Agent 不重复手工打点。日志降级会在 receipt 的
+`digest_run_logging` / `warnings` 中显式披露，但不得改变已经 committed 的事务事实。
 
 成功 receipt 至少包含：
 

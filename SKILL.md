@@ -113,13 +113,13 @@ bin/byteworker context view --kb "<KB>" --intent "<intent>"
 `digest-routine.md`。Wiki 空间探索先读 `references/digest-wiki-space.md`，确认页面后按
 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
-来源先产生 `byteworker-source-bundle/v2`，Agent 再生成只引用 bundle 的
-`digest-plan/v2` 和完整候选节点。标准路径先运行 `bin/digest-txn.py preflight`；候选完成后
-直接运行 `execute`，由它在写入前完成完整 validate 与锁内复验。独立 `validate` 只用于失败排障。
-两个以上来源共同更新
-节点时用 `digest-batch-plan/v2`。语义判断、冲突分类、实体取舍和候选正文由 Agent 负责；
-hash、幂等、schema、INDEX、journal、精确 commit 和 rollback 由事务负责。只有
-`status=committed` receipt 表示写入成功。
+来源生成 `byteworker-source-bundle/v2`，Agent 生成引用 bundle 的 `digest-plan/v2` 候选；
+preflight 后直接运行 `execute`（含锁内复验）；独立 `validate` 只用于失败排障，多来源用
+`digest-batch-plan/v2`。Agent 负责语义判断、冲突分类，事务负责 hash/schema/INDEX/journal/
+commit/rollback；只认 `status=committed`。
+
+分类前按 `references/digest-observability.md` 建 `run_id`；事务传 `--run-id`，终态须
+`digest-run complete`。
 
 事实 `[E1]` 绑raw，主记录设 `primary_source`。raw / Bundle 的 `source_title`
 留原题；宽泛时，按来源可确认的作者、团队、项目/周期命名；不明标“归属待确认”。
