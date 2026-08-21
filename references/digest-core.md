@@ -12,7 +12,7 @@
 
 ## 主流程
 
-长流程状态输出:开始摄取时先告诉用户本次会经历「分类 → 拉原文 → 幂等检查 → 依赖判断 → 冲突检测 → 节点写入 → 回滚点」;只在真实阶段变化时回显一行短状态。单阶段超过 60 秒且没有变化时可发一次 heartbeat,只说阶段和数量,不要贴原文，也不要为发状态主动轮询。大型输入遵守 `references/digest-large.md`，主/子 Agent 不重复处理。
+长流程状态输出:输入到达后先按 `references/digest-observability.md` 创建 `run_id`，再告诉用户本次会经历「分类 → 拉原文 → 幂等检查 → 依赖判断 → 冲突检测 → 节点写入 → 回滚点」；每个真实阶段成对记录动作、状态、计数和耗时，只在真实阶段变化时回显一行短状态。单阶段超过 60 秒且没有变化时可发一次 heartbeat,只说阶段和数量,不要贴原文，也不要为发状态主动轮询。大型输入遵守 `references/digest-large.md`，主/子 Agent 不重复处理并复用同一 `run_id`。
 
 1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` /
    `feishu_chat` / `meego` / `feishu_base` / `aeolus` / `web` / `local_md`。**若输入是一整场会议**

@@ -19,6 +19,48 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertIn("独立 `validate` 只用于失败排障", skill)
         self.assertIn("语义判断、冲突", skill)
 
+    def test_digest_observability_covers_agent_and_transaction_stages(self):
+        skill = self.read("SKILL.md")
+        routes = json.loads(self.read("references/workflow-routes.json"))
+        observability = self.read("references/digest-observability.md")
+        architecture = self.read("docs/development/ARCHITECTURE.md")
+        design = self.read("docs/development/DESIGN.md")
+
+        self.assertIn("references/digest-observability.md", skill)
+        self.assertIn(
+            "references/digest-observability.md",
+            routes["workflows"]["digest"]["required"],
+        )
+        for stage in (
+            "classify",
+            "capture",
+            "bundle",
+            "preflight",
+            "dependency_review",
+            "conflict_review",
+            "semantic_analysis",
+            "candidate_generation",
+            "transaction_validate",
+            "transaction",
+            "finalize",
+        ):
+            with self.subTest(stage=stage):
+                self.assertIn(f"`{stage}`", observability)
+        for term in (
+            "digest-run start",
+            "digest-run stage",
+            "digest-run complete",
+            "digest-run list",
+            "digest-run show",
+            "--run-id",
+            "不保存业务正文",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, observability)
+        self.assertIn("byteworker-digest-run-event/v1", architecture)
+        self.assertIn("byteworker-digest-run-event/v1", design)
+        self.assertIn("state/digest/run-logs/", design)
+
     def test_core_requires_receipt_before_claiming_write_completed(self):
         core = self.read("references/digest-core.md")
         self.assertIn("status=committed", core)

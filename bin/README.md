@@ -25,6 +25,7 @@ bin/byteworker <tool> [tool arguments...]
 支持的 `<tool>`：
 
 - `digest-txn`
+- `digest-run`
 - `kb-query`
 - `doctor`
 - `todo`
@@ -110,6 +111,7 @@ cd "$BYTEWORKER_ROOT"
 | `session-preflight.py` | Agent / 自动化 | 每 session 一次合并启动检查 | 更新 skill 状态、Todo/报告本地状态检查 |
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
+| `digest-run.py` | Agent / 维护者 | 单输入全流程阶段、计数和耗时日志 | 写 KB 已排除的 `state/digest/run-logs/` |
 | `source.py` | Agent / 维护者 | 来源能力、授权、抓取、Profile、Bundle、diff | capture/Bundle 写输出；Profile 操作可写 KB |
 | `wiki.py` | Agent / 维护者 | 按需探索 Wiki 空间/子树并筛选页面 | 写可重建树状态、候选文件或子树 Profile |
 | `digest-job.py` | Agent / 维护者 | 管理已确认多页 digest 的可恢复任务 | 写本地任务 checkpoint，不写 raw/节点 |
@@ -176,7 +178,19 @@ bin/byteworker dreaming status \
 - 下游的结构化 `error.code/message/hint/details` 会尽量原样保留。
 - stderr 会被截断后放入 `error.details`，不会把完整命令参数或正文复制进协议。
 
-## 5. `digest-txn.py`：摄取事务
+## 5. `digest-run.py`：端到端摄取耗时
+
+输入到达后立即 `start`，对 Agent 阶段成对调用 `stage started/completed|failed`，最终调用
+`complete`；`list/show` 返回总耗时和最慢阶段。完整阶段协议和隐私边界见
+`references/digest-observability.md`。
+
+```bash
+bin/byteworker digest-run start --kb "$BYTEWORKER_KB"
+bin/byteworker digest-run list --kb "$BYTEWORKER_KB" --limit 20
+bin/byteworker digest-run show --kb "$BYTEWORKER_KB" --run-id "$DIGEST_RUN_ID"
+```
+
+## 5A. `digest-txn.py`：摄取事务
 
 `txn` 是 transaction 的缩写。该工具保证一次摄取要么完整写入，要么回滚，不留下半成品。
 
@@ -193,7 +207,8 @@ bin/byteworker digest-txn <subcommand> ...
 ```bash
 bin/byteworker digest-txn preflight \
   --kb "$BYTEWORKER_KB" \
-  --manifest /tmp/byteworker-example/digest-plan.json
+  --manifest /tmp/byteworker-example/digest-plan.json \
+  --run-id "$DIGEST_RUN_ID"
 ```
 
 典型状态包括：
@@ -220,7 +235,8 @@ bin/byteworker digest-txn snapshot-node \
 ```bash
 bin/byteworker digest-txn validate \
   --kb "$BYTEWORKER_KB" \
-  --manifest /tmp/byteworker-example/digest-plan.json
+  --manifest /tmp/byteworker-example/digest-plan.json \
+  --run-id "$DIGEST_RUN_ID"
 ```
 
 ### `execute`
@@ -237,7 +253,8 @@ bin/byteworker digest-txn validate \
 ```bash
 bin/byteworker digest-txn execute \
   --kb "$BYTEWORKER_KB" \
-  --manifest /tmp/byteworker-example/digest-plan.json
+  --manifest /tmp/byteworker-example/digest-plan.json \
+  --run-id "$DIGEST_RUN_ID"
 ```
 
 只有返回 `data.status=committed` 和 commit hash 才表示真实完成。候选文件生成、validate 通过或

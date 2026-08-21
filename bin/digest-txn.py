@@ -28,6 +28,7 @@ from digest_txn import (  # noqa: E402
     validate_plan,
     validation_report,
 )
+from digest_run_log import DigestRunError, record_stage  # noqa: E402
 from frontmatter import parse_file  # noqa: E402
 from sources import BUNDLE_SCHEMA  # noqa: E402
 
@@ -58,6 +59,11 @@ def parser() -> argparse.ArgumentParser:
             required=True,
             help="临时 JSON manifest / plan",
         )
+        command.add_argument(
+            "--run-id",
+            default="",
+            help="可选 digest-run id；自动记录本事务阶段耗时",
+        )
     snapshot = sub.add_parser("snapshot-node")
     snapshot.add_argument(
         "--kb",
@@ -70,6 +76,56 @@ def parser() -> argparse.ArgumentParser:
         help="knowledge/ 下的节点相对路径",
     )
     return result
+
+
+def _run_stage(command: str) -> str:
+    return {
+        "preflight": "preflight",
+        "validate": "transaction_validate",
+        "execute": "transaction",
+    }[command]
+
+
+def _stage_metrics(output: dict) -> dict[str, int]:
+    metrics: dict[str, int] = {}
+    component_hashes = output.get("component_hashes")
+    if isinstance(component_hashes, dict):
+        metrics["component_count"] = len(component_hashes)
+    raws = output.get("raws")
+    if isinstance(raws, list):
+        metrics["item_count"] = len(raws)
+    elif isinstance(output.get("batch_size"), int):
+        metrics["item_count"] = output["batch_size"]
+    nodes = output.get("nodes")
+    if isinstance(nodes, list):
+        metrics["node_count"] = len(nodes)
+    else:
+        created = output.get("created")
+        updated = output.get("updated")
+        if isinstance(created, list) and isinstance(updated, list):
+            metrics["node_count"] = len(created) + len(updated)
+    warnings = output.get("warnings")
+    if isinstance(warnings, list):
+        metrics["warning_count"] = len(warnings)
+    evidence_count = output.get("evidence_count")
+    if isinstance(evidence_count, int) and evidence_count >= 0:
+        metrics["evidence_count"] = evidence_count
+    return metrics
+
+
+def _record_failed_stage(kb: Path, args: argparse.Namespace) -> None:
+    if not getattr(args, "run_id", ""):
+        return
+    try:
+        record_stage(
+            kb,
+            run_id=args.run_id,
+            stage=_run_stage(args.command),
+            status="failed",
+            detail_code=f"DIGEST_TXN_{args.command.upper()}_FAILED",
+        )
+    except Exception:
+        pass
 
 
 def reject_business_files_in_skill(manifest_path: Path, manifest: dict) -> None:
@@ -155,6 +211,7 @@ def main() -> int:
         print("错误: 未指定 --kb 且 .kbconfig 不存在", file=sys.stderr)
         return 2
     kb = Path(args.kb)
+    stage_started = False
     try:
         if args.command == "snapshot-node":
             relative = Path(args.path)
@@ -177,6 +234,16 @@ def main() -> int:
             }
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
+
+        if args.run_id:
+            record_stage(
+                kb,
+                run_id=args.run_id,
+                stage=_run_stage(args.command),
+                status="started",
+                detail_code=f"DIGEST_TXN_{args.command.upper()}_STARTED",
+            )
+            stage_started = True
 
         manifest_path = Path(args.manifest)
         manifest = load_manifest(manifest_path)
@@ -210,12 +277,50 @@ def main() -> int:
                 output = execute_batch_plan(kb, manifest_path, ROOT)
             else:
                 output = execute_plan(kb, manifest_path, ROOT)
+        if args.run_id:
+            try:
+                record_stage(
+                    kb,
+                    run_id=args.run_id,
+                    stage=_run_stage(args.command),
+                    status="completed",
+                    detail_code=f"DIGEST_TXN_{args.command.upper()}_COMPLETED",
+                    metrics=_stage_metrics(output),
+                )
+                output["digest_run_id"] = args.run_id
+                output["digest_run_logging"] = "ok"
+            except Exception as exc:
+                code = (
+                    exc.code
+                    if isinstance(exc, DigestRunError)
+                    else "DIGEST_RUN_LOG_IO_ERROR"
+                )
+                warnings = output.setdefault("warnings", [])
+                if isinstance(warnings, list):
+                    warnings.append(
+                        "digest-run completion logging degraded: " + code
+                    )
+                output["digest_run_id"] = args.run_id
+                output["digest_run_logging"] = "degraded"
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0
     except DigestTxnError as exc:
+        if stage_started:
+            _record_failed_stage(kb, args)
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False, indent=2))
         return 2
+    except DigestRunError as exc:
+        print(
+            json.dumps(
+                {"status": "error", "error": exc.as_dict()},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
     except Exception as exc:  # defensive boundary: never emit a false success receipt
+        if stage_started:
+            _record_failed_stage(kb, args)
         print(
             json.dumps(
                 {"status": "error", "error": f"unexpected: {exc}"},

@@ -50,6 +50,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/source.py` + `lib/source_profiles.py` + `lib/snapshot_store.py` | 统一来源 capability、Profile、capture、Bundle 构造及历史完整快照选择/差异；实例参数只在用户 KB |
 | `bin/wiki.py` + `lib/wiki_explorer.py` | 按需解析飞书 Wiki 空间、完整扫描目录或选定子树、生成有限主题/页面候选；不读取页面正文、不生成 Bundle |
 | `bin/digest-job.py` + `lib/digest_jobs.py` | 已确认 Wiki 页面列表的持久批次、租约、逐页 receipt 状态与崩溃恢复；不参与单页 digest transaction |
+| `bin/digest-run.py` + `lib/digest_run_log.py` | 单个 digest 输入的阶段动作、状态、有限计数和耗时日志；不读取或保存业务正文 |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/kb-mutate.py` + `lib/kb_mutation.py` + `lib/kb_write_txn.py` | 非 digest 候选的版本化事务、所有 durable writer 的共享锁与回滚原语 |
 | `bin/context.py` + `lib/context_view.py` | 按 intent 读取固定章节的有限 context 投影 |
@@ -90,6 +91,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `state/wiki/` | 可重新扫描得到的 Wiki baseline / 子树目录状态；完整 JSON 不进入 Agent context | `wiki scan` 按需原子写入 | 无 TTL；仅显式扫描替换 |
 | `state/viewer.json` | 本地 viewer 偏好，例如是否要求本次访问口令 | 设置页通过 `lib/settings.py` 写入 | 显式重配时更新 |
 | `state/digest_jobs/` | 用户已确认页面的批量 digest 运行 checkpoint、租约与逐页 receipt 定位 | `digest-job` 按需原子写入 | 跨 session 更新；可由 raw 部分 reconcile |
+| `state/digest/run-logs/` | 每个 digest 输入的私密结构化阶段时间线；只含白名单元数据、计数和耗时 | `digest-run` 及带 `--run-id` 的 `digest-txn` | 30 天保留、5 MiB 轮转；不进入 KB Git |
 | `state/report_automation.json` | 自动报告的一次性设置选择、宿主线索、prompt 版本、跨任务租约和最近真实运行回执 | `report-automation` 按需原子写入 | 本机运行状态；宿主任务系统仍是真相源 |
 | `state/dreaming/` | Dreaming 权限、运行计划、日志配置、运行状态、报告 outbox 和私密中间状态 | `dreaming` / `settings` façade 委派写入 | 本机后台状态；不进入 KB Git |
 
@@ -216,6 +218,21 @@ retryable_error/permanent_error/skipped`。只有 `digest-txn execute` 的 commi
 
 Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle，被选择的页面继续逐个使用
 `feishu_doc`。因此不得给 `lib/digest_txn.py` 或 `lib/kb_query.py` 增加 Wiki 私有格式。
+
+### E.1 Digest 运行耗时日志
+
+`state/digest/run-logs/<UTC-date>[-NNNN].jsonl` 使用
+`byteworker-digest-run-event/v1`。一个用户输入只创建一个 `DG-<UTC>-<random>` run id；事件按
+`started → stage_started/stage_completed|stage_failed → completed|failed|cancelled` 追加。阶段固定为
+classify、capture、bundle、preflight、dependency_review、conflict_review、semantic_analysis、
+candidate_generation、transaction_validate、transaction 和 finalize；终态为 committed/noop/failed/
+cancelled。完成事件根据同阶段最近未关闭的 start 自动计算 `duration_ms`，run summary 从首末事件
+派生总耗时和最慢阶段，不另存可漂移索引。
+
+目录权限 `0700`，日志与独立锁 `0600`，单文件 5 MiB 轮转，append 时清理 30 天前日志。只允许
+source type、source ref SHA-256、固定 action/stage/status/detail code、时间和非负计数；禁止业务正文、
+标题、人员/群名、URL、凭据、完整 argv、stdout/stderr 或自由文本错误。该状态不是知识证据，不参与
+raw/provenance/节点/INDEX/journal/Git transaction，也不能覆盖 transaction receipt 的成功语义。
 
 ### F. 自动报告设置状态与执行租约
 

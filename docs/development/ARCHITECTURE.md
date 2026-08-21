@@ -215,6 +215,13 @@ sequenceDiagram
     end
 ```
 
+`digest-run` 在用户输入到达、分类之前生成稳定 `run_id`，Agent 对 classify/capture/bundle/
+dependency/conflict/semantic/candidate 阶段成对写 `started` 与 `completed|failed`；
+`bin/digest-txn.py --run-id` 自动记录 preflight、诊断 validate 和 execute。最终
+committed/noop/failed/cancelled 都写终态，`list/show` 从事件流派生总耗时、当前阶段和最慢阶段。
+该旁路只观察既有信息流，不读取 component/candidate 正文，不参与语义判断，也不改变 transaction
+receipt 的成功真相源。
+
 其中只有 Agent 做语义判断；事务层只接受完整、显式的结果：
 
 ```mermaid
@@ -541,6 +548,7 @@ flowchart TB
         SCO["lib/source_chat_operations.py"]
         WX["lib/wiki_explorer.py<br/>惰性 Wiki 树探索"]
         DJ["lib/digest_jobs.py<br/>持久批次与租约"]
+        DLOG["lib/digest_run_log.py<br/>digest 阶段耗时、轮转与查询"]
         RA["lib/report_automation.py<br/>自动报告状态、单租约与缺口判定"]
         DR["lib/dreaming_scheduler.py<br/>可选 Dreaming 启停、调度与回执"]
         DST["lib/dreaming_state.py<br/>v2 local state、权限、锁与迁移"]
@@ -603,6 +611,7 @@ flowchart TB
     DIRECT --> SO
     DIRECT --> WX
     DIRECT --> DJ
+    DIRECT --> DLOG
     DIRECT --> RA
     DIRECT --> DR
     DR --> DST
@@ -702,6 +711,7 @@ flowchart TB
 | `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI；已注册工具的顶层 `-h/--help` 原样透传到底层 argparse | 普通调用返回 `byteworker-cli/v1` envelope；顶层 help 返回底层文本和退出码 |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
+| `bin/digest-run.py` | 单输入 start/stage/complete/list/show；只接受固定阶段、状态、机器码和计数 | `byteworker-digest-run-event/v1` 时间线、总耗时与最慢阶段 |
 | `bin/source.py` | capabilities / auth / inspect / capture / bundle-spec / bundle / profile / diff 参数入口 | request 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
@@ -1025,6 +1035,7 @@ flowchart LR
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
+| `byteworker-digest-run-event/v1` | `digest_run_log.py` + Agent stage protocol | 一个输入一个稳定 run_id；固定阶段/状态/metrics；自动耗时；无业务正文；30 天保留和 5 MiB 轮转 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
 | `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；viewer 只可修改 Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；旧自动报告只读 |
 | `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt；enabled 与 operational 分离；默认不接管报告 |
@@ -1089,6 +1100,12 @@ URL 凭据污染包括 userinfo，以及 query/fragment 中大小写、百分号
 字段。所有 durable writer 先竞争同一个 KB 写锁；锁内必须重新检查 staged/dirty/baseline。
 IM 阈值不一致、未知 reason code、缺 message evidence 和 context 超硬预算也必须 fail closed，
 不能让 Agent 用自由文本解释绕过。
+
+digest 运行日志位于 KB 私有 `state/digest/`，不竞争 durable content 写锁，也不进入 KB Git。
+日志只允许 run/source type/source identity hash、固定 action/stage/status/detail code、时间与非负计数；
+禁止正文、标题、人员或群名、URL、凭据、argv、stdout/stderr 和自由文本错误。日志开始失败时不得
+继续一个“不可观测”的新 digest；transaction 已 committed 后的结束日志失败只能在 receipt 中标记
+degraded，不能把已完成写入伪装成事务失败或触发无条件重写。
 
 自动报告另有四条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
 digest 事务失败时不得继续生成“看似完整”的报告；报告周期 Calendar 枚举必须使用 user 身份且
