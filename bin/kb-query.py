@@ -14,7 +14,28 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from kb_query import QueryError, evidence, search, source_records  # noqa: E402
+from kb_query import (  # noqa: E402
+    QueryError,
+    conflict_search,
+    evidence,
+    search,
+    source_records,
+)
+
+
+def _private_request(path: Path) -> dict:
+    resolved = path.expanduser().resolve(strict=False)
+    if resolved == ROOT or ROOT in resolved.parents:
+        raise QueryError(
+            "conflict query 可能包含业务事实，必须位于系统临时目录或知识库，不能写进 skill 仓库"
+        )
+    try:
+        value = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise QueryError(f"无法读取 conflict query: {resolved}") from exc
+    if not isinstance(value, dict):
+        raise QueryError("conflict query 顶层必须是对象")
+    return value
 
 
 def main() -> int:
@@ -27,6 +48,16 @@ def main() -> int:
     search_parser.add_argument("--limit", type=int, default=12)
     search_parser.add_argument("--graph-depth", type=int, default=1)
     search_parser.add_argument("--max-nodes", type=int, default=30)
+
+    conflict_parser = subparsers.add_parser(
+        "conflict-search",
+        help="对候选事实做单次 KB 扫描和有界冲突候选召回，不做语义裁决",
+    )
+    conflict_parser.add_argument("--kb", required=True, type=Path)
+    conflict_parser.add_argument("--request", required=True, type=Path)
+    conflict_parser.add_argument("--limit-per-query", type=int, default=3)
+    conflict_parser.add_argument("--max-nodes", type=int, default=20)
+    conflict_parser.add_argument("--max-snippet-chars", type=int, default=800)
 
     evidence_parser = subparsers.add_parser("evidence")
     evidence_parser.add_argument("--kb", required=True, type=Path)
@@ -67,6 +98,14 @@ def main() -> int:
                 limit=args.limit,
                 graph_depth=args.graph_depth,
                 max_nodes=args.max_nodes,
+            )
+        elif args.command == "conflict-search":
+            output = conflict_search(
+                args.kb,
+                _private_request(args.request),
+                limit_per_query=args.limit_per_query,
+                max_nodes=args.max_nodes,
+                max_snippet_chars=args.max_snippet_chars,
             )
         elif args.command == "evidence":
             output = evidence(

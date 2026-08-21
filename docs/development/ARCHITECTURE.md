@@ -182,6 +182,7 @@ sequenceDiagram
     participant Agent as Agent 语义层
     participant Source as 外部来源适配
     participant Bundle as SourceBundle v2
+    participant Prep as digest analysis preprocessing
     participant Txn as digest transaction
     participant KB as 私有知识库
 
@@ -203,7 +204,12 @@ sequenceDiagram
         Agent-->>User: 已摄取，不重复写入
     else 新来源或新版本
         Txn-->>Agent: new_source / new_version
-        Agent->>Agent: 依赖闸门、冲突检测、标题消歧、实体消解
+        Agent->>Prep: 一次生成 analysis packet
+        Prep-->>Agent: 依赖候选、语义文本、参与者、anchor 索引
+        Agent->>Agent: 依赖闸门、语义分析、冲突 query
+        Agent->>Prep: 单次 KB 扫描批量召回冲突候选
+        Prep-->>Agent: 同源节点、有限候选与 snippet
+        Agent->>Agent: 冲突分类、标题消歧、实体消解
         Agent->>Agent: 生成完整候选节点和 evidence 映射
         Agent->>Txn: DigestPlan v2 execute
         Txn->>Txn: 写入前 schema / links / baseline / provenance 校验
@@ -216,8 +222,9 @@ sequenceDiagram
 ```
 
 `digest-run` 在用户输入到达、分类之前生成稳定 `run_id`，Agent 对 classify/capture/bundle/
-dependency/conflict/semantic/candidate 阶段成对写 `started` 与 `completed|failed`；
-`bin/digest-txn.py --run-id` 自动记录 preflight、诊断 validate 和 execute。最终
+dependency/semantic/conflict/candidate 阶段成对写 `started` 与 `completed|failed`；
+`digest-analysis.py --run-id` 自动记录 analysis prepare，`bin/digest-txn.py --run-id` 自动记录
+preflight、诊断 validate 和 execute。最终
 committed/noop/failed/cancelled 都写终态，`list/show` 从事件流派生总耗时、当前阶段和最慢阶段。
 该旁路只观察既有信息流，不读取 component/candidate 正文，不参与语义判断，也不改变 transaction
 receipt 的成功真相源。
@@ -543,6 +550,7 @@ flowchart TB
 
     subgraph L2["L2 · 应用服务层"]
         DT["lib/digest_txn.py"]
+        DPREP["lib/digest_analysis.py<br/>Bundle 单次去噪与临时分析包"]
         KQ["lib/kb_query.py"]
         SO["lib/source_operations.py"]
         SCO["lib/source_chat_operations.py"]
@@ -607,6 +615,7 @@ flowchart TB
     CLI --> DIRECT
     CLI --> MP
     DIRECT --> DT
+    DIRECT --> DPREP
     DIRECT --> KQ
     DIRECT --> SO
     DIRECT --> WX
@@ -655,6 +664,7 @@ flowchart TB
     DIRECT --> CV
     DIRECT --> SEM
     DT --> SRC
+    DPREP --> SRC
     DT --> PR
     DT --> SS
     KQ --> SRC
@@ -712,6 +722,7 @@ flowchart TB
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
 | `bin/digest-run.py` | 单输入 start/stage/complete/list/show；只接受固定阶段、状态、机器码和计数 | `byteworker-digest-run-event/v1` 时间线、总耗时与最慢阶段 |
+| `bin/digest-analysis.py` | SourceBundle components 单次读取、结构去噪、依赖候选/语义文本/参与者/anchor 索引整理；不做语义判断 | 系统临时 `byteworker-digest-analysis-packet/v1` 和无正文 receipt |
 | `bin/source.py` | capabilities / auth / inspect / capture / bundle-spec / bundle / profile / diff 参数入口 | request 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
@@ -722,7 +733,7 @@ flowchart TB
 | `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
 | `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |
 | `bin/semantic.py` | 校验 IM 等结构化语义结果 | validation report / 稳定 error code |
-| `bin/kb-query.py` | search / evidence / source-record | 有覆盖信息的有限候选 |
+| `bin/kb-query.py` | search / conflict-search / evidence / source-record；conflict-search 对多 query 只扫描节点一次 | 有覆盖信息的有限候选、同源定位与短 snippet |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
 | `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
 | `bin/resolve-users.sh` | 按 open_id 只读解析 person 身份与当前通讯录画像；默认 TSV 兼容旧调用 | `byteworker-resolved-users/v1` JSON 或兼容三列 TSV |
@@ -1036,6 +1047,8 @@ flowchart LR
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
 | `byteworker-digest-run-event/v1` | `digest_run_log.py` + Agent stage protocol | 一个输入一个稳定 run_id；固定阶段/状态/metrics；自动耗时；无业务正文；30 天保留和 5 MiB 轮转 |
+| `byteworker-digest-analysis-packet/v1` | `digest_analysis.py` | 私有临时产物；一次读取 Bundle；去除结构噪声但保留 component/path/anchor；不得进入 skill/运行日志 |
+| `byteworker-conflict-query/v1` / `byteworker-conflict-candidates/v1` | Agent + `kb_query.py` | 最多 32 条短 query；同源精确定位；单次节点扫描；工具只召回不裁决 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
 | `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；viewer 只可修改 Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；旧自动报告只读 |
 | `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt；enabled 与 operational 分离；默认不接管报告 |

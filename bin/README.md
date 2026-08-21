@@ -26,6 +26,7 @@ bin/byteworker <tool> [tool arguments...]
 
 - `digest-txn`
 - `digest-run`
+- `digest-analysis`
 - `kb-query`
 - `doctor`
 - `todo`
@@ -112,6 +113,7 @@ cd "$BYTEWORKER_ROOT"
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
 | `digest-run.py` | Agent / 维护者 | 单输入全流程阶段、计数和耗时日志 | 写 KB 已排除的 `state/digest/run-logs/` |
+| `digest-analysis.py` | Agent / 维护者 | SourceBundle 单次结构去噪与分析 packet | 只写显式系统临时输出，不写 KB truth |
 | `source.py` | Agent / 维护者 | 来源能力、授权、抓取、Profile、Bundle、diff | capture/Bundle 写输出；Profile 操作可写 KB |
 | `wiki.py` | Agent / 维护者 | 按需探索 Wiki 空间/子树并筛选页面 | 写可重建树状态、候选文件或子树 Profile |
 | `digest-job.py` | Agent / 维护者 | 管理已确认多页 digest 的可恢复任务 | 写本地任务 checkpoint，不写 raw/节点 |
@@ -190,7 +192,23 @@ bin/byteworker digest-run list --kb "$BYTEWORKER_KB" --limit 20
 bin/byteworker digest-run show --kb "$BYTEWORKER_KB" --run-id "$DIGEST_RUN_ID"
 ```
 
-## 5A. `digest-txn.py`：摄取事务
+## 5A. `digest-analysis.py`：一次性分析预处理
+
+在 SourceBundle preflight 非 noop 后，把正文、评论、白板、参与者和 anchors 一次整理成系统临时
+analysis packet；stdout 只返回 path/hash 和计数，业务文本只存在权限 `0600` 的 packet 中。
+
+```bash
+bin/byteworker digest-analysis prepare \
+  --kb "$BYTEWORKER_KB" \
+  --bundle /tmp/byteworker-example/source-bundle.json \
+  --out /tmp/byteworker-example/analysis-packet.json \
+  --run-id "$DIGEST_RUN_ID"
+```
+
+相同输入 hash 和输出路径会命中 packet cache。输出路径位于 skill 仓库时拒绝执行；传 `--run-id`
+时自动记录 `analysis_prepare` 的开始、完成或失败。
+
+## 5B. `digest-txn.py`：摄取事务
 
 `txn` 是 transaction 的缩写。该工具保证一次摄取要么完整写入，要么回滚，不留下半成品。
 
@@ -608,6 +626,21 @@ bin/byteworker kb-query search \
 - `--graph-depth` 当前只支持 `0` 或 `1`。
 - `--limit` 控制初始结果数。
 - `--max-nodes` 控制扩图后的总节点上限。
+
+### `conflict-search`
+
+语义分析先把最多 32 条候选事实写入系统临时 `byteworker-conflict-query/v1`，再一次扫描 KB 完成
+同源精确定位与多 query 有界召回。它只返回 TL;DR 和短 snippet，不做冲突裁决。
+
+```bash
+bin/byteworker kb-query conflict-search \
+  --kb "$BYTEWORKER_KB" \
+  --request /tmp/byteworker-example/conflict-query.json \
+  --limit-per-query 3 \
+  --max-nodes 20
+```
+
+request 可能包含业务事实，必须位于系统临时目录或 KB，不能写进 skill 仓库。
 
 ### `evidence`
 

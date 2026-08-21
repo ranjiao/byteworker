@@ -31,6 +31,7 @@ TOOLS = {
     "wiki": "wiki.py",
     "digest-job": "digest-job.py",
     "digest-run": "digest-run.py",
+    "digest-analysis": "digest-analysis.py",
     "report-automation": "report-automation.py",
     "dreaming": "dreaming.py",
     "inbox": "inbox.py",

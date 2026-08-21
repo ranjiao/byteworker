@@ -36,6 +36,7 @@ class DigestTransactionContractTests(unittest.TestCase):
             "capture",
             "bundle",
             "preflight",
+            "analysis_prepare",
             "dependency_review",
             "conflict_review",
             "semantic_analysis",
@@ -60,6 +61,39 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertIn("byteworker-digest-run-event/v1", architecture)
         self.assertIn("byteworker-digest-run-event/v1", design)
         self.assertIn("state/digest/run-logs/", design)
+
+    def test_digest_analysis_precedes_bounded_conflict_search(self):
+        skill = self.read("SKILL.md")
+        core = self.read("references/digest-core.md")
+        analysis = self.read("references/digest-analysis-pipeline.md")
+        observability = self.read("references/digest-observability.md")
+        routes = json.loads(self.read("references/workflow-routes.json"))
+        architecture = self.read("docs/development/ARCHITECTURE.md")
+        design = self.read("docs/development/DESIGN.md")
+
+        self.assertIn("digest-analysis-pipeline.md", skill)
+        self.assertIn("digest-analysis prepare", core)
+        self.assertIn("kb-query conflict-search", core)
+        self.assertIn(
+            "references/digest-analysis-pipeline.md",
+            routes["workflows"]["digest"]["required"],
+        )
+        self.assertLess(
+            observability.index("`semantic_analysis`"),
+            observability.index("`conflict_review`"),
+        )
+        for term in (
+            "byteworker-digest-analysis-packet/v1",
+            "byteworker-conflict-query/v1",
+            "最多 32",
+            "只扫描 KB 节点一次",
+            "不做语义裁决",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, analysis)
+        self.assertIn("lib/digest_analysis.py", architecture)
+        self.assertIn("byteworker-conflict-candidates/v1", architecture)
+        self.assertIn("byteworker-digest-analysis-packet/v1", design)
 
     def test_core_requires_receipt_before_claiming_write_completed(self):
         core = self.read("references/digest-core.md")
@@ -99,7 +133,7 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertIn("Codex adapter 专有参数", large)
         self.assertIn('禁止', large)
         self.assertIn('fork_turns="all"', large)
-        self.assertIn("semantic-work-packet", large)
+        self.assertIn("byteworker-digest-analysis-packet/v1", large)
         self.assertIn("不得", large)
         self.assertIn("list_agents", large)
         self.assertIn("紧凑返回", large)

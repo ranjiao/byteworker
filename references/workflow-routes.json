@@ -11,6 +11,7 @@
         "references/machine-protocol.md",
         "references/digest-core.md",
         "references/digest-observability.md",
+        "references/digest-analysis-pipeline.md",
         "references/digest-dependencies.md",
         "references/digest-transaction.md",
         "references/provenance.md",

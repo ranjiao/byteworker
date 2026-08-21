@@ -224,7 +224,7 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
 `state/digest/run-logs/<UTC-date>[-NNNN].jsonl` 使用
 `byteworker-digest-run-event/v1`。一个用户输入只创建一个 `DG-<UTC>-<random>` run id；事件按
 `started → stage_started/stage_completed|stage_failed → completed|failed|cancelled` 追加。阶段固定为
-classify、capture、bundle、preflight、dependency_review、conflict_review、semantic_analysis、
+classify、capture、bundle、preflight、analysis_prepare、dependency_review、semantic_analysis、conflict_review、
 candidate_generation、transaction_validate、transaction 和 finalize；终态为 committed/noop/failed/
 cancelled。完成事件根据同阶段最近未关闭的 start 自动计算 `duration_ms`，run summary 从首末事件
 派生总耗时和最慢阶段，不另存可漂移索引。
@@ -233,6 +233,21 @@ cancelled。完成事件根据同阶段最近未关闭的 start 自动计算 `du
 source type、source ref SHA-256、固定 action/stage/status/detail code、时间和非负计数；禁止业务正文、
 标题、人员/群名、URL、凭据、完整 argv、stdout/stderr 或自由文本错误。该状态不是知识证据，不参与
 raw/provenance/节点/INDEX/journal/Git transaction，也不能覆盖 transaction receipt 的成功语义。
+
+### E.2 Digest 临时分析协议
+
+`byteworker-digest-analysis-packet/v1` 是系统临时目录或 KB 内的私有工作产物，不建立持久目录，
+不得进入 skill 仓库、raw/provenance、运行日志或 Git transaction。`digest_analysis.py` 一次读取
+SourceBundle 指向的 components，保存 bundle/component hash、来源类型与 uid、正文 outline、去重的
+显式依赖候选、按 component + JSON pointer 定位的语义文本、参与者 ID 和既有 anchor 索引；不保存
+provider 坐标/样式噪声，也不判断依赖重要性、事实含义或冲突 disposition。文件原子写入且权限
+`0600`；相同 input hash 和输出路径可直接复用。
+
+`byteworker-conflict-query/v1` 由 Agent 在语义分析后写入系统临时目录，包含可选 `source_uid` 和最多
+32 条稳定 id + 短 query，不复制全文。`kb_query.py conflict-search` 一次扫描 KB 节点，先经
+`source_uid → raw_id → sources/primary_source` 定位同源节点，再返回
+`byteworker-conflict-candidates/v1` 的有限候选、TL;DR 和最多两段短 snippet。该结果是召回证据，
+不是 `no_conflict/revision/supersede` 裁决，也不得自动触发写入。
 
 ### F. 自动报告设置状态与执行租约
 
@@ -1093,8 +1108,10 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 - **人员表的 `feishu_id` / `department_path` 列** —— 前者支持按飞书邮箱英文 id 直接检索到
   对应的人，后者支持按当前通讯录部门路由人员。二者都从 person frontmatter 确定性重建；
   历史节点没有 `department_path` 时显示 `?`，不得从 TL;DR 或正文猜填。
-- 查询先运行无状态 `bin/kb-query.py search`，得到字面/全文候选、覆盖回执和预算内一跳 links；
+- 普通查询先运行无状态 `bin/kb-query.py search`，得到字面/全文候选、覆盖回执和预算内一跳 links；
   Agent 再按语义补召回并定向读取。节点有 `[E]` 时用 `kb-query.py evidence` 解析精确 sidecar。
+- digest 冲突召回使用 `kb-query.py conflict-search`，多条事实共享一次节点扫描；先看同源节点和短
+  snippet，只有语义裁决信息不足时才读取完整节点。
 - 一致性兜底:某类 `knowledge/<类型>/` 文件数 ≠ INDEX 该节行数 → 触发全量重建。
   (纯内容编辑不改行数,无法靠计数发现 → 故增量更新是主路径。)
 - 单类节点行数 > 200 → skill 必须提示该类按子目录分片(TODOS)。
