@@ -40,6 +40,7 @@ STAGE_ACTIONS = {
     "capture": "fetch complete source artifacts",
     "bundle": "normalize SourceBundle components and anchors",
     "preflight": "compute payload identity and idempotency state",
+    "analysis_prepare": "build one compact semantic analysis packet",
     "dependency_review": "review important dependency boundaries",
     "conflict_review": "compare candidates with existing knowledge",
     "semantic_analysis": "extract facts, entities, decisions, and evidence",

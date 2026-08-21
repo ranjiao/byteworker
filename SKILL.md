@@ -113,7 +113,8 @@ bin/byteworker context view --kb "<KB>" --intent "<intent>"
 `digest-routine.md`。Wiki 空间探索先读 `references/digest-wiki-space.md`，确认页面后按
 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
-来源生成 `byteworker-source-bundle/v2`，Agent 生成引用 bundle 的 `digest-plan/v2` 候选；
+生成 `byteworker-source-bundle/v2`；按 `digest-analysis-pipeline.md` 生成
+`digest-plan/v2`；
 preflight 后直接运行 `execute`（含锁内复验）；独立 `validate` 只用于失败排障，多来源用
 `digest-batch-plan/v2`。Agent 负责语义判断、冲突分类，事务负责 hash/schema/INDEX/journal/
 commit/rollback；只认 `status=committed`。

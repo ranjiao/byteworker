@@ -24,6 +24,10 @@ class QueryError(RuntimeError):
 
 
 SNAPSHOT_SCHEMA = "byteworker-source-snapshot/v1"
+CONFLICT_QUERY_SCHEMA = "byteworker-conflict-query/v1"
+CONFLICT_CANDIDATES_SCHEMA = "byteworker-conflict-candidates/v1"
+MAX_CONFLICT_QUERIES = 32
+MAX_CONFLICT_QUERY_CHARS = 240
 
 
 def _list_value(value: Any) -> List[str]:
@@ -39,7 +43,8 @@ def _tokens(query: str) -> List[str]:
     if not query:
         raise QueryError("query 不能为空")
     parts = re.findall(r"[a-z0-9_.:+-]+|[\u3400-\u9fff]+", query)
-    return list(dict.fromkeys([query, *parts]))
+    material = [part for part in parts if len(part) > 1 or part == query]
+    return list(dict.fromkeys([query, *material]))
 
 
 def _node_records(kb: Path) -> Dict[str, Dict[str, Any]]:
@@ -60,6 +65,7 @@ def _node_records(kb: Path) -> Dict[str, Dict[str, Any]]:
             "tags": _list_value(frontmatter.get("tags")),
             "links": _list_value(frontmatter.get("links")),
             "sources": _list_value(frontmatter.get("sources")),
+            "primary_source": str(frontmatter.get("primary_source", "")).strip(),
             "tldr": tldr_match.group(1).strip() if tldr_match else "",
             "body": body,
             "path": str(path.relative_to(kb)),
@@ -67,8 +73,8 @@ def _node_records(kb: Path) -> Dict[str, Dict[str, Any]]:
     return records
 
 
-def search(
-    kb: Path,
+def _search_records(
+    records: Mapping[str, Mapping[str, Any]],
     query: str,
     *,
     limit: int = 12,
@@ -79,8 +85,6 @@ def search(
         raise QueryError("limit/max_nodes 必须大于 0")
     if graph_depth not in {0, 1}:
         raise QueryError("轻量查询仅支持 graph_depth=0 或 1")
-    kb = kb.resolve()
-    records = _node_records(kb)
     tokens = _tokens(query)
     include_inactive_thinking = any(
         marker in query.lower()
@@ -169,6 +173,202 @@ def search(
             ),
         },
         "candidates": candidates,
+    }
+
+
+def search(
+    kb: Path,
+    query: str,
+    *,
+    limit: int = 12,
+    graph_depth: int = 1,
+    max_nodes: int = 30,
+) -> Dict[str, Any]:
+    kb = kb.resolve()
+    return _search_records(
+        _node_records(kb),
+        query,
+        limit=limit,
+        graph_depth=graph_depth,
+        max_nodes=max_nodes,
+    )
+
+
+def _query_snippets(body: str, query: str, *, max_chars: int) -> List[str]:
+    if max_chars < 100:
+        raise QueryError("max_snippet_chars 必须至少为 100")
+    normalized = re.sub(r"\s+", " ", body).strip()
+    lowered = normalized.lower()
+    snippets: List[str] = []
+    seen: set[Tuple[int, int]] = set()
+    for token in _tokens(query):
+        start = lowered.find(token)
+        if start < 0:
+            continue
+        left = max(0, start - max_chars // 3)
+        right = min(len(normalized), left + max_chars)
+        bounds = (left, right)
+        if bounds in seen:
+            continue
+        seen.add(bounds)
+        prefix = "…" if left else ""
+        suffix = "…" if right < len(normalized) else ""
+        snippets.append(prefix + normalized[left:right] + suffix)
+        if len(snippets) == 2:
+            break
+    return snippets
+
+
+def _raw_ids_for_source(kb: Path, source_uid: str) -> set[str]:
+    if not source_uid:
+        return set()
+    raw_ids: set[str] = set()
+    for path in sorted((kb / "raw_data").glob("*.md")):
+        frontmatter = _frontmatter_only(path)
+        if str(frontmatter.get("source_uid", "")).strip() != source_uid:
+            continue
+        raw_id = str(frontmatter.get("raw_id", "")).strip()
+        if raw_id:
+            raw_ids.add(raw_id)
+    return raw_ids
+
+
+def _validate_conflict_request(value: Mapping[str, Any]) -> tuple[str, list[dict[str, str]]]:
+    if value.get("schema_version") != CONFLICT_QUERY_SCHEMA:
+        raise QueryError(f"schema_version 必须是 {CONFLICT_QUERY_SCHEMA}")
+    unknown = sorted(set(value) - {"schema_version", "source_uid", "queries"})
+    if unknown:
+        raise QueryError("conflict query 含未知字段: " + ", ".join(unknown))
+    source_uid = str(value.get("source_uid", "")).strip()
+    raw_queries = value.get("queries")
+    if not isinstance(raw_queries, list) or not raw_queries:
+        raise QueryError("queries 必须是非空数组")
+    if len(raw_queries) > MAX_CONFLICT_QUERIES:
+        raise QueryError(f"queries 最多 {MAX_CONFLICT_QUERIES} 项")
+    queries: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw_queries):
+        if not isinstance(item, Mapping):
+            raise QueryError(f"queries[{index}] 必须是对象")
+        unknown_item = sorted(set(item) - {"id", "query"})
+        if unknown_item:
+            raise QueryError(
+                f"queries[{index}] 含未知字段: " + ", ".join(unknown_item)
+            )
+        query_id = str(item.get("id", "")).strip()
+        query = re.sub(r"\s+", " ", str(item.get("query", "")).strip())
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", query_id):
+            raise QueryError(f"queries[{index}].id 格式非法")
+        if query_id in seen:
+            raise QueryError(f"queries id 重复: {query_id}")
+        if not query or len(query) > MAX_CONFLICT_QUERY_CHARS:
+            raise QueryError(
+                f"queries[{index}].query 必须为 1-{MAX_CONFLICT_QUERY_CHARS} 字符"
+            )
+        seen.add(query_id)
+        queries.append({"id": query_id, "query": query})
+    return source_uid, queries
+
+
+def conflict_search(
+    kb: Path,
+    request: Mapping[str, Any],
+    *,
+    limit_per_query: int = 3,
+    max_nodes: int = 20,
+    max_snippet_chars: int = 800,
+) -> Dict[str, Any]:
+    """Recall bounded conflict candidates while scanning KB nodes only once."""
+
+    if limit_per_query < 1 or limit_per_query > 10:
+        raise QueryError("limit_per_query 必须为 1-10")
+    if max_nodes < 1 or max_nodes > 100:
+        raise QueryError("max_nodes 必须为 1-100")
+    source_uid, queries = _validate_conflict_request(request)
+    kb = kb.resolve()
+    records = _node_records(kb)
+    raw_ids = _raw_ids_for_source(kb, source_uid)
+    exact_nodes = [
+        {
+            "id": record["id"],
+            "title": record["title"],
+            "type": record["type"],
+            "status": record["status"],
+            "path": record["path"],
+            "tldr": record["tldr"],
+        }
+        for record in records.values()
+        if raw_ids.intersection(record["sources"])
+        or record["primary_source"] in raw_ids
+    ]
+    exact_nodes.sort(key=lambda item: item["id"])
+
+    selected_ids = {item["id"] for item in exact_nodes[:max_nodes]}
+    results = []
+    for query in queries:
+        ranked = _search_records(
+            records,
+            query["query"],
+            limit=limit_per_query,
+            graph_depth=0,
+            max_nodes=limit_per_query,
+        )
+        candidates = []
+        for candidate in ranked["candidates"]:
+            node_id = candidate["id"]
+            if node_id not in selected_ids and len(selected_ids) >= max_nodes:
+                continue
+            selected_ids.add(node_id)
+            record = records[node_id]
+            candidates.append(
+                {
+                    key: candidate[key]
+                    for key in (
+                        "id",
+                        "title",
+                        "type",
+                        "status",
+                        "path",
+                        "score",
+                        "reasons",
+                        "tldr",
+                    )
+                }
+                | {
+                    "same_source": bool(
+                        raw_ids.intersection(record["sources"])
+                        or record["primary_source"] in raw_ids
+                    ),
+                    "snippets": _query_snippets(
+                        record["body"],
+                        query["query"],
+                        max_chars=max_snippet_chars,
+                    ),
+                }
+            )
+        results.append(
+            {
+                "id": query["id"],
+                "coverage": ranked["coverage"],
+                "candidates": candidates,
+            }
+        )
+    return {
+        "schema_version": CONFLICT_CANDIDATES_SCHEMA,
+        "source_match": {
+            "source_uid_provided": bool(source_uid),
+            "raw_count": len(raw_ids),
+            "nodes": exact_nodes[:max_nodes],
+            "truncated": len(exact_nodes) > max_nodes,
+        },
+        "coverage": {
+            "scanned_nodes": len(records),
+            "query_count": len(queries),
+            "limit_per_query": limit_per_query,
+            "max_nodes": max_nodes,
+            "unique_candidates": len(selected_ids),
+        },
+        "queries": results,
     }
 
 

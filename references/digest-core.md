@@ -1,7 +1,7 @@
 # byteworker · digest 主流程
 
 > 由 `SKILL.md`「digest」路由到这里。执行任何摄取前先读本文件,再按来源类型读取对应
-> `references/digest-*.md` 细则。
+> `references/digest-*.md` 细则。分析阶段统一遵守 `references/digest-analysis-pipeline.md`。
 
 ## 触发
 
@@ -12,7 +12,7 @@
 
 ## 主流程
 
-长流程状态输出:输入到达后先按 `references/digest-observability.md` 创建 `run_id`，再告诉用户本次会经历「分类 → 拉原文 → 幂等检查 → 依赖判断 → 冲突检测 → 节点写入 → 回滚点」；每个真实阶段成对记录动作、状态、计数和耗时，只在真实阶段变化时回显一行短状态。单阶段超过 60 秒且没有变化时可发一次 heartbeat,只说阶段和数量,不要贴原文，也不要为发状态主动轮询。大型输入遵守 `references/digest-large.md`，主/子 Agent 不重复处理并复用同一 `run_id`。
+长流程状态输出:输入到达后先按 `references/digest-observability.md` 创建 `run_id`，再告诉用户本次会经历「分类 → 拉原文 → 幂等检查 → 分析预处理 → 依赖判断 → 语义分析 → 冲突检测 → 节点写入 → 回滚点」；每个真实阶段成对记录动作、状态、计数和耗时，只在真实阶段变化时回显一行短状态。单阶段超过 60 秒且没有变化时可发一次 heartbeat,只说阶段和数量,不要贴原文，也不要为发状态主动轮询。大型输入遵守 `references/digest-large.md`，主/子 Agent 不重复处理并复用同一 `run_id`。
 
 1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` /
    `feishu_chat` / `meego` / `feishu_base` / `aeolus` / `web` / `local_md`。**若输入是一整场会议**
@@ -59,14 +59,17 @@
      `source_uid/source_url + digest_period/source_window + content_hash` 以及可比的
      `body_hash` / `comment_hash` / `whiteboard_hash` 做兼容判重。必要时只补 raw
      frontmatter 的运维字段,不得改 raw 正文。
-4. **重要依赖判断(条件式用户闸门)** —— 默认范围仍只有用户当前指定的对象。扫描当前正文中的
-   文档引用、历史会议、附件 / 嵌入表格、前置方案 / 决策 / 数据源等候选,按
+4. **分析预处理与重要依赖判断(条件式用户闸门)** —— preflight 非 noop 后先运行一次
+   `digest-analysis prepare`，按 `references/digest-analysis-pipeline.md` 把正文、评论、白板、参与者
+   和 anchor 整理成系统临时 analysis packet。随后只消费 packet 的去重候选，按
    `references/digest-dependencies.md` 判断它是否是「缺失会实质影响本次 digest 正确性或完整性」
    的重要依赖。没有重要依赖 → 静默继续;有 → **在读取依赖正文和写节点前**,把候选、重要原因、
    建议范围合并成一次询问,由用户选择是否增加本次 digest 内容。未经同意不扩展;用户拒绝或暂缓时,
    当前对象照常 digest,但把受影响结论标为「依赖未摄取 / 待核实」。同场会议簇的组成物件仍按
    `references/digest-meeting.md` 的整体确认处理,不重复询问。
-5. **准备 raw 计划** —— 决定唯一 `raw_id` 与 `raw_data/<YYYY-MM-DD>-<slug>.md`，在
+5. **语义分析与准备 raw 计划** —— 先从同一 analysis packet 一次完成事实、实体、决策、立场和
+   evidence 分析，生成最多 32 条的临时 `byteworker-conflict-query/v1`；此时尚不做冲突裁决。
+   再决定唯一 `raw_id` 与 `raw_data/<YYYY-MM-DD>-<slug>.md`，在
    `digest-plan/v2` 里只引用已经校验的 source bundle，并写未摄取依赖与节点候选；不得把
    `source` 或 `provenance.anchors` 从 bundle 复制到 plan。此时不手工拼 raw。飞书文档、
    妙记 / 录屏、日历会议、网页等可打开来源必须由 bundle 保留
@@ -75,10 +78,10 @@
    `raw_id` 已存在时必须改用 `-2`/revision/hash 后缀,**绝不覆盖旧 raw**。
    同时按 `references/provenance.md` 把抓取阶段保留的稳定 locator 写成 bundle
    `anchors`;不要等摘要完成后按文本猜位置。
-6. **冲突检测** —— 唯一动作表见 `references/conflict-policy.md`。先确认 INDEX 一致(见
-   `references/write-rules.md`);按标题/人名/项目名、
-   已有 raw 的 `digest_targets`、同源历史主记录节点在 INDEX 找可能涉及的已有节点,读取候选,
-   语义比对是否与新输入矛盾。独立来源冲突时高亮矛盾点并等待用户裁决；只有可验证 revision、
+6. **冲突检测** —— 唯一动作表见 `references/conflict-policy.md`。通过 `kb-query conflict-search`
+   一次扫描完成 `source_uid` 同源定位和所有事实 query 的有界召回；默认只读返回的 TL;DR/snippet，
+   只有可能影响具体事实且信息不足时才定点读取候选 path。Agent 语义比对是否与新输入矛盾。
+   独立来源冲突时高亮矛盾点并等待用户裁决；只有可验证 revision、
    supersede 或用户明确确认才可按对应 disposition 更新，时间较新本身不构成覆盖依据。
 7. **digest 扇出**(docs/development/DESIGN.md §4.3):
    - 必产 1 个主记录节点(会议、群聊窗口 → `event`;外部读物、内部路线思考/方法论/调研/白皮书 → `reading`)。**会议簇**(同一场会的日历 + 投屏文档 + 妙记)仍只产 1 个 `event`,不按物件拆 —— 见 `references/digest-meeting.md`。

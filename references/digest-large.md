@@ -7,23 +7,25 @@
 - **判定**:输入大(长文档、滚动周报、大群聊窗口,或规模预估显示要读大量正文)→ 委派子 agent;短文档 / `reading` 文章 / 小群聊窗口 → 主 agent inline 做,不必委派(子 agent 有开销与交互往返成本)。
 - **主 agent 自己留做的**(轻量 + 需与用户交互,不放进子 agent):
   1. 抓原文(`docs +fetch` 等的大输出只落 /tmp 文件,不得回显正文)、只扫标题、规模与组件清单;
-  2. 按 `references/digest-dependencies.md` 做重要依赖初筛,需要时**与用户确认是否扩展本次 digest**;
+  2. Bundle preflight 后运行一次 `digest-analysis prepare`，只读 packet 的依赖候选，按
+     `references/digest-dependencies.md` 初筛,需要时**与用户确认是否扩展本次 digest**;
   3. 规模预估,需要时**与用户确认摄取深度**;
   4. 滚动文档 / 群聊**首次是否纳入定期摄取**的询问。
 - **隔离硬约束**:宿主支持子 agent / 多代理工具时，必须创建不继承主对话的全新上下文。任务
   prompt 必须自足，只写来源 URL/路径、`source_type`、用户确认的依赖/深度、KB 绝对路径、主流程
   已创建的 digest `run_id` 和系统
-  临时 artifact 路径，不复制主对话、旧文档正文、旧工具输出或先前 digest 结果。
+  临时 analysis packet / artifact 路径，不复制主对话、旧文档正文、旧工具输出或先前 digest 结果。
   `fork_turns` 是 Codex adapter 专有参数；`fork_turns="all"` 表示继承全部历史，在本流程中
   **禁止使用**。其他宿主使用自身的 fresh-context 能力，不得被要求传这个参数。
 - **委派给子 agent 的**(重量、无需用户交互):要求它先解析
   `references/workflow-routes.json` 的 `large_digest_worker`（递归展开 `extends=digest`），完整读取
-  公共 required、对应 source type/feature、`on_error` 和本文件；然后执行读全文 → 冲突检测 →
-  完整候选 → 临时 plan → `execute`。独立 `validate` 只在 execute 返回候选校验错误后用于排障。
+  公共 required、对应 source type/feature、`on_error` 和本文件；不要再读取完整 `SKILL.md`、无关
+  reference 或预加载 templates。然后只消费 analysis packet，执行语义分析 → 单次 `conflict-search`
+  → 完整候选 → 临时 plan → `execute`。独立 `validate` 只在 execute 返回候选校验错误后用于排障。
   若宿主不支持子 agent,在主对话中分批处理,并继续遵守规模预估与交互交还规则。
-- **单次语义工作包**:worker 从 SourceBundle 指向的 component 在系统临时目录生成一次
-  `semantic-work-packet`，正文、canonical 评论和白板结构 JSON 各只纳入一次；白板按
-  `references/digest-whiteboard.md` 只读 JSON。后续候选生成只消费该工作包，需要补证时按
+- **单次语义工作包**:主流程通过 `digest-analysis prepare` 从 SourceBundle components 生成一次
+  `byteworker-digest-analysis-packet/v1`；正文、canonical 评论和白板文本各只纳入一次，坐标/样式
+  噪声不进入语义上下文。后续候选生成只消费该工作包，需要补证时按
   anchor 定点回读。禁止把完整正文、完整白板 JSON、完整候选或整份工作包打印进 tool output，
   也禁止为不同节点重复扫描全部原文。
 - **主 agent 等待规则**:委派后主 agent 不再读取 component、生成候选、检查临时文件或向 worker

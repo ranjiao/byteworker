@@ -3,6 +3,7 @@ import sys
 import tempfile
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +11,14 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from kb_query import QueryError, evidence, search, source_records  # noqa: E402
+import kb_query  # noqa: E402
+from kb_query import (  # noqa: E402
+    QueryError,
+    conflict_search,
+    evidence,
+    search,
+    source_records,
+)
 
 
 class KbQueryTests(unittest.TestCase):
@@ -244,6 +252,54 @@ digest_status: digested
             {item["id"] for item in result["candidates"]},
         )
         self.assertEqual(2, result["coverage"]["scanned_nodes"])
+
+    def test_conflict_search_scans_nodes_once_for_multiple_queries(self):
+        request = {
+            "schema_version": "byteworker-conflict-query/v1",
+            "source_uid": "alpha",
+            "queries": [
+                {"id": "fact-1", "query": "采用方案 A"},
+                {"id": "fact-2", "query": "素材生成项目"},
+            ],
+        }
+        with mock.patch(
+            "kb_query._node_records", wraps=kb_query._node_records
+        ) as scanner:
+            result = conflict_search(
+                self.kb,
+                request,
+                limit_per_query=2,
+                max_nodes=5,
+                max_snippet_chars=200,
+            )
+        scanner.assert_called_once()
+        self.assertEqual(
+            "byteworker-conflict-candidates/v1",
+            result["schema_version"],
+        )
+        self.assertEqual(2, result["coverage"]["query_count"])
+        self.assertEqual(2, result["coverage"]["scanned_nodes"])
+        self.assertEqual(1, result["source_match"]["raw_count"])
+        self.assertEqual(
+            {"project-alpha", "decision-alpha"},
+            {item["id"] for item in result["source_match"]["nodes"]},
+        )
+        fact = result["queries"][0]["candidates"][0]
+        self.assertEqual("decision-alpha", fact["id"])
+        self.assertTrue(fact["same_source"])
+        self.assertIn("采用方案 A", fact["snippets"][0])
+        self.assertLessEqual(len(fact["snippets"][0]), 202)
+
+    def test_conflict_search_rejects_unbounded_query_lists(self):
+        request = {
+            "schema_version": "byteworker-conflict-query/v1",
+            "queries": [
+                {"id": f"fact-{index}", "query": "Alpha"}
+                for index in range(33)
+            ],
+        }
+        with self.assertRaises(QueryError):
+            conflict_search(self.kb, request)
 
     def test_evidence_resolves_raw_and_sidecar(self):
         result = evidence(self.kb, "decision-alpha", ["E1"])

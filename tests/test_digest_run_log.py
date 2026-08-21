@@ -149,6 +149,28 @@ class DigestRunLogTests(unittest.TestCase):
         self.assertEqual("web", shown["summary"]["source_type"])
         self.assertEqual(2000, shown["summary"]["stages"][0]["duration_ms"])
 
+    def test_analysis_prepare_has_its_own_timing_boundary(self):
+        self.start()
+        record_stage(
+            self.kb,
+            run_id=self.run_id,
+            stage="analysis_prepare",
+            status="started",
+            now=self.started_at + timedelta(seconds=1),
+        )
+        record_stage(
+            self.kb,
+            run_id=self.run_id,
+            stage="analysis_prepare",
+            status="completed",
+            detail_code="ANALYSIS_PACKET_READY",
+            metrics={"component_count": 26, "output_count": 1},
+            now=self.started_at + timedelta(seconds=2),
+        )
+        summary = show_run(self.kb, run_id=self.run_id)["summary"]
+        self.assertEqual("analysis_prepare", summary["stages"][0]["stage"])
+        self.assertEqual(1000, summary["stages"][0]["duration_ms"])
+
     def test_stage_completion_requires_matching_start(self):
         self.start()
         with self.assertRaisesRegex(DigestRunError, "no open start"):

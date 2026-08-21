@@ -33,13 +33,19 @@ bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" \
 | `capture` | inspect/auth 后的完整正文、评论、白板、分页或快照抓取 |
 | `bundle` | SourceBundle、coverage、components 与 anchors 构造 |
 | `preflight` | payload hash、幂等和同源状态；由 `digest-txn --run-id` 自动记录 |
-| `dependency_review` | 重要依赖扫描、范围闸门及等待用户裁决前的处理 |
-| `conflict_review` | INDEX 召回、同源主记录定位、冲突分类 |
-| `semantic_analysis` | 事实、实体、决策、立场和 evidence 分析 |
+| `analysis_prepare` | 一次性 analysis packet 构造；由 `digest-analysis --run-id` 自动记录 |
+| `dependency_review` | 只消费 packet 的依赖候选，完成重要性判断和范围闸门 |
+| `semantic_analysis` | 只消费 packet，形成事实、实体、决策、立场、evidence 和冲突 query |
+| `conflict_review` | 单次 KB 扫描、同源定位、有限候选读取和冲突分类 |
 | `candidate_generation` | 候选节点、provenance mapping 和 plan 生成 |
 | `transaction_validate` | 独立排障 validate；由 `digest-txn --run-id` 自动记录 |
 | `transaction` | execute 的校验、写入、INDEX、journal 和 commit；自动记录 |
 | `finalize` | receipt 核验与紧凑结果；由 `complete` 记录 |
+
+标准顺序是 `preflight → analysis_prepare → dependency_review → semantic_analysis →
+conflict_review → candidate_generation`。不要在 `dependency_review` 中记录 worker 启动/规则加载，
+也不要把评论解析、白板遍历、人员消解、事实抽取或模板加载记入 `conflict_review`。预处理与单扫描
+召回命令见 `references/digest-analysis-pipeline.md`。
 
 示例：
 
@@ -68,7 +74,7 @@ bin/byteworker digest-txn execute --kb "<KB>" \
   --manifest "<PLAN>" --run-id "<RUN_ID>"
 ```
 
-不要再手工记录 `preflight` / `transaction_validate` / `transaction`，否则会形成重复开放阶段。
+不要再手工记录 `analysis_prepare` / `preflight` / `transaction_validate` / `transaction`，否则会形成重复开放阶段。
 最终 receipt 确认后必须结束 run：
 
 ```bash

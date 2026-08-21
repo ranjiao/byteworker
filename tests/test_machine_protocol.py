@@ -138,6 +138,7 @@ class MachineProtocolTests(unittest.TestCase):
             "wiki",
             "digest-job",
             "digest-run",
+            "digest-analysis",
             "report-automation",
             "dreaming",
             "provenance-backfill",
