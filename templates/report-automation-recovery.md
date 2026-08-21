@@ -14,8 +14,10 @@
 3. 对候选逐个调用 `report-automation check --kind <daily|weekly> --period <period>`。
    `complete/disabled/busy` 直接跳过；找到第一个 `should_run=true` 的候选后停止检查，本次最多
    补跑一期，避免一轮长时间占用本地知识库。
-4. 对命中的一期执行对应自动日报/周报完整流程：先取租约，再完整运行 routine digest，随后生成
-   报告候选并用 `kb-mutate validate/execute` 原子写报告、journal 和知识库本地 Git 回滚提交。
+4. 对命中的一期执行对应自动日报/周报完整流程：先取租约，再完整运行 routine digest，然后按
+   `references/report-calendar-meetings.md` 查询该周期 `self_rsvp_status=accept` 的日程并 digest
+   可访问会议产物，最后生成报告候选并用 `kb-mutate validate/execute` 原子写报告、journal 和
+   知识库本地 Git 回滚提交。日历枚举必须完整；单会议没有产物或单产物不可访问时只记录覆盖缺口。
    不得在没有网络、授权失败、分页不完整或证据不足时生成残缺报告。
 5. 成功后记录 `complete --run-status success`；取得租约后的失败记录
    `complete --run-status failed --error-code <稳定错误码>`。后续补偿检查会根据

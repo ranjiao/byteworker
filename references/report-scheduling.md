@@ -17,10 +17,14 @@ owner migration 必须使用 `report-automation release-owner/restore-owner`，�
   写入项目。
 - 日报和周报各用一个独立任务，并增加一个只做缺口检查、每次最多补跑一期的补偿任务。创建前按
   任务名、知识库路径与既有 prompt 查重；找到同用途任务时更新或接管，不新建重复任务。
-- 任务只重放已经登记的 routine 来源，不在无人值守运行中扩大摄取范围、创建来源 Profile、
-  发起 OAuth、切换身份、发送消息或 push。
+- routine 阶段只重放已经登记的来源；除报告周期 accepted 日程的固定会议发现通道外，无人值守
+  运行不扩大摄取范围、不创建来源 Profile、不发起 OAuth、不切换身份、不发送消息或 push。
 - 自动日报**每次都先完整运行一次 routine digest**，不使用 `.last-routine-digest` 的七天提醒
   阈值跳过。自动周报同样先运行 routine digest。
+- routine digest 完成后，按报告周期完整查询用户主日历，只处理明确接受
+  (`self_rsvp_status=accept`) 的日程，并按 `references/report-calendar-meetings.md` 尝试 digest
+  可访问的纪要、妙记转写和直接关联文档。该范围由报告功能固定授权，不注册 routine Profile，
+  不搜索日程外会议或递归文档依赖。
 - 默认时间：工作日 20:30 生成当天日报；周一 09:30 生成上一完整 ISO 周周报。安装时以
   `context.md` 时区解释，并允许用户修改日期、时间与通知偏好。
 - 默认补偿检查为每天 08:30、12:30、18:30、22:30。它不是另一份报告计划：已成功的 period
@@ -161,5 +165,7 @@ bin/byteworker report-automation check \
 - 成功生成报告并完成知识库本地提交后，调用 `complete --run-status success`。
 - 取得租约后的任何失败都尽力调用 `complete --run-status failed --error-code <稳定错误码>`；
   不把宿主“进程正常退出”当成报告成功。
-- OAuth、Permission Denied、分页不完整、外部来源超时、KB dirty/remote、引用无法回原文时
-  按对应流程 fail closed。允许报告不存在，不允许生成无证据的假报告。
+- routine 来源的 OAuth、Permission Denied、分页不完整、外部来源超时，以及 KB dirty/remote、
+  引用无法回原文时按对应流程 fail closed。报告周期日历枚举失败或不完整同样 fail closed；单个
+  accepted 日程确实没有产物或某个产物不可访问时按会议发现协议记录覆盖缺口后继续。允许报告
+  不存在，不允许把不可访问内容写成事实。

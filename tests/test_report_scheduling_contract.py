@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import unittest
 
 
@@ -60,6 +61,57 @@ class ReportSchedulingContractTests(unittest.TestCase):
         weekly = self.read("templates/report-automation-weekly.md")
         self.assertIn("所有已登记且启用", daily)
         self.assertIn("所有已登记且启用", weekly)
+
+    def test_reports_discover_accepted_calendar_meeting_artifacts(self):
+        routes = json.loads(self.read("references/workflow-routes.json"))
+        calendar_reference = "references/report-calendar-meetings.md"
+        self.assertIn(calendar_reference, routes["workflows"]["report"]["required"])
+
+        discovery = self.read(calendar_reference)
+        for term in (
+            "calendar +agenda --as user",
+            "self_rsvp_status=accept",
+            "calendar +meeting",
+            "vc +detail",
+            "note +detail",
+            "drive metas batch_query",
+            "minutes +detail",
+            "feishu_doc",
+            "feishu_minutes",
+            "status=committed",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, discovery)
+
+        for path in (
+            "SKILL.md",
+            "references/report-scheduling.md",
+            "references/periodic-report.md",
+            "templates/report-automation-daily.md",
+            "templates/report-automation-weekly.md",
+            "templates/report-automation-recovery.md",
+        ):
+            with self.subTest(path=path):
+                text = self.read(path)
+                self.assertIn("report-calendar-meetings.md", text)
+                self.assertIn("self_rsvp_status=accept", text)
+
+    def test_calendar_discovery_is_bounded_and_fail_closed(self):
+        discovery = self.read("references/report-calendar-meetings.md")
+        scheduling = self.read("references/report-scheduling.md")
+        architecture = self.read("docs/development/ARCHITECTURE.md")
+        for term in (
+            "REPORT_CALENDAR_DISCOVERY_FAILED",
+            "REPORT_CALENDAR_DIGEST_FAILED",
+            "不注册 routine",
+            "不递归",
+            "不主动申请",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, discovery)
+        self.assertIn("日历枚举失败或不完整同样 fail closed", scheduling)
+        self.assertIn("覆盖完整范围", architecture)
+        self.assertIn("PROMPT_VERSION = 3", self.read("lib/report_automation.py"))
 
     def test_recovery_task_checks_last_success_before_retrying(self):
         recovery = self.read("templates/report-automation-recovery.md")

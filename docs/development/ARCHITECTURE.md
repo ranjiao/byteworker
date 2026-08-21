@@ -318,10 +318,11 @@ flowchart TB
         R0["获取跨日报 / 周报单租约"]
         R1["确定时间范围"]
         R2["完整运行全部启用的<br/>routine digest"]
-        R3["查询 nodes / raw / journal"]
-        R4["生成带出处候选<br/>KB mutation 原子写入"]
-        R5["记录成功 / 失败并释放租约"]
-        H1 --> R0 --> R1 --> R2 --> R3 --> R4 --> R5
+        R3["完整枚举 accepted 日程<br/>best-effort 发现会议产物"]
+        R4["会议产物先 digest<br/>再查询 nodes / raw / journal"]
+        R5["生成带出处候选<br/>KB mutation 原子写入"]
+        R6["记录成功 / 失败并释放租约"]
+        H1 --> R0 --> R1 --> R2 --> R3 --> R4 --> R5 --> R6
     end
 
     subgraph State["用户状态"]
@@ -346,7 +347,10 @@ flowchart TB
 自动日报和周报的调度归宿主管理，byteworker 不另起常驻服务，也不把系统 cron 当兼容兜底。
 任务必须在知识库目录、宿主 `local` 环境中运行；云端 routine 和隔离 worktree 无法可靠访问或
 写回私有知识库。两类自动报告每次都完整运行已登记且启用来源的 routine digest，不使用
-`.last-routine-digest` 的七天交互提醒阈值跳过。`report_automation` 记录
+`.last-routine-digest` 的七天交互提醒阈值跳过；随后完整枚举报告周期内用户主日历中
+`self_rsvp_status=accept` 的日程，best-effort 发现纪要、妙记转写和直接关联文档，并把可读取
+产物先经标准 digest transaction 落库再召回。日历发现是报告周期限定的上层编排，不创建
+CaptureProfile、不搜索即时会议、不递归文档依赖。`report_automation` 记录
 `last_attempt/last_run/last_success` 并确定性判断指定 period 是否缺口；单租约只防止同一知识库
 重叠运行。周期性补偿仍由第三个宿主原生任务唤醒，应用服务不承担任务唤醒、不常驻、不使用
 系统 cron。
@@ -792,6 +796,9 @@ Bundle”误认为“也必须有同形态网络 capture”：
   `--request` 只接受临时或 KB 内 JSON 文件路径，内联 JSON 和不存在路径使用不同稳定错误码。
 - `feishu_meeting` 是日历、妙记、投屏文档组成的复合编排，不注册伪造的单来源 adapter；
   各物件先各自产生 Bundle，再由 meeting/batch 流程组合。
+- 报告周期日历发现复用上述复合编排：Calendar 只负责完整枚举 accepted event 和提供 event
+  元信息，纪要 / 共享文档分别进入 `feishu_doc` Bundle，妙记 transcript 进入
+  `feishu_minutes` Bundle。该通道没有 Profile，也不能把 Calendar 响应伪造成 raw / Bundle。
 - `source_capture.py` 暂时是结构化来源兼容实现，不应继续吸收
   transaction/query/CLI 分支。
 
@@ -1083,9 +1090,11 @@ URL 凭据污染包括 userinfo，以及 query/fragment 中大小写、百分号
 IM 阈值不一致、未知 reason code、缺 message evidence 和 context 超硬预算也必须 fail closed，
 不能让 Agent 用自由文本解释绕过。
 
-自动报告另有三条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
-digest 事务失败时不得继续生成“看似完整”的报告；报告、journal 或本地 Git 回滚点未完成时
-不得记录成功。获取到其他运行中的有效租约时应安静退出并保留现有租约，不能并发写同一 KB。
+自动报告另有四条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
+digest 事务失败时不得继续生成“看似完整”的报告；报告周期 Calendar 枚举必须使用 user 身份且
+覆盖完整范围，失败 / 截断时不得把结果降级成“没有会议”；单会议产物允许 best-effort，但已抓取
+产物必须 digest committed 后才能进入报告；报告、journal 或本地 Git 回滚点未完成时不得记录
+成功。获取到其他运行中的有效租约时应安静退出并保留现有租约，不能并发写同一 KB。
 Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `reports/<kind>/<period>.md`
 归档快照，不调用 TraeWork、Codex、Claude Code 等宿主私有预览接口。HTML 必须自包含且不加载
 外部脚本、样式、字体、图片或网络资源；宿主可自行预览，不能预览时返回本地文件链接。飞书发送失败只影响对应 outbox，

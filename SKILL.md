@@ -166,10 +166,10 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 
 ## 报告、Todo 与 Doctor
 
-自动日报/周报每次先运行完整 **routine digest**，不受 `.last-routine-digest` **七天**提醒限制；
-只重放所有已登记且启用的来源，不新增来源、不扩大范围、不发起 OAuth。报告候选通过 mutation
-保留“手动补充 / 备注”，commit 后才调用 report-automation complete。调度细则见
-`references/report-scheduling.md`。
+自动日报/周报先完整 **routine digest**（不受七天限制），再按周期枚举主日历
+`self_rsvp_status=accept` 日程；可访问的纪要、妙记转写和直接关联文档先 digest 后入报告，不建
+routine、不递归、不 OAuth / 申请权限。mutation 保留手动备注，commit 后 complete。细则见
+`references/report-calendar-meetings.md`。
 
 Todo 以自然语言为主，内部 id 不要求用户记忆。digest 识别出的 Todo 只是候选，用户确认后才写。
 
