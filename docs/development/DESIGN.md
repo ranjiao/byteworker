@@ -245,6 +245,14 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
   `last_run` 作为兼容值；不得仅凭报告文件存在推断成功。
 - 自动日报和自动周报每次都必须先完整执行所有已登记且启用来源的 routine digest，再生成报告；
   这条执行契约不受 `.last-routine-digest` 的七天交互提醒阈值限制。
+- routine 完成后必须按报告时区完整枚举目标 period 的主日历，只选择
+  `self_rsvp_status=accept` 的日程实例。Calendar 枚举是报告固定发现通道，不写 Profile / raw；
+  其直接会议纪要 / 共享文档按 `feishu_doc`、妙记 transcript 按 `feishu_minutes` 进入标准
+  SourceBundle 和 digest transaction。Calendar 授权、分页或范围不完整时报告失败；单场会议
+  没有产物或单个产物不可访问时记录覆盖缺口，不发起 OAuth / 权限申请、不切身份、不递归依赖。
+- 只有 committed 的会议 raw / event / provenance 能作为报告事实输入；`noop` 复用既有证据，
+  临时 Calendar / VC / Note / Minutes 响应不直接写入报告。报告回执另记录 accepted 日程、发现
+  产物、committed / noop 与不可用原因计数，但不保存会议正文。
 - owner 迁移时，`release-owner` 保存 daily/weekly/recovery 的 enabled/schedule/native_task_id
   snapshot，确认无有效租约后禁用 legacy owner；`restore-owner` 只有在 Dreaming report jobs 已
   关闭时才能按 snapshot 恢复。历史 last_success 保留并导入 Dreaming，避免重复 period。

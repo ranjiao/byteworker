@@ -116,6 +116,7 @@
         "references/machine-protocol.md",
         "references/report-scheduling.md",
         "references/periodic-report.md",
+        "references/report-calendar-meetings.md",
         "references/digest-routine.md",
         "references/kb-mutation.md",
         "references/citations.md"
@@ -156,7 +157,7 @@
     "thinking": 22000,
     "dashboard": 26000,
     "dreaming": 18500,
-    "report": 40000,
+    "report": 45000,
     "digest": 48000
   }
 }

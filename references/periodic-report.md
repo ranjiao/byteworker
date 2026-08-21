@@ -30,22 +30,32 @@ byteworker skill 负责报告方法，Codex / Claude / TraeWork 等 harness 负�
      及对应 source type/features，不能用“标准流程”隐式代替公共 digest 闭包。
    - **自动日报每次都必须执行完整 routine digest**；自动周报和用户补跑也一样。这一步不受
      `.last-routine-digest` 是否到期或七天提醒阈值限制。
-   - 只重放已登记且启用的 routine 来源；无人值守运行不得新增来源、扩大范围、发起 OAuth 或
-     静默切换身份。授权 / 资源权限未就绪时 fail closed。
+   - routine 阶段只重放已登记且启用的来源；除第 4 步固定日历发现外，无人值守运行不得新增
+     来源、扩大范围、发起 OAuth 或静默切换身份。routine 授权 / 资源权限未就绪时 fail closed。
    - 即便没有增量,也要追加 journal,并把当天日期写入 `.last-routine-digest`。
 3. **确定报告范围**
    - 自动日报：执行当天 00:00 到当前时刻；补跑给定 `YYYY-MM-DD` 时取该自然日完整范围。
    - 自动周报：上一完整 ISO 周；补跑给定 `YYYY-Www` 时取对应 ISO 周。
-4. **召回事实源**
+4. **发现并 digest 已确认参加的会议**
+   - 必读 `references/report-calendar-meetings.md`。用报告时区和上述范围完整查询主日历，只保留
+     `self_rsvp_status=accept` 的日程。
+   - 尝试读取每个 accepted 日程的用户会议纪要、AI 纪要 / 逐字稿文档、妙记 transcript、会中
+     共享文档和日程直接关联文档。可读取内容必须先走对应 digest route 并 committed，不能把
+     临时抓取结果直接写进报告。
+   - 日历枚举授权 / 分页 / 范围不完整时 fail closed。单场会议没有产物或单个产物不可访问时不
+     申请权限、不切身份，记录覆盖缺口后继续。
+5. **召回事实源**
    - 读范围内 `journal/` 行。
    - 扫范围内新增/更新的 `raw_data/` frontmatter:按 `ingested`、`source_window`、`digest_period` 判断归属。先按 docs/development/DESIGN.md §2.1 规范化时间:`ingested` / `source_window` 用完整 ISO8601,日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`。
    - 扫范围内新建/更新的 `knowledge/` 节点:优先读取 `event` / `decision`,再读取被它们 links 指向的 `project` / `person` / `org` / `area`。
    - 对用户本人、团队、直属主管方向、`dashboard.md` 长期关注项做一跳图遍历补充。
-5. **筛选重要性**
+   - 把上一步新 committed 的会议 event / raw / provenance 纳入同一范围；同一来源已 `noop` 时
+     不重复计数，也不把“参加过会议”本身写成业务进展。
+6. **筛选重要性**
    - 必纳入:明确决策、项目状态变化、关键指标明显变化、事故/风险/阻塞、跨团队协作变化、与你本人或团队直接相关的关键交互。
    - 可纳入:重要技术路线、资源 / 排期 / 人力变化、对下周有动作含义的讨论。
    - 排除:纯同步流水、重复摘要、寒暄、无留存价值的低信号消息。
-6. **写报告**
+7. **写报告**
    - 写入前确保 `reports/daily/` 与 `reports/weekly/` 目录存在;老知识库没有这些目录时直接创建。
    - `daily` 复制 `templates/report-daily.md` 的结构,写到 `reports/daily/<YYYY-MM-DD>.md`。
    - `weekly` 复制 `templates/report-weekly.md` 的结构,写到 `reports/weekly/<YYYY>-W<WW>.md`。
@@ -57,7 +67,7 @@ byteworker skill 负责报告方法，Codex / Claude / TraeWork 等 harness 负�
      不能单独充当原始出处。不要写无来源结论。
    - 无命中章节写"暂无",不要编造。
    - 日报和周报最重要的章节是「本日重点 / 本周重点」,一定确保最重要的进展、重要人物观点、重要决策都明确录入,同时保证整体篇幅尽可能精简。
-7. **写入收尾**
+8. **写入收尾**
    - 生成完整候选报告，用 `kb-mutation.md` 的 `replace` 或
      `replace_preserving_sections` 执行；工具统一保留手动章节、追加 journal、精确暂存、commit
      和失败回滚。Agent 不直接改报告或 Git。
@@ -103,8 +113,9 @@ scanner。只有已 committed 且满足报告 policy 的 Finding 才能经 Dream
 
 ## 4. 与其它能力的边界
 
-- `digest` 负责把外部资料消化成节点；自动日报 / 周报每次都在开头运行 routine digest，但不
-  替代用户指定 URL 的深度摄取，也不授权新增 routine 来源。
+- `digest` 负责把外部资料消化成节点；自动日报 / 周报每次都在开头运行 routine digest，并额外
+  执行严格限于报告周期 accepted 日程的会议产物发现。后者不替代用户指定 URL 的深度摄取，也不
+  授权新增 routine 来源或日程外依赖。
 - `dashboard` 是实时视图；日报 / 周报是归档快照。
 - `context.md` 只读,用作判断"与你和团队相关"的透镜;报告中提到 context 推导时标为"你的视角"或"建议",不要当客观事实。
 - `todo.md` 是用户行动状态源;报告只引用当前快照,不在报告正文里维护完成 / 延期状态。

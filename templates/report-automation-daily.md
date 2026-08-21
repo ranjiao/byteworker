@@ -11,13 +11,17 @@ workflow。context 只用 `context view --intent report`，不得依赖其它 se
    `report-automation check --kind daily --period <今天>`。`complete/disabled/busy` 安全退出；
    只有 `should_run=true` 才获取自动报告租约，不并发写知识库。
 2. **每次都先运行完整 routine digest**：重放所有已登记且启用的 routine 来源，不受
-   `.last-routine-digest` 的七天提醒阈值限制。没有增量也要完成例程回执。不得自动新增来源、
-   扩大摄取范围、发起 OAuth、切换身份或在权限失败后继续。
-3. digest 完成后，生成当天 00:00 至当前时刻的日报，写入
+   `.last-routine-digest` 的七天提醒阈值限制。没有增量也要完成例程回执。routine 阶段不得自动
+   新增来源、扩大范围、发起 OAuth、切换身份或在权限失败后继续；下一步固定日历发现是唯一例外。
+3. 按 `references/report-calendar-meetings.md` 完整查询当天 00:00 至当前时刻的主日历，只处理
+   `self_rsvp_status=accept` 的日程；尝试把可访问的纪要、妙记 transcript 和直接关联文档先
+   digest。日历枚举不完整则失败；单个会议没有产物或单产物不可访问时记录覆盖缺口，不申请
+   权限、不 OAuth、不切身份、不递归日程外资料。
+4. digest 完成后，生成当天 00:00 至当前时刻的日报，写入
    `reports/daily/<YYYY-MM-DD>.md`。保留已有“手动补充 / 备注”，事实逐条带 `[S<n>]` 并回到
    原始来源；无法核实的内容不写成事实。
-4. 用 `kb-mutate validate/execute` 保存报告；由事务保留手动章节、追加 journal、精确 commit
+5. 用 `kb-mutate validate/execute` 保存报告；由事务保留手动章节、追加 journal、精确 commit
    和失败回滚。永不配置 remote、永不 push、永不发送报告。
-5. 只有报告文件和本地提交真实完成后，才用租约 token 记录 success；取得租约后的失败要记录
+6. 只有报告文件和本地提交真实完成后，才用租约 token 记录 success；取得租约后的失败要记录
    failed 和稳定错误码。最终只汇报报告路径、digest 来源/增量数量、提交回执或明确阻塞，
-   不输出业务原文。
+   以及 accepted 日程 / 会议产物 / 覆盖缺口计数，不输出业务原文。

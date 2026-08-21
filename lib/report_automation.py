@@ -18,7 +18,7 @@ from report_owner import report_owner_lock
 
 STATE_SCHEMA = "byteworker-report-automation/v1"
 ONBOARDING_VERSION = 1
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 KINDS = {"daily", "weekly"}
 RUN_STATUSES = {"success", "failed"}
 DAILY_PERIOD_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
