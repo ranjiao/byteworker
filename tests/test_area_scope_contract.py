@@ -9,10 +9,10 @@ class AreaScopeContractTests(unittest.TestCase):
     def read(self, relative_path: str) -> str:
         return (ROOT / relative_path).read_text(encoding="utf-8")
 
-    def test_skill_requires_explicit_area_scope(self):
-        skill = self.read("SKILL.md")
-        self.assertIn("标题和概述必须显式写出业务、团队或个人限定语", skill)
-        self.assertIn("不得合并成看似公司级的通用方法论", skill)
+    def test_routed_write_rules_require_explicit_area_scope(self):
+        rules = self.read("references/write-rules.md")
+        self.assertIn("`title` 与正文 H1", rules)
+        self.assertIn("不代表其它业务 / 团队或公司级共识", rules)
 
     def test_digest_and_update_share_area_scope_boundary(self):
         write_rules = self.read("references/write-rules.md")

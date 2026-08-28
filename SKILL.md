@@ -56,6 +56,8 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 `references/workflow-routes.json` 是可机器检查的加载闭包。确定意图后只加载对应 workflow 的
 `required`，再按 source type/features 加条件文件；失败时才加载 `on_error`。不得用“普通流程”
 代替显式闭包，也不得为了找一个命令整读其它能力。
+隔离 worker 或动态输入接近上限时按 `references/workflow-budgets.md` 获取完整 token budget receipt；
+超预算执行固定 action，不静默截断证据。
 
 公共 CLI envelope 见 `references/machine-protocol.md`。统一使用
 `bin/byteworker <tool> ...`；直接飞书 CLI 用 `bin/byteworker lark ...`，辅助脚本用
@@ -65,7 +67,7 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 
 - search：`references/command-search.md` + `references/citations.md`
 - update：`references/command-update.md` + `references/conflict-policy.md` +
-  `references/kb-mutation.md`
+  `references/kb-mutation.md` + `references/write-rules.md`
 - brief：`references/command-brief.md` + `references/command-search.md` +
   `references/citations.md`
 - dashboard：`references/command-dashboard.md` + `references/kb-mutation.md` +
@@ -113,14 +115,14 @@ digest：
 `digest-routine.md`。Wiki 空间探索先读 `references/digest-wiki-space.md`，确认页面后按
 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
-`SourceBundle v2` 经 `digest-analysis-pipeline.md` / `digest-concurrency.md` 生成
-`digest-plan/v2`；
-preflight 后直接运行 `execute`（含锁内复验）；独立 `validate` 只用于失败排障，多来源用
+标准无语义阶段按 `references/digest-flow.md` 统一走 `digest-flow`；`SourceBundle v2` 经
+`digest-analysis-pipeline.md` / `digest-concurrency.md` 生成 `digest-plan/v2`。候选完成后运行
+`digest-flow commit`（内部 execute 含锁内复验）；独立 `validate` 只用于失败排障，多来源用
 `digest-batch-plan/v2`。Agent 做语义判断、冲突分类；事务负责 hash/schema/INDEX/journal/
 commit/rollback；只认 `status=committed`。
 
-按 `references/digest-observability.md` 建 `run_id`；事务传 `--run-id`，终态须
-`digest-run complete`。
+标准路径由 `digest-flow` 自动建立 `run_id`、记录确定性阶段并结束终态；只有恢复或诊断时才按
+`references/digest-observability.md` 手工调用底层日志命令。
 
 事实 `[E1]` 绑raw，主记录设 `primary_source`。raw / Bundle 的 `source_title`
 留原题；宽泛时，按来源可确认的作者、团队、项目/周期命名；不明标“归属待确认”。
@@ -146,19 +148,8 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 - Agent 不直接执行 temp、INDEX、journal、git add/commit 或失败回滚。
 - mutation 候选与 plan 放系统临时目录或 KB，不得进入 skill 仓库。
 - knowledge mutation 必须按唯一 `conflict-policy.md` 声明 disposition；来源较新不等于可覆盖。
-- 新建或更新 `area` 主题领域节点时，标题和概述必须显式写出业务、团队或个人限定语；同一主题在
-  不同业务中的节奏、指标、技术判断与共识分别保存，不得合并成看似公司级的通用方法论。无法从
-  来源确认归属时先保留为 reading/project 并披露边界，不创建宽泛 `area`。
-- 新建或更新内部 `org` 时，名称优先使用飞书通讯录返回的完整正式部门路径；通过
-  `resolve-users.sh --format json` 的实时结果与已有 person 的 `department_path` 交叉核对，不按
-  口语简称或路径片段臆造组织。组织负责人必须来自用户确认或明确权威来源，不能从成员、职级、
-  文档作者或会议角色推断；未确认时询问用户并显式标记“待用户确认”。人员的**通讯录当前归属**、
-  **管理职责**和**汇报关系**是三类独立事实，分别记录来源与日期：用户确认某人负责更细组织或
-  向某人汇报时，不得据此伪造或覆盖较粗的 `department_path`；目录只返回祖先路径、与管理职责
-  不同或暂未更新时并列披露。用户给出账号简称、异体姓名或英文名时先用通讯录与 `feishu_id`
-  对齐已有 person，唯一命中才复用，禁止创建重复人物。项目协作、会议同现和历史链接不证明当前
-  成员关系或组织层级；用户纠正归属时修正当前 TL;DR、基本信息和 links，同时把旧关系作为带日期
-  的历史协作保留。
+- area/org/person 的范围、目录证据、负责人和关系分型统一按 `references/write-rules.md`；digest
+  与 update 的机器路由都必须包含它，不在常驻入口复制细则。
 
 ## 知识库检索回答引用(每次必做)
 
@@ -186,64 +177,10 @@ doctor 默认只读调用 `bin/doctor.py` 对应 facade；交互请求只有用�
 
 ## Dreaming
 
-Dreaming 是可选后台 orchestration layer，默认关闭。用户明确要求启用时先读取
-`references/dreaming.md`、`references/dreaming-onboarding.md` 和
-`references/dreaming-setup-guide.md`。用户说“设置自动信息分析”“每天汇总重要信息”“重要风险
-及时提醒”“调整后台频率/范围”“为什么没有自动运行/摘要”或“继续设置”时，也进入设置向导。
-优先使用 Codex / TraeWork 的结构化选项控件；不可用时使用编号选项。
-
-面向用户一律使用“后台信息助手、自动检查、待关注事项、定时摘要、紧急提醒、本地定时任务”等
-自然语言，不直接展示 `operational`、`persist_report`、`instant_alert`、`harness`、grant、
-Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项时只问该项和依赖。所有选择用
-自然语言汇总并取得确认后才写配置；完成后只展示 `dreaming-setup-guide.md` 定义的用户状态卡。
-
-首次启用仍须完整介绍它与 digest 的差异、能力、默认授权、隐私、成本、机器条件、维护和退出
-方式；不能只给一句成本提示。启用前必须让用户配置并确认完整 schedule；导览、schedule、机器
-条件都明确确认后，才能传 `--acknowledge-capability-tour --acknowledge-schedule
---acknowledge-machine-runtime` 并创建宿主 local 任务。
-
-- 普通安装、升级、preflight 和其它命令不得自动启用或反复询问。
-- process 支持按分钟间隔、每天固定时间、每 N 天固定时间；不得静默套用默认频率。先运行
-  `dreaming configure`，回显所有 job、timezone、日志保留期和 `next_due_at`，再询问确认。
-- `enabled=true` 不等于会自动运行。宿主任务真实创建后必须 `dreaming harness register`；
-  只有 `harness.status=installed` 且 `operational=true` 才能声称后台已配置完成。
-- 检测到 TRAE 产品家族环境时必须加载 `references/dreaming-harness-trae.md`，先区分具体产品。
-  只有 TraeWork 桌面版支持 Dreaming 所需的本地自动化任务；TRAE IDE/TraeCode（包括其内置
-  SOLO 模式）不得创建或登记任务，必须提示用户切换到 TraeWork 桌面版。TraeWork 会话没有
-  Schedule 工具时，才引导用户在“自动化”面板创建本地 Code 任务，按用户确认的唤醒间隔执行 runner 并
-  首次触发；没有真实任务和首次触发证据时保持 harness pending，禁止猜私有 API、改应用配置或
-  用 cron/launchd 冒充 Agent task。
-- 每次 lease 都有稳定 `run_id`。runner 在采集、分析、整合、动作、报告、维护和恢复等长阶段
-  调用 `dreaming heartbeat`，最终 `complete`；用户可用 `dreaming runs list/show/tail` 查询
-  `0600` 结构化运行日志。日志只含阶段、耗时、计数、error code 和 artifact path，不含 IM 正文。
-- process catch-up 成功后，runner 只能用该 `run_id` 受限 follow-up 一次报告 job；不得循环。
-- 启用默认不接管现有日报/周报；接管需要单独确认旧 scheduler owner 已释放。
-- Dreaming local state 使用 `byteworker-dreaming/v2`；读取已有 v1 时由确定性状态层先写本地私密
-  备份再迁移。迁移失败保持 Dreaming 关闭，不得阻塞其它命令或让 Agent 手改 state JSON。
-- IM grant 默认 `off`。`all_visible` 会读取 P2P 和免打扰会话，只有用户明确确认后才可设置；
-  `process prepare` 只生成私密 EvidenceBatch，不调用模型、不写 Finding/报告/知识。
-- `process prepare` 后的 Agent 分析必须读 `references/dreaming-analysis.md`；Finding 持久与去重
-  规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
-- 任何报告、Todo、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
-  下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
-- Dreaming owner 下的 morning/daily/weekly 按 `references/dreaming-reports.md` 消费 committed
-  Finding 和 KB；不得再次完整 routine digest，也不得与旧 report automation 双 owner。
-- Dreaming 报告一次生成结构化语义结果，再确定性渲染 300–500 字消息摘要、Agent 内部 Markdown
-  和面向用户的自包含 HTML。所有宿主都回显摘要和 HTML 本地路径；支持时可预览，不支持时返回
-  文件链接。不得调用或假设 TraeWork、Codex、Claude Code 等宿主的私有 HTML 接口。
-- 飞书摘要仅在用户明确启用应用机器人投递并配置收件人后发送；投递固定使用
-  `bin/byteworker lark im +messages-send --as bot --user-id <ou_...> --text <格式化摘要>
-  --idempotency-key <outbox_id>`。不要给 `lark auth status` 传 `--as`。配置可填字母用户名，
-  但必须唯一解析为 open_id；歧义或查不到时拒绝。真实 `message_id` 才表示送达；发送失败不能
-  声称用户已收到。
-- maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行 finding
-  明确声明的确定性低风险修复；剩余重要 error/证据风险/自动化阻断项给用户有限摘要并等待决策。
-- 前台单次处理、Finding review/explain/feedback 和私有 shadow 评估按
-  `references/dreaming-review.md`；foreground 不得隐式启用后台或持久化 Finding。
-- 用户明确要求分析今天、昨天或指定窗口的 IM 时，使用 foreground
-  `dreaming process once --source im`；独立 Inbox 已移除，旧命令只返回 `INBOX_REMOVED`。
-- Dreaming 只通过公开 `bin/byteworker` 命令调用既有能力，不 import digest/query 内部模块。
-- Dreaming 禁用、失败或状态损坏不能阻塞 digest/search/update 等既有能力。
+Dreaming 是默认关闭的可选后台层。仅在用户明确要求设置、启用、调整、排障或前台单次分析时，
+解析 manifest 的 `dreaming` 闭包及对应 `configure/enable/harness_trae/maintenance` feature；普通
+preflight 和其它 workflow 不加载、不启用、不反复询问。全部授权、宿主、运行、Finding、Action、
+报告和维护边界以这些按需 reference 为准；Dreaming 失败不得阻塞其它 workflow。
 
 ## 安全与架构
 

@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from workflow_budget import estimate_tokens, inspect_budget
+
 
 PARALLEL_PLAN_SCHEMA = "byteworker-digest-parallel-plan/v1"
 PARALLEL_SHARD_SCHEMA = "byteworker-digest-parallel-shard/v1"
@@ -19,11 +21,26 @@ REDUCE_PACKET_SCHEMA = "byteworker-digest-reduce-packet/v1"
 ANALYSIS_PACKET_SCHEMA = "byteworker-digest-analysis-packet/v1"
 CONFLICT_CANDIDATES_SCHEMA = "byteworker-conflict-candidates/v1"
 MAX_WORKERS = 4
-DEPENDENCY_PARALLEL_THRESHOLD = 12
-SEMANTIC_ITEM_THRESHOLD = 500
-SEMANTIC_BYTE_THRESHOLD = 1024 * 1024
-CONFLICT_QUERY_THRESHOLD = 8
-CONFLICT_CANDIDATE_THRESHOLD = 20
+MIN_PARALLEL_ITEMS = {"dependency": 32, "semantic": 200, "conflict": 16}
+SOURCE_TOKEN_FLOOR = {"dependency": 12_000, "semantic": 64_000, "conflict": 24_000}
+TARGET_SHARD_TOKENS = {"dependency": 16_000, "semantic": 64_000, "conflict": 24_000}
+PARALLEL_TOTAL_TOKEN_BUDGET = {
+    "dependency": 128_000,
+    "semantic": 512_000,
+    "conflict": 192_000,
+}
+OUTPUT_TOKENS_PER_ITEM = {"dependency": 40, "semantic": 120, "conflict": 80}
+INPUT_TOKENS_PER_SECOND = {"dependency": 1_000, "semantic": 800, "conflict": 800}
+OUTPUT_TOKENS_PER_SECOND = 50
+WORKER_STARTUP_MS = 8_000
+REDUCER_OVERHEAD_MS = 10_000
+MIN_WALL_SAVINGS_MS = 30_000
+MIN_WALL_SAVINGS_RATIO = 0.25
+WORKER_WORKFLOWS = {
+    "dependency": "digest_dependency_worker",
+    "semantic": "digest_semantic_worker",
+    "conflict": "digest_conflict_worker",
+}
 MACHINE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 REASON_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 DEFAULT_SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -132,17 +149,8 @@ def _dependency_work(value: Mapping[str, Any], input_bytes: int) -> dict[str, An
         {"_order": index, "_weight": max(1, len(json.dumps(item, ensure_ascii=False))), "value": item}
         for index, item in enumerate(candidates)
     ]
-    parallel = len(items) >= DEPENDENCY_PARALLEL_THRESHOLD
-    workers = max(2, math.ceil(len(items) / 8)) if parallel else 1
     return {
         "items": items,
-        "parallel": parallel,
-        "workers": workers,
-        "reason_codes": [
-            "DEPENDENCY_CANDIDATE_THRESHOLD"
-            if parallel
-            else "DEPENDENCY_INLINE_BELOW_THRESHOLD"
-        ],
         "shared": {"identity": value.get("identity", {})},
         "input_bytes": input_bytes,
     }
@@ -176,22 +184,8 @@ def _semantic_work(value: Mapping[str, Any], input_bytes: int) -> dict[str, Any]
                 }
             )
             order += 1
-    reasons = []
-    if len(items) >= SEMANTIC_ITEM_THRESHOLD:
-        reasons.append("SEMANTIC_ITEM_THRESHOLD")
-    if input_bytes >= SEMANTIC_BYTE_THRESHOLD:
-        reasons.append("SEMANTIC_BYTE_THRESHOLD")
-    parallel = bool(reasons) and len(items) > 1
-    workers = (
-        max(2, math.ceil(max(len(items) / 250, input_bytes / SEMANTIC_BYTE_THRESHOLD)))
-        if parallel
-        else 1
-    )
     return {
         "items": items,
-        "parallel": parallel,
-        "workers": workers,
-        "reason_codes": reasons or ["SEMANTIC_INLINE_BELOW_THRESHOLD"],
         "shared": {
             "identity": value.get("identity", {}),
             "outline": value.get("outline", []),
@@ -222,24 +216,160 @@ def _conflict_work(value: Mapping[str, Any], input_bytes: int) -> dict[str, Any]
                 "value": query,
             }
         )
-    reasons = []
-    if len(items) >= CONFLICT_QUERY_THRESHOLD:
-        reasons.append("CONFLICT_QUERY_THRESHOLD")
-    if total_candidates > CONFLICT_CANDIDATE_THRESHOLD:
-        reasons.append("CONFLICT_CANDIDATE_THRESHOLD")
-    parallel = bool(reasons) and len(items) > 1
-    workers = (
-        max(2, math.ceil(max(len(items) / 4, total_candidates / 10)))
-        if parallel
-        else 1
-    )
     return {
         "items": items,
-        "parallel": parallel,
-        "workers": workers,
-        "reason_codes": reasons or ["CONFLICT_INLINE_BELOW_THRESHOLD"],
         "shared": {"source_match": value.get("source_match", {})},
         "input_bytes": input_bytes,
+        "candidate_count": total_candidates,
+    }
+
+
+def _route_tokens(
+    workflow: str,
+    *,
+    skill_root: Path,
+    source_type: str = "",
+    features: Iterable[str] = (),
+) -> tuple[int, int]:
+    receipt = inspect_budget(
+        workflow=workflow,
+        source_type=source_type,
+        features=features,
+        root=skill_root,
+        manifest_path=skill_root / "references" / "workflow-routes.json",
+    )
+    measurement = receipt["measurement"]
+    tokens = int(measurement["static_rules_tokens"]) + int(
+        measurement["worker_prompt_tokens"]
+    )
+    source_budget = int(receipt["budget"]["source_packet_tokens"])
+    return tokens, source_budget
+
+
+def _wall_time_ms(
+    *, stage: str, source_tokens: int, output_tokens: int, workers: int
+) -> int:
+    input_ms = math.ceil(
+        source_tokens / INPUT_TOKENS_PER_SECOND[stage] * 1000 / max(1, workers)
+    )
+    output_ms = math.ceil(
+        output_tokens / OUTPUT_TOKENS_PER_SECOND * 1000 / max(1, workers)
+    )
+    return input_ms + output_ms
+
+
+def _plan_mode(
+    *,
+    stage: str,
+    value: Mapping[str, Any],
+    item_count: int,
+    max_workers: int,
+    skill_root: Path,
+) -> dict[str, Any]:
+    source_text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    source_estimate = estimate_tokens(source_text)
+    source_tokens = int(source_estimate["tokens"])
+    output_tokens = item_count * OUTPUT_TOKENS_PER_ITEM[stage]
+    identity = value.get("identity", {})
+    source_type = str(identity.get("source_type", "")) if isinstance(identity, Mapping) else ""
+    section_kinds = {
+        str(section.get("kind", ""))
+        for section in value.get("sections", [])
+        if isinstance(section, Mapping)
+    }
+    features = []
+    if "comment" in section_kinds or "comments" in section_kinds:
+        features.append("comments")
+    if "whiteboard" in section_kinds:
+        features.append("whiteboard")
+    if source_tokens >= SOURCE_TOKEN_FLOOR[stage]:
+        features.append("large_input")
+    inline_rules, _ = _route_tokens(
+        "digest",
+        skill_root=skill_root,
+        source_type=source_type,
+        features=features,
+    )
+    worker_rules, worker_source_budget = _route_tokens(
+        WORKER_WORKFLOWS[stage], skill_root=skill_root
+    )
+    reducer_rules, reducer_source_budget = _route_tokens(
+        "digest_final_reducer", skill_root=skill_root
+    )
+    proposed_workers = min(
+        max_workers,
+        MAX_WORKERS,
+        max(1, item_count),
+        max(2, math.ceil(source_tokens / TARGET_SHARD_TOKENS[stage])),
+    )
+    if max_workers == 1 or item_count < 2:
+        proposed_workers = 1
+    result_tokens = output_tokens
+    inline_total = inline_rules + source_tokens + output_tokens
+    parallel_total = (
+        proposed_workers * worker_rules
+        + source_tokens
+        + output_tokens
+        + reducer_rules
+        + result_tokens
+        + output_tokens
+    )
+    inline_wall = _wall_time_ms(
+        stage=stage, source_tokens=source_tokens, output_tokens=output_tokens, workers=1
+    )
+    parallel_wall = (
+        WORKER_STARTUP_MS
+        + _wall_time_ms(
+            stage=stage,
+            source_tokens=source_tokens,
+            output_tokens=output_tokens,
+            workers=proposed_workers,
+        )
+        + REDUCER_OVERHEAD_MS
+        + math.ceil(result_tokens / INPUT_TOKENS_PER_SECOND[stage] * 1000)
+    )
+    wall_savings = inline_wall - parallel_wall
+    savings_ratio = wall_savings / inline_wall if inline_wall else 0.0
+    max_shard_source_tokens = math.ceil(source_tokens / max(1, proposed_workers))
+    parallel_budget = PARALLEL_TOTAL_TOKEN_BUDGET[stage]
+    if max_workers == 1:
+        reason = "MAX_WORKERS_ONE"
+    elif item_count < MIN_PARALLEL_ITEMS[stage]:
+        reason = "INSUFFICIENT_WORK_ITEMS"
+    elif source_tokens < SOURCE_TOKEN_FLOOR[stage]:
+        reason = "SOURCE_TOKENS_BELOW_PARALLEL_FLOOR"
+    elif max_shard_source_tokens > worker_source_budget:
+        reason = "WORKER_SOURCE_BUDGET_EXCEEDED"
+    elif result_tokens > reducer_source_budget:
+        reason = "REDUCER_SOURCE_BUDGET_EXCEEDED"
+    elif parallel_total > parallel_budget:
+        reason = "PARALLEL_TOTAL_TOKEN_BUDGET_EXCEEDED"
+    elif wall_savings < MIN_WALL_SAVINGS_MS or savings_ratio < MIN_WALL_SAVINGS_RATIO:
+        reason = "WALL_TIME_SAVINGS_BELOW_MINIMUM"
+    else:
+        reason = "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM"
+    parallel = reason == "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM"
+    return {
+        "use_parallel": parallel,
+        "workers": proposed_workers if parallel else 1,
+        "selection_reason_code": reason,
+        "estimator_method": source_estimate["method"],
+        "estimator_exact": source_estimate["exact"],
+        "source_tokens": source_tokens,
+        "inline": {
+            "estimated_total_tokens": inline_total,
+            "estimated_wall_time_ms": inline_wall,
+        },
+        "parallel_estimate": {
+            "estimated_total_tokens": parallel_total,
+            "estimated_wall_time_ms": parallel_wall,
+            "proposed_workers": proposed_workers,
+            "estimated_max_shard_source_tokens": max_shard_source_tokens,
+        },
+        "parallel_token_budget": parallel_budget,
+        "parallel_budget_remaining_tokens": max(0, parallel_budget - parallel_total),
+        "estimated_wall_savings_ms": wall_savings,
+        "estimated_wall_savings_ratio_millis": round(savings_ratio * 1000),
     }
 
 
@@ -294,8 +424,14 @@ def plan_parallel_work(
         "conflict": _conflict_work,
     }[stage](value, input_bytes)
     item_count = len(work["items"])
-    requested = min(max_workers, int(work["workers"]), max(1, item_count))
-    shard_count = requested if work["parallel"] else 1
+    decision = _plan_mode(
+        stage=stage,
+        value=value,
+        item_count=item_count,
+        max_workers=max_workers,
+        skill_root=skill_root,
+    )
+    shard_count = int(decision["workers"])
     buckets = _balanced(work["items"], shard_count) if item_count else [[]]
     input_hash = _canonical_hash(value)
     shard_entries = []
@@ -338,7 +474,13 @@ def plan_parallel_work(
         "stage": stage,
         "input_hash": input_hash,
         "mode": "parallel" if shard_count > 1 else "inline",
-        "reason_codes": work["reason_codes"],
+        "reason_codes": [decision["selection_reason_code"]],
+        "selection_reason_code": decision["selection_reason_code"],
+        "estimates": {
+            key: value
+            for key, value in decision.items()
+            if key not in {"use_parallel", "workers", "selection_reason_code"}
+        },
         "max_workers": max_workers,
         "shard_count": shard_count,
         "work_item_count": item_count,
@@ -351,6 +493,8 @@ def plan_parallel_work(
         "stage": stage,
         "mode": plan["mode"],
         "reason_codes": plan["reason_codes"],
+        "selection_reason_code": plan["selection_reason_code"],
+        "estimates": plan["estimates"],
         "plan_path": str(plan_path),
         "shard_count": shard_count,
         "work_item_count": item_count,

@@ -6,19 +6,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OrgDirectoryScopeContractTests(unittest.TestCase):
-    def test_skill_requires_official_department_path_and_confirmed_leader(self):
-        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    def test_routed_write_rules_require_official_department_path_and_confirmed_leader(self):
+        rules = (ROOT / "references/write-rules.md").read_text(encoding="utf-8")
 
-        self.assertIn("完整正式部门路径", skill)
-        self.assertIn("resolve-users.sh --format json", skill)
-        self.assertIn("person 的 `department_path`", skill)
-        self.assertIn("待用户确认", skill)
-        self.assertIn("不能从成员、职级", skill)
-        self.assertIn("通讯录当前归属", skill)
-        self.assertIn("管理职责", skill)
-        self.assertIn("汇报关系", skill)
-        self.assertIn("禁止创建重复人物", skill)
-        self.assertIn("项目协作、会议同现和历史链接不证明", skill)
+        for term in (
+            "完整正式部门路径",
+            "resolve-users.sh --format json",
+            "`department_path`",
+            "待用户确认",
+            "不得从职级、关键成员顺序",
+            "通讯录当前归属",
+            "管理职责",
+            "汇报关系",
+            "重复 person",
+            "项目协作、会议同现、周报署名",
+        ):
+            self.assertIn(term, rules)
 
     def test_digest_and_update_keep_directory_and_leader_evidence_distinct(self):
         digest_core = (ROOT / "references/digest-core.md").read_text(

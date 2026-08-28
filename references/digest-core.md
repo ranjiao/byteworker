@@ -2,7 +2,7 @@
 
 > 由 `SKILL.md`「digest」路由到这里。执行任何摄取前先读本文件,再按来源类型读取对应
 > `references/digest-*.md` 细则。分析阶段统一遵守 `references/digest-analysis-pipeline.md`，并发统一
-> 遵守 `references/digest-concurrency.md`。
+> 遵守 `references/digest-concurrency.md`。无语义阶段统一按 `references/digest-flow.md` 编排。
 
 ## 触发
 
@@ -13,7 +13,12 @@
 
 ## 主流程
 
-长流程状态输出:输入到达后先按 `references/digest-observability.md` 创建 `run_id`，再告诉用户本次会经历「分类 → 拉原文 → 幂等检查 → 分析预处理 → 依赖判断 → 语义分析 → 冲突检测 → 节点写入 → 回滚点」；每个真实阶段成对记录动作、状态、计数和耗时，只在真实阶段变化时回显一行短状态。单阶段超过 60 秒且没有变化时可发一次 heartbeat,只说阶段和数量,不要贴原文，也不要为发状态主动轮询。大型输入遵守 `references/digest-large.md`，主/子 Agent 不重复处理并复用同一 `run_id`。
+长流程状态输出：输入分类后用 `digest-flow start` 创建 `run_id/work_dir`，确定性阶段由 flow 自动
+记录；Agent 只为依赖/语义/冲突/候选等真实判断阶段打点。告诉用户本次会经历「分类 → 拉原文 →
+幂等检查 → 分析预处理 → 依赖判断 → 语义分析 → 冲突检测 → 节点写入 → 回滚点」，只在真实阶段
+变化时回显一行短状态。单阶段超过 60 秒且没有变化时可发一次 heartbeat，只说阶段和数量，不贴
+原文，也不为发状态主动轮询。大型输入遵守 `references/digest-large.md`，主/子 Agent 不重复处理并
+复用同一 `run_id`。
 
 1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` /
    `feishu_chat` / `meego` / `feishu_base` / `aeolus` / `web` / `local_md`。**若输入是一整场会议**
@@ -22,7 +27,8 @@
    飞书 Wiki **单页**仍归 `feishu_doc`；空间首页、整库探索或子树选择属于前置
    `feishu_wiki` 探索，先按 `references/digest-wiki-space.md` 得到用户确认的页面列表，
    不把整棵树当成一篇来源。
-2. **摄取原文** —— 独立只读组件按 `digest-concurrency.md` 有界并发，顺序分页与最终 coverage
+2. **摄取原文** —— 独立只读组件通过 `digest-flow capture` 按 `digest-concurrency.md` 有界并发，
+   顺序分页与最终 coverage
    校验保持串行:
    - `feishu_doc` → 用 `lark-doc +fetch --api-version v2 --detail with-ids` 读取文档正文,并按
      `references/digest-comments.md` 独立读取全部评论(含已解决)、完整回复链和正文锚点。
@@ -44,10 +50,10 @@
    - `local_md` → 直接读取本地文件，再通过 `source bundle --source-type local_md` 生成 Bundle。
    - `web` → 宿主浏览器抓取正文后，通过 `source bundle --source-type web` 生成 Bundle。
    失败按 `references/error-handling.md` 中止。
-3. **幂等检查** —— 来源 adapter 把本次实际摄取的正文、评论、白板或结构化快照写成系统
+3. **幂等检查** —— 来源 adapter 把本次实际摄取的正文、评论、白板或结构化快照交给
+   `digest-flow prepare`，写成系统
    临时目录中的 `byteworker-source-bundle/v2`。bundle 是来源身份、外部 component、coverage、
-   anchors 与 provider metadata 的唯一交接结构；通过机器协议运行
-   `bin/digest-txn.py preflight`(完整格式与命令见
+   anchors 与 provider metadata 的唯一交接结构；flow 自动运行 transaction preflight（完整格式见
    `references/digest-transaction.md`)。脚本计算 `source_uid` / `source_revision` /
    `digest_period` 或 `source_window` / 逐组件 hash / `content_hash` / `digest_key`;Agent不得
    手算或覆盖这些值。飞书文档评论变化不依赖正文 revision,白板变化也属于 payload 变化,不能因
@@ -61,8 +67,8 @@
      `source_uid/source_url + digest_period/source_window + content_hash` 以及可比的
      `body_hash` / `comment_hash` / `whiteboard_hash` 做兼容判重。必要时只补 raw
      frontmatter 的运维字段,不得改 raw 正文。
-4. **分析预处理与重要依赖判断(条件式用户闸门)** —— preflight 非 noop 后先运行一次
-   `digest-analysis prepare`，按 `references/digest-analysis-pipeline.md` 把正文、评论、白板、参与者
+4. **分析预处理与重要依赖判断(条件式用户闸门)** —— `digest-flow prepare` 在 preflight 非 noop
+   后自动运行一次 analysis prepare，按 `references/digest-analysis-pipeline.md` 把正文、评论、白板、参与者
    和 anchor 整理成系统临时 analysis packet。随后只消费 packet 的去重候选，按
    `digest-parallel plan --stage dependency` 的 inline/parallel 结果判断候选是否满足
    `references/digest-dependencies.md` 的「缺失会实质影响本次 digest 正确性或完整性」
@@ -149,11 +155,12 @@
    所有节点显式给 `evidence`,新节点至少一条；主记录设置 `primary_source`,关键事实句尾写
    `[E<n>]`,plan 中逐条映射到 `raw_id + anchor_id`;
    更新节点时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。
-   通过机器协议直接运行 `bin/digest-txn.py execute`:它会在任何写入前完成完整候选校验，并在锁内
+   通过机器协议运行 `digest-flow commit`；flow 委托 `digest-txn execute`，在任何写入前完成完整候选校验，并在锁内
    复验后原子写 raw/节点,重建 INDEX,追加
    journal,精确暂存本次路径并在知识库本地 git 创建 commit。只有 receipt
    `status=committed` 才算完成;`status=noop` 不得重复写。详见
-   `references/digest-transaction.md` 与 `references/write-rules.md`。独立 `validate` 只在 execute
+   `references/digest-flow.md`、`references/digest-transaction.md` 与 `references/write-rules.md`。
+   独立 `validate` 只在 execute
    返回候选校验错误时用于排障。多份来源需要共同更新节点
    或必须同成同败时，使用只引用各 SourceBundle 的 `digest-batch-plan/v2`，不得拆成多个可能
    留下半成品的提交；v1 只兼容历史调用。

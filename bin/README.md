@@ -114,6 +114,8 @@ cd "$BYTEWORKER_ROOT"
 | `session-preflight.py` | Agent / 自动化 | 每 session 一次合并启动检查 | 更新 skill 状态、Todo/报告本地状态检查 |
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
+| `digest-flow.py` | Agent / 维护者 | 自动编排无语义 digest 阶段并保存可恢复 checkpoint | 写 KB 已排除的 `state/digest/flows/`；commit 委派事务 |
+| `workflow-budget.py` | Agent / 维护者 | 展开完整 workflow 闭包并计算静态/动态 token 预算 | 只读规则与显式输入，返回方法、计数和固定 overflow action |
 | `digest-run.py` | Agent / 维护者 | 单输入全流程阶段、计数和耗时日志 | 写 KB 已排除的 `state/digest/run-logs/` |
 | `digest-analysis.py` | Agent / 维护者 | SourceBundle 单次结构去噪与分析 packet | 只写显式系统临时输出，不写 KB truth |
 | `digest-capture.py` | Agent / 维护者 | 最多 4 路执行已声明的只读 lark/comments 抓取 job | 原子写显式私密临时输出，不写 KB truth |
@@ -186,17 +188,46 @@ bin/byteworker dreaming status \
 
 ## 5. `digest-run.py`：端到端摄取耗时
 
-输入到达后立即 `start`，对 Agent 阶段成对调用 `stage started/completed|failed`，最终调用
-`complete`；`list/show` 返回总耗时和最慢阶段。完整阶段协议和隐私边界见
+输入到达后立即 `start`，对 Agent 阶段成对调用 `stage started/completed|failed`，宿主拿到模型
+usage 后调用 `usage`，最终调用 `complete`；`wait/resume` 显式排除用户等待时间，固定 6 小时没有
+lifecycle heartbeat 的非终态 run 显示 stale，活跃耗时截止最后事件。`list/show` 返回 active duration、
+最慢阶段和 token 汇总。完整
+阶段协议和隐私边界见
 `references/digest-observability.md`。
 
 ```bash
 bin/byteworker digest-run start --kb "$BYTEWORKER_KB"
+bin/byteworker digest-run usage --kb "$BYTEWORKER_KB" --run-id "$DIGEST_RUN_ID" \
+  --stage semantic_analysis --worker-role coordinator --usage-source measured \
+  --call-id "$MODEL_CALL_ID" --input-tokens 1200 --cached-input-tokens 900 \
+  --output-tokens 150 --reasoning-tokens 40
 bin/byteworker digest-run list --kb "$BYTEWORKER_KB" --limit 20
 bin/byteworker digest-run show --kb "$BYTEWORKER_KB" --run-id "$DIGEST_RUN_ID"
 ```
 
-## 5A. `digest-analysis.py`：一次性分析预处理
+## 5A. `digest-flow.py`：确定性生命周期编排
+
+标准 digest 先 `start`，capture 可多波执行，`prepare` 一次完成 Bundle、preflight、analysis packet
+和 dependency/semantic planner，最终 `commit` 委派 transaction。所有 request/plan 放返回的私有
+`work_dir`，中断后用 `status` 恢复。
+
+```bash
+bin/byteworker digest-flow start --kb "$BYTEWORKER_KB" --source-type local_md
+bin/byteworker digest-flow status --kb "$BYTEWORKER_KB" --run-id "$DIGEST_RUN_ID"
+```
+
+## 5B. `workflow-budget.py`：完整 workflow token 预算
+
+```bash
+bin/byteworker workflow-budget inspect --workflow digest \
+  --source-type feishu_doc --feature comments \
+  --context "$CONTEXT_PROJECTION" --source-packet "$ANALYSIS_PACKET"
+```
+
+回执分离静态规则、worker prompt、context、source packet、总输入与输出预算；没有固定 tokenizer 时
+明确返回带版本的保守估算。`over_budget` 只给固定 action，不截断文件。
+
+## 5C. `digest-analysis.py`：一次性分析预处理
 
 在 SourceBundle preflight 非 noop 后，把正文、评论、白板、参与者和 anchors 一次整理成系统临时
 analysis packet；stdout 只返回 path/hash 和计数，业务文本只存在权限 `0600` 的 packet 中。
@@ -212,7 +243,7 @@ bin/byteworker digest-analysis prepare \
 相同输入 hash 和输出路径会命中 packet cache。输出路径位于 skill 仓库时拒绝执行；传 `--run-id`
 时自动记录 `analysis_prepare` 的开始、完成或失败。
 
-## 5B. `digest-capture.py`：有界只读抓取
+## 5D. `digest-capture.py`：有界只读抓取
 
 接收系统临时 `byteworker-digest-capture-plan/v1`，最多 4 路执行独立 lark/comments job。每个 stdout
 原子写入显式 `0600` 输出；回执只含 job 状态、耗时、重试和字节数，不含正文。
@@ -221,7 +252,7 @@ bin/byteworker digest-analysis prepare \
 bin/byteworker digest-capture execute --request "$CAPTURE_PLAN"
 ```
 
-## 5C. `digest-parallel.py`：语义分片与归并
+## 5E. `digest-parallel.py`：语义分片与归并
 
 按固定阈值为 dependency、semantic、conflict 生成最多 4 个私密 shard；worker 结果必须完整覆盖
 plan，merge 才生成 reducer packet。工具只校验和分片，不做语义裁决。
@@ -231,7 +262,7 @@ bin/byteworker digest-parallel plan --stage semantic --input "$PACKET" --out-dir
 bin/byteworker digest-parallel merge --plan "$PLAN" --result "$R1" --result "$R2" --out "$REDUCE"
 ```
 
-## 5D. `digest-txn.py`：摄取事务
+## 5F. `digest-txn.py`：摄取事务
 
 `txn` 是 transaction 的缩写。该工具保证一次摄取要么完整写入，要么回滚，不留下半成品。
 

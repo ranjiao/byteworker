@@ -128,7 +128,7 @@ bin/byteworker digest-txn validate \
 事务做全库清洗。validate 失败先修 plan，不得绕过校验手工写库。不要在 validate 成功后把完整
 report、候选或 diff 再打印给模型；execute 会重复完成全部安全校验。
 
-### 2. execute（候选完成后的唯一标准写入口）
+### 2. execute（flow 委托的唯一底层写入口）
 
 ```bash
 bin/byteworker digest-txn execute \
@@ -140,8 +140,9 @@ bin/byteworker digest-txn execute \
 execute 会在获取知识库写锁后重新做 preflight 和基线校验。知识库已有 staged 变更，或本次目标
 路径已有未提交改动时中止；无关未暂存改动保留且不进入 commit。知识库 Git 若配置了任何
 remote 也中止,避免机密数据目录进入可推送状态；脚本自身没有 push 功能。
-`--run-id` 必须来自本次输入的 `digest-run start`；CLI 自动成对记录 preflight、诊断 validate 或
-execute 的阶段耗时和有限计数，Agent 不重复手工打点。日志降级会在 receipt 的
+标准路径通过 `digest-flow commit` 调用 execute；直接命令只用于诊断或受控恢复。`--run-id` 必须
+来自本次输入的 `digest-flow start`；CLI 自动成对记录 preflight、诊断 validate 或 execute 的阶段耗时
+和有限计数，Agent 不重复手工打点。日志降级会在 receipt 的
 `digest_run_logging` / `warnings` 中显式披露，但不得改变已经 committed 的事务事实。
 
 成功 receipt 至少包含：
