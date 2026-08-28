@@ -31,13 +31,86 @@ def _lark_runner(timeout: int) -> CommandRunner:
     )
 
 
+def _external_auth_status_unsupported(exc: SourceCaptureError) -> bool:
+    message = str(exc).lower()
+    details = exc.details
+    return (
+        exc.code == "SOURCE_CLI_ERROR"
+        and str(details.get("type", "")).lower() == "validation"
+        and str(details.get("subtype", "")).lower() == "invalid_argument"
+        and "auth" in message
+        and "externally" in (message + " " + exc.hint.lower())
+    )
+
+
+def _ready_status(*, verified: bool, method: str) -> dict[str, Any]:
+    return {
+        "schema_version": "byteworker-source-auth/v1",
+        "source_type": "feishu_chat",
+        "identity": "user",
+        "authenticated": True,
+        "verified": verified,
+        "authorized": None,
+        "ready": True,
+        "required_scopes": [],
+        "missing_scopes": [],
+        "scope_verification": "capture-time",
+        "verification_method": method,
+        "action": None,
+    }
+
+
+def _auth_status_from_whoami(runner: CommandRunner) -> dict[str, Any]:
+    response = runner.run(["whoami", "--as", "user"], provider="飞书").data
+    if not isinstance(response, dict):
+        raise SourceCaptureError(
+            "SOURCE_INVALID_RESPONSE",
+            "lark-cli whoami 返回的不是对象",
+        )
+    identity = str(response.get("identity", "")).lower()
+    token_status = str(response.get("tokenStatus", "")).lower()
+    if (
+        identity == "user"
+        and response.get("available") is True
+        and token_status in {"ready", "valid"}
+    ):
+        return _ready_status(verified=False, method="whoami-external")
+    return {
+        "schema_version": "byteworker-source-auth/v1",
+        "source_type": "feishu_chat",
+        "identity": "user",
+        "authenticated": False,
+        "verified": False,
+        "authorized": None,
+        "ready": False,
+        "required_scopes": [],
+        "missing_scopes": [],
+        "scope_verification": "capture-time",
+        "verification_method": "whoami-external",
+        "action": {
+            "kind": "configure_external_credentials",
+            "interactive": False,
+            "requires_qr": False,
+            "message": (
+                "当前宿主通过外部凭据提供飞书身份；请修复或重新注入可用的 user "
+                "凭据，然后重试。"
+            ),
+        },
+    }
+
+
 def _auth_status(runner: CommandRunner) -> dict[str, Any]:
     """Check the shared Lark user identity without claiming provider scopes."""
 
-    response = runner.run_status(
-        ["auth", "status", "--verify"],
-        provider="飞书",
-    ).data
+    try:
+        response = runner.run_status(
+            ["auth", "status", "--verify"],
+            provider="飞书",
+        ).data
+    except SourceCaptureError as exc:
+        if _external_auth_status_unsupported(exc):
+            return _auth_status_from_whoami(runner)
+        raise
     if not isinstance(response, dict):
         raise SourceCaptureError(
             "SOURCE_INVALID_RESPONSE",
@@ -63,6 +136,8 @@ def _auth_status(runner: CommandRunner) -> dict[str, Any]:
         )
     )
     ready = authenticated and verified
+    if ready:
+        return _ready_status(verified=True, method="auth-status")
     return {
         "schema_version": "byteworker-source-auth/v1",
         "source_type": "feishu_chat",
@@ -70,13 +145,12 @@ def _auth_status(runner: CommandRunner) -> dict[str, Any]:
         "authenticated": authenticated,
         "verified": verified,
         "authorized": None,
-        "ready": ready,
+        "ready": False,
         "required_scopes": [],
         "missing_scopes": [],
         "scope_verification": "capture-time",
-        "action": None
-        if ready
-        else {
+        "verification_method": "auth-status",
+        "action": {
             "kind": "login",
             "command": "lark-cli auth login --no-wait --json",
             "interactive": True,

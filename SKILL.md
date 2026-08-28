@@ -126,8 +126,9 @@ commit/rollback；只认 `status=committed`。
 留原题；宽泛时，按来源可确认的作者、团队、项目/周期命名；不明标“归属待确认”。
 person 用 `bin/resolve-users.sh --format json --jobs 4` 按 feishu_id 消解。
 
-Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用户并取得登录授权；运行时
-`source inspect / capture` 仍 fail closed。资源 Permission Denied 请求所有者共享，**禁止用重复登录或静默切 bot 掩盖**。
+Meego/Base/风神/群聊先做 `source auth-status`。宿主注入的 user 凭据失效时，要求重新注入，
+禁止用重复登录或静默切 bot 掩盖。其它未就绪先授权。`source inspect / capture` 仍 fail closed；
+资源权限不足时请所有者共享。
 结构化大视图保存完整快照，普通行不建节点，left_view 不等于删除。
 查询具体记录用 `kb-query source-record`，不让 Agent 扫完整 raw。
 
