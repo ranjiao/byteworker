@@ -45,10 +45,20 @@ def _default_command(timeout: int) -> Command:
             and isinstance(value, dict)
             and isinstance(value.get("identities"), Mapping)
         )
+        whoami_status = (
+            args[:1] == ["whoami"]
+            and isinstance(value, dict)
+            and str(value.get("identity", "")).lower() in {"user", "bot"}
+            and isinstance(value.get("available"), bool)
+        )
         if (
             completed.returncode != 0
             or not isinstance(value, dict)
-            or (value.get("ok") is not True and not auth_status)
+            or (
+                value.get("ok") is not True
+                and not auth_status
+                and not whoami_status
+            )
         ):
             raw_error = value.get("error") if isinstance(value, dict) else None
             error = (
@@ -117,6 +127,17 @@ def _messages(value: Mapping[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def _external_auth_status_unsupported(error: Mapping[str, Any]) -> bool:
+    message = str(error.get("message", "")).lower()
+    hint = str(error.get("hint", "")).lower()
+    return (
+        str(error.get("type", "")).lower() == "validation"
+        and str(error.get("subtype", "")).lower() == "invalid_argument"
+        and "auth" in message
+        and "externally" in (message + " " + hint)
+    )
+
+
 class FeishuImCollector:
     def __init__(
         self,
@@ -152,7 +173,36 @@ class FeishuImCollector:
         return result, truncated
 
     def principal(self) -> str:
-        response = self.command(["auth", "status", "--verify", "--json"])
+        try:
+            response = self.command(["auth", "status", "--verify", "--json"])
+        except DreamingError as exc:
+            error = exc.details.get("error")
+            if not isinstance(error, Mapping) or not _external_auth_status_unsupported(error):
+                raise
+            response = self.command(["whoami", "--as", "user"])
+            if not (
+                str(response.get("identity", "")).lower() == "user"
+                and response.get("available") is True
+                and str(response.get("tokenStatus", "")).lower() in {"ready", "valid"}
+            ):
+                raise DreamingError(
+                    "SOURCE_AUTH_REQUIRED",
+                    "宿主注入的飞书 user 凭据不可用。",
+                    hint="请修复或重新注入宿主的飞书 user 凭据，然后重试。",
+                ) from exc
+            on_behalf_of = response.get("onBehalfOf")
+            open_id = (
+                on_behalf_of.get("openId")
+                if isinstance(on_behalf_of, Mapping)
+                else ""
+            )
+            if isinstance(open_id, str) and open_id.strip():
+                return f"user:{open_id.strip()}"
+            raise DreamingError(
+                "SOURCE_AUTH_REQUIRED",
+                "宿主注入的飞书 user 凭据缺少 open_id。",
+                hint="请修复或重新注入宿主的飞书 user 凭据，然后重试。",
+            ) from exc
         data = response.get("data")
         data = data if isinstance(data, Mapping) else response
         identities = data.get("identities")

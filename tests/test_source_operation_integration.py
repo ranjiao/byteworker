@@ -450,6 +450,54 @@ class SourceOperationMatrixTests(unittest.TestCase):
         self.assertTrue(status["ready"])
         self.assertIsNone(status["action"])
 
+        external_runner = mock.Mock()
+        external_runner.run_status.side_effect = SourceCaptureError(
+            "SOURCE_CLI_ERROR",
+            '"auth" is not supported: credentials are provided externally',
+            hint="credentials are provided externally",
+            details={"type": "validation", "subtype": "invalid_argument"},
+        )
+        external_runner.run.return_value = SimpleNamespace(
+            data={
+                "identity": "user",
+                "available": True,
+                "tokenStatus": "ready",
+                "onBehalfOf": {"openId": "ou_me"},
+            }
+        )
+        status = chat_auth_status(external_runner)
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["authenticated"])
+        self.assertFalse(status["verified"])
+        self.assertEqual("whoami-external", status["verification_method"])
+        external_runner.run.assert_called_once_with(
+            ["whoami", "--as", "user"],
+            provider="飞书",
+        )
+
+        unavailable_runner = mock.Mock()
+        unavailable_runner.run_status.side_effect = SourceCaptureError(
+            "SOURCE_CLI_ERROR",
+            '"auth" is not supported: credentials are provided externally',
+            hint="credentials are provided externally",
+            details={"type": "validation", "subtype": "invalid_argument"},
+        )
+        unavailable_runner.run.return_value = SimpleNamespace(
+            data={
+                "identity": "user",
+                "available": False,
+                "tokenStatus": "missing",
+            }
+        )
+        status = chat_auth_status(unavailable_runner)
+        self.assertFalse(status["ready"])
+        self.assertEqual(
+            "configure_external_credentials",
+            status["action"]["kind"],
+        )
+        self.assertFalse(status["action"]["interactive"])
+        self.assertNotIn("command", status["action"])
+
         summary = chat_summary(
             "\n".join(
                 (

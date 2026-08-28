@@ -50,6 +50,9 @@ skill 仓库。
 `source auth-status` 是无副作用状态检查。`ready=false` 仍可能是成功 envelope；真正的
 inspect/capture 会以稳定错误码 fail closed。
 
+外部凭据不支持 `auth status` 时，飞书群聊只用 `whoami --as user` 检查 user；scope 留到
+capture-time，失败只修宿主注入，不本地登录或切 bot。
+
 ## 写入成功判定
 
 - digest：候选完成后直接调用 `digest-txn execute`；它内含完整 validate 与锁内复验。只认

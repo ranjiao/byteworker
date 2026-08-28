@@ -109,6 +109,82 @@ class DreamingImCollectorTests(unittest.TestCase):
             FeishuImCollector(command=command).principal()
         self.assertEqual("SOURCE_AUTH_REQUIRED", caught.exception.code)
 
+    def test_principal_falls_back_to_whoami_for_external_credentials(self):
+        calls = []
+
+        def command(args):
+            calls.append(args)
+            if args[:2] == ["auth", "status"]:
+                raise DreamingError(
+                    "DREAMING_IM_CAPTURE_FAILED",
+                    "lark-cli IM 读取失败。",
+                    details={
+                        "error": {
+                            "type": "validation",
+                            "subtype": "invalid_argument",
+                            "message": (
+                                '"auth" is not supported: credentials are '
+                                "provided externally"
+                            ),
+                            "hint": "credentials are provided externally",
+                        }
+                    },
+                )
+            if args == ["whoami", "--as", "user"]:
+                return {
+                    "identity": "user",
+                    "available": True,
+                    "tokenStatus": "ready",
+                    "onBehalfOf": {"openId": "ou_me"},
+                }
+            raise AssertionError(f"unexpected command: {args}")
+
+        self.assertEqual(
+            "user:ou_me",
+            FeishuImCollector(command=command).principal(),
+        )
+        self.assertEqual(
+            [
+                ["auth", "status", "--verify", "--json"],
+                ["whoami", "--as", "user"],
+            ],
+            calls,
+        )
+
+    def test_external_principal_requires_available_user_and_open_id(self):
+        def command(response):
+            def run(args):
+                if args[:2] == ["auth", "status"]:
+                    raise DreamingError(
+                        "DREAMING_IM_CAPTURE_FAILED",
+                        "lark-cli IM 读取失败。",
+                        details={
+                            "error": {
+                                "type": "validation",
+                                "subtype": "invalid_argument",
+                                "message": (
+                                    '"auth" is not supported: credentials are '
+                                    "provided externally"
+                                ),
+                                "hint": "credentials are provided externally",
+                            }
+                        },
+                    )
+                self.assertEqual(["whoami", "--as", "user"], args)
+                return response
+
+            return run
+
+        for response in (
+            {"identity": "user", "available": False, "tokenStatus": "missing"},
+            {"identity": "user", "available": True, "tokenStatus": "ready"},
+        ):
+            with self.subTest(response=response):
+                with self.assertRaises(DreamingError) as caught:
+                    FeishuImCollector(command=command(response)).principal()
+                self.assertEqual("SOURCE_AUTH_REQUIRED", caught.exception.code)
+                self.assertIn("宿主", caught.exception.hint)
+
     def test_real_lark_auth_status_shape_without_ok_is_accepted(self):
         payload = {
             "identities": {
@@ -135,6 +211,30 @@ class DreamingImCollectorTests(unittest.TestCase):
                 ["auth", "status", "--verify", "--json"]
             )
         self.assertEqual(payload, result)
+
+    def test_real_lark_whoami_shape_without_ok_is_accepted(self):
+        payload = {
+            "identity": "user",
+            "available": True,
+            "tokenStatus": "ready",
+            "onBehalfOf": {"openId": "ou_me"},
+        }
+        completed = subprocess.CompletedProcess(
+            args=["lark-cli"],
+            returncode=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
+        with mock.patch(
+            "dreaming_collectors.feishu_im.subprocess.run",
+            return_value=completed,
+        ) as run:
+            result = _default_command(60)(["whoami", "--as", "user"])
+        self.assertEqual(payload, result)
+        self.assertEqual(
+            ["lark-cli", "whoami", "--as", "user"],
+            run.call_args.args[0],
+        )
 
     def test_failed_command_keeps_non_null_error_details(self):
         completed = subprocess.CompletedProcess(

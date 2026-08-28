@@ -723,6 +723,9 @@ flowchart TB
   `if source_type == "..."`。
 - provider 特例只能进入 source adapter、operation adapter 或明确标注的 legacy compatibility
   模块。
+- 飞书群聊的外部凭据兼容只存在于 operation/collection adapter：`auth status` 被宿主禁用时
+  显式调用 `whoami --as user`，只把 user runtime readiness 前移，scope 与资源权限仍在
+  capture-time fail closed；不得静默选择 bot 或建议不可用的本地登录。
 - `bin/source.py` 必须保持薄，只负责参数和 registry 分发。
 - CLI 不承载业务语义；Agent 不复制确定性实现。
 
