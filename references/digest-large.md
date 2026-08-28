@@ -23,7 +23,8 @@
 - **fan-out / fan-in**:dependency、semantic、conflict 分别按 plan 同时启动 shards；worker 只输出
   `byteworker-digest-parallel-result/v1` 路径和计数，coordinator 必须运行 `digest-parallel merge`。
   worker 按角色读取 `references/workflow-routes.json` 的 dependency/semantic/conflict worker 精确闭包，final
-  reducer 读取 `digest_final_reducer`；不要读取完整 `SKILL.md`、无关 reference 或预加载 templates。
+  reducer 读取专用紧凑 `digest_final_reducer` 闭包；除 manifest 声明的 worker prompt 外，不要读取完整
+  `SKILL.md`、无关 reference 或预加载 templates。
   semantic merge 后由一个 reducer 去重并生成唯一 conflict query ledger，再由 coordinator 运行一次
   `conflict-search`；conflict merge 后由一个 final reducer 生成完整候选和临时 plan，只有它可调用
   `execute`。独立 `validate` 仍只用于 execute 返回候选校验错误后的排障。

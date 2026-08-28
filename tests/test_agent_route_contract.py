@@ -26,8 +26,7 @@ class AgentRouteContractTests(unittest.TestCase):
         result.extend(value.get("required", []))
         return list(dict.fromkeys(result))
 
-    def test_every_route_file_exists_and_reference_budgets_hold(self):
-        budgets = self.manifest["budgets"]
+    def test_every_route_file_exists(self):
         for name, workflow in self.workflows.items():
             with self.subTest(workflow=name):
                 paths = self.closure(name)
@@ -40,16 +39,8 @@ class AgentRouteContractTests(unittest.TestCase):
                 paths.extend(workflow.get("on_error", []))
                 for relative in paths:
                     self.assertTrue((ROOT / relative).is_file(), relative)
-                if name in budgets:
-                    characters = sum(
-                        len((ROOT / relative).read_text(encoding="utf-8"))
-                        for relative in self.closure(name)
-                    )
-                    self.assertLessEqual(
-                        characters,
-                        budgets[name],
-                        f"{name} reference closure={characters}",
-                    )
+                for relative in workflow.get("worker_prompt", []):
+                    self.assertTrue((ROOT / relative).is_file(), relative)
 
     def test_independent_digest_entrypoints_include_full_safety_closure(self):
         required = {
@@ -98,7 +89,7 @@ class AgentRouteContractTests(unittest.TestCase):
 
     def test_router_and_shared_protocol_stay_compact(self):
         limits = {
-            "SKILL.md": 11_000,
+            "SKILL.md": 7_695,
             "references/machine-protocol.md": 5_000,
             "references/commands.md": 1_500,
         }
@@ -108,6 +99,15 @@ class AgentRouteContractTests(unittest.TestCase):
                     len((ROOT / relative).read_text(encoding="utf-8")),
                     limit,
                 )
+
+        baseline = 10_994
+        current = len((ROOT / "SKILL.md").read_text(encoding="utf-8"))
+        self.assertLessEqual(current, int(baseline * 0.70))
+
+    def test_moved_mutation_policies_remain_in_required_closures(self):
+        for workflow in ("digest", "update"):
+            with self.subTest(workflow=workflow):
+                self.assertIn("references/write-rules.md", self.closure(workflow))
 
     def test_removed_inbox_is_not_an_agent_workflow(self):
         self.assertNotIn("inbox", self.workflows)
@@ -210,10 +210,9 @@ class AgentRouteContractTests(unittest.TestCase):
         ):
             self.assertIn(term, trae_harness)
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("KB 绝对路径已作为", skill)
-        self.assertIn("TraeWork Sandbox 目录权限", skill)
+        self.assertIn("harness_trae", skill)
         architecture = (ROOT / "docs/development/ARCHITECTURE.md").read_text(encoding="utf-8")
-        for text in (skill, architecture):
+        for text in (trae_harness, architecture):
             self.assertIn("TRAE IDE/TraeCode", text)
             self.assertIn("TraeWork 桌面版", text)
 

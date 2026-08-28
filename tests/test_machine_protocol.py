@@ -138,6 +138,8 @@ class MachineProtocolTests(unittest.TestCase):
             "wiki",
             "digest-job",
             "digest-run",
+            "digest-flow",
+            "workflow-budget",
             "digest-analysis",
             "digest-capture",
             "digest-parallel",

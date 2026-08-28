@@ -17,9 +17,13 @@ from digest_run_log import (  # noqa: E402
     DigestRunError,
     finish_run,
     list_runs,
+    record_heartbeat,
     record_stage,
+    record_usage,
+    resume_run,
     show_run,
     start_run,
+    wait_for_user,
 )
 
 
@@ -127,6 +131,232 @@ class DigestRunLogTests(unittest.TestCase):
         )["runs"][0]
         self.assertEqual("noop", terminal["status"])
         self.assertEqual(5000, terminal["duration_ms"])
+
+    def test_stale_run_stops_active_duration_at_last_lifecycle_event(self):
+        self.start()
+        record_stage(
+            self.kb,
+            run_id=self.run_id,
+            stage="capture",
+            status="started",
+            now=self.started_at + timedelta(minutes=1),
+        )
+        heartbeat = record_heartbeat(
+            self.kb,
+            run_id=self.run_id,
+            stage="capture",
+            now=self.started_at + timedelta(hours=5),
+        )
+        self.assertEqual("heartbeat", heartbeat["event"])
+        active = show_run(
+            self.kb,
+            run_id=self.run_id,
+            now=self.started_at + timedelta(hours=10),
+        )["summary"]
+        self.assertEqual("running", active["status"])
+        self.assertEqual(10 * 60 * 60 * 1000, active["duration_ms"])
+
+        stale = show_run(
+            self.kb,
+            run_id=self.run_id,
+            now=self.started_at + timedelta(hours=12),
+        )["summary"]
+        self.assertEqual("stale", stale["status"])
+        self.assertEqual(5 * 60 * 60 * 1000, stale["duration_ms"])
+        self.assertEqual(6 * 60 * 60, stale["stale_after_seconds"])
+        self.assertTrue(stale["stale_since"])
+        with self.assertRaisesRegex(DigestRunError, "stale"):
+            record_stage(
+                self.kb,
+                run_id=self.run_id,
+                stage="capture",
+                status="completed",
+                now=self.started_at + timedelta(hours=12),
+            )
+        resume_run(
+            self.kb,
+            run_id=self.run_id,
+            now=self.started_at + timedelta(hours=12),
+        )
+        completed = record_stage(
+            self.kb,
+            run_id=self.run_id,
+            stage="capture",
+            status="completed",
+            now=self.started_at + timedelta(hours=12, seconds=1),
+        )
+        self.assertEqual((4 * 60 * 60 + 59 * 60 + 1) * 1000, completed["duration_ms"])
+
+    def test_waiting_user_and_resume_exclude_wait_time_from_active_duration(self):
+        self.start()
+        waiting = wait_for_user(
+            self.kb,
+            run_id=self.run_id,
+            reason_code="DEPENDENCY_APPROVAL_REQUIRED",
+            now=self.started_at + timedelta(seconds=10),
+        )
+        self.assertEqual("waiting_user", waiting["status"])
+        paused = show_run(
+            self.kb,
+            run_id=self.run_id,
+            now=self.started_at + timedelta(days=2),
+        )["summary"]
+        self.assertEqual("waiting_user", paused["status"])
+        self.assertEqual(10_000, paused["duration_ms"])
+        self.assertEqual(
+            "DEPENDENCY_APPROVAL_REQUIRED", paused["waiting_reason_code"]
+        )
+        with self.assertRaisesRegex(DigestRunError, "waiting for user"):
+            record_stage(
+                self.kb,
+                run_id=self.run_id,
+                stage="semantic_analysis",
+                status="started",
+                now=self.started_at + timedelta(days=2),
+            )
+
+        resumed_at = self.started_at + timedelta(days=2)
+        resumed = resume_run(self.kb, run_id=self.run_id, now=resumed_at)
+        self.assertEqual("resumed", resumed["event"])
+        finish_run(
+            self.kb,
+            run_id=self.run_id,
+            status="noop",
+            now=resumed_at + timedelta(seconds=5),
+        )
+        final = show_run(self.kb, run_id=self.run_id)["summary"]
+        self.assertEqual("noop", final["status"])
+        self.assertEqual(15_000, final["duration_ms"])
+
+    def test_resume_reactivates_stale_run(self):
+        self.start()
+        resumed = resume_run(
+            self.kb,
+            run_id=self.run_id,
+            now=self.started_at + timedelta(hours=7),
+        )
+        self.assertEqual("resumed", resumed["event"])
+        summary = show_run(
+            self.kb,
+            run_id=self.run_id,
+            now=self.started_at + timedelta(hours=7, seconds=2),
+        )["summary"]
+        self.assertEqual("running", summary["status"])
+        self.assertEqual(2_000, summary["duration_ms"])
+
+    def test_usage_receipts_aggregate_and_deduplicate_after_terminal(self):
+        self.start()
+        first = record_usage(
+            self.kb,
+            run_id=self.run_id,
+            stage="semantic_analysis",
+            worker_role="semantic_worker",
+            usage_source="measured",
+            call_id="call-semantic-001",
+            usage={
+                "input_tokens": 1200,
+                "cached_input_tokens": 900,
+                "output_tokens": 150,
+                "reasoning_tokens": 40,
+            },
+            now=self.started_at + timedelta(seconds=1),
+        )
+        duplicate = record_usage(
+            self.kb,
+            run_id=self.run_id,
+            stage="semantic_analysis",
+            worker_role="semantic_worker",
+            usage_source="measured",
+            call_id="call-semantic-001",
+            usage={
+                "input_tokens": 1200,
+                "cached_input_tokens": 900,
+                "output_tokens": 150,
+                "reasoning_tokens": 40,
+            },
+            now=self.started_at + timedelta(seconds=2),
+        )
+        self.assertFalse(first["deduplicated"])
+        self.assertTrue(duplicate["deduplicated"])
+
+        finish_run(
+            self.kb,
+            run_id=self.run_id,
+            status="committed",
+            now=self.started_at + timedelta(seconds=3),
+        )
+        record_usage(
+            self.kb,
+            run_id=self.run_id,
+            stage="finalize",
+            worker_role="coordinator",
+            usage_source="estimated",
+            call_id="call-finalize-001",
+            usage={
+                "input_tokens": 500,
+                "cached_input_tokens": 0,
+                "output_tokens": 80,
+                "reasoning_tokens": 10,
+            },
+            now=self.started_at + timedelta(seconds=4),
+        )
+        summary = show_run(self.kb, run_id=self.run_id)["summary"]
+        self.assertEqual("committed", summary["status"])
+        self.assertEqual(3000, summary["duration_ms"])
+        self.assertEqual(2, summary["usage"]["model_calls"])
+        self.assertEqual(1, summary["usage"]["measured_calls"])
+        self.assertEqual(1, summary["usage"]["estimated_calls"])
+        self.assertEqual(1700, summary["usage"]["input_tokens"])
+        self.assertEqual(230, summary["usage"]["output_tokens"])
+        self.assertEqual(1930, summary["usage"]["total_tokens"])
+        self.assertEqual(
+            1,
+            summary["usage"]["by_stage"]["semantic_analysis"]["measured_calls"],
+        )
+
+        log_text = next((self.kb / "state/digest/run-logs").glob("*.jsonl")).read_text()
+        self.assertNotIn("call-semantic-001", log_text)
+        self.assertIn("call_id_hash", log_text)
+        with self.assertRaisesRegex(DigestRunError, "already terminal"):
+            record_stage(
+                self.kb,
+                run_id=self.run_id,
+                stage="finalize",
+                status="started",
+            )
+
+    def test_usage_receipts_reject_invalid_values(self):
+        self.start()
+        with self.assertRaisesRegex(DigestRunError, "cannot exceed"):
+            record_usage(
+                self.kb,
+                run_id=self.run_id,
+                stage="semantic_analysis",
+                worker_role="coordinator",
+                usage_source="measured",
+                call_id="call-1",
+                usage={
+                    "input_tokens": 10,
+                    "cached_input_tokens": 11,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                },
+            )
+        with self.assertRaisesRegex(DigestRunError, "call_id"):
+            record_usage(
+                self.kb,
+                run_id=self.run_id,
+                stage="semantic_analysis",
+                worker_role="coordinator",
+                usage_source="estimated",
+                call_id="secret/value",
+                usage={
+                    "input_tokens": 10,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                },
+            )
 
     def test_source_type_can_be_resolved_after_logging_starts(self):
         start_run(
@@ -275,6 +505,79 @@ class DigestRunLogTests(unittest.TestCase):
         payload = json.loads(started.stdout)
         self.assertRegex(payload["run_id"], r"^DG-")
 
+        usage = subprocess.run(
+            [
+                sys.executable,
+                str(cli),
+                "usage",
+                "--kb",
+                str(self.kb),
+                "--run-id",
+                payload["run_id"],
+                "--stage",
+                "semantic_analysis",
+                "--worker-role",
+                "coordinator",
+                "--usage-source",
+                "measured",
+                "--call-id",
+                "cli-call-1",
+                "--input-tokens",
+                "100",
+                "--cached-input-tokens",
+                "80",
+                "--output-tokens",
+                "20",
+                "--reasoning-tokens",
+                "5",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(0, usage.returncode, msg=usage.stderr)
+        usage_payload = json.loads(usage.stdout)
+        self.assertEqual("usage_recorded", usage_payload["event"])
+        self.assertNotIn("cli-call-1", usage.stdout)
+
+        waiting = subprocess.run(
+            [
+                sys.executable,
+                str(cli),
+                "wait",
+                "--kb",
+                str(self.kb),
+                "--run-id",
+                payload["run_id"],
+                "--reason-code",
+                "USER_INPUT_REQUIRED",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(0, waiting.returncode, waiting.stdout)
+        self.assertEqual("waiting_user", json.loads(waiting.stdout)["status"])
+        resumed = subprocess.run(
+            [
+                sys.executable,
+                str(cli),
+                "resume",
+                "--kb",
+                str(self.kb),
+                "--run-id",
+                payload["run_id"],
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(0, resumed.returncode, resumed.stdout)
+        self.assertEqual("resumed", json.loads(resumed.stdout)["event"])
+
         failed = subprocess.run(
             [
                 sys.executable,
@@ -343,6 +646,7 @@ class DigestRunLogTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.start()
+        resume_run(self.kb, run_id=self.run_id, now=datetime.now(timezone.utc))
         result = subprocess.run(
             [
                 sys.executable,

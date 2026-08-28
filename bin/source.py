@@ -36,12 +36,12 @@ from source_profiles import (  # noqa: E402
     save_profile,
 )
 from snapshot_store import diff_current_against_kb  # noqa: E402
+from source_bundle_request import build_bundle_from_request  # noqa: E402
 from sources import (  # noqa: E402
     BUNDLE_SCHEMA,
     SourceBundleError,
     SourceRegistryError,
     create_default_registry,
-    ensure_source_request_safe,
 )
 
 
@@ -283,66 +283,9 @@ def _run(args: argparse.Namespace) -> dict:
     if args.operation == "bundle-spec":
         return create_default_registry().request_spec(args.source_type)
     if args.operation == "bundle":
-        request_argument = str(args.request).strip()
-        if request_argument.startswith(("{", "[")):
-            raise SourceBundleError(
-                "SOURCE_BUNDLE_REQUEST_INLINE_UNSUPPORTED",
-                "source bundle --request 只接受 request JSON 文件路径，"
-                "不接受内联 JSON",
-                path="--request",
-                hint=(
-                    "先把 request JSON 写入系统临时目录或知识库目录，"
-                    "再把该文件路径传给 --request。"
-                ),
-            )
-        request_path = Path(args.request).expanduser().resolve()
-        if not request_path.is_file():
-            raise SourceBundleError(
-                "SOURCE_BUNDLE_REQUEST_NOT_FOUND",
-                f"bundle request JSON 文件不存在: {request_path}",
-                path=str(request_path),
-                hint=(
-                    "运行 source bundle-spec --source-type "
-                    f"{args.source_type} 查看契约，并把 request 写入临时文件。"
-                ),
-            )
-        if request_path == ROOT.resolve() or ROOT.resolve() in request_path.parents:
-            raise SourceBundleError(
-                "SOURCE_BUNDLE_PATH_IN_SKILL_REPO",
-                "业务 bundle request 不得位于 byteworker skill 仓库",
-                path=str(request_path),
-            )
-        try:
-            request = json.loads(request_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise SourceBundleError(
-                "SOURCE_BUNDLE_REQUEST_INVALID",
-                f"无法读取 bundle request JSON: {request_path}",
-                path=str(request_path),
-            ) from exc
-        if not isinstance(request, dict):
-            raise SourceBundleError(
-                "SOURCE_BUNDLE_REQUEST_INVALID",
-                "bundle request 顶层必须是 JSON 对象",
-                path=str(request_path),
-            )
-        if "source_type" in request:
-            raise SourceBundleError(
-                "SOURCE_BUNDLE_REQUEST_INVALID",
-                "source_type 只能由 CLI 参数声明，不得在 request 中重复",
-                path="source_type",
-            )
-        if "capture" in request:
-            raise SourceBundleError(
-                "SOURCE_BUNDLE_REQUEST_INVALID",
-                "bundle request 不接受内联 capture；请只提供 capture_path，"
-                "避免内容与路径指向不同快照",
-                path="capture",
-            )
-        ensure_source_request_safe(request)
-        bundle = create_default_registry().build_bundle(
+        bundle = build_bundle_from_request(
             args.source_type,
-            **request,
+            Path(args.request),
             skill_root=ROOT,
         )
         return bundle.to_dict()

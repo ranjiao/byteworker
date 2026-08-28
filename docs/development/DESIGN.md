@@ -50,7 +50,8 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/source.py` + `lib/source_profiles.py` + `lib/snapshot_store.py` | 统一来源 capability、Profile、capture、Bundle 构造及历史完整快照选择/差异；实例参数只在用户 KB |
 | `bin/wiki.py` + `lib/wiki_explorer.py` | 按需解析飞书 Wiki 空间、完整扫描目录或选定子树、生成有限主题/页面候选；不读取页面正文、不生成 Bundle |
 | `bin/digest-job.py` + `lib/digest_jobs.py` | 已确认 Wiki 页面列表的持久批次、租约、逐页 receipt 状态与崩溃恢复；不参与单页 digest transaction |
-| `bin/digest-run.py` + `lib/digest_run_log.py` | 单个 digest 输入的阶段动作、状态、有限计数和耗时日志；不读取或保存业务正文 |
+| `bin/digest-run.py` + `lib/digest_run_log.py` | 单个 digest 输入的阶段、waiting/stale、active duration、有限计数和模型 usage 日志；不读取或保存业务正文 |
+| `bin/digest-flow.py` + `lib/digest_flow.py` | 无语义 digest 阶段的可恢复编排；不做依赖、事实或冲突判断 |
 | `bin/kb-query.py` + `lib/kb_query.py` | 无持久索引的确定性候选召回、一跳图扩展与 evidence 解析 |
 | `bin/kb-mutate.py` + `lib/kb_mutation.py` + `lib/kb_write_txn.py` | 非 digest 候选的版本化事务、所有 durable writer 的共享锁与回滚原语 |
 | `bin/context.py` + `lib/context_view.py` | 按 intent 读取固定章节的有限 context 投影 |
@@ -91,7 +92,8 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `state/wiki/` | 可重新扫描得到的 Wiki baseline / 子树目录状态；完整 JSON 不进入 Agent context | `wiki scan` 按需原子写入 | 无 TTL；仅显式扫描替换 |
 | `state/viewer.json` | 本地 viewer 偏好，例如是否要求本次访问口令 | 设置页通过 `lib/settings.py` 写入 | 显式重配时更新 |
 | `state/digest_jobs/` | 用户已确认页面的批量 digest 运行 checkpoint、租约与逐页 receipt 定位 | `digest-job` 按需原子写入 | 跨 session 更新；可由 raw 部分 reconcile |
-| `state/digest/run-logs/` | 每个 digest 输入的私密结构化阶段时间线；只含白名单元数据、计数和耗时 | `digest-run` 及带 `--run-id` 的 `digest-txn` | 30 天保留、5 MiB 轮转；不进入 KB Git |
+| `state/digest/run-logs/` | 每个 digest 输入的私密结构化阶段/usage 时间线；只含白名单枚举、计数、耗时和 call id 哈希 | `digest-run` 及带 `--run-id` 的 `digest-txn` | 30 天保留、5 MiB 轮转；不进入 KB Git |
+| `state/digest/flows/` | 每个标准 digest 的私有 phase、source ref hash 和 artifact 路径 checkpoint | `digest-flow` | 跨 session 恢复；终态保留；不进入 KB Git |
 | `state/report_automation.json` | 自动报告的一次性设置选择、宿主线索、prompt 版本、跨任务租约和最近真实运行回执 | `report-automation` 按需原子写入 | 本机运行状态；宿主任务系统仍是真相源 |
 | `state/dreaming/` | Dreaming 权限、运行计划、日志配置、运行状态、报告 outbox 和私密中间状态 | `dreaming` / `settings` façade 委派写入 | 本机后台状态；不进入 KB Git |
 
@@ -223,17 +225,29 @@ Wiki 树和 job 都不是新的正文 provider：树探索不生成 SourceBundle
 
 `state/digest/run-logs/<UTC-date>[-NNNN].jsonl` 使用
 `byteworker-digest-run-event/v1`。一个用户输入只创建一个 `DG-<UTC>-<random>` run id；事件按
-`started → stage_started/stage_completed|stage_failed → completed|failed|cancelled` 追加。阶段固定为
+`started → stage_started/stage_completed|stage_failed → completed|failed|cancelled` 追加，宿主还可
+追加 `waiting_user/resumed/heartbeat/usage_recorded`。阶段固定为
 classify、capture、bundle、preflight、analysis_prepare、dependency_review、semantic_analysis、conflict_review、
 candidate_generation、transaction_validate、transaction 和 finalize；终态为 committed/noop/failed/
-cancelled。完成事件根据同阶段最近未关闭的 start 自动计算 `duration_ms`，run summary 从首末事件
-派生总耗时和最慢阶段，不另存可漂移索引。
+cancelled。等待只接受固定 reason code，waiting 区间不计 active duration；非终态 run 超过 6 小时
+无 lifecycle heartbeat 显示 stale，active duration 截止最后 lifecycle event，usage 补报不能续活。
+完成事件根据同阶段最近未关闭的 start 自动计算 `duration_ms`，run summary 从 lifecycle
+事件派生活跃耗时和最慢阶段，不另存可漂移索引。usage 固定记录 stage、worker role、
+`measured|estimated` 与 input/cached/output/reasoning 非负计数；call id 仅保存 SHA-256 并在同一 run
+幂等。终态后可以补报 usage，但不能改变 lifecycle 终态或 duration；reasoning 是 output 的细分。
 
 目录权限 `0700`，日志与独立锁 `0600`，单文件 5 MiB 轮转，append 时清理 30 天前日志。只允许
-source type、source ref SHA-256、固定 action/stage/status/detail code、时间和非负计数；并发阶段可加
+source type、source ref SHA-256、固定 action/stage/status/detail code/worker role/usage source、时间
+和非负计数；并发阶段可加
 `worker_count/shard_count`，但仍只由 coordinator 写一对外层事件。禁止业务正文、
 标题、人员/群名、URL、凭据、完整 argv、stdout/stderr 或自由文本错误。该状态不是知识证据，不参与
 raw/provenance/节点/INDEX/journal/Git transaction，也不能覆盖 transaction receipt 的成功语义。
+
+`state/digest/flows/<run_id>/state.json` 使用 `byteworker-digest-flow/v1`，只保存 source type、source
+ref hash、固定 phase、capture 次数和私有 artifact 路径。phase 为 classified/captured、可恢复的
+capture_failed/prepare_failed/commit_failed、prepared 或终态 committed/noop。request、Bundle、packet、
+shard、result 和 DigestPlan 与 state 同目录且权限为 `0600`；目录为 `0700`。flow 不保存业务标题、
+正文、URL、凭据或语义候选，不替代 SourceBundle、DigestPlan 或 transaction receipt。
 
 ### E.2 Digest 临时分析协议
 
@@ -259,8 +273,14 @@ provider 坐标/样式噪声，也不判断依赖重要性、事实含义或冲�
 任一失败则整体 coverage failed。顺序 page token/offset 不因该协议变成可并发。
 
 `byteworker-digest-parallel-plan/v1` 保存 stage、输入 hash、inline/parallel 决定、稳定 reason code、
-最多 4 个 shard 路径及 item/weight 计数。固定阈值为 dependency 12 candidates、semantic 500
-text items 或 1 MiB、conflict 8 queries 或超过 20 candidates；planner 而非 Agent 决定是否并发。
+最多 4 个 shard 路径及 item/weight 计数，并同时给出两种模式的 estimated total tokens、wall time、
+估算方法、阶段 token budget 和 remaining。dependency 少于 32 项、semantic 少于 200 项、conflict
+少于 16 项固定 inline；其余还必须满足来源 token floor、至少 30 秒且 25% 墙钟收益、worker/reducer
+packet 预算和阶段总 token 预算。只有固定 reason
+`PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM` 才 fan-out，planner 而非 Agent 决定。
+
+final reducer 不再继承完整 digest 闭包，只加载 `digest-final-reducer.md` 与 semantic/provenance/
+conflict/write/transaction 必要规则；它只消费已验证完整 coverage 的 reduce packet，不重读原文。
 `byteworker-digest-parallel-shard/v1` 只含本 shard 的候选或语义文本，以及必要的 identity/outline/
 anchor/source-match 投影。
 
@@ -1284,9 +1304,10 @@ code 与证据，请用户确认。
 28. **冲突与语义阈值单一所有者** — 独立来源冲突默认并列并交用户裁决；只有 revision、
    supersede 或用户确认可改当前值。知识晋升、参与方推断和 IM 评分使用固定 reason/evidence/
    threshold，不以模型自由描述替代。
-29. **Agent progressive disclosure 可测试** — `byteworker-workflow-routes/v1` 声明独立入口的
-   required/on_error/source/features 闭包并设置字符预算；子 Agent、自动报告和 Wiki resume
-   不依赖隐式“普通流程”。
+29. **Agent progressive disclosure 可测试** — `byteworker-workflow-routes/v2` 声明独立入口的
+   required/on_error/source/features/worker prompt 闭包；预算分离静态规则、动态 context、来源 packet、
+   总输入与输出 token。`byteworker-workflow-budget-receipt/v1` 标记 tokenizer 或保守估算方法，超限
+   返回固定压缩/路由动作而不截断 evidence；子 Agent、自动报告和 Wiki resume 不依赖隐式流程。
 
 **schema 以本文件为准;后续扩展在此节登记。**
 

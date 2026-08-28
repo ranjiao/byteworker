@@ -21,11 +21,19 @@ from digest_run_log import (  # noqa: E402
     SOURCE_TYPES,
     STAGE_ACTIONS,
     STAGE_STATUSES,
+    USAGE_FIELDS,
+    USAGE_SOURCES,
+    WAIT_REASONS,
+    WORKER_ROLES,
     finish_run,
     list_runs,
+    record_heartbeat,
     record_stage,
+    record_usage,
+    resume_run,
     show_run,
     start_run,
+    wait_for_user,
 )
 
 
@@ -81,6 +89,30 @@ def parser() -> argparse.ArgumentParser:
     complete.add_argument("--error-code", default="")
     _add_metrics(complete)
 
+    usage = sub.add_parser("usage", help="record one privacy-safe model usage receipt")
+    _add_kb(usage)
+    usage.add_argument("--run-id", required=True)
+    usage.add_argument("--stage", required=True, choices=sorted(STAGE_ACTIONS))
+    usage.add_argument("--worker-role", required=True, choices=sorted(WORKER_ROLES))
+    usage.add_argument("--usage-source", required=True, choices=sorted(USAGE_SOURCES))
+    usage.add_argument("--call-id", required=True)
+    for field in sorted(USAGE_FIELDS):
+        usage.add_argument("--" + field.replace("_", "-"), type=int, required=True)
+
+    waiting = sub.add_parser("wait", help="pause active timing while waiting for user")
+    _add_kb(waiting)
+    waiting.add_argument("--run-id", required=True)
+    waiting.add_argument("--reason-code", required=True, choices=sorted(WAIT_REASONS))
+
+    resume = sub.add_parser("resume", help="resume a waiting or stale digest run")
+    _add_kb(resume)
+    resume.add_argument("--run-id", required=True)
+
+    heartbeat = sub.add_parser("heartbeat", help="refresh one open long-running stage")
+    _add_kb(heartbeat)
+    heartbeat.add_argument("--run-id", required=True)
+    heartbeat.add_argument("--stage", required=True, choices=sorted(STAGE_ACTIONS))
+
     listing = sub.add_parser("list", help="list recent digest runs and slowest stages")
     _add_kb(listing)
     listing.add_argument("--limit", type=int, default=20)
@@ -133,6 +165,30 @@ def main() -> int:
                 status=args.status,
                 error_code=args.error_code,
                 metrics=_metrics(args),
+            )
+        elif args.command == "usage":
+            output = record_usage(
+                kb,
+                run_id=args.run_id,
+                stage=args.stage,
+                worker_role=args.worker_role,
+                usage_source=args.usage_source,
+                call_id=args.call_id,
+                usage={field: getattr(args, field) for field in USAGE_FIELDS},
+            )
+        elif args.command == "wait":
+            output = wait_for_user(
+                kb,
+                run_id=args.run_id,
+                reason_code=args.reason_code,
+            )
+        elif args.command == "resume":
+            output = resume_run(kb, run_id=args.run_id)
+        elif args.command == "heartbeat":
+            output = record_heartbeat(
+                kb,
+                run_id=args.run_id,
+                stage=args.stage,
             )
         elif args.command == "list":
             output = list_runs(kb, limit=args.limit)

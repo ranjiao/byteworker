@@ -207,7 +207,7 @@ sequenceDiagram
         Txn-->>Agent: new_source / new_version
         Agent->>Prep: 一次生成 analysis packet
         Prep-->>Agent: 依赖候选、语义文本、参与者、anchor 索引
-        Agent->>Workers: 按固定阈值 fan-out dependency / semantic shards
+        Agent->>Workers: 仅在 token 预算与墙钟收益同时满足时 fan-out shards
         Workers-->>Agent: 完整 worker results；单一 reducer 归并
         Agent->>Agent: 依赖闸门、语义分析、冲突 query
         Agent->>Prep: 单次 KB 扫描批量召回冲突候选
@@ -233,6 +233,16 @@ preflight、诊断 validate 和 execute。最终
 committed/noop/failed/cancelled 都写终态，`list/show` 从事件流派生总耗时、当前阶段和最慢阶段。
 该旁路只观察既有信息流，不读取 component/candidate 正文，不参与语义判断，也不改变 transaction
 receipt 的成功真相源。
+
+标准路径由 `digest-flow` 把 start/classify、多波 capture、Bundle、preflight、analysis prepare、
+dependency/semantic planner 和 transaction 组织为可恢复状态机。flow 只调用确定性库并返回固定
+`next_action`，不判断依赖重要性、不抽取事实、不裁决冲突、不生成节点候选。私有 checkpoint 位于
+`state/digest/flows/<run_id>/`；Agent 只在语义闸门运行，最终仍由 digest transaction 决定成功。
+
+宿主获得模型 usage 后通过 `digest-run usage` 写入同一事件流。usage 只允许固定 stage/worker role、
+`measured|estimated` 和非负 token 计数；原始 call id 只用于 SHA-256 幂等，不持久化。终态后的最终
+调用可以补报 usage，但 lifecycle 终态和 duration 仍由最后一个非 usage 事件决定。`list/show` 聚合
+run 与逐 stage usage，reasoning 是 output 的细分，不重复进入 total。
 
 并发阶段只由 coordinator 记录一对外层事件，`duration_ms` 是 fan-out 到 fan-in 的墙钟时间；worker
 不持有 run id。`worker_count/shard_count` 只记录非负数量，job/shard 细节留在权限 `0600` 的临时
@@ -434,6 +444,8 @@ foreground `process once`，持续处理进入显式 IM grant。新 KB 不创建
 
 `SKILL.md` 只承担意图路由和全局不变量。`references/workflow-routes.json` 是机器可检查的
 workflow 闭包：每个入口声明 `required/on_error`，digest 再按 `source_type/features` 条件加载。
+Dreaming 的授权、宿主与运行细则只在 dreaming feature 中加载；area/org/person 治理统一由
+`write-rules.md` 承载，并同时属于 digest 与 update 的 required 闭包，不复制进常驻路由器。
 子 Agent、无人值守报告和 Wiki resume 都必须从 manifest 递归展开闭包，不依赖上一 session
 或主 Agent 的隐式记忆。
 
@@ -446,8 +458,10 @@ worker。worker 从 SourceBundle 生成一次临时 semantic work packet，正�
 双重语义分析和历史对话重放。
 
 search/update/brief/dashboard/context 分别使用独立 reference；公共机器协议只定义 envelope 和
-成功判定，工具参数从对应 workflow 或 `--help` 发现。CI 对 reference-only 闭包设置字符预算，
-防止 progressive disclosure 被重新聚合文件破坏。
+成功判定，工具参数从对应 workflow 或 `--help` 发现。`lib/workflow_budget.py` 展开 router、required、
+source type、features、on_error 和 worker prompt；CI 与运行时分别核对静态规则、动态 context、来源
+packet、总输入和输出 token 预算。固定 tokenizer 不可用时回执明确给出保守估算方法版本；超预算只
+返回 manifest 固定的路由/压缩 action，不截断 evidence。
 
 `context.md` 仍是真相源，但 `lib/context_view.py` 按 intent 返回固定章节投影，并设置 12k
 软预算、24k 硬预算；mutation 另限制完整 context 不超过 32 KiB。语义决定使用唯一 policy：
@@ -739,10 +753,12 @@ flowchart TB
 | `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI；已注册工具的顶层 `-h/--help` 原样透传到底层 argparse | 普通调用返回 `byteworker-cli/v1` envelope；顶层 help 返回底层文本和退出码 |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
-| `bin/digest-run.py` | 单输入 start/stage/complete/list/show；只接受固定阶段、状态、机器码和计数 | `byteworker-digest-run-event/v1` 时间线、总耗时与最慢阶段 |
+| `bin/digest-flow.py` + `lib/digest_flow.py` | start/capture/prepare/commit/status；自动记录无语义阶段并保存可恢复 checkpoint | `byteworker-digest-flow/v1`、唯一 next action、私有 artifact 路径或 transaction receipt |
+| `bin/workflow-budget.py` + `lib/workflow_budget.py` | 展开 router/条件闭包/worker prompt，核算静态规则与显式动态输入 token | `byteworker-workflow-budget-receipt/v1`、方法版本、分项预算与固定 overflow action |
+| `bin/digest-run.py` | 单输入 start/stage/wait/resume/heartbeat/usage/complete/list/show；固定 6 小时 stale 窗口 | 时间线、active duration、waiting/stale 状态、最慢阶段与 token 汇总 |
 | `bin/digest-analysis.py` | SourceBundle components 单次读取、结构去噪、依赖候选/语义文本/参与者/anchor 索引整理；不做语义判断 | 系统临时 `byteworker-digest-analysis-packet/v1` 和无正文 receipt |
 | `bin/digest-capture.py` | 执行最多 4 个显式、独立、只读的 lark/comments capture job；provider 命令构造留在该 adapter，不进入事务 core | `byteworker-digest-capture-receipt/v1` 和显式 `0600` artifact |
-| `bin/digest-parallel.py` | 按固定阈值平衡 dependency/semantic/conflict shards，校验 worker 完整覆盖并归并；不做语义裁决 | `byteworker-digest-parallel-plan/v1` / shard / result / reduce packet |
+| `bin/digest-parallel.py` | 联合估算 inline/parallel token、worker 成本与墙钟收益，最多 4 路平衡 shards；校验完整覆盖并归并，不做语义裁决 | 带两种估算、选择 reason、预算余量的 plan / shard / result / reduce packet |
 | `bin/source.py` | capabilities / auth / inspect / capture / bundle-spec / bundle / profile / diff 参数入口 | request 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
@@ -987,7 +1003,7 @@ postflight 在共享锁内扫描和修复；repair、路径检查、暂存、com
 Git index 和必要的 HEAD ref。事务成功的唯一证明是 `status=committed` 和 commit hash。Agent
 已生成候选、validate 成功或文件看起来存在，都不等于事务完成。
 
-标准 digest 在 plan 完成后直接调用 execute；execute 在任何写入前完成完整 validate，并在写锁内
+标准 digest 在 plan 完成后调用 `digest-flow commit`，由 flow 委托 execute；execute 在任何写入前完成完整 validate，并在写锁内
 再次复验。独立 validate 保留为失败诊断入口，不是标准成功路径。receipt 之后只允许一次紧凑的
 HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或完整 diff 重新送回 Agent。
 
@@ -1061,15 +1077,17 @@ flowchart LR
 | `byteworker-kb-mutation/v1` | Agent + `kb_mutation.py` | 路径白名单、base hash、冲突处置、章节保留、journal/commit 同成同败 |
 | `byteworker-im-semantic/v1` | Agent + `semantic_policy.py` | 0..4 分数、固定阈值、reason code、message evidence；验证后才能写 |
 | `byteworker-context-view/v1` | `context_view.py` | 固定 intent/章节、显式字符预算，不静默截断 |
-| `byteworker-workflow-routes/v1` | `SKILL.md` + route contract tests | 独立入口闭包可递归展开、文件存在、场景预算受控 |
+| `byteworker-workflow-routes/v2` | `SKILL.md` + `workflow_budget.py` + route contract tests | 独立入口闭包可递归展开；静态规则/worker prompt/context/source/总输入/输出预算分离；超限 action 固定 |
+| `byteworker-workflow-budget-receipt/v1` | `workflow_budget.py` | tokenizer 或版本化保守估算显式；完整条件闭包计数；动态内容不回显、不静默截断 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
-| `byteworker-digest-run-event/v1` | `digest_run_log.py` + Agent stage protocol | 一个输入一个稳定 run_id；固定阶段/状态/metrics；自动耗时；无业务正文；30 天保留和 5 MiB 轮转 |
+| `byteworker-digest-run-event/v1` | `digest_run_log.py` + Agent/宿主 stage/usage protocol | 固定阶段/metrics/usage/wait reason；waiting 不计 active duration；6 小时无 lifecycle heartbeat 显示 stale；usage 不续活；无业务正文 |
+| `byteworker-digest-flow/v1` | `digest_flow.py` + SourceBundle/analysis/planner/transaction | 私有 phase/artifact checkpoint；确定性阶段自动打点；失败可恢复；只返回固定 next action，不承担语义 |
 | `byteworker-digest-analysis-packet/v1` | `digest_analysis.py` | 私有临时产物；一次读取 Bundle；去除结构噪声但保留 component/path/anchor；不得进入 skill/运行日志 |
 | `byteworker-digest-capture-plan/v1` / `byteworker-digest-capture-receipt/v1` | `digest_capture.py` | 最多 4 个 allowlisted 只读 provider job；输出原子写入；任一失败则 coverage failed |
-| `byteworker-digest-parallel-plan/v1` / `byteworker-digest-parallel-shard/v1` | `digest_parallel.py` | 固定阈值、最多 4 shards、输入 hash 和私密路径；planner 决定 inline/parallel |
+| `byteworker-digest-parallel-plan/v1` / `byteworker-digest-parallel-shard/v1` | `digest_parallel.py` | inline/parallel token 与墙钟估算、固定选择 reason/预算余量、最多 4 shards、输入 hash 和私密路径 |
 | `byteworker-digest-parallel-result/v1` / `byteworker-digest-reduce-packet/v1` | Agent workers + `digest_parallel.py` | 完整 shard coverage 和边界校验；单一 reducer 处理语义重复、跨分片关系和用户闸门 |
 | `byteworker-conflict-query/v1` / `byteworker-conflict-candidates/v1` | Agent + `kb_query.py` | 最多 32 条短 query；同源精确定位；单次节点扫描；工具只召回不裁决 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |

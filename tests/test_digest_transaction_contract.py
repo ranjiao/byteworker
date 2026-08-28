@@ -15,7 +15,7 @@ class DigestTransactionContractTests(unittest.TestCase):
     def test_skill_routes_standard_digest_to_transaction_tool(self):
         skill = self.read("SKILL.md")
         self.assertIn("references/digest-transaction.md", skill)
-        self.assertIn("直接运行 `execute`", skill)
+        self.assertIn("`digest-flow commit`", skill)
         self.assertIn("独立 `validate` 只用于失败排障", skill)
         self.assertIn("语义判断、冲突", skill)
 
@@ -48,8 +48,12 @@ class DigestTransactionContractTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertIn(f"`{stage}`", observability)
         for term in (
-            "digest-run start",
+            "digest-flow start",
             "digest-run stage",
+            "digest-run usage",
+            "digest-run wait",
+            "digest-run resume",
+            "digest-run heartbeat",
             "digest-run complete",
             "digest-run list",
             "digest-run show",
@@ -58,9 +62,16 @@ class DigestTransactionContractTests(unittest.TestCase):
         ):
             with self.subTest(term=term):
                 self.assertIn(term, observability)
+        self.assertIn("waiting_user", observability)
+        self.assertIn("`stale`", observability)
+        self.assertIn("固定 6 小时", observability)
         self.assertIn("byteworker-digest-run-event/v1", architecture)
         self.assertIn("byteworker-digest-run-event/v1", design)
         self.assertIn("state/digest/run-logs/", design)
+        self.assertIn("digest-flow start", self.read("references/digest-flow.md"))
+        self.assertIn("digest-flow prepare", self.read("references/digest-flow.md"))
+        self.assertIn("digest-flow commit", self.read("references/digest-flow.md"))
+        self.assertIn("state/digest/flows/", design)
 
     def test_digest_analysis_precedes_bounded_conflict_search(self):
         skill = self.read("SKILL.md")
@@ -72,7 +83,7 @@ class DigestTransactionContractTests(unittest.TestCase):
         design = self.read("docs/development/DESIGN.md")
 
         self.assertIn("digest-analysis-pipeline.md", skill)
-        self.assertIn("digest-analysis prepare", core)
+        self.assertIn("`digest-flow prepare`", core)
         self.assertIn("kb-query conflict-search", core)
         self.assertIn(
             "references/digest-analysis-pipeline.md",
@@ -119,14 +130,19 @@ class DigestTransactionContractTests(unittest.TestCase):
             self.assertIn(route, concurrency)
         for term in (
             "最大并发度为 4",
-            "dependency 候选 `<12` inline",
-            "500 text_items",
-            "conflict query `<8`",
+            "dependency 少于 32 项",
+            "预计至少节省 30 秒",
+            "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM",
+            "parallel_budget_remaining_tokens",
             "单一 reducer",
             "不得让每个 semantic worker\n各扫一遍 KB",
         ):
             with self.subTest(term=term):
                 self.assertIn(term, concurrency)
+        reducer = routes["workflows"]["digest_final_reducer"]
+        self.assertNotIn("extends", reducer)
+        self.assertIn("references/digest-final-reducer.md", reducer["required"])
+        self.assertNotIn("references/digest-core.md", reducer["required"])
         self.assertIn("lib/digest_capture.py", architecture)
         self.assertIn("lib/digest_parallel.py", architecture)
         self.assertIn("byteworker-digest-capture-plan/v1", design)
@@ -193,9 +209,9 @@ class DigestTransactionContractTests(unittest.TestCase):
         core = self.read("references/digest-core.md")
         transaction = self.read("references/digest-transaction.md")
         architecture = self.read("docs/development/ARCHITECTURE.md")
-        self.assertIn("直接运行 `bin/digest-txn.py execute`", core)
+        self.assertIn("`digest-flow commit`", core)
         self.assertIn("execute 会重复完成全部安全校验", transaction)
-        self.assertIn("标准 digest 在 plan 完成后直接调用 execute", architecture)
+        self.assertIn("标准 digest 在 plan 完成后调用 `digest-flow commit`", architecture)
         self.assertIn("禁止输出完整 raw", transaction)
 
     def test_business_manifest_is_forbidden_in_skill_repo(self):

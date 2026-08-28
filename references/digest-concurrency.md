@@ -81,9 +81,16 @@ bin/byteworker digest-parallel plan \
   --stage conflict --input "<CONFLICT_CANDIDATES>" --out-dir "<SYSTEM_TMP>/conflict"
 ```
 
-固定阈值：dependency 候选 `<12` inline；semantic 同时低于 `500 text_items` 且 packet `<1 MiB`
-inline；conflict query `<8` 且候选总数 `<=20` inline。超过阈值时 planner 在最多 4 个 worker 间按
-文本/候选重量平衡分片。Agent 不自行改阈值或增加 worker。
+planner 使用固定 token/墙钟策略：先估算 inline 与 parallel 的总 token、worker 启动成本、最长 shard
+和 reducer 时间。dependency 少于 32 项、semantic 少于 200 项、conflict 少于 16 项一律 inline；即使
+超过项数，来源 token 未达到阶段 floor、预计至少节省 30 秒且比例达到 25%、worker/reducer packet
+预算或阶段 parallel 总预算任一不满足，也保持 inline。只有 receipt
+`selection_reason_code=PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM` 才 fan-out，最多 4 路。Agent 不
+自行改阈值或增加 worker。
+
+receipt/plan 同时给出 `inline` 与 `parallel_estimate` 的 estimated total tokens/wall time、估算方法、
+阶段 token budget 和 `parallel_budget_remaining_tokens`。没有 tokenizer 时方法明确为版本化保守估算；预算超限必须继续分片或
+保持 inline，不静默截断 item/evidence。
 
 每个 worker 只写一个结果文件：
 
@@ -122,7 +129,8 @@ merge 校验 input hash、完整 shard coverage、逐项覆盖和 source/candida
 
 宿主支持 fresh-context worker 时，coordinator 对 planner 返回的 parallel shards 同时启动最多 4 个
 不继承主对话的 worker；各角色分别读取 `workflow-routes.json` 的 `digest_dependency_worker`、
-`digest_semantic_worker`、`digest_conflict_worker`，final reducer 读取 `digest_final_reducer`；inline
+`digest_semantic_worker`、`digest_conflict_worker`，final reducer 读取专用紧凑
+`digest_final_reducer`；inline
 则在当前 coordinator 处理唯一 shard。语义 merge 后先由单一 reducer
 生成不超过 32 条 conflict query，再运行一次 `kb-query conflict-search`；不得让每个 semantic worker
 各扫一遍 KB。conflict 条件并发 merge 后再由同一个 final reducer 执行标题消歧、实体合并、候选生成

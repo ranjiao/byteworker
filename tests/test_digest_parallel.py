@@ -28,7 +28,14 @@ class DigestParallelTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def write_packet(self, *, semantic_items=10, dependencies=0):
+    def write_packet(
+        self,
+        *,
+        semantic_items=10,
+        dependencies=0,
+        semantic_text_size=0,
+        dependency_context_size=0,
+    ):
         value = {
             "schema_version": "byteworker-digest-analysis-packet/v1",
             "input_hash": "sha256:source",
@@ -38,7 +45,7 @@ class DigestParallelTests(unittest.TestCase):
                 {
                     "candidate_id": f"dep-{index:03d}",
                     "reference": f"doc-id:{index}",
-                    "contexts": ["context"],
+                    "contexts": ["context " + "x" * dependency_context_size],
                 }
                 for index in range(dependencies)
             ],
@@ -50,7 +57,10 @@ class DigestParallelTests(unittest.TestCase):
                     "heading": "",
                     "source_bytes": semantic_items * 20,
                     "text_items": [
-                        {"path": f"$/items/{index}", "text": f"semantic text {index}"}
+                        {
+                            "path": f"$/items/{index}",
+                            "text": f"semantic text {index} " + "x" * semantic_text_size,
+                        }
                         for index in range(semantic_items)
                     ],
                 }
@@ -69,13 +79,22 @@ class DigestParallelTests(unittest.TestCase):
     def load_plan(self, receipt):
         return json.loads(Path(receipt["plan_path"]).read_text(encoding="utf-8"))
 
-    def test_semantic_large_packet_is_balanced_across_three_workers(self):
-        self.write_packet(semantic_items=600)
+    def test_semantic_large_packet_is_balanced_across_bounded_workers(self):
+        self.write_packet(semantic_items=600, semantic_text_size=1000)
         receipt = plan_parallel_work(self.packet, self.work, stage="semantic")
         plan = self.load_plan(receipt)
 
         self.assertEqual("parallel", receipt["mode"])
-        self.assertEqual(3, receipt["shard_count"])
+        self.assertIn(receipt["shard_count"], range(2, 5))
+        self.assertEqual(
+            "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM",
+            receipt["selection_reason_code"],
+        )
+        self.assertIn("inline", receipt["estimates"])
+        self.assertIn("parallel_estimate", receipt["estimates"])
+        self.assertGreaterEqual(
+            receipt["estimates"]["parallel_budget_remaining_tokens"], 0
+        )
         self.assertEqual(600, sum(item["item_count"] for item in plan["shards"]))
         self.assertLessEqual(
             max(item["item_count"] for item in plan["shards"])
@@ -85,15 +104,11 @@ class DigestParallelTests(unittest.TestCase):
         for item in plan["shards"]:
             self.assertEqual(0o600, os.stat(item["path"]).st_mode & 0o777)
 
-    def test_dependency_and_conflict_thresholds_are_conditional(self):
-        self.write_packet(dependencies=11)
+    def test_small_dependency_and_conflict_batches_stay_inline(self):
+        self.write_packet(dependencies=12)
         inline = plan_parallel_work(self.packet, self.work / "dep-inline", stage="dependency")
         self.assertEqual("inline", inline["mode"])
-
-        self.write_packet(dependencies=12)
-        parallel = plan_parallel_work(self.packet, self.work / "dep-parallel", stage="dependency")
-        self.assertEqual("parallel", parallel["mode"])
-        self.assertEqual(2, parallel["shard_count"])
+        self.assertEqual("INSUFFICIENT_WORK_ITEMS", inline["selection_reason_code"])
 
         conflict = self.root / "conflicts.json"
         conflict.write_text(
@@ -112,11 +127,56 @@ class DigestParallelTests(unittest.TestCase):
         conflict_receipt = plan_parallel_work(
             conflict, self.work / "conflict", stage="conflict"
         )
-        self.assertEqual("parallel", conflict_receipt["mode"])
-        self.assertEqual(2, conflict_receipt["shard_count"])
+        self.assertEqual("inline", conflict_receipt["mode"])
+        self.assertEqual("INSUFFICIENT_WORK_ITEMS", conflict_receipt["selection_reason_code"])
+
+    def test_large_dependency_batch_parallelizes_only_with_token_and_wall_benefit(self):
+        self.write_packet(dependencies=64, dependency_context_size=2000)
+        receipt = plan_parallel_work(
+            self.packet, self.work / "dep-parallel", stage="dependency"
+        )
+        self.assertEqual("parallel", receipt["mode"])
+        self.assertEqual(
+            "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM",
+            receipt["selection_reason_code"],
+        )
+
+    def test_large_conflict_batch_is_parallel_but_never_exceeds_four_workers(self):
+        conflict = self.root / "large-conflicts.json"
+        conflict.write_text(
+            json.dumps(
+                {
+                    "schema_version": "byteworker-conflict-candidates/v1",
+                    "source_match": {"nodes": []},
+                    "queries": [
+                        {
+                            "id": f"q-{index}",
+                            "coverage": {},
+                            "candidates": [
+                                {
+                                    "id": f"node-{index}",
+                                    "snippet": "x" * 4000,
+                                }
+                            ],
+                        }
+                        for index in range(64)
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        receipt = plan_parallel_work(
+            conflict, self.work / "large-conflict", stage="conflict"
+        )
+        self.assertEqual("parallel", receipt["mode"])
+        self.assertLessEqual(receipt["shard_count"], 4)
+        self.assertEqual(
+            "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM",
+            receipt["selection_reason_code"],
+        )
 
     def test_merge_requires_complete_dependency_coverage(self):
-        self.write_packet(dependencies=12)
+        self.write_packet(dependencies=64, dependency_context_size=2000)
         receipt = plan_parallel_work(self.packet, self.work, stage="dependency")
         plan = self.load_plan(receipt)
         results = []
@@ -146,16 +206,16 @@ class DigestParallelTests(unittest.TestCase):
 
         output = self.root / "dependency-reduce.json"
         merged = merge_parallel_results(Path(receipt["plan_path"]), results, output)
-        self.assertEqual(12, merged["record_count"])
+        self.assertEqual(64, merged["record_count"])
         packet = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual(2, packet["stats"]["shard_count"])
+        self.assertEqual(receipt["shard_count"], packet["stats"]["shard_count"])
 
         with self.assertRaises(DigestParallelError) as caught:
             merge_parallel_results(Path(receipt["plan_path"]), results[:1], output)
         self.assertEqual("DIGEST_PARALLEL_RESULT_INCOMPLETE", caught.exception.code)
 
     def test_semantic_merge_flags_duplicate_keys_for_reducer(self):
-        self.write_packet(semantic_items=600)
+        self.write_packet(semantic_items=600, semantic_text_size=1000)
         receipt = plan_parallel_work(self.packet, self.work, stage="semantic")
         plan = self.load_plan(receipt)
         results = []

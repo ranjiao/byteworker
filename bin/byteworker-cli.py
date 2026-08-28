@@ -34,6 +34,8 @@ TOOLS = {
     "digest-analysis": "digest-analysis.py",
     "digest-capture": "digest-capture.py",
     "digest-parallel": "digest-parallel.py",
+    "digest-flow": "digest-flow.py",
+    "workflow-budget": "workflow-budget.py",
     "report-automation": "report-automation.py",
     "dreaming": "dreaming.py",
     "inbox": "inbox.py",
