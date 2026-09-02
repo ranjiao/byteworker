@@ -20,8 +20,7 @@ from dreaming_state import (
     state_lock,
     utc_iso,
 )
-from source_profiles import list_profiles
-from source_profile_contract import SourceProfileError
+from dreaming_digest import routine_inventory
 
 
 REPORT_KINDS = {"morning", "daily", "weekly"}
@@ -146,24 +145,53 @@ def report_dependency_from_state(
                 )
                 break
     try:
-        profiles = list_profiles(kb)
-    except SourceProfileError as exc:
-        profiles = []
+        routine_sources = routine_inventory(kb)
+    except DreamingError as exc:
+        routine_sources = []
         partial_reasons.append(
             {"kind": "source_profile_invalid", "error_code": exc.code}
         )
-    unsupported = sorted(
-        {
-            profile["source_type"]
-            for profile in profiles
-            if profile["routine"]["enabled"]
-            and profile["source_type"] != "feishu_chat"
-        }
-    )
-    if unsupported:
-        partial_reasons.append(
-            {"kind": "unsupported_routine_sources", "source_types": unsupported}
+        blockers.append(
+            {
+                "kind": "process",
+                "source": "routine_digest",
+                "start": window["start"],
+                "end": window["end"],
+                "key": (
+                    f"process:routine:inventory:"
+                    f"{window['start']}..{window['end']}"
+                ),
+                "error_code": exc.code,
+            }
         )
+    checkpoints = state.get("source_checkpoints")
+    checkpoints = checkpoints if isinstance(checkpoints, Mapping) else {}
+    for source in routine_sources:
+        source_type = str(source["source_type"])
+        source_key = str(source["source_key"])
+        checkpoint = checkpoints.get(source_key)
+        through = (
+            parse_time(checkpoint.get("through"))
+            if isinstance(checkpoint, Mapping)
+            and checkpoint.get("profile_revision") == source["profile_revision"]
+            else None
+        )
+        if through is None or through < end:
+            blockers.append(
+                {
+                    "kind": "process",
+                    "source": "routine_digest",
+                    "source_key": source_key,
+                    "source_type": source_type,
+                    "profile_revision": source["profile_revision"],
+                    "start": window["start"],
+                    "end": window["end"],
+                    "key": (
+                        f"process:routine:{source_key}:"
+                        f"{window['start']}..{window['end']}"
+                    ),
+                }
+            )
     unique = {blocker["key"]: blocker for blocker in blockers}
     return {
         "status": "blocked" if unique else ("partial" if partial_reasons else "covered"),
@@ -187,16 +215,20 @@ def report_dependency(kb: Path, *, kind: str, period: str) -> dict[str, Any]:
 
 
 def report_migration_readiness(kb: Path) -> dict[str, Any]:
-    daily = report_dependency(kb, kind="daily", period=date.today().isoformat())
-    unsupported = [
-        reason
-        for reason in daily["partial_reasons"]
-        if reason.get("kind")
-        in {"unsupported_routine_sources", "source_profile_invalid"}
-    ]
+    try:
+        sources = routine_inventory(kb)
+    except DreamingError as exc:
+        return {
+            "ready": False,
+            "unsupported": [
+                {"kind": "source_profile_invalid", "error_code": exc.code}
+            ],
+        }
+    unsupported = []
     return {
-        "ready": not unsupported,
+        "ready": True,
         "unsupported": unsupported,
+        "routine_source_count": len(sources),
     }
 
 
@@ -278,7 +310,24 @@ def refresh_report_dependencies(
             start = parse_time(window.get("start"))
             unresolved = []
             for blocker in blockers:
-                if not isinstance(blocker, Mapping) or blocker.get("source") != "im":
+                if not isinstance(blocker, Mapping):
+                    unresolved.append(blocker)
+                    continue
+                if blocker.get("source") == "routine_digest":
+                    checkpoint = state.get("source_checkpoints", {}).get(
+                        blocker.get("source_key")
+                    )
+                    through = (
+                        parse_time(checkpoint.get("through"))
+                        if isinstance(checkpoint, Mapping)
+                        and checkpoint.get("profile_revision")
+                        == blocker.get("profile_revision")
+                        else None
+                    )
+                    if end is None or through is None or through < end:
+                        unresolved.append(blocker)
+                    continue
+                if blocker.get("source") != "im":
                     unresolved.append(blocker)
                     continue
                 cursor = state["cursors"].get(f"im:{blocker.get('lane')}")

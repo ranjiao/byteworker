@@ -11,16 +11,17 @@
 | | digest | Dreaming |
 |---|---|---|
 | 触发 | 用户给出明确资料或运行 routine | 宿主定时唤醒，主动检查已授权来源 |
-| 目标 | 把一份资料可靠摄取为 raw、出处和实体图 | 发现变化、形成 Finding、报告或待确认动作 |
-| 写知识 | 通过 SourceBundle + DigestTxn 直接完成 | 默认不入库；知识候选仍须重新采集并走 DigestTxn |
+| 目标 | 把一份资料可靠摄取为 raw、出处和实体图 | 定时重放已登记 digest，并发现消息变化、形成 Finding、报告或待确认动作 |
+| 写知识 | 通过 SourceBundle + DigestTxn 直接完成 | 已登记定期来源原样走普通 digest；消息 Finding 默认不入库，知识候选仍须重新采集并走 DigestTxn |
 | 生命周期 | 一次事务，committed/noop 即结束 | 长期 job、lease、cursor、Finding、feedback 和 recovery |
 
-Dreaming 不是“自动 digest 所有内容”，也不替代 search/update/todo。
+Dreaming 会自动重放全部已登记且启用的定期 digest 来源，但不会自行把一次性 URL、文件或未登记
+范围变成订阅，也不替代 search/update/todo。
 
 ## 能做什么
 
-1. 自动检查信息：按用户选择的范围读取来源，识别决策、责任、风险、变化和冲突，整理为可复查
-   的待关注事项。
+1. 自动检查信息：完整重放已登记的飞书文档、群聊、Meego、Base、风神、Wiki 子树等定期来源；
+   同时按用户选择的消息范围识别决策、责任、风险、变化和冲突，整理为可复查的待关注事项。
 2. 复查与反馈：查看为什么重要、信息覆盖范围，并标记有用、已知、错误、完成、延后或忽略。
 3. 定时摘要：基于已保存的待关注事项、个人待办和知识库生成晨间摘要；日报和周报只有完成单独
    迁移后才会接管。

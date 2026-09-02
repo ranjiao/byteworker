@@ -130,6 +130,19 @@ class AgentRouteContractTests(unittest.TestCase):
             ["references/dreaming-maintenance.md"],
             features["maintenance"],
         )
+        routine_digest = set(features["routine_digest"])
+        for required in (
+            "references/digest-core.md",
+            "references/digest-transaction.md",
+            "references/digest-routine.md",
+            "references/digest-doc.md",
+            "references/digest-chat.md",
+            "references/digest-meego.md",
+            "references/digest-base.md",
+            "references/digest-aeolus.md",
+            "references/digest-wiki-space.md",
+        ):
+            self.assertIn(required, routine_digest)
         self.assertEqual(
             ["references/dreaming-harness-trae.md"],
             features["harness_trae"],

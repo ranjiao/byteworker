@@ -342,6 +342,7 @@ def empty_state(now: datetime) -> dict[str, Any]:
         "cursors": {},
         "gaps": {},
         "receipt_index": {},
+        "source_checkpoints": {},
         "actions": {},
         "outbox": {},
         "report_dependencies": {},
@@ -556,6 +557,7 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
         result["actions"] = {}
     result.setdefault("outbox", {})
     result.setdefault("report_dependencies", {})
+    result.setdefault("source_checkpoints", {})
     result.setdefault("foreground_sessions", {})
     if "report_owner" not in result:
         result["report_owner"] = {
@@ -574,6 +576,7 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
         "cursors",
         "gaps",
         "receipt_index",
+        "source_checkpoints",
         "actions",
         "outbox",
         "report_dependencies",
@@ -610,6 +613,8 @@ def _migrate_v1(value: Mapping[str, Any], now: datetime) -> dict[str, Any]:
     ):
         if key in value:
             migrated[key] = value[key]
+    if isinstance(value.get("source_checkpoints"), Mapping):
+        migrated["source_checkpoints"] = dict(value["source_checkpoints"])
     old_jobs = value.get("jobs")
     if not isinstance(old_jobs, Mapping):
         raise DreamingError(

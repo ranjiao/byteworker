@@ -95,7 +95,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `state/digest/run-logs/` | 每个 digest 输入的私密结构化阶段/usage 时间线；只含白名单枚举、计数、耗时和 call id 哈希 | `digest-run` 及带 `--run-id` 的 `digest-txn` | 30 天保留、5 MiB 轮转；不进入 KB Git |
 | `state/digest/flows/` | 每个标准 digest 的私有 phase、source ref hash 和 artifact 路径 checkpoint | `digest-flow` | 跨 session 恢复；终态保留；不进入 KB Git |
 | `state/report_automation.json` | 自动报告的一次性设置选择、宿主线索、prompt 版本、跨任务租约和最近真实运行回执 | `report-automation` 按需原子写入 | 本机运行状态；宿主任务系统仍是真相源 |
-| `state/dreaming/` | Dreaming 权限、运行计划、日志配置、运行状态、报告 outbox 和私密中间状态 | `dreaming` / `settings` façade 委派写入 | 本机后台状态；不进入 KB Git |
+| `state/dreaming/` | Dreaming 权限、运行计划、日志配置、定期来源覆盖 checkpoint、报告 outbox 和私密中间状态 | `dreaming` / `settings` façade 委派写入 | 本机后台状态；不进入 KB Git |
 
 数据目录路径由用户首次使用时指定(默认目录名 `byteworker_kb`,路径可配置),
 记于 skill 仓库的 `.kbconfig`(已 gitignore)。数据目录是**它自己的独立本地 git 仓库**
@@ -377,8 +377,11 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
   `recipient_key`，默认关闭。配置入口接受字母用户名或 `ou_`，字母用户名必须经 user 身份通讯录
   唯一解析；持久化和 outbox 仍只使用 `ou_` 开头的 open_id。旧 v2 state 缺 `recipient_key` 时
   从 `recipient_id` 补值，不因升级自动发送。
-- `runs/cursors/gaps/receipt_index` 由 Batch Commit Protocol 维护。queryless discovery 只能标
+- `runs/cursors/gaps/receipt_index` 由 IM Batch Commit Protocol 维护。queryless discovery 只能标
   `best_effort`；预算截断保存时间切片 gap，不持久化 provider page token。
+- `source_checkpoints` 按 `sha256(source_type + NUL + source_uid)` 索引，保存当前来源配置 revision、
+  process 覆盖到的 UTC `through`、run id 和已核验下游结果摘要。它只证明对应普通 digest/
+  Wiki scan 已完成，不是业务事实证据。
 - 初次启用只开启 `process/morning/maintenance/recovery`；`daily/weekly` 默认关闭，避免与现有
   `report_automation` 重复运行。
 - `maintenance` 默认工作日 03:30，通过公开 doctor facade 先 scan，再执行 finding 明确声明的
@@ -434,6 +437,7 @@ I2 状态布局：
 ```text
 state/dreaming/
   state.json
+  digest-batches/<run_id>.json
   run-logs/<UTC-date>[-NNNN].jsonl
   run-results/<run_id>.json
   spool/<batch_id>/<message_hash>.json
@@ -444,6 +448,12 @@ state/dreaming/
     consolidation.receipt.json     # I3 写入
     batch.commit.json
 ```
+
+`digest-batches/<run_id>.json` 使用 `byteworker-dreaming-digest-batch/v1`，保存 process 开始时
+全部启用 Profile 和未被 Profile 取代的兼容历史 raw 来源快照、配置 revision、目标覆盖时间及
+有限下游 receipt。普通来源只接受能回查 `digest_status=digested` raw 的 DigestTxn
+`committed/noop`；Wiki 子树只接受 coverage complete 且 tree hash 可复验的 scan `observed`。
+完成前重新枚举来源；清单或 revision 漂移、任一来源失败时都不得更新 `source_checkpoints`。
 
 - `process prepare` 采集并提交 `collected` manifest，只向机器输出 batch id、相对 manifest path、
   数量和 coverage，不输出消息正文。
@@ -517,12 +527,14 @@ reports/<kind>/<period>.md
 
 - 报告窗口：morning 为前一日 20:30 至当日 10:00；当期自动 daily 为当日 00:00 至当前 tick，
   历史补跑 daily 为完整自然日；weekly 为完整 ISO 周。均按 Dreaming timezone 计算后保存 UTC。
-- IM cursor 落后或 gap 与窗口重叠时，报告 job 写 `blocked_by`，scheduler 先领取独立 process
+- IM cursor 落后、gap 与窗口重叠，或任一定期来源 checkpoint 未覆盖窗口结束时间时，报告 job
+  写 `blocked_by`，scheduler 先领取独立 process
   catch-up lease；process commit 清除已覆盖 gap 并刷新 dependency 后，runner 可用该 catch-up
   `run_id` 做一次受限 follow-up 领取报告。follow-up 只考虑 morning/daily/weekly，不参与普通
   process/recovery/maintenance 竞争，也不得循环领取。
-- all_visible discovery 即使追平也只能标 partial/best-effort。存在 Dreaming 尚未支持的 routine
-  provider 时 morning 可 partial，但禁止 daily/weekly owner migration。
+- all_visible discovery 即使追平也只能标 partial/best_effort。所有合法定期 Profile 和普通
+  digest 兼容历史来源都必须进入 process；Profile 无效时迁移和报告 fail closed，不允许按
+  provider 类型静默忽略。
 - report packet 只包含 committed Finding 投影、coverage 和 durable KB 查询指针，不读取 spool；
   文件 `0600`。报告事实仍必须通过 citations 回到原始 evidence。
 - Agent 只生成一次 `byteworker-report-document/v1` 语义结果；`dreaming_report_completion.py`
@@ -1445,8 +1457,9 @@ reports/
   - 自动日报 / 周报或自然语言补跑:先完整运行全部已登记且启用来源的 routine digest，再召回
     范围内 `journal/`、`raw_data/` frontmatter、`knowledge/` 节点及其 links。自动运行不受
     `.last-routine-digest` 七天交互提醒阈值限制。
-  - Dreaming morning/daily/weekly：只消费 committed Finding projection、coverage 与 durable KB
-    查询指针，不读取 spool；必须通过 include_report Action claim 提交。
+  - Dreaming morning/daily/weekly：只消费 process 已提交的普通 digest、committed Finding
+    projection、coverage 与 durable KB 查询指针，不读取 spool，也不在报告 job 内重跑 digest；
+    必须通过 include_report Action claim 提交。
 - **展示边界**:Dreaming 的 Markdown 是 Agent 内部记录、引用审计和 KB mutation 输入，不作为
   主要用户界面；用户收到 300–500 字消息摘要，并通过自包含 HTML 查看详细版本。宿主不能预览
   HTML 时返回本地文件链接，不依赖任何宿主私有接口。

@@ -18,8 +18,10 @@ prepare 只读 committed Finding 和 durable KB 引用，不读 spool 或重跑 
 Finding 数量和 coverage：
 
 - monitored cursor/gap 未完成：blocked。
+- 任一定期 digest 来源没有与当前 Profile revision 一致、且覆盖窗口结束时间的成功 checkpoint：
+  blocked；`run-due` 先调度 process catch-up。
 - all_visible discovery：最多 partial，披露 best-effort。
-- 不支持的 routine provider：partial，并禁止 daily/weekly 迁移。
+- 来源 Profile 非法：迁移检查 fail closed；不存在“忽略某类 provider 后生成完整报告”的降级。
 
 ## 生成与提交
 

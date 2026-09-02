@@ -82,6 +82,7 @@ class ArchitectureContractTests(unittest.TestCase):
             "lib/dreaming_analysis.py",
             "lib/dreaming_consolidation.py",
             "lib/dreaming_process.py",
+            "lib/dreaming_digest.py",
             "lib/dreaming_action_policy.py",
             "lib/dreaming_action_ledger.py",
             "lib/dreaming_reports.py",
@@ -211,6 +212,7 @@ class ArchitectureContractTests(unittest.TestCase):
             (ROOT / "lib/dreaming_analysis.py").read_text(encoding="utf-8"),
             (ROOT / "lib/dreaming_consolidation.py").read_text(encoding="utf-8"),
             (ROOT / "lib/dreaming_process.py").read_text(encoding="utf-8"),
+            (ROOT / "lib/dreaming_digest.py").read_text(encoding="utf-8"),
             (ROOT / "lib/dreaming_action_policy.py").read_text(encoding="utf-8"),
             (ROOT / "lib/dreaming_action_ledger.py").read_text(encoding="utf-8"),
             (ROOT / "lib/dreaming_reports.py").read_text(encoding="utf-8"),
@@ -223,6 +225,16 @@ class ArchitectureContractTests(unittest.TestCase):
             self.assertNotIn("import kb_query", source)
             self.assertNotIn("from kb_query", source)
         self.assertNotIn("source-architecture-refactor.md", self.architecture)
+
+    def test_dreaming_reuses_complete_routine_digest_contract(self):
+        for term in (
+            "byteworker-dreaming-digest-batch/v1",
+            "全部启用 routine 来源",
+            "committed/noop",
+            "source checkpoint",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, self.architecture)
 
     def test_inbox_removal_boundary_is_documented(self):
         for term in (
@@ -243,7 +255,7 @@ class ArchitectureContractTests(unittest.TestCase):
             "后台信息助手、自动检查、待关注事项",
             "不能成为用户理解或完成配置的前置条件",
             "不得因修改单项设置而清空其它已授权项",
-            "process / morning / maintenance / recovery",
+            "process（全部普通 routine digest + 可选 IM 分析）/ morning / maintenance / recovery",
             "`maintenance`",
             "`DOCTOR_USER_DECISION_REQUIRED`",
             "`waiting_for_user`",

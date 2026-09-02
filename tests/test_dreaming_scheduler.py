@@ -130,6 +130,15 @@ class DreamingSchedulerTests(unittest.TestCase):
             first["grants"]["revision"] = 4
             first["grants"]["im"]["mode"] = "monitored"
             first["cursors"] = {"chat:oc_test": {"through": "message:om_1"}}
+            first["source_checkpoints"] = {
+                "source-key": {
+                    "source_type": "meego",
+                    "source_uid": "meego:test:view",
+                    "profile_revision": "sha256:test",
+                    "through": enabled_at.isoformat(),
+                    "run_id": "DR-1",
+                }
+            }
             first["runs"] = {"RUN-1": {"status": "success"}}
             atomic_write_json(state_path(kb), first)
 
@@ -138,6 +147,10 @@ class DreamingSchedulerTests(unittest.TestCase):
             self.assertEqual(4, second["grants"]["revision"])
             self.assertEqual("monitored", second["grants"]["im"]["mode"])
             self.assertEqual(first["cursors"], second["cursors"])
+            self.assertEqual(
+                first["source_checkpoints"],
+                second["source_checkpoints"],
+            )
             self.assertEqual(first["runs"], second["runs"])
             self.assertGreater(
                 second["state_revision"],

@@ -37,6 +37,11 @@ from dreaming_collection import (  # noqa: E402
 )
 from dreaming_grants import set_im_grant  # noqa: E402
 from dreaming_process import commit_finding_bundle  # noqa: E402
+from dreaming_digest import (  # noqa: E402
+    complete_routine_digest,
+    prepare_routine_digest,
+    record_routine_digest_result,
+)
 from dreaming_action_policy import evaluate_action_plan, load_action_plan  # noqa: E402
 from dreaming_action_ledger import (  # noqa: E402
     cancel_action,
@@ -259,6 +264,16 @@ def parser() -> argparse.ArgumentParser:
 
     process = sub.add_parser("process")
     process_sub = process.add_subparsers(dest="process_operation", required=True)
+    digest_prepare = process_sub.add_parser("digest-prepare")
+    digest_prepare.add_argument("--kb", required=True, type=Path)
+    digest_prepare.add_argument("--token", required=True)
+    digest_record = process_sub.add_parser("digest-record")
+    digest_record.add_argument("--kb", required=True, type=Path)
+    digest_record.add_argument("--token", required=True)
+    digest_record.add_argument("--input", required=True, type=Path)
+    digest_complete = process_sub.add_parser("digest-complete")
+    digest_complete.add_argument("--kb", required=True, type=Path)
+    digest_complete.add_argument("--token", required=True)
     prepare = process_sub.add_parser("prepare")
     prepare.add_argument("--kb", required=True, type=Path)
     prepare.add_argument("--source", choices=("im",), required=True)
@@ -507,7 +522,7 @@ def _run(args: argparse.Namespace) -> object:
             if not readiness["ready"]:
                 raise DreamingError(
                     "DREAMING_REPORT_COVERAGE_UNSUPPORTED",
-                    "仍有 Dreaming process 未支持的 routine 来源，拒绝迁移报告 owner。",
+                    "定期来源清单无效，拒绝迁移报告 owner。",
                     details=readiness,
                 )
         return set_report_management(
@@ -574,6 +589,16 @@ def _run(args: argparse.Namespace) -> object:
             acknowledge_all_visible=args.acknowledge_all_visible,
         )
     if args.operation == "process":
+        if args.process_operation == "digest-prepare":
+            return prepare_routine_digest(kb, token=args.token)
+        if args.process_operation == "digest-record":
+            return record_routine_digest_result(
+                kb,
+                token=args.token,
+                input_path=args.input,
+            )
+        if args.process_operation == "digest-complete":
+            return complete_routine_digest(kb, token=args.token)
         if args.process_operation == "prepare":
             return prepare_im_batch(
                 kb,

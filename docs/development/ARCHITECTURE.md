@@ -391,7 +391,10 @@ CaptureProfile、不搜索即时会议、不递归文档依赖。`report_automat
 Dreaming 是新增的可选旁路控制面，默认关闭。用户明确确认额外网络/模型/存储开销以及机器需
 保持开机、唤醒、联网前，还必须先完成独立能力导览，讲清它与 digest 的差异、全部 job、授权、
 Finding/Action 生命周期、维护和退出边界，并配置确认完整运行计划。三项确认都记录后，宿主 local task 才可调用
-`dreaming run-due`。初始实现不接管上述自动报告；`daily/weekly` job 默认关闭。后续迁移必须先
+`dreaming run-due`。每次 process 都快照并重放所有已登记且启用的普通 routine digest 来源；
+来源仍走原有公开 capture、Agent 语义和 DigestTxn，Dreaming 只核验真实 `committed/noop`
+回执并推进 per-source checkpoint。Wiki 子树保留完整 scan + 变化展示的既有语义。初始启用不
+接管上述自动报告；`daily/weekly` job 默认关闭。后续迁移必须先
 释放旧 scheduler owner，并由 `migration_epoch` 保证同一 period 只有一个 owner。
 
 配置入口属于 Agent 交互层，不新增另一套状态或配置 writer。自然语言中的“自动分析、定时摘要、
@@ -416,7 +419,7 @@ cron/launchd 冒充 Agent task。TraeWork 网页版的云端任务不能访问�
 ```text
 宿主 local tick
   → dreaming run-due
-  → process / morning / maintenance / recovery（初始启用）
+  → process（全部普通 routine digest + 可选 IM 分析）/ morning / maintenance / recovery（初始启用）
   → daily / weekly（显式迁移后）
   → process / maintenance / recovery：dreaming complete
   → morning / daily / weekly 成功：dreaming report complete（内部完成 lease）
@@ -595,6 +598,7 @@ flowchart TB
         DA["lib/dreaming_analysis.py<br/>Finding/evidence/grant 校验"]
         DCO["lib/dreaming_consolidation.py<br/>history、投影与幂等 revision"]
         DPR["lib/dreaming_process.py<br/>process commit 编排"]
+        DRD["lib/dreaming_digest.py<br/>routine 来源快照、普通 digest 回执核验与 checkpoint"]
         DAP["lib/dreaming_action_policy.py<br/>有限动作与确定性门禁"]
         DAL["lib/dreaming_action_ledger.py<br/>claim fencing 与 receipt reconcile"]
         DREP["lib/dreaming_reports.py<br/>窗口、coverage、packet、outbox"]
@@ -658,6 +662,7 @@ flowchart TB
     DIRECT --> DC
     DIRECT --> DB
     DIRECT --> DPR
+    DIRECT --> DRD
     DIRECT --> DAP
     DIRECT --> DAL
     DIRECT --> DREP
@@ -671,6 +676,8 @@ flowchart TB
     DPR --> DA
     DPR --> DCO
     DPR --> DB
+    DRD --> DST
+    DRD --> SP
     DA --> DM
     DCO --> DST
     DAP --> DCO
@@ -1040,6 +1047,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_analysis.py` | FindingBundle schema、batch/hash、evidence ref 和 grant revision 复验 | 否 |
 | `lib/dreaming_consolidation.py` | Finding event history、当前投影、跨 batch revision、重建和 grant purge | 私密 Finding state |
 | `lib/dreaming_process.py` | analysis receipt、可选 consolidation、batch commit/cursor 的幂等编排 | 仅通过 analysis/consolidation/batch owner |
+| `lib/dreaming_digest.py` | 快照 Profile/兼容历史 raw 定期来源，核验普通 digest 或 Wiki scan 的真实回执，完整后推进 per-source checkpoint | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
 | `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
 | `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
 | `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |
@@ -1092,7 +1100,8 @@ flowchart LR
 | `byteworker-conflict-query/v1` / `byteworker-conflict-candidates/v1` | Agent + `kb_query.py` | 最多 32 条短 query；同源精确定位；单次节点扫描；工具只召回不裁决 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
 | `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；viewer 只可修改 Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；旧自动报告只读 |
-| `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt；enabled 与 operational 分离；默认不接管报告 |
+| `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt/source checkpoint；enabled 与 operational 分离；默认不接管报告 |
+| `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + Agent runner | 批次固定来源清单与 Profile revision；普通来源只接受可回查 raw 的 `committed/noop`，Wiki 只接受完整 scan；清单漂移或任一失败不推进 checkpoint |
 | `byteworker-dreaming-run-event/v1` | `dreaming_run_log.py` | 稳定 run_id；事件/stage/metrics 白名单；无业务正文；独立日志锁、5 MiB 轮转与 1..365 天保留 |
 | Dreaming 跨阶段结构契约 | `dreaming_models.py` | schema 白名单、必填结构、枚举和 evidence ref 形状；不复刻业务语义 |
 | `byteworker-evidence-batch/v1` | `dreaming_collection.py` + `dreaming_batch.py` | principal/grant revision、窗口、coverage、message anchors、私密 spool refs |
@@ -1171,7 +1180,7 @@ Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `repo
 外部脚本、样式、字体、图片或网络资源；宿主可自行预览，不能预览时返回本地文件链接。飞书发送失败只影响对应 outbox，
 不能删除本地产物或声称已经送达。
 
-Dreaming 另有八条边界：缺失状态必须等同关闭；未记录当前版本能力导览、完整运行计划或机器
+Dreaming 另有九条边界：缺失状态必须等同关闭；未记录当前版本能力导览、完整运行计划或机器
 运行要求确认时拒绝启用；`enabled=true` 但 harness 未登记时 `operational=false`，不能声称会
 自动运行；TRAE IDE/TraeCode 不得创建或 register Dreaming 任务，TraeWork 等支持的宿主没有
 真实任务与首次触发证据时也禁止 register；旧自动报告仍声明 enabled
@@ -1181,6 +1190,8 @@ Dreaming，不得阻塞、回滚或改变 digest/search/update 和旧自动报�
 job 的 `last_success`。v1→v2 迁移必须先写本地私密备份，再原子替换 state；未知 schema 或迁移
 失败保持 Dreaming fail closed，不能猜写或影响其它能力。运行日志只能保存白名单元数据和计数，
 不得保存 IM/Finding 正文、人员群名、URL、凭据、argv 或 stderr；日志失败不得被伪装为可审计成功。
+process 只有在全部启用 routine 来源按普通 digest 成功标准完成、来源清单和 Profile revision 未
+漂移后才能成功；任一来源失败不得推进报告覆盖 checkpoint。
 交互向导不得把推荐值当作用户确认，不得因修改单项设置而清空其它已授权项，也不得把
 `operational/persist_report/instant_alert/harness` 等内部名字作为面向用户的必答概念。
 
