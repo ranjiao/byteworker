@@ -153,6 +153,23 @@ bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 
 ### `process`
 
+每次后台 process 先处理普通定期摄取来源：
+
+```bash
+bin/byteworker dreaming process digest-prepare --kb "<KB>" --token "<lease.token>"
+# 按返回清单逐源执行完整普通 digest，并逐个提交结果
+bin/byteworker dreaming process digest-record --kb "<KB>" \
+  --token "<lease.token>" --input "<digest-result.json>"
+bin/byteworker dreaming process digest-complete --kb "<KB>" --token "<lease.token>"
+```
+
+`digest-prepare` 快照所有已启用 Profile，以及普通 digest 仍兼容且未被 Profile 取代的历史 raw
+定期来源。runner 必须加载 workflow manifest 的 `features.routine_digest`，按每个来源原有
+capture、依赖、语义、冲突、候选、引用和 DigestTxn 规则处理；不得复制简化实现。
+普通来源只接受可回查已提交 raw 的 `committed/noop`，Wiki 子树按其原有语义接受完整 scan 的
+`observed`，变化页面仍需经过普通文档 digest。清单、Profile revision 或任一来源结果不完整时
+不推进 checkpoint，也不允许 process 成功。
+
 IM grant 默认关闭：
 
 ```bash
@@ -181,7 +198,8 @@ coverage，不返回消息正文。monitored 读取已登记的 chat Profile；a
 拿到 collected batch 后，读取 `references/dreaming-analysis.md` 生成 FindingBundle，再调用
 `process commit`。持久化与恢复规则见 `references/dreaming-consolidation.md`。
 
-I3 只生成/整合 Finding；`process` 不自动创建 Todo、订阅新来源、写报告或执行知识入库。
+IM 分支只生成/整合 Finding；它不自动创建 Todo、订阅新来源或写报告。已登记 routine 来源的
+知识入库不是 Finding action，而是 process 对普通 digest 的原样重放。
 
 Finding 需要进入报告、Todo、来源确认或知识候选时，必须读取
 `references/dreaming-actions.md`，通过 Action Policy + Ledger 执行。不得从 Finding 直接调用
@@ -197,8 +215,8 @@ KB mutation、Todo 或 DigestTxn。
 
 ### `daily` / `weekly`
 
-迁移完成前默认禁用。启用后按 `references/dreaming-reports.md` 消费 Dreaming checkpoint 和
-Finding history，不能再次独立执行完整 routine digest。
+迁移完成前默认禁用。启用后按 `references/dreaming-reports.md` 消费 process 已完成的来源
+checkpoint 和 Finding history；报告 job 不能再次独立执行完整 routine digest。
 
 ### `recovery`
 

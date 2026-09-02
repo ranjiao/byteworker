@@ -976,6 +976,10 @@ Dreaming 启用前先用 `configure` 选择 process 的 `interval`、`daily_time
 `runs list/show/tail` 查询私有结构化日志。日志不保存消息或 Finding 正文。完整协议见
 `references/dreaming.md`。
 
+`process digest-prepare/digest-record/digest-complete` 把全部已启用定期来源接入后台：
+runner 仍逐源执行普通 digest，Dreaming 只快照来源、核验 `committed/noop` 或 Wiki 完整扫描
+回执，并在全部完成后推进报告 coverage checkpoint。
+
 ### `inbox.py`
 
 独立 Inbox 已移除。该入口只为一个 major 版本内的旧调用方返回稳定

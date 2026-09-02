@@ -192,7 +192,25 @@
           "references/dreaming-setup-guide.md"
         ],
         "harness_trae": ["references/dreaming-harness-trae.md"],
-        "maintenance": ["references/dreaming-maintenance.md"]
+        "maintenance": ["references/dreaming-maintenance.md"],
+        "routine_digest": [
+          "references/digest-core.md",
+          "references/digest-dependencies.md",
+          "references/digest-transaction.md",
+          "references/provenance.md",
+          "references/write-rules.md",
+          "references/conflict-policy.md",
+          "references/semantic-policy.md",
+          "references/digest-routine.md",
+          "references/digest-doc.md",
+          "references/digest-comments.md",
+          "references/digest-whiteboard.md",
+          "references/digest-chat.md",
+          "references/digest-meego.md",
+          "references/digest-base.md",
+          "references/digest-aeolus.md",
+          "references/digest-wiki-space.md"
+        ]
       }
     },
     "doctor": {
@@ -348,11 +366,11 @@
       "overflow_action": "split_report_source_packets"
     },
     "dreaming": {
-      "static_rules_tokens": 70000,
+      "static_rules_tokens": 115000,
       "worker_prompt_tokens": 0,
       "dynamic_context_tokens": 12000,
       "source_packet_tokens": 128000,
-      "total_input_tokens": 210000,
+      "total_input_tokens": 255000,
       "output_tokens": 16000,
       "overflow_action": "split_evidence_batch"
     },

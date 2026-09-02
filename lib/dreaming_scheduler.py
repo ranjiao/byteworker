@@ -38,6 +38,9 @@ RUN_STATUSES = {"success", "partial", "failed"}
 HUMAN_BLOCKING_ERRORS = {
     "SOURCE_AUTH_REQUIRED",
     "SOURCE_PERMISSION_DENIED",
+    "SOURCE_PROFILE_INVALID",
+    "DREAMING_ROUTINE_SOURCE_INVALID",
+    "DREAMING_ROUTINE_SOURCE_UNSUPPORTED",
     "DREAMING_GRANT_REQUIRED",
     "DOCTOR_USER_DECISION_REQUIRED",
 }
@@ -529,6 +532,7 @@ def enable(
             "cursors",
             "gaps",
             "receipt_index",
+            "source_checkpoints",
             "actions",
             "report_owner",
             "outbox",
@@ -1727,6 +1731,17 @@ def complete_run(
                 "Dreaming lease epoch 已过期。",
             )
         normalized_batch_id = batch_id.strip()
+        if job_name == "process" and run_status == "success":
+            from dreaming_digest import process_has_complete_routine_digest
+
+            if not process_has_complete_routine_digest(
+                kb,
+                run_id=_lease_run_id(lease),
+            ):
+                raise DreamingError(
+                    "DREAMING_DIGEST_INCOMPLETE",
+                    "process 成功前必须完成全部已启用来源的普通 digest。",
+                )
         if normalized_batch_id:
             manifest = secure_path(
                 kb,

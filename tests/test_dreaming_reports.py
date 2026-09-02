@@ -37,7 +37,6 @@ from dreaming_state import (  # noqa: E402
     save_state_unlocked,
     state_lock,
 )
-from source_profile_contract import SourceProfileError  # noqa: E402
 import dreaming_report_bundle  # noqa: E402
 
 
@@ -639,21 +638,23 @@ class DreamingReportTests(unittest.TestCase):
                 ).is_file()
             )
 
-    def test_unsupported_routine_source_blocks_owner_migration(self):
+    def test_all_valid_routine_profiles_allow_owner_migration(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             now = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
             kb = self.make_kb(Path(temporary), now)
-            profile = {
+            source = {
+                "source_key": "key",
                 "source_type": "meego",
-                "routine": {"enabled": True},
+                "profile_revision": "sha256:test",
             }
-            with mock.patch("dreaming_reports.list_profiles", return_value=[profile]):
+            with mock.patch("dreaming_reports.routine_inventory", return_value=[source]):
                 readiness = report_migration_readiness(kb)
-            self.assertFalse(readiness["ready"])
+            self.assertTrue(readiness["ready"])
+            self.assertEqual(1, readiness["routine_source_count"])
 
             with mock.patch(
-                "dreaming_reports.list_profiles",
-                side_effect=SourceProfileError(
+                "dreaming_reports.routine_inventory",
+                side_effect=DreamingError(
                     "SOURCE_PROFILE_INVALID",
                     "broken",
                 ),
