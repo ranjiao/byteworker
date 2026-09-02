@@ -40,8 +40,7 @@ todo       待办提醒 —— 直接说自然语言,不用记命令或编号
 后台信息助手   自动检查与提醒 —— 默认关闭，用户明确确认后才启用
   "帮我配置后台信息助手" / "每天汇总重要信息" / "重要风险及时提醒我"
   "调整自动分析频率" / "为什么没有自动运行" / "继续刚才的设置"
-  → 在 Codex / TraeWork 中用选项逐步设置检查频率、信息范围、结果保存、摘要和紧急提醒
-  → TRAE IDE/TraeCode 不支持所需的本地定时任务，会提示切换到 TraeWork 桌面版
+  → 在 Codex / TRAE 中用选项逐步设置检查频率、信息范围、结果保存、摘要和紧急提醒
   → 不要求理解内部配置名；可随时只修改一项或暂停，未完成时从上次步骤继续
   → 启用前介绍它与 digest 的差异、成本、隐私、机器条件和退出方式
   → 周期性处理已授权来源，统一调度自动检查、晨间摘要、健康检查和离线补跑
@@ -81,5 +80,5 @@ help       用法说明
 存储:知识库数据目录(用户指定,独立于本 skill,不进 git)——
       knowledge/(节点)· raw_data/(原始输入)· provenance/(精确出处)· journal/(日志)· reports/(日报/周报/晨报)
       · INDEX.md · dashboard.md · context.md(全局上下文)· todo.md(确认后的个人待办)
-文档:docs/development/DESIGN.md(存储 schema)· docs/development/TODOS.md(延后功能)
+文档:DESIGN.md(存储 schema)· TODOS.md(延后功能)
 安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git;Todo 仅本地,不创建飞书任务
