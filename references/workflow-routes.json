@@ -1,11 +1,8 @@
 {
-  "schema_version": "byteworker-workflow-routes/v2",
+  "schema_version": "byteworker-workflow-routes/v1",
   "common": {
     "preflight": [
       "references/machine-protocol.md"
-    ],
-    "budget_policy": [
-      "references/workflow-budgets.md"
     ]
   },
   "workflows": {
@@ -13,10 +10,6 @@
       "required": [
         "references/machine-protocol.md",
         "references/digest-core.md",
-        "references/digest-flow.md",
-        "references/digest-observability.md",
-        "references/digest-analysis-pipeline.md",
-        "references/digest-concurrency.md",
         "references/digest-dependencies.md",
         "references/digest-transaction.md",
         "references/provenance.md",
@@ -51,59 +44,14 @@
     },
     "large_digest_worker": {
       "extends": "digest",
-      "include_router": false,
-      "required": ["references/digest-large.md"],
-      "worker_prompt": ["templates/digest-worker-prompt.md"]
-    },
-    "digest_dependency_worker": {
-      "include_router": false,
-      "required": [
-        "references/digest-concurrency.md",
-        "references/digest-dependencies.md"
-      ],
-      "worker_prompt": ["templates/digest-worker-prompt.md"],
-      "on_error": ["references/error-handling.md"]
-    },
-    "digest_semantic_worker": {
-      "include_router": false,
-      "required": [
-        "references/digest-concurrency.md",
-        "references/digest-analysis-pipeline.md",
-        "references/semantic-policy.md",
-        "references/provenance.md"
-      ],
-      "worker_prompt": ["templates/digest-worker-prompt.md"],
-      "on_error": ["references/error-handling.md"]
-    },
-    "digest_conflict_worker": {
-      "include_router": false,
-      "required": [
-        "references/digest-concurrency.md",
-        "references/conflict-policy.md"
-      ],
-      "worker_prompt": ["templates/digest-worker-prompt.md"],
-      "on_error": ["references/error-handling.md"]
-    },
-    "digest_final_reducer": {
-      "include_router": false,
-      "required": [
-        "references/digest-final-reducer.md",
-        "references/semantic-policy.md",
-        "references/provenance.md",
-        "references/conflict-policy.md",
-        "references/write-rules.md",
-        "references/digest-transaction.md"
-      ],
-      "worker_prompt": ["templates/digest-worker-prompt.md"]
+      "required": ["references/digest-large.md"]
     },
     "wiki_resume_page": {
       "extends": "digest",
-      "include_router": false,
       "required": [
         "references/wiki-digest-jobs.md",
         "references/digest-doc.md"
-      ],
-      "worker_prompt": ["templates/digest-worker-prompt.md"]
+      ]
     },
     "wiki_space": {
       "required": [
@@ -124,8 +72,7 @@
         "references/machine-protocol.md",
         "references/command-update.md",
         "references/conflict-policy.md",
-        "references/kb-mutation.md",
-        "references/write-rules.md"
+        "references/kb-mutation.md"
       ]
     },
     "brief": {
@@ -169,7 +116,6 @@
         "references/machine-protocol.md",
         "references/report-scheduling.md",
         "references/periodic-report.md",
-        "references/report-calendar-meetings.md",
         "references/digest-routine.md",
         "references/kb-mutation.md",
         "references/citations.md"
@@ -221,167 +167,14 @@
     }
   },
   "budgets": {
-    "digest": {
-      "static_rules_tokens": 100000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 12000,
-      "source_packet_tokens": 256000,
-      "total_input_tokens": 368000,
-      "output_tokens": 32000,
-      "overflow_action": "route_large_input"
-    },
-    "large_digest_worker": {
-      "static_rules_tokens": 100000,
-      "worker_prompt_tokens": 1000,
-      "dynamic_context_tokens": 0,
-      "source_packet_tokens": 64000,
-      "total_input_tokens": 229000,
-      "output_tokens": 16000,
-      "overflow_action": "shard_source_packet"
-    },
-    "digest_dependency_worker": {
-      "static_rules_tokens": 30000,
-      "worker_prompt_tokens": 1000,
-      "dynamic_context_tokens": 0,
-      "source_packet_tokens": 32000,
-      "total_input_tokens": 63000,
-      "output_tokens": 4000,
-      "overflow_action": "shard_source_packet"
-    },
-    "digest_semantic_worker": {
-      "static_rules_tokens": 40000,
-      "worker_prompt_tokens": 1000,
-      "dynamic_context_tokens": 0,
-      "source_packet_tokens": 128000,
-      "total_input_tokens": 169000,
-      "output_tokens": 16000,
-      "overflow_action": "shard_source_packet"
-    },
-    "digest_conflict_worker": {
-      "static_rules_tokens": 30000,
-      "worker_prompt_tokens": 1000,
-      "dynamic_context_tokens": 0,
-      "source_packet_tokens": 64000,
-      "total_input_tokens": 95000,
-      "output_tokens": 8000,
-      "overflow_action": "shard_source_packet"
-    },
-    "digest_final_reducer": {
-      "static_rules_tokens": 30000,
-      "worker_prompt_tokens": 1000,
-      "dynamic_context_tokens": 0,
-      "source_packet_tokens": 128000,
-      "total_input_tokens": 165000,
-      "output_tokens": 24000,
-      "overflow_action": "compact_reduce_packet"
-    },
-    "wiki_resume_page": {
-      "static_rules_tokens": 100000,
-      "worker_prompt_tokens": 1000,
-      "dynamic_context_tokens": 0,
-      "source_packet_tokens": 128000,
-      "total_input_tokens": 229000,
-      "output_tokens": 16000,
-      "overflow_action": "shard_source_packet"
-    },
-    "wiki_space": {
-      "static_rules_tokens": 18000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 0,
-      "source_packet_tokens": 32000,
-      "total_input_tokens": 50000,
-      "output_tokens": 8000,
-      "overflow_action": "narrow_wiki_scope"
-    },
-    "search": {
-      "static_rules_tokens": 16000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 6000,
-      "source_packet_tokens": 0,
-      "total_input_tokens": 22000,
-      "output_tokens": 6000,
-      "overflow_action": "compact_context_or_ask_user"
-    },
-    "update": {
-      "static_rules_tokens": 30000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 8000,
-      "source_packet_tokens": 16000,
-      "total_input_tokens": 54000,
-      "output_tokens": 8000,
-      "overflow_action": "compact_context_or_ask_user"
-    },
-    "brief": {
-      "static_rules_tokens": 18000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 8000,
-      "source_packet_tokens": 16000,
-      "total_input_tokens": 42000,
-      "output_tokens": 8000,
-      "overflow_action": "compact_context_or_ask_user"
-    },
-    "dashboard": {
-      "static_rules_tokens": 24000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 8000,
-      "source_packet_tokens": 16000,
-      "total_input_tokens": 48000,
-      "output_tokens": 8000,
-      "overflow_action": "compact_context_or_ask_user"
-    },
-    "context": {
-      "static_rules_tokens": 16000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 24000,
-      "source_packet_tokens": 0,
-      "total_input_tokens": 40000,
-      "output_tokens": 6000,
-      "overflow_action": "archive_context_before_continue"
-    },
-    "thinking": {
-      "static_rules_tokens": 18000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 24000,
-      "source_packet_tokens": 16000,
-      "total_input_tokens": 58000,
-      "output_tokens": 8000,
-      "overflow_action": "compact_context_or_ask_user"
-    },
-    "todo": {
-      "static_rules_tokens": 16000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 6000,
-      "source_packet_tokens": 0,
-      "total_input_tokens": 22000,
-      "output_tokens": 4000,
-      "overflow_action": "compact_context_or_ask_user"
-    },
-    "report": {
-      "static_rules_tokens": 60000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 12000,
-      "source_packet_tokens": 128000,
-      "total_input_tokens": 200000,
-      "output_tokens": 16000,
-      "overflow_action": "split_report_source_packets"
-    },
-    "dreaming": {
-      "static_rules_tokens": 115000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 12000,
-      "source_packet_tokens": 128000,
-      "total_input_tokens": 255000,
-      "output_tokens": 16000,
-      "overflow_action": "split_evidence_batch"
-    },
-    "doctor": {
-      "static_rules_tokens": 16000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 0,
-      "source_packet_tokens": 0,
-      "total_input_tokens": 16000,
-      "output_tokens": 4000,
-      "overflow_action": "reject_with_budget_receipt"
-    }
+    "search": 18000,
+    "todo": 18000,
+    "update": 22000,
+    "context": 20000,
+    "thinking": 22000,
+    "dashboard": 26000,
+    "dreaming": 20500,
+    "report": 40000,
+    "digest": 48000
   }
 }
