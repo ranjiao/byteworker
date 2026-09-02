@@ -19,6 +19,7 @@ reports/
 .im-inbox-summary-last-run.json
 .python-cache.txt
 .runtime-cache.json
+.trae
 
 # ===== 杂项 =====
 .DS_Store
