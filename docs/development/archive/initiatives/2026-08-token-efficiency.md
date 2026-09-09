@@ -1,5 +1,7 @@
 # Token 与处理时长优化计划
 
+> 生命周期：`completed`。本文保留实施范围和验证历史，不再作为活跃计划。
+
 本文跟踪 Byteworker Agent 工作流的 token、模型调用次数和墙钟时间优化。优化不得削弱完整来源
 覆盖、provenance、冲突闸门、事务复验、私有数据边界或 `status=committed` 成功判定。
 

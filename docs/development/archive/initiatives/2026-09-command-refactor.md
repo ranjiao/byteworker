@@ -1,6 +1,8 @@
 # `bin/` 命令架构重构任务
 
-> 来源：[`COMMAND_ARCHITECTURE_REVIEW.md`](COMMAND_ARCHITECTURE_REVIEW.md)
+> 生命周期：`completed`。本文保留重构任务和验收记录，不再作为活跃计划。
+>
+> 来源：[`2026-09-command-architecture.md`](../../evidence/reviews/2026-09-command-architecture.md)
 >
 > 原则：先建立命令事实和兼容边界，再拆大型入口；不做一次性重命名或目录搬迁。
 
@@ -246,7 +248,7 @@ automation/external/maintainer` namespace；manifest 同时返回 `aliases`、`n
 296851 ms，event 数 p50/p95 为 4/6；完整 launcher 相对直接工具的固定成本约 130 ms，因此保留
 进程隔离，不引入 fast path。facade 改为 1 MiB 有界流式 stdout 和 64 KiB stderr 收集，越界 stdout
 返回 `byteworker-cli-artifact/v1` 的 `0600` 临时 artifact receipt。正常小输出 p50 增量仅约
-2 至 7 ms。完整方法和限制见 [`COMMAND_PERFORMANCE_BASELINE.md`](COMMAND_PERFORMANCE_BASELINE.md)。
+2 至 7 ms。完整方法和限制见 [`2026-09-command-performance.md`](../../evidence/benchmarks/2026-09-command-performance.md)。
 
 ## 最终验证收据
 

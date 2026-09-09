@@ -141,4 +141,4 @@ AI 助手安装完成后会直接带你走 **上手引导**：指定一个持久
 - [`TUTORIAL.md`](TUTORIAL.md) —— 首次使用的上手引导剧本
 - [`SKILL.md`](SKILL.md) —— skill 行为定义
 - [`docs/development/DESIGN.md`](docs/development/DESIGN.md) —— 存储结构与字段设计
-- [`docs/development/TODOS.md`](docs/development/TODOS.md) —— 延后的功能
+- [`docs/development/plans/backlog.md`](docs/development/plans/backlog.md) —— 有明确启动条件的延后事项

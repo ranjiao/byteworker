@@ -1,0 +1,103 @@
+{
+  "schema_version": "byteworker-document-catalog/v1",
+  "documents": [
+    {
+      "id": "development-router",
+      "path": "docs/development/README.md",
+      "kind": "router",
+      "status": "current",
+      "authority": "developer-document-routing"
+    },
+    {
+      "id": "system-architecture",
+      "path": "docs/development/ARCHITECTURE.md",
+      "kind": "architecture",
+      "status": "current",
+      "authority": "system-architecture"
+    },
+    {
+      "id": "storage-design",
+      "path": "docs/development/DESIGN.md",
+      "kind": "contract",
+      "status": "current",
+      "authority": "storage-schema-and-invariants"
+    },
+    {
+      "id": "documentation-governance",
+      "path": "docs/development/governance/documentation.md",
+      "kind": "governance",
+      "status": "current",
+      "authority": "documentation-governance"
+    },
+    {
+      "id": "decision-index",
+      "path": "docs/development/decisions/README.md",
+      "kind": "decision-index",
+      "status": "current",
+      "authority": "decision-routing"
+    },
+    {
+      "id": "plan-index",
+      "path": "docs/development/plans/README.md",
+      "kind": "plan-index",
+      "status": "current",
+      "authority": "active-plan-routing"
+    },
+    {
+      "id": "engineering-backlog",
+      "path": "docs/development/plans/backlog.md",
+      "kind": "plan",
+      "status": "active",
+      "authority": "deferred-engineering-work"
+    },
+    {
+      "id": "evidence-index",
+      "path": "docs/development/evidence/README.md",
+      "kind": "evidence-index",
+      "status": "current",
+      "authority": "evidence-routing"
+    },
+    {
+      "id": "command-performance-2026-09",
+      "path": "docs/development/evidence/benchmarks/2026-09-command-performance.md",
+      "kind": "benchmark",
+      "status": "point_in_time",
+      "authority": "none"
+    },
+    {
+      "id": "command-architecture-review-2026-09",
+      "path": "docs/development/evidence/reviews/2026-09-command-architecture.md",
+      "kind": "review",
+      "status": "point_in_time",
+      "authority": "none"
+    },
+    {
+      "id": "archive-index",
+      "path": "docs/development/archive/README.md",
+      "kind": "archive-index",
+      "status": "current",
+      "authority": "archive-routing"
+    },
+    {
+      "id": "dreaming-design-2026-08",
+      "path": "docs/development/archive/designs/2026-08-dreaming.md",
+      "kind": "archived-design",
+      "status": "historical",
+      "authority": "none"
+    },
+    {
+      "id": "token-efficiency-initiative-2026-08",
+      "path": "docs/development/archive/initiatives/2026-08-token-efficiency.md",
+      "kind": "archived-initiative",
+      "status": "completed",
+      "authority": "none"
+    },
+    {
+      "id": "command-refactor-initiative-2026-09",
+      "path": "docs/development/archive/initiatives/2026-09-command-refactor.md",
+      "kind": "archived-initiative",
+      "status": "completed",
+      "authority": "none"
+    }
+  ]
+}
