@@ -102,6 +102,8 @@ flowchart LR
     S["SKILL.md<br/>Agent 应该怎样行动"]
     A["docs/development/ARCHITECTURE.md<br/>系统怎样流动、模块怎样依赖"]
     D["docs/development/DESIGN.md<br/>数据怎样持久化、schema 是什么"]
+    G["docs/development/governance/<br/>文档权威与生命周期"]
+    K["docs/development/catalog.json<br/>机器可读文档目录"]
     R["references/<br/>分场景执行细则"]
     T["templates/<br/>产物结构骨架"]
     C["bin/ + lib/<br/>确定性实现"]
@@ -109,6 +111,9 @@ flowchart LR
 
     S --> R
     S --> A
+    G --> K
+    K --> A
+    K --> D
     A --> C
     A --> Q
     D --> T
@@ -116,6 +121,11 @@ flowchart LR
     R --> C
     C --> Q
 ```
+
+`plans/` 只描述当前未完成工作，`evidence/` 只保存带日期的测量与审查，`archive/` 只用于历史追踪；
+它们都不能覆盖 `ARCHITECTURE.md`、`DESIGN.md`、`SKILL.md` 或 `references/` 的当前契约。
+所有开发 Markdown 必须登记在 `catalog.json`，目录和生命周期规则以
+[`governance/documentation.md`](governance/documentation.md) 为准。
 
 ## 2. 整个 skill 的信息处理流程
 
@@ -808,7 +818,7 @@ facade 子进程隔离保留 update-before-import、runtime 环境和异常边�
 而是保留为 `0600` 临时 artifact；stderr 持续排空但只保留 64 KiB。receipt 带 size、SHA-256、
 content type 和临时文件标记，调用方消费后删除。真实 workflow metadata 显示当前固定进程成本通常
 低于 active duration 的 1%，因此不以微基准引入单进程 fast path；决策基线见
-[`COMMAND_PERFORMANCE_BASELINE.md`](COMMAND_PERFORMANCE_BASELINE.md)。
+[`2026-09-command-performance.md`](evidence/benchmarks/2026-09-command-performance.md)。
 
 ### 4.3 Source 子系统
 
@@ -1398,6 +1408,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle、会议妙记 + 文档 Bundles → batch 单 commit，以及 Bundle → commit → query/diff 闭环 |
 
 `tests/test_architecture_contract.py` 固化文档入口和核心模块清单；
+`tests/test_documentation_catalog.py` 固化开发文档目录、生命周期、链接和运行时/归档边界；
 `tests/test_source_architecture.py` 固化 core 不含 provider 分支以及本节最终契约。
 
 ## 9. 目录导航
@@ -1409,10 +1420,14 @@ byteworker/
 ├── docs/
 │   └── development/
 │       ├── README.md      # 开发文档导航
+│       ├── catalog.json   # 机器可读文档目录
 │       ├── ARCHITECTURE.md # 本文件：流程和模块边界
 │       ├── DESIGN.md      # 持久化 schema 与数据不变量
-│       ├── PROACTIVE_INFORMATION_PROCESSING_DESIGN.md
-│       └── TODOS.md
+│       ├── governance/    # 文档权威、生命周期与维护门禁
+│       ├── decisions/     # 长期架构决策索引与 ADR
+│       ├── plans/         # 活跃计划与有启动条件的 backlog
+│       ├── evidence/      # 带日期的 review 与 benchmark
+│       └── archive/       # 历史设计与已完成计划，非当前权威
 ├── references/           # 按场景加载的执行细则
 ├── templates/            # 节点、报告、plan、bundle 骨架；含 Dreaming 自包含 HTML 基础模板
 ├── bin/                  # CLI facade、直接入口和 shell 集成
@@ -1470,3 +1485,4 @@ byteworker/
 3. 修改数据结构：再读 `docs/development/DESIGN.md`。
 4. 修改 Source：再读本文件第 4.3、7.1 节和 Source 重构账本。
 5. 修改事务或查询：先确认没有把 provider 特例带回 core。
+6. 查计划、证据或历史：从 `docs/development/README.md` 路由，不遍历整个目录。

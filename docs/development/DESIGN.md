@@ -65,7 +65,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
 | `bin/report-automation.py` + `lib/report_automation.py` | 自动报告首次设置状态、prompt 版本、跨日报/周报执行租约与真实运行回执；不创建宿主任务 |
 | `bin/viewer-server.py` + `lib/settings.py` | 本地 viewer 设置 API、只读 Dreaming 日志调试 API 与统一配置 façade；汇总现有 truth source，读写 KB 私有 viewer 偏好，不把业务数据复制进 skill 仓库 |
-| `docs/development/TODOS.md` / `CLAUDE.md` | 延后项 / 仓库须知 |
+| `docs/development/plans/backlog.md` / `AGENTS.md` | 延后项 / 仓库须知 |
 | `.kbconfig` | 知识库数据目录的绝对路径(**已 gitignore,不提交**) |
 
 launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不切换登录身份，也不构成远程工具
@@ -631,7 +631,7 @@ I6 foreground/review/shadow：
 - **journal**:`journal/<YYYY-MM>/<YYYY-MM-DD>.md`。
 - **reports**:`reports/daily/<YYYY-MM-DD>.md`;`reports/weekly/<YYYY>-W<WW>.md`(ISO 周);
   `reports/morning/<YYYY-MM-DD>.md`。历史 `reports/im/*` 文件名保持原样，不再生成新文件。
-- 单类节点 > 200 时再分子目录(TODOS)。
+- 单类节点 > 200 时再分子目录（见 `plans/backlog.md`）。
 
 ### 2.1 时间格式规范
 
@@ -1168,7 +1168,7 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
   snippet，只有语义裁决信息不足时才读取完整节点。
 - 一致性兜底:某类 `knowledge/<类型>/` 文件数 ≠ INDEX 该节行数 → 触发全量重建。
   (纯内容编辑不改行数,无法靠计数发现 → 故增量更新是主路径。)
-- 单类节点行数 > 200 → skill 必须提示该类按子目录分片(TODOS)。
+- 单类节点行数 > 200 → skill 必须提示该类按子目录分片（见 `plans/backlog.md`）。
 
 ---
 
@@ -1209,7 +1209,7 @@ code 与证据，请用户确认。
 2. **会议待办不接飞书任务** — `event` 的"待办事项"仅以 md 形式存在节点内;
    skill **不调用 lark-task 创建真实任务**。
 3. **raw_data 永久保留** — v1 原始输入文件永久保留,不自动删除/归档;
-   归档策略见 docs/development/TODOS.md(P2,规模触发后再做)。
+   归档策略见 docs/development/plans/backlog.md(P2,规模触发后再做)。
 4. **逻辑与数据严格分离** — skill 仓库只含 agent 逻辑(可进 git/GitHub);所有业务数据
    (`knowledge/`、`raw_data/`、`provenance/`、`journal/`、`INDEX.md`)存在用户指定的独立目录(默认名
    `byteworker_kb`),**绝不进 skill 仓库的 git**。数据目录路径记于 `.kbconfig`(gitignore)。

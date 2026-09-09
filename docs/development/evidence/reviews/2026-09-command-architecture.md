@@ -1,5 +1,7 @@
 # `bin/` 命令架构审查
 
+> 生命周期：`point_in_time`。本文保留审查基线和当时建议，不覆盖当前架构文档。
+>
 > 审查日期：2026-09-09
 >
 > 审查基线：当前工作树，`HEAD=bbaea34`
@@ -33,7 +35,7 @@
 本次审查执行了以下工作：
 
 - 清点 `bin/` 文件、文件模式、行数和 facade 注册项；
-- 阅读 [`ARCHITECTURE.md`](ARCHITECTURE.md)、[`bin/README.md`](../../bin/README.md)、[`machine-protocol.md`](../../references/machine-protocol.md) 和 workflow routes；
+- 阅读 [`ARCHITECTURE.md`](../../ARCHITECTURE.md)、[`bin/README.md`](../../../../bin/README.md)、[`machine-protocol.md`](../../../../references/machine-protocol.md) 和 workflow routes；
 - 检查 shell bootstrap、Python launcher、facade、runtime cache 和主要大入口；
 - 实际运行顶层帮助、工具帮助、嵌套帮助和 launcher 原生命令帮助；
 - 对帮助路径和轻量本地命令做 8 次暖缓存计时；
@@ -52,7 +54,7 @@
 
 当前 `bin/` 共 39 个文件，其中 1 个是命令手册，另有 38 个入口、helper 或内部执行器。`bin/` 实现约 7,323 行，命令手册 1,226 行。
 
-facade 的 [`TOOLS`](../../bin/byteworker-cli.py#L24-L46) 注册 21 个底层工具，另有虚拟命令 `update-status`，形成 22 个 facade 命令。launcher 还直接处理 6 类入口：
+facade 的 [`TOOLS`](../../../../bin/byteworker-cli.py#L24-L46) 注册 21 个底层工具，另有虚拟命令 `update-status`，形成 22 个 facade 命令。launcher 还直接处理 6 类入口：
 
 - `preflight`
 - `deps`
@@ -105,7 +107,7 @@ lib/<application or domain>.py         应用服务、领域规则、存储与 a
 
 ### 4.1 稳定启动链设计正确
 
-[`bin/byteworker`](../../bin/byteworker) 在加载仓库 Python 模块前解析 Python，并确保 update-check 先于模块 import。launcher 再通过 [`runtime_deps.py`](../../lib/runtime_deps.py) 统一外部程序路径和环境。这解决了 Agent 环境中常见的 PATH、NVM、venv 和版本漂移问题。
+[`bin/byteworker`](../../../../bin/byteworker) 在加载仓库 Python 模块前解析 Python，并确保 update-check 先于模块 import。launcher 再通过 [`runtime_deps.py`](../../../../lib/runtime_deps.py) 统一外部程序路径和环境。这解决了 Agent 环境中常见的 PATH、NVM、venv 和版本漂移问题。
 
 Python/runtime cache 仍会验证路径有效性，优先保证正确性而不是盲目信任缓存。这个取舍合理，不建议为了几十毫秒直接删除验证。
 
@@ -115,7 +117,7 @@ facade 将成功、需关注和错误统一为 `byteworker-cli/v1`，保留下�
 
 ### 4.3 Agent 的按需路由优于集中大手册
 
-[`workflow-routes.json`](../../references/workflow-routes.json) 将 Agent 语义任务路由到有限 reference，避免每次加载 1,226 行命令手册。对于已知 workflow，Agent 通常可以直接找到正确命令，这比让 Agent 自由扫描 `bin/` 更可靠。
+[`workflow-routes.json`](../../../../references/workflow-routes.json) 将 Agent 语义任务路由到有限 reference，避免每次加载 1,226 行命令手册。对于已知 workflow，Agent 通常可以直接找到正确命令，这比让 Agent 自由扫描 `bin/` 更可靠。
 
 ### 4.4 兼容债务已有部分显式记录
 
@@ -136,9 +138,9 @@ facade 将成功、需关注和错误统一为 `byteworker-cli/v1`，保留下�
 **证据**
 
 - facade 实际暴露 22 个命令；
-- [`bin/README.md`](../../bin/README.md#L25-L45) 的“支持的 tool”只列 19 个，遗漏 `digest-flow`、`workflow-budget`、`inbox`；
-- [`machine-protocol.md`](../../references/machine-protocol.md#L32-L34) 列 20 个，遗漏 `inbox`、`semantic`；
-- [`test_registered_tool_help_passes_through_launcher`](../../tests/test_machine_protocol.py#L129-L164) 手写 19 个工具，遗漏 `inbox`、`semantic`；`update-status` 由另一测试单独覆盖；
+- [`bin/README.md`](../../../../bin/README.md#L25-L45) 的“支持的 tool”只列 19 个，遗漏 `digest-flow`、`workflow-budget`、`inbox`；
+- [`machine-protocol.md`](../../../../references/machine-protocol.md#L32-L34) 列 20 个，遗漏 `inbox`、`semantic`；
+- [`test_registered_tool_help_passes_through_launcher`](../../../../tests/test_machine_protocol.py#L129-L164) 手写 19 个工具，遗漏 `inbox`、`semantic`；`update-status` 由另一测试单独覆盖；
 - launcher 的 6 类原生命令不在 facade `TOOLS` 中，也不在顶层帮助中。
 
 **影响**
@@ -183,8 +185,8 @@ facade 将成功、需关注和错误统一为 `byteworker-cli/v1`，保留下�
 
 **静态确认**
 
-- [`_tool_help_request`](../../bin/byteworker-cli.py#L133-L140) 只识别恰好为 `<tool> --help` 的顶层帮助；
-- [`byteworker-launcher.py`](../../bin/byteworker-launcher.py#L152-L168) 对 `runtime-reset` 忽略所有剩余参数，因此 `runtime-reset --help` 会执行 cache clear，而不是展示帮助；
+- [`_tool_help_request`](../../../../bin/byteworker-cli.py#L133-L140) 只识别恰好为 `<tool> --help` 的顶层帮助；
+- [`byteworker-launcher.py`](../../../../bin/byteworker-launcher.py#L152-L168) 对 `runtime-reset` 忽略所有剩余参数，因此 `runtime-reset --help` 会执行 cache clear，而不是展示帮助；
 - launcher 在转发前先计算 `required_sources`。例如缺少相应 provider runtime 时，`wiki inspect --help` 或带 source type 的来源帮助可能在 argparse 展示前失败。
 
 **影响**
@@ -274,9 +276,9 @@ digest internal txn|capture|parallel ... 仅 Agent workflow / 维护者
 
 **证据**
 
-- [`todo.py`](../../bin/todo.py) 755 行，包含时间自然语言解析、Markdown store 解析/渲染、事务和命令分发，而不仅是 argparse/I/O；
-- [`dreaming.py`](../../bin/dreaming.py) 802 行，定义 20 个顶层 operation 和多组嵌套 operation，parser 与 handler 形成大型手写路由；
-- [`source.py`](../../bin/source.py) 511 行，`inspect/capture` 共享一组 provider 参数，main 还负责 artifact 写入、Bundle 转换和 receipt shaping；
+- [`todo.py`](../../../../bin/todo.py) 755 行，包含时间自然语言解析、Markdown store 解析/渲染、事务和命令分发，而不仅是 argparse/I/O；
+- [`dreaming.py`](../../../../bin/dreaming.py) 802 行，定义 20 个顶层 operation 和多组嵌套 operation，parser 与 handler 形成大型手写路由；
+- [`source.py`](../../../../bin/source.py) 511 行，`inspect/capture` 共享一组 provider 参数，main 还负责 artifact 写入、Bundle 转换和 receipt shaping；
 - 架构文档要求 `bin/source.py` 保持薄，但新增 provider 当前仍可能要求扩展这一共享参数面。
 
 **影响**
@@ -309,7 +311,7 @@ digest internal txn|capture|parallel ... 仅 Agent workflow / 维护者
 **影响**
 
 - 人和 Agent 无法迁移已有命令经验，只能逐个查文档；
-- facade 的 [`_operation`](../../bin/byteworker-cli.py#L72-L78) 需要基于位置参数做启发式判断；
+- facade 的 [`_operation`](../../../../bin/byteworker-cli.py#L72-L78) 需要基于位置参数做启发式判断；
 - 直接排障入口是否可直接执行由文件模式偶然决定。
 
 **建议**
@@ -342,7 +344,7 @@ bin/byteworker [global options] <namespace> <operation> [operation options]
 
 ### F-09 `P2` 文档契约只检查“文件名出现”，不能阻止语义漂移
 
-[`test_every_bin_command_is_documented`](../../tests/test_bin_readme_contract.py#L14-L23) 只检查 README 是否包含反引号包裹的文件名。它不能确认：
+[`test_every_bin_command_is_documented`](../../../../tests/test_bin_readme_contract.py#L14-L23) 只检查 README 是否包含反引号包裹的文件名。它不能确认：
 
 - 命令是否在正确类别；
 - 是否标注 stable/internal/compat；
@@ -366,7 +368,7 @@ bin/byteworker [global options] <namespace> <operation> [operation options]
 
 ### F-10 `P2` 安装文档与真实 Python 门禁不一致
 
-[`README.md`](../../README.md#L83) 和 [`INSTALL.md`](../../INSTALL.md#L124) 写 `python3 >= 3.9`，但 [`bin/byteworker`](../../bin/byteworker#L19-L23)、DESIGN、machine protocol 和 session preflight 要求 Python >= 3.10 且有 `zoneinfo`。
+[`README.md`](../../../../README.md#L83) 和 [`INSTALL.md`](../../../../INSTALL.md#L124) 写 `python3 >= 3.9`，但 [`bin/byteworker`](../../../../bin/byteworker#L19-L23)、DESIGN、machine protocol 和 session preflight 要求 Python >= 3.10 且有 `zoneinfo`。
 
 **影响**
 
@@ -388,7 +390,7 @@ bin/byteworker [global options] <namespace> <operation> [operation options]
 | `bin/byteworker source --help` | 201.4 ms |
 | `bin/byteworker source capabilities` | 201.4 ms |
 
-完整路径通常包含 shell 的 Python 校验、launcher Python、facade Python和底层 tool Python。facade 又在 [`_run_tool`](../../bin/byteworker-cli.py#L151-L210) 中完整捕获 stdout/stderr、解析 JSON并重新序列化。
+完整路径通常包含 shell 的 Python 校验、launcher Python、facade Python和底层 tool Python。facade 又在 [`_run_tool`](../../../../bin/byteworker-cli.py#L151-L210) 中完整捕获 stdout/stderr、解析 JSON并重新序列化。
 
 **判断**
 
