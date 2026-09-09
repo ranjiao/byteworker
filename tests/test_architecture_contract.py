@@ -44,6 +44,10 @@ class ArchitectureContractTests(unittest.TestCase):
             "bin/session-preflight.py",
             "bin/byteworker-cli.py",
             "bin/digest-txn.py",
+            "bin/digest-flow.py",
+            "lib/digest_flow.py",
+            "bin/workflow-budget.py",
+            "lib/workflow_budget.py",
             "bin/source.py",
             "bin/kb-query.py",
             "lib/machine_protocol.py",
@@ -82,6 +86,8 @@ class ArchitectureContractTests(unittest.TestCase):
             "lib/dreaming_action_policy.py",
             "lib/dreaming_action_ledger.py",
             "lib/dreaming_reports.py",
+            "lib/dreaming_report_bundle.py",
+            "lib/dreaming_delivery_lark.py",
             "lib/report_owner.py",
             "lib/dreaming_evaluation.py",
             "lib/dreaming_run_log.py",
@@ -226,6 +232,18 @@ class ArchitectureContractTests(unittest.TestCase):
             "全部启用 routine 来源",
             "committed/noop",
             "source checkpoint",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, self.architecture)
+
+    def test_dreaming_report_artifacts_are_host_neutral(self):
+        for term in (
+            "`byteworker-report-document/v1`",
+            "`byteworker-report-artifacts/v1`",
+            "不调用 TraeWork、Codex、",
+            "Claude Code 等宿主私有预览接口",
+            "HTML 必须自包含",
+            "飞书发送失败只影响对应 outbox",
         ):
             with self.subTest(term=term):
                 self.assertIn(term, self.architecture)
