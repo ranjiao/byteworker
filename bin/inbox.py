@@ -3,11 +3,19 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 
 
-def main() -> int:
+def parser() -> argparse.ArgumentParser:
+    return argparse.ArgumentParser(
+        description="已移除的 Inbox 兼容入口；IM 分析已迁移到 Dreaming。"
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser().parse_known_args(argv)
     json.dump(
         {
             "error": {

@@ -60,7 +60,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index；主 doctor 覆盖报告引用、Dreaming state v2 schema，并编排 INDEX/links 的确定性修复 |
 | `bin/byteworker` + `bin/byteworker-launcher.py` + `lib/runtime_deps.py` | 无需 Agent 猜路径的稳定启动入口；解析 Python >=3.10、Node、lark-cli、meegle 并向子进程注入同一 runtime |
 | `bin/session-preflight.py` + `lib/session_preflight.py` | shell 更新完成后，每个新 session 一次合并 KB、依赖、Todo 与自动报告设置检查；健康路径静默 |
-| `bin/byteworker-cli.py` + `lib/machine_protocol.py` | 为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
+| `bin/byteworker-cli.py` + `lib/command_registry.py` + `lib/machine_protocol.py` | 以单一命令 registry 驱动分发、发现、runtime/副作用元数据，并为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
 | `bin/report-automation.py` + `lib/report_automation.py` | 自动报告首次设置状态、prompt 版本、跨日报/周报执行租约与真实运行回执；不创建宿主任务 |
@@ -70,7 +70,7 @@ byteworker 由**两个物理隔离**的部分组成。
 
 launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不切换登录身份，也不构成远程工具
 注册表。`byteworker-session-preflight/v1` 与 `byteworker-runtime-check/v1` 都是瞬时只读回执，
-不新增知识库持久化 schema；可调用工具仍由代码中的小型白名单明确列出。协议细则见
+不新增知识库持久化 schema；可调用工具由 `lib/command_registry.py` 的声明式白名单唯一列出。协议细则见
 `references/machine-protocol.md`。
 
 ### B. 知识库数据目录(业务数据,用户指定,**绝不进 skill 仓库的 git**)
@@ -1425,8 +1425,9 @@ event / report 中的“待办”记录来源当时说了什么;`todo.md` 记录
   均用带时区 ISO8601。`time_expression` 保留用户原相对时间短语,回显时同时给出绝对时间。
 - **来源**:直接输入写 `direct:user`;digest 确认项写 event / raw / report id 或 URL。`links` 可连
   project / person 等知识节点,但 Todo 不加入节点双向 links,避免把操作状态混进知识图谱。
-- **写入**:`bin/todo.py` 负责解析受支持的相对时间、校验状态，并在共享 KB 写锁内原子重写
-  `todo.md`、追加 journal、精确本地 commit 和失败回滚；
+- **写入**:`lib/todo_time.py` 解析受支持的相对时间，`lib/todo_models.py` 定义状态，
+  `lib/todo_store.py` 在共享 KB 写锁内原子重写 `todo.md`、追加 journal、精确本地 commit
+  和失败回滚；`lib/todo_service.py` 组合应用操作，`bin/todo.py` 只负责 CLI；
   agent 负责从自然语言提取标题、区分截止 / 提醒语义、在多个相似项间做语义消解。
 - **提醒**:每次 skill 运行检查到点提醒、逾期、24 小时内临期(窗口可由 context 配置);无命中静默。
   `last_reminded_at` 用于限频。它是拉取式能力,不代表后台 scheduler。

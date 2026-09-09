@@ -21,6 +21,7 @@ from source_profiles import (
     profile_relative_path,
     profile_revision,
 )
+from source_operation_contract import argument, positive_int
 from sources import create_default_registry
 
 
@@ -187,6 +188,22 @@ def _summary(stdout: str) -> dict[str, str]:
 
 class FeishuChatOperations:
     source_type = "feishu_chat"
+    operation_arguments = {
+        "auth-status": (
+            argument("--timeout", type=positive_int, default=30, help="底层认证状态检查超时秒数"),
+        ),
+        "inspect": (
+            argument("--timeout", type=positive_int, default=180, help="单次来源读取超时秒数"),
+        ),
+        "capture": (
+            argument("--kb", default="", help="知识库数据目录；和 --source-uid 一起按已保存 profile 抓取"),
+            argument("--source-uid", default="", help="KB 中已注册的稳定数据源 ID"),
+            argument("--out", help="完整快照输出路径；必须位于临时目录或知识库目录"),
+            argument("--bundle-out", default="", help="同时把完整 capture 转为 SourceBundle v2；必须与 --out 一起使用"),
+            argument("--timeout", type=positive_int, default=180, help="单次来源读取超时秒数"),
+        ),
+    }
+    runtime_requirements = {name: ("feishu",) for name in operation_arguments}
 
     def run(self, args: argparse.Namespace, *, skill_root: Path) -> dict[str, Any]:
         if args.operation == "auth-status":

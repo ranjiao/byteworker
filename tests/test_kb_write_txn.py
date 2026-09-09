@@ -22,7 +22,7 @@ class KbWriteTransactionTests(unittest.TestCase):
             "lib/provenance_backfill.py",
             "lib/update_postflight.py",
             "lib/kb_mutation.py",
-            "bin/todo.py",
+            "lib/todo_store.py",
         ):
             with self.subTest(path=relative):
                 text = (ROOT / relative).read_text(encoding="utf-8")

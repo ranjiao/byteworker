@@ -22,29 +22,22 @@ bin/byteworker preflight
 bin/byteworker <tool> [tool arguments...]
 ```
 
-支持的 `<tool>`：
+命令清单不在文档中手工复制。人类查看分组帮助，Agent/自动化读取机器清单：
 
-- `digest-txn`
-- `digest-run`
-- `digest-analysis`
-- `digest-capture`
-- `digest-parallel`
-- `kb-query`
-- `doctor`
-- `todo`
-- `provenance-backfill`
-- `source`
-- `wiki`
-- `digest-job`
-- `report-automation`
-- `dreaming`
-- `index`
-- `kb-mutate`
-- `context`
-- `semantic`
-- `update-status`
+```bash
+bin/byteworker --help
+bin/byteworker commands list --json
+bin/byteworker commands describe source.capture --json
+bin/byteworker commands search "digest" --json
+```
 
-这些 tool 调用总是输出 `byteworker-cli/v1` JSON envelope：
+`lib/command_registry.py` 是命令名、入口、使用者、可见性、副作用、runtime 和文档位置的唯一
+真相源。顶层帮助先展示推荐的逻辑 namespace，例如 `digest flow`、`kb query` 和
+`automation dreaming`；原有 `digest-flow`、`kb-query`、`dreaming` 等扁平路径继续兼容。Agent 应从
+manifest 的 `preferred_path` 和 `aliases` 选择新路径，不自行猜测映射。默认帮助隐藏 tombstone；
+`bin/byteworker --help --all` 可审计全部兼容入口。
+
+registry 中 `execution=facade` 的 tool 调用输出 `byteworker-cli/v1` JSON envelope：
 
 ```json
 {
@@ -120,15 +113,15 @@ cd "$BYTEWORKER_ROOT"
 | `digest-analysis.py` | Agent / 维护者 | SourceBundle 单次结构去噪与分析 packet | 只写显式系统临时输出，不写 KB truth |
 | `digest-capture.py` | Agent / 维护者 | 最多 4 路执行已声明的只读 lark/comments 抓取 job | 原子写显式私密临时输出，不写 KB truth |
 | `digest-parallel.py` | Agent / 维护者 | dependency/semantic/conflict 阈值分片、coverage 校验与结果归并 | 只写显式私密临时 shard/result reduce packet |
-| `source.py` | Agent / 维护者 | 来源能力、授权、抓取、Profile、Bundle、diff | capture/Bundle 写输出；Profile 操作可写 KB |
+| `source.py` | Agent / 维护者 | 从 operation adapter 声明生成参数；应用操作与持久化委派 `source_cli_service.py` | capture/Bundle 写输出；Profile 操作可写 KB |
 | `wiki.py` | Agent / 维护者 | 按需探索 Wiki 空间/子树并筛选页面 | 写可重建树状态、候选文件或子树 Profile |
 | `digest-job.py` | Agent / 维护者 | 管理已确认多页 digest 的可恢复任务 | 写本地任务 checkpoint，不写 raw/节点 |
 | `kb-query.py` | Agent / 维护者 | 节点、证据和结构化 raw 查询 | 只读 |
 | `doctor.py` | Agent / 维护者 | 扫描 schema/graph/profile 漂移 | `fix` 可写 INDEX/links |
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
-| `todo.py` | Agent | Todo 初始化、查询和状态维护 | 写命令事务化更新 todo、journal 和本地 commit |
+| `todo.py` | Agent | Todo 薄 CLI；models/time/store/service 位于 `lib/todo_*.py` | 写命令事务化更新 todo、journal 和本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
-| `dreaming.py` | Agent / 自动化 | Dreaming 三确认启停、灵活 schedule、harness truth、run heartbeat/log、foreground process、Finding/Action/report/maintenance | 私密 state、`run-logs/` 与 KB 外评估指标 |
+| `dreaming.py` | Agent / 自动化 | 组合 `lib/dreaming_cli_*.py` 的 schedule/process/review/report/action leaf handlers | 私密 state、`run-logs/` 与 KB 外评估指标 |
 | `viewer-server.py` | `browse.sh` 内部 | 本地 viewer 静态服务、token-gated 设置 API 与只读 Dreaming 日志 API | 只通过 `settings.py` 写受控配置 |
 | `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 写 INDEX、journal 和本地 commit |
 | `kb-mutate.py` | Agent / 自动化 | 非 digest 内容的版本化事务写入 | 写目标、INDEX、journal 和本地 commit |
@@ -185,6 +178,12 @@ bin/byteworker dreaming status \
 - doctor 的退出码 `2` 会映射为 `status=attention`，不是传输失败。
 - 下游的结构化 `error.code/message/hint/details` 会尽量原样保留。
 - stderr 会被截断后放入 `error.details`，不会把完整命令参数或正文复制进协议。
+- stdout 不超过 1 MiB 时保持 inline；超过后返回 `byteworker-cli-artifact/v1` 的 `0600` 临时
+  artifact receipt，调用方校验 hash、读取并删除。支持 `--out` 的命令仍应优先显式写 artifact。
+- `context.command_path/stability/side_effect` 来自命令 registry，不从 argv 或文案猜测。
+- 任意层级 `-h/--help` 都在 runtime 探测和业务执行前走只读旁路，输出普通文本而非 envelope。
+- launcher 原生命令和外部 passthrough 不伪装成 facade；以 `commands describe` 的
+  `execution/output_protocol` 为准。
 
 ## 5. `digest-run.py`：端到端摄取耗时
 
@@ -1205,12 +1204,16 @@ bin/byteworker update-status
 ## 15. 修改或新增命令时
 
 1. 先判断命令属于 Agent 语义、确定性应用服务、Provider adapter 还是维护工具。
-2. Agent 可调用的确定性 Python 工具应接入 `byteworker-cli.py` 的稳定 envelope。
-3. 新增、删除或重命名 `bin/` 命令时，同一变更更新本文件。
-4. 信息流、模块职责或跨层契约变化时，同步 `docs/development/ARCHITECTURE.md`。
-5. schema 或知识库目录变化时，同步 `docs/development/DESIGN.md`。
-6. Agent 行为变化时，同步 `SKILL.md` 和对应 `references/`。
-7. 更新或新增命令测试，并运行：
+2. 在 `lib/command_registry.py` 增加唯一 `CommandSpec`，声明执行入口、使用者、可见性、
+   stability、副作用、协议、runtime 和文档。
+3. Agent 可调用的确定性 Python 工具应接入 `byteworker-cli.py` 的稳定 envelope；不得在 facade
+   或 launcher 中按工具名新增平行分支。
+4. 新增、删除或重命名命令时，由 registry 驱动帮助/manifest/测试；逻辑路径变化用
+   `CommandAlias` 指向唯一执行入口，不复制 handler。本文件只更新 narrative，不再维护命令名单。
+5. 信息流、模块职责或跨层契约变化时，同步 `docs/development/ARCHITECTURE.md`。
+6. schema 或知识库目录变化时，同步 `docs/development/DESIGN.md`。
+7. Agent 行为变化时，同步 `SKILL.md` 和对应 `references/`。
+8. 更新或新增命令测试，并运行：
 
 ```bash
 python3 -m compileall -q bin lib tests

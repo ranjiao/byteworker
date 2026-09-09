@@ -1,7 +1,9 @@
 import importlib.util
 import io
 import json
-import subprocess
+import os
+import sys
+import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
 import unittest
@@ -9,6 +11,11 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LIB = ROOT / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+
+from bounded_process import CapturedProcess, run_bounded_output  # noqa: E402
 
 
 def load_cli():
@@ -32,13 +39,19 @@ class ByteworkerCliDirectTests(unittest.TestCase):
         self.assertEqual("auth-status", CLI._operation("wiki", args.args))
         self.assertEqual("check", CLI._operation("todo", ["kb", "check"]))
         self.assertEqual("", CLI._operation("source", []))
-        self.assertEqual("source", CLI._tool_help_request(["source", "--help"]))
         self.assertEqual(
-            "source",
+            ("source", ["--help"]),
+            CLI._tool_help_request(["source", "--help"]),
+        )
+        self.assertEqual(
+            ("source", ["-h"]),
             CLI._tool_help_request(["--pretty", "source", "-h"]),
         )
         self.assertIsNone(CLI._tool_help_request(["unknown", "--help"]))
-        self.assertIsNone(CLI._tool_help_request(["source", "bundle", "--help"]))
+        self.assertEqual(
+            ("source", ["bundle", "--help"]),
+            CLI._tool_help_request(["source", "bundle", "--help"]),
+        )
         self.assertEqual({"ok": True}, CLI._parse_json('{"ok":true}'))
         self.assertEqual("text", CLI._parse_json("text"))
         self.assertIsNone(CLI._parse_json(""))
@@ -47,15 +60,14 @@ class ByteworkerCliDirectTests(unittest.TestCase):
             CLI.parser().parse_args([])
 
     def test_run_tool_success_attention_and_structured_error(self):
-        success = subprocess.CompletedProcess(
-            ["tool"],
-            0,
+        success = CapturedProcess(
+            returncode=0,
             stdout='{"value":1}\n',
             stderr="",
         )
         output = io.StringIO()
         with (
-            patch.object(CLI.subprocess, "run", return_value=success),
+            patch.object(CLI, "run_bounded_output", return_value=success),
             redirect_stdout(output),
         ):
             code = CLI._run_tool("wiki", ["auth-status"], pretty=False)
@@ -64,24 +76,22 @@ class ByteworkerCliDirectTests(unittest.TestCase):
         self.assertEqual("success", payload["status"])
         self.assertEqual(1, payload["data"]["value"])
 
-        attention = subprocess.CompletedProcess(
-            ["tool"],
-            2,
+        attention = CapturedProcess(
+            returncode=2,
             stdout='{"findings":[]}\n',
             stderr="",
         )
         output = io.StringIO()
         with (
-            patch.object(CLI.subprocess, "run", return_value=attention) as run,
+            patch.object(CLI, "run_bounded_output", return_value=attention) as run,
             redirect_stdout(output),
         ):
             CLI._run_tool("doctor", ["scan", "--kb", "/tmp"], pretty=True)
         self.assertEqual("attention", json.loads(output.getvalue())["status"])
         self.assertIn("--format", run.call_args.args[0])
 
-        failure = subprocess.CompletedProcess(
-            ["tool"],
-            1,
+        failure = CapturedProcess(
+            returncode=1,
             stdout=json.dumps(
                 {
                     "error": {
@@ -96,13 +106,88 @@ class ByteworkerCliDirectTests(unittest.TestCase):
         )
         output = io.StringIO()
         with (
-            patch.object(CLI.subprocess, "run", return_value=failure),
+            patch.object(CLI, "run_bounded_output", return_value=failure),
             redirect_stdout(output),
         ):
             CLI._run_tool("wiki", ["inspect"], pretty=False)
         error = json.loads(output.getvalue())["error"]
         self.assertEqual("WIKI_PERMISSION_DENIED", error["code"])
         self.assertEqual("share it", error["hint"])
+
+    def test_large_result_returns_private_artifact_receipt(self):
+        completed = run_bounded_output(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.write('x' * 4096)",
+            ],
+            inline_stdout_bytes=1024,
+        )
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual("", completed.stdout)
+        self.assertIsNotNone(completed.artifact)
+        artifact = completed.artifact
+        path = Path(str(artifact["artifact_path"]))
+        try:
+            self.assertEqual("byteworker-cli-artifact/v1", artifact["protocol"])
+            self.assertEqual(4096, artifact["bytes"])
+            self.assertTrue(str(artifact["sha256"]).startswith("sha256:"))
+            self.assertEqual("0600", artifact["mode"])
+            self.assertEqual(0o600, os.stat(path).st_mode & 0o777)
+            self.assertEqual(b"x" * 4096, path.read_bytes())
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_stdout_and_stderr_are_drained_without_unbounded_stderr(self):
+        completed = run_bounded_output(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "sys.stderr.buffer.write(b'e' * 2000000); "
+                    "sys.stdout.buffer.write(b'o' * 2000000)"
+                ),
+            ],
+            inline_stdout_bytes=1024,
+            stderr_bytes=2048,
+        )
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(2048, len(completed.stderr))
+        artifact = completed.artifact
+        self.assertIsNotNone(artifact)
+        path = Path(str(artifact["artifact_path"]))
+        try:
+            self.assertEqual(2_000_000, artifact["bytes"])
+            self.assertEqual(2_000_000, path.stat().st_size)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_facade_exposes_large_success_as_artifact(self):
+        artifact = {
+            "protocol": "byteworker-cli-artifact/v1",
+            "artifact_path": "/tmp/result.out",
+            "bytes": 2_000_000,
+            "sha256": "sha256:test",
+            "content_type": "application/json",
+            "mode": "0600",
+            "temporary": True,
+        }
+        completed = CapturedProcess(
+            returncode=0,
+            stdout="",
+            stderr="",
+            artifact=artifact,
+        )
+        output = io.StringIO()
+        with (
+            patch.object(CLI, "run_bounded_output", return_value=completed),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(0, CLI._run_tool("source", ["capabilities"], pretty=False))
+        payload = json.loads(output.getvalue())
+        self.assertEqual("success", payload["status"])
+        self.assertEqual(artifact, payload["data"])
 
     def test_legacy_error_and_main_paths(self):
         self.assertEqual(
@@ -133,7 +218,7 @@ class ByteworkerCliDirectTests(unittest.TestCase):
 
         with patch.object(CLI, "_run_tool_help", return_value=0) as run_help:
             self.assertEqual(0, CLI.main(["todo", "--help"]))
-        run_help.assert_called_once_with("todo")
+        run_help.assert_called_once_with("todo", ["--help"])
 
         output = io.StringIO()
         with redirect_stdout(output):

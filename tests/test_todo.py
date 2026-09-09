@@ -12,7 +12,19 @@ from unittest import mock
 from zoneinfo import ZoneInfo
 
 
-MODULE_PATH = Path(__file__).parents[1] / "bin" / "todo.py"
+ROOT = Path(__file__).parents[1]
+LIB = ROOT / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+
+import todo_store
+from todo_models import Preferences, Todo
+from todo_service import command_check
+from todo_store import TodoTransactionError, ensure_initialized, load_todos, save
+from todo_time import iso, load_preferences, local_now, resolve_time
+
+
+MODULE_PATH = ROOT / "bin" / "todo.py"
 SPEC = importlib.util.spec_from_file_location("byteworker_todo", MODULE_PATH)
 todo = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader
@@ -22,11 +34,11 @@ SPEC.loader.exec_module(todo)
 
 class TimeParsingTest(unittest.TestCase):
     def setUp(self):
-        self.prefs = todo.Preferences()
+        self.prefs = Preferences()
         self.now = datetime(2026, 7, 23, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
 
     def resolved(self, expression, kind="remind"):
-        return todo.resolve_time(expression, self.now, self.prefs, kind).isoformat(timespec="minutes")
+        return resolve_time(expression, self.now, self.prefs, kind).isoformat(timespec="minutes")
 
     def test_relative_days_and_chinese_clock(self):
         self.assertEqual(self.resolved("明天下午三点"), "2026-07-24T15:00+08:00")
@@ -54,8 +66,8 @@ class TodoStorageTest(unittest.TestCase):
             "- 只说截止日期、未指定具体时间：18:00\n- 临近到期窗口：24 小时\n",
             encoding="utf-8",
         )
-        self.now = todo.local_now("2026-07-23 10:00", todo.load_preferences(self.kb))
-        self.path = todo.ensure_initialized(self.kb, None)
+        self.now = local_now("2026-07-23 10:00", load_preferences(self.kb))
+        self.path = ensure_initialized(self.kb, None)
         subprocess.run(["git", "init", "-q"], cwd=self.kb, check=True)
         subprocess.run(
             ["git", "config", "user.email", "todo@example.test"],
@@ -81,16 +93,16 @@ class TodoStorageTest(unittest.TestCase):
         return json.loads(output.getvalue())
 
     def test_round_trip_and_check(self):
-        preamble, todos = todo.load_todos(self.path)
-        item = todo.Todo(
+        preamble, todos = load_todos(self.path)
+        item = Todo(
             "T-20260723-001",
             "提交周报",
             {
                 "kind": "task",
                 "status": "open",
-                "created_at": todo.iso(self.now),
-                "updated_at": todo.iso(self.now),
-                "due_at": todo.iso(todo.resolve_time("明天", self.now, todo.load_preferences(self.kb), "due")),
+                "created_at": iso(self.now),
+                "updated_at": iso(self.now),
+                "due_at": iso(resolve_time("明天", self.now, load_preferences(self.kb), "due")),
                 "remind_at": "",
                 "time_expression": "明天",
                 "snoozed_until": "",
@@ -102,17 +114,17 @@ class TodoStorageTest(unittest.TestCase):
             },
         )
         todos.append(item)
-        todo.save(self.path, preamble, todos)
-        _, loaded = todo.load_todos(self.path)
+        save(self.path, preamble, todos)
+        _, loaded = load_todos(self.path)
         self.assertEqual(loaded[0].title, "提交周报")
-        alerts = todo.command_check(loaded, todo.local_now("2026-07-24 10:00", todo.load_preferences(self.kb)), 24)
+        alerts = command_check(loaded, local_now("2026-07-24 10:00", load_preferences(self.kb)), 24)
         self.assertEqual(alerts[0]["category"], "due_soon")
 
     def test_commented_template_example_is_not_a_todo(self):
         template = Path(__file__).parents[1] / "templates" / "todo.md"
         self.path.unlink()
-        todo.ensure_initialized(self.kb, template)
-        _, loaded = todo.load_todos(self.path)
+        ensure_initialized(self.kb, template)
+        _, loaded = load_todos(self.path)
         self.assertEqual(loaded, [])
 
     def test_cli_add_and_complete_lifecycle(self):
@@ -126,7 +138,7 @@ class TodoStorageTest(unittest.TestCase):
             "2026-07-23 10:00",
         )
         self.assertEqual("committed", created["transaction"]["status"])
-        _, loaded = todo.load_todos(self.path)
+        _, loaded = load_todos(self.path)
         self.assertEqual(loaded[0].fields["due_at"], "2026-07-24T18:00:00+08:00")
         self.run_cli(
             "status",
@@ -135,7 +147,7 @@ class TodoStorageTest(unittest.TestCase):
             "--now",
             "2026-07-23 11:00",
         )
-        _, completed = todo.load_todos(self.path)
+        _, completed = load_todos(self.path)
         self.assertEqual(completed[0].status, "done")
         self.assertIn("## Completed\n\n### [x]", self.path.read_text(encoding="utf-8"))
         self.assertEqual(
@@ -295,18 +307,18 @@ class TodoStorageTest(unittest.TestCase):
 
         self.path.write_text("# TODO\n\n## Active\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Active / Completed"):
-            todo.load_todos(self.path)
+            load_todos(self.path)
 
     def test_commit_failure_restores_todo_journal_and_git_index(self):
         before = self.path.read_bytes()
-        real_git = todo._git
+        real_git = todo_store._git
 
         def fail_commit(kb_dir, *args, check=True):
             if args[:1] == ("commit",):
-                raise todo.TodoTransactionError("forced commit failure")
+                raise TodoTransactionError("forced commit failure")
             return real_git(kb_dir, *args, check=check)
 
-        with mock.patch.object(todo, "_git", side_effect=fail_commit):
+        with mock.patch.object(todo_store, "_git", side_effect=fail_commit):
             with self.assertRaisesRegex(SystemExit, "forced commit failure"):
                 todo.main(
                     [
