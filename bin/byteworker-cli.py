@@ -17,34 +17,19 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
+from command_registry import (  # noqa: E402
+    attention_exit_codes,
+    command_spec,
+    facade_entrypoints,
+    resolve_operation,
+)
+from bounded_process import run_bounded_output  # noqa: E402
 from machine_protocol import context, envelope, error_payload, write_envelope  # noqa: E402
 from update_state import load_state  # noqa: E402
 
 
-TOOLS = {
-    "digest-txn": "digest-txn.py",
-    "kb-query": "kb-query.py",
-    "doctor": "doctor.py",
-    "todo": "todo.py",
-    "provenance-backfill": "provenance-backfill.py",
-    "source": "source.py",
-    "wiki": "wiki.py",
-    "digest-job": "digest-job.py",
-    "digest-run": "digest-run.py",
-    "digest-analysis": "digest-analysis.py",
-    "digest-capture": "digest-capture.py",
-    "digest-parallel": "digest-parallel.py",
-    "digest-flow": "digest-flow.py",
-    "workflow-budget": "workflow-budget.py",
-    "report-automation": "report-automation.py",
-    "dreaming": "dreaming.py",
-    "inbox": "inbox.py",
-    "index": "index.py",
-    "kb-mutate": "kb-mutate.py",
-    "context": "context.py",
-    "semantic": "semantic.py",
-}
-ATTENTION_EXIT_CODES = {"doctor": {2}}
+TOOLS = facade_entrypoints()
+ATTENTION_EXIT_CODES = attention_exit_codes()
 
 
 class ProtocolUsageError(ValueError):
@@ -61,21 +46,26 @@ def parser() -> ProtocolArgumentParser:
         description="byteworker deterministic CLI with a stable JSON envelope"
     )
     result.add_argument("--pretty", action="store_true", help="缩进 JSON 输出")
-    sub = result.add_subparsers(dest="tool", required=True)
+    sub = result.add_subparsers(dest="tool", required=True, metavar="<command>")
     for name in TOOLS:
-        command = sub.add_parser(name, add_help=False)
+        spec = command_spec(name)
+        command = sub.add_parser(
+            name,
+            add_help=False,
+            help=spec.summary if spec is not None else "",
+        )
         command.add_argument("args", nargs=argparse.REMAINDER)
-    sub.add_parser("update-status")
+    update = command_spec("update-status")
+    sub.add_parser(
+        "update-status",
+        help=update.summary if update is not None else "",
+    )
     return result
 
 
 def _operation(tool: str, args: list[str]) -> str:
-    positional = [
-        value for value in args if value != "--" and not value.startswith("-")
-    ]
-    if tool == "todo" and len(positional) > 1:
-        return positional[1]
-    return positional[0] if positional else ""
+    spec = command_spec(tool)
+    return resolve_operation(spec, args) if spec is not None else ""
 
 
 def _bounded(value: str, limit: int = 2048) -> str:
@@ -130,19 +120,20 @@ def _structured_error(data: Any) -> dict[str, Any] | None:
     )
 
 
-def _tool_help_request(values: list[str]) -> str | None:
+def _tool_help_request(values: list[str]) -> tuple[str, list[str]] | None:
     candidates = values[1:] if values[:1] == ["--pretty"] else values
-    if len(candidates) == 2 and candidates[0] in TOOLS and candidates[1] in {
-        "-h",
-        "--help",
-    }:
-        return candidates[0]
+    if (
+        len(candidates) >= 2
+        and candidates[0] in TOOLS
+        and any(value in {"-h", "--help"} for value in candidates[1:])
+    ):
+        return candidates[0], candidates[1:]
     return None
 
 
-def _run_tool_help(tool: str) -> int:
+def _run_tool_help(tool: str, args: list[str] | None = None) -> int:
     completed = subprocess.run(
-        [sys.executable, str(ROOT / "bin" / TOOLS[tool]), "--help"],
+        [sys.executable, str(ROOT / "bin" / TOOLS[tool]), *(args or ["--help"])],
         check=False,
     )
     return completed.returncode
@@ -157,19 +148,20 @@ def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
         item == "--format" or item.startswith("--format=") for item in forwarded
     ):
         forwarded.extend(["--format", "json"])
-    completed = subprocess.run(
-        [sys.executable, str(ROOT / "bin" / TOOLS[tool]), *forwarded],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+    completed = run_bounded_output(
+        [sys.executable, str(ROOT / "bin" / TOOLS[tool]), *forwarded]
     )
     elapsed = round((time.monotonic() - start) * 1000)
-    data = _parse_json(completed.stdout)
+    data = completed.artifact or _parse_json(completed.stdout)
+    spec = command_spec(tool)
+    operation = _operation(tool, forwarded)
     context_value = context(
         tool=tool,
-        operation=_operation(tool, forwarded),
+        operation=operation,
         execution_time_ms=elapsed,
+        command_path=f"{tool}.{operation}" if operation else tool,
+        stability=spec.stability if spec is not None else "",
+        side_effect=spec.side_effect if spec is not None else "",
     )
     if completed.returncode == 0:
         payload = envelope(
@@ -193,6 +185,8 @@ def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
         details: dict[str, Any] = {"exit_code": completed.returncode}
         if completed.stderr.strip():
             details["stderr"] = _bounded(completed.stderr)
+        if completed.artifact is not None:
+            details["output_artifact"] = completed.artifact
         structured = _structured_error(data)
         payload = envelope(
             status="error",
@@ -214,6 +208,7 @@ def _update_status(*, pretty: bool) -> int:
     start = time.monotonic()
     data = load_state(ROOT / ".update-state.json", ROOT / ".last-update-check")
     elapsed = round((time.monotonic() - start) * 1000)
+    spec = command_spec("update-status")
     payload = envelope(
         status="success",
         data=data,
@@ -222,6 +217,9 @@ def _update_status(*, pretty: bool) -> int:
             tool="update-status",
             operation="get",
             execution_time_ms=elapsed,
+            command_path="update-status.get",
+            stability=spec.stability if spec is not None else "",
+            side_effect=spec.side_effect if spec is not None else "",
         ),
     )
     write_envelope(sys.stdout, payload, pretty=pretty)
@@ -232,7 +230,8 @@ def main(argv: list[str] | None = None) -> int:
     values = sys.argv[1:] if argv is None else argv
     help_tool = _tool_help_request(values)
     if help_tool is not None:
-        return _run_tool_help(help_tool)
+        tool, help_args = help_tool
+        return _run_tool_help(tool, help_args)
     try:
         args = parser().parse_args(values)
     except ProtocolUsageError as exc:

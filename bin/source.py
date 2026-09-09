@@ -14,42 +14,21 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from source_capture import (  # noqa: E402
-    DEFAULT_MAX_ITEMS,
-    SourceCaptureError,
-    diff_captures,
-    read_capture,
-    write_capture,
-    write_capture_pair,
-)
+from source_capture import SourceCaptureError  # noqa: E402
+from source_cli_service import persist_result, run  # noqa: E402
 from source_operations import (  # noqa: E402
-    run_source_operation,
-    source_operation_types,
+    operation_source_types,
+    source_operation_arguments,
 )
 from source_profiles import (  # noqa: E402
     PROFILE_SOURCE_TYPES,
     SourceProfileError,
-    list_profiles,
-    load_profile,
-    profile_relative_path,
-    profile_revision,
-    save_profile,
 )
-from snapshot_store import diff_current_against_kb  # noqa: E402
-from source_bundle_request import build_bundle_from_request  # noqa: E402
 from sources import (  # noqa: E402
-    BUNDLE_SCHEMA,
     SourceBundleError,
     SourceRegistryError,
     create_default_registry,
 )
-
-
-def _positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("必须是正整数")
-    return parsed
 
 
 def _nonnegative_int(value: str) -> int:
@@ -77,97 +56,21 @@ def parser() -> argparse.ArgumentParser:
         choices=create_default_registry().source_types(),
         required=True,
     )
-    auth = sub.add_parser(
-        "auth-status",
-        help="只读检查来源登录与最小授权，不发起 OAuth",
-    )
-    auth.add_argument(
-        "--source-type",
-        choices=source_operation_types(),
-        required=True,
-    )
-    auth.add_argument(
-        "--host",
-        default="",
-        help="Meego 站点；例如 project.feishu.cn 或 meegle.com",
-    )
-    auth.add_argument(
-        "--timeout",
-        type=_positive_int,
-        default=30,
-        help="底层认证状态检查超时秒数",
-    )
-    for name in ("inspect", "capture"):
-        command = sub.add_parser(name)
+    operation_help = {
+        "auth-status": "只读检查来源登录与最小授权，不发起 OAuth",
+        "inspect": "解析来源坐标、字段和规模，不写入 KB",
+        "capture": "执行有界完整抓取，可选择输出 SourceBundle",
+        "register": "验证并保存 provider source profile",
+    }
+    for name, help_text in operation_help.items():
+        command = sub.add_parser(name, help=help_text)
         command.add_argument(
             "--source-type",
-            choices=source_operation_types(),
+            choices=operation_source_types(name),
             required=True,
         )
-        command.add_argument("--url", default="")
-        command.add_argument("--project-key", default="")
-        command.add_argument("--base-token", default="")
-        command.add_argument("--table-id", default="")
-        command.add_argument("--view-id", default="")
-        command.add_argument(
-            "--field",
-            action="append",
-            default=[],
-            help="稳定字段 key/ID/精确名称，可重复",
-        )
-        command.add_argument(
-            "--report-id",
-            action="append",
-            type=_positive_int,
-            default=[],
-            help="风神 sheet 内的报表 ID，可重复；默认读取全部报表",
-        )
-        command.add_argument(
-            "--filter-mode",
-            choices=("dashboard", "explicit", "merge"),
-            default="dashboard",
-            help="风神筛选策略：重放看板、完全固定、或覆盖看板默认值",
-        )
-        command.add_argument(
-            "--where",
-            action="append",
-            default=[],
-            help="风神筛选 JSON，可重复；explicit/merge 使用",
-        )
-        command.add_argument(
-            "--timeout",
-            type=_positive_int,
-            default=180,
-            help="单次来源读取超时秒数",
-        )
-        if name == "capture":
-            command.add_argument(
-                "--kb",
-                default="",
-                help="知识库数据目录；和 --source-uid 一起按已保存 profile 抓取",
-            )
-            command.add_argument(
-                "--source-uid",
-                default="",
-                help="KB 中已注册的稳定数据源 ID",
-            )
-            command.add_argument(
-                "--max-items",
-                type=_positive_int,
-                default=DEFAULT_MAX_ITEMS,
-            )
-            command.add_argument(
-                "--out",
-                help="完整快照输出路径；必须位于临时目录或知识库目录",
-            )
-            command.add_argument(
-                "--bundle-out",
-                default="",
-                help=(
-                    "同时把完整 capture 转为 SourceBundle v2；"
-                    "必须与 --out 一起使用"
-                ),
-            )
+        for argument_spec in source_operation_arguments(name):
+            argument_spec.add_to(command)
     bundle = sub.add_parser(
         "bundle",
         help="由 provider adapter 把已抓取材料规范化为 SourceBundle v2",
@@ -190,37 +93,6 @@ def parser() -> argparse.ArgumentParser:
         required=True,
         help="SourceBundle v2 输出路径",
     )
-    register = sub.add_parser(
-        "register",
-        help="验证并把一个风神 dashboard sheet 的独立配置写入 KB",
-    )
-    register.add_argument("--source-type", choices=("aeolus",), required=True)
-    register.add_argument("--kb", required=True, help="知识库数据目录")
-    register.add_argument("--url", required=True)
-    register.add_argument(
-        "--report-id",
-        action="append",
-        type=_positive_int,
-        default=[],
-        help="纳入此数据源的报表 ID；默认动态选择 sheet 全部报表",
-    )
-    register.add_argument(
-        "--filter-mode",
-        choices=("dashboard", "explicit", "merge"),
-        default="dashboard",
-    )
-    register.add_argument("--where", action="append", default=[])
-    register.add_argument(
-        "--max-items",
-        type=_positive_int,
-        default=DEFAULT_MAX_ITEMS,
-    )
-    register.add_argument(
-        "--routine",
-        choices=("off", "daily", "weekly", "monthly"),
-        default="off",
-    )
-    register.add_argument("--timeout", type=_positive_int, default=180)
     profile = sub.add_parser("profile", help="读取一个 KB source profile")
     profile.add_argument("--kb", required=True)
     profile.add_argument("--source-uid", required=True)
@@ -272,210 +144,10 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def _run(args: argparse.Namespace) -> dict:
-    if args.operation == "capabilities":
-        return {
-            "operation_source_types": list(source_operation_types()),
-            "profile_source_types": sorted(PROFILE_SOURCE_TYPES),
-            "bundle_source_types": list(create_default_registry().source_types()),
-            "contract": BUNDLE_SCHEMA,
-        }
-    if args.operation == "bundle-spec":
-        return create_default_registry().request_spec(args.source_type)
-    if args.operation == "bundle":
-        bundle = build_bundle_from_request(
-            args.source_type,
-            Path(args.request),
-            skill_root=ROOT,
-        )
-        return bundle.to_dict()
-    if (
-        args.operation == "capture"
-        and args.bundle_out
-        and not args.out
-    ):
-        raise SourceCaptureError(
-            "SOURCE_ARGUMENT_INVALID",
-            "--bundle-out 必须与 --out 一起使用",
-        )
-    if args.operation == "diff":
-        current = read_capture(Path(args.current))
-        if args.kb:
-            if args.previous:
-                raise SourceCaptureError(
-                    "SOURCE_ARGUMENT_INVALID",
-                    "--kb 与 --previous 不能同时使用",
-                    hint="让 SnapshotStore 从 KB raw 选择上一版本，或显式提供 capture 文件。",
-                )
-            return diff_current_against_kb(
-                current,
-                Path(args.kb),
-                source_uid=args.source_uid or None,
-                raw_id=args.raw_id or None,
-                history_index=args.history_index,
-            )
-        if args.source_uid or args.raw_id or args.history_index:
-            raise SourceCaptureError(
-                "SOURCE_ARGUMENT_INVALID",
-                "--source-uid / --raw-id / --history-index 必须和 --kb 一起使用",
-            )
-        previous = read_capture(Path(args.previous)) if args.previous else None
-        return diff_captures(current=current, previous=previous)
-    if args.operation == "profile":
-        profile = load_profile(
-            Path(args.kb).expanduser(),
-            args.source_uid,
-        )
-        return {
-            "profile": profile,
-            "profile_path": str(profile_relative_path(profile)),
-            "profile_revision": profile_revision(profile),
-        }
-    if args.operation == "profile-save":
-        profile_path = Path(args.file).expanduser().resolve()
-        if ROOT.resolve() == profile_path or ROOT.resolve() in profile_path.parents:
-            raise SourceProfileError(
-                "SOURCE_PROFILE_IN_SKILL_REPO",
-                "来源实例 profile 不得放在 byteworker skill 仓库",
-            )
-        try:
-            value = json.loads(profile_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise SourceProfileError(
-                "SOURCE_PROFILE_INVALID",
-                f"无法读取 source profile JSON: {profile_path}",
-            ) from exc
-        if not isinstance(value, dict):
-            raise SourceProfileError(
-                "SOURCE_PROFILE_INVALID",
-                "source profile 顶层必须是 JSON 对象",
-            )
-        return save_profile(
-            Path(args.kb).expanduser(),
-            value,
-            skill_root=ROOT,
-        )
-    if args.operation == "profiles":
-        profiles = list_profiles(
-            Path(args.kb).expanduser(),
-            source_type=args.source_type,
-        )
-        return {
-            "profiles": [
-                {
-                    "source_uid": profile["source_uid"],
-                    "source_type": profile["source_type"],
-                    "title": profile["title"],
-                    "routine": profile["routine"],
-                    "profile_path": str(profile_relative_path(profile)),
-                    "profile_revision": profile_revision(profile),
-                }
-                for profile in profiles
-            ],
-            "count": len(profiles),
-        }
-    return run_source_operation(args, skill_root=ROOT)
-
-
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        result = _run(args)
-        if args.operation == "bundle":
-            output = Path(args.out).expanduser().resolve()
-            write_capture(output, result, skill_root=ROOT)
-            result = {
-                "schema_version": result["schema_version"],
-                "source_type": result["identity"]["source_type"],
-                "source_uid": result["identity"]["source_uid"],
-                "title": result["identity"]["title"],
-                "output": str(output),
-                "component_count": len(result["components"]),
-                "coverage": result["coverage"]["status"],
-            }
-        if args.operation in {"capture", "diff"} and args.out:
-            output = Path(args.out).expanduser().resolve()
-            if (
-                args.operation == "capture"
-                and result.get("schema_version") == BUNDLE_SCHEMA
-                and args.bundle_out
-            ):
-                raise SourceCaptureError(
-                    "SOURCE_ARGUMENT_INVALID",
-                    "该来源 capture 已直接输出 SourceBundle，"
-                    "不得再提供 --bundle-out",
-                )
-            if args.operation == "capture":
-                if result.get("schema_version") == BUNDLE_SCHEMA:
-                    write_capture(output, result, skill_root=ROOT)
-                    result = {
-                        "schema_version": result["schema_version"],
-                        "source_type": result["identity"]["source_type"],
-                        "source_uid": result["identity"]["source_uid"],
-                        "title": result["identity"]["title"],
-                        "output": str(output),
-                        "component_count": len(result["components"]),
-                        "coverage": result["coverage"]["status"],
-                    }
-                    print(
-                        json.dumps(
-                            result,
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                        )
-                    )
-                    return 0
-                bundle = None
-                bundle_path = None
-                if args.bundle_out:
-                    bundle_path = Path(args.bundle_out).expanduser().resolve()
-                    bundle = create_default_registry().build_bundle(
-                        args.source_type,
-                        capture=result,
-                        capture_path=output,
-                        skill_root=ROOT,
-                    )
-                bundle_output = ""
-                if bundle is not None and bundle_path is not None:
-                    write_capture_pair(
-                        output,
-                        result,
-                        bundle_path,
-                        bundle.to_dict(),
-                        skill_root=ROOT,
-                    )
-                    bundle_output = str(bundle_path)
-                else:
-                    write_capture(output, result, skill_root=ROOT)
-                result = {
-                    "schema_version": result["schema_version"],
-                    "source_type": result["source_type"],
-                    "source_uid": result["source_uid"],
-                    "title": result["title"],
-                    "output": str(output),
-                    "content_hash": result["content_hash"],
-                    "item_count": result["pagination"]["item_count"],
-                    "complete": result["pagination"]["complete"],
-                    "sanitization": result.get("sanitization", {}),
-                    **(
-                        {
-                            "bundle_schema_version": BUNDLE_SCHEMA,
-                            "bundle_output": bundle_output,
-                        }
-                        if bundle_output
-                        else {}
-                    ),
-                }
-            else:
-                write_capture(output, result, skill_root=ROOT)
-                result = {
-                    "schema_version": result["schema_version"],
-                    "source_type": result["source_type"],
-                    "source_uid": result["source_uid"],
-                    "output": str(output),
-                    "diff_hash": result["diff_hash"],
-                    "summary": result["summary"],
-                }
+        result = persist_result(args, run(args, skill_root=ROOT), skill_root=ROOT)
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0
     except (

@@ -1,9 +1,15 @@
 import ast
 from pathlib import Path
+import sys
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LIB = ROOT / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+
+from command_registry import facade_entrypoints
 
 
 class WikiColdPathTests(unittest.TestCase):
@@ -23,8 +29,9 @@ class WikiColdPathTests(unittest.TestCase):
         )
         self.assertNotIn("wiki_explorer", imported)
         self.assertNotIn("digest_jobs", imported)
-        self.assertIn('"wiki": "wiki.py"', source)
-        self.assertIn('"digest-job": "digest-job.py"', source)
+        entrypoints = facade_entrypoints()
+        self.assertEqual("wiki.py", entrypoints["wiki"])
+        self.assertEqual("digest-job.py", entrypoints["digest-job"])
 
     def test_skill_only_routes_to_lazy_wiki_references(self):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")

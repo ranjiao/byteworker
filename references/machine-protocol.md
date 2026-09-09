@@ -1,7 +1,7 @@
 # byteworker · 确定性 CLI 公共协议
 
-> 所有 Agent/自动化调用只需加载这份公共 envelope。具体工具参数运行
-> `bin/byteworker <tool> --help` 或读取对应 workflow reference，不在这里集中复制。
+> Agent/自动化只加载公共 envelope；参数通过
+> `bin/byteworker <tool> --help`、`commands describe` 或对应 workflow reference 按需读取。
 
 ## Session 与 runtime
 
@@ -27,11 +27,18 @@ facade 输出一行 `byteworker-cli/v1` JSON：
 - `error`：读取 `error.code/message/hint/details`。
 - 同时检查退出码；不要只看 stdout 是否非空。
 - `context` 不回显业务正文或完整 argv。
+- `context.command_path/stability/side_effect` 来自统一命令 registry。
 - 人工阅读可把全局 `--pretty` 放在 tool 前。
 
-可用工具以 `bin/byteworker --help` 为准，当前包括：
-`digest-flow`、`digest-txn`、`digest-run`、`digest-analysis`、`digest-capture`、`digest-parallel`、`workflow-budget`、`kb-mutate`、`kb-query`、`context`、`doctor`、`todo`、`source`、`wiki`、
-`digest-job`、`report-automation`、`dreaming`、`provenance-backfill`、`index`、`update-status`。
+命令清单按需读取：
+
+```bash
+bin/byteworker commands list --json
+bin/byteworker commands describe source.capture --json
+```
+
+协议为 `byteworker-command-manifest/v1` 和 `byteworker-command-description/v1`；
+任意层级 `--help` 都是无 runtime/state 副作用的普通文本。
 
 ## SourceBundle request 快速参考
 

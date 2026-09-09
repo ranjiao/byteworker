@@ -571,7 +571,9 @@ flowchart TB
 
     subgraph L1["L1 · 稳定入口层"]
         CLI["bin/byteworker-cli.py"]
+        CR["lib/command_registry.py<br/>命令事实、发现与分发元数据"]
         MP["lib/machine_protocol.py"]
+        BP["lib/bounded_process.py<br/>有界流式子进程输出"]
         DIRECT["bin/*.py / bin/*.sh<br/>人工排障与兼容入口"]
     end
 
@@ -643,7 +645,9 @@ flowchart TB
     RF --> DIRECT
     TM --> DIRECT
     CLI --> DIRECT
+    CLI --> CR
     CLI --> MP
+    CLI --> BP
     DIRECT --> DT
     DIRECT --> DPREP
     DIRECT --> DCAP
@@ -747,7 +751,8 @@ flowchart TB
 - 飞书群聊的外部凭据兼容只存在于 operation/collection adapter：`auth status` 被宿主禁用时
   显式调用 `whoami --as user`，只把 user runtime readiness 前移，scope 与资源权限仍在
   capture-time fail closed；不得静默选择 bot 或建议不可用的本地登录。
-- `bin/source.py` 必须保持薄，只负责参数和 registry 分发。
+- `bin/source.py` 只组合公共命令和 operation contract；provider 参数、runtime 与 handler
+  由 operation adapter 声明，不在入口重复枚举。
 - CLI 不承载业务语义；Agent 不复制确定性实现。
 
 ### 4.2 入口层
@@ -757,7 +762,9 @@ flowchart TB
 | `bin/byteworker` + `bin/byteworker-launcher.py` | shell 先定位 Python 并完成 update-check，再 exec 当前版本 launcher；统一执行 preflight、机器 CLI 或外部工具 | 单一版本模块、静默健康路径、机器 envelope 或下游输出 |
 | `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、Todo 与自动报告设置检查，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；默认仅异常输出 |
 | `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
-| `bin/byteworker-cli.py` | 所有确定性工具的统一 facade；子进程调用直接 CLI；已注册工具的顶层 `-h/--help` 原样透传到底层 argparse | 普通调用返回 `byteworker-cli/v1` envelope；顶层 help 返回底层文本和退出码 |
+| `lib/command_registry.py` | 命令名、入口、operation、逻辑 namespace、兼容 alias、使用者、可见性、stability、副作用、runtime、协议与文档的唯一真相源 | `byteworker-command-manifest/v1` / `byteworker-command-description/v1`；推荐 namespace 和兼容入口帮助 |
+| `bin/byteworker-cli.py` | registry 中确定性工具的统一 facade；子进程调用直接 CLI；任意层级 `-h/--help` 原样透传到底层 argparse | 普通调用返回 `byteworker-cli/v1` envelope；help 返回底层文本和退出码 |
+| `lib/bounded_process.py` | 并行排空工具 stdout/stderr；小 stdout 有界 inline，越界时才落 `0600` 系统临时文件 | `byteworker-cli-artifact/v1` receipt；stderr 有界摘要输入 |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
 | `bin/digest-flow.py` + `lib/digest_flow.py` | start/capture/prepare/commit/status；自动记录无语义阶段并保存可恢复 checkpoint | `byteworker-digest-flow/v1`、唯一 next action、私有 artifact 路径或 transaction receipt |
@@ -766,11 +773,11 @@ flowchart TB
 | `bin/digest-analysis.py` | SourceBundle components 单次读取、结构去噪、依赖候选/语义文本/参与者/anchor 索引整理；不做语义判断 | 系统临时 `byteworker-digest-analysis-packet/v1` 和无正文 receipt |
 | `bin/digest-capture.py` | 执行最多 4 个显式、独立、只读的 lark/comments capture job；provider 命令构造留在该 adapter，不进入事务 core | `byteworker-digest-capture-receipt/v1` 和显式 `0600` artifact |
 | `bin/digest-parallel.py` | 联合估算 inline/parallel token、worker 成本与墙钟收益，最多 4 路平衡 shards；校验完整覆盖并归并，不做语义裁决 | 带两种估算、选择 reason、预算余量的 plan / shard / result / reduce packet |
-| `bin/source.py` | capabilities / auth / inspect / capture / bundle-spec / bundle / profile / diff 参数入口 | request 契约、capture、SourceBundle、profile receipt、ChangeSet |
+| `bin/source.py` + `lib/source_cli_service.py` + `lib/source_operation_contract.py` | 入口只组合 parser、服务和错误编码；服务处理通用结果持久化，provider 参数由 operation adapter 声明并生成 | request/operation 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
-| `bin/dreaming.py` | Dreaming 控制面，以及 grant set-im、process prepare/abort | job/grant 回执与不含正文的 batch 摘要 |
+| `bin/dreaming.py` + `lib/dreaming_cli_*.py` | 主入口只校验 KB、组合 parser 和编码错误；schedule/process/review/report/action 子域各自注册 leaf handler | 原有 job/grant/report/action 回执与不含正文的 batch 摘要 |
 | `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务、默认 token 保护且可由用户关闭的 `/api/settings`、只读 Dreaming 日志 API | JSON 设置视图、受控 PATCH 回执、运行日志白名单元数据；不提供任意文件写入 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
@@ -778,13 +785,30 @@ flowchart TB
 | `bin/semantic.py` | 校验 IM 等结构化语义结果 | validation report / 稳定 error code |
 | `bin/kb-query.py` | search / conflict-search / evidence / source-record；conflict-search 对多 query 只扫描节点一次 | 有覆盖信息的有限候选、同源定位与短 snippet |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
-| `bin/todo.py` | Todo 的确定性存储与时间操作 | Todo 状态 |
+| `bin/todo.py` + `lib/todo_*.py` | CLI 只解析参数和编码 JSON；models/time/store/service 分别承担状态、时间、Markdown/Git 事务和应用操作 | Todo 状态与 committed transaction receipt |
 | `bin/resolve-users.sh` | 按 open_id 最多 4 路只读解析 person 身份与当前通讯录画像，按 ID 确定性归并；默认 TSV 兼容旧调用 | `byteworker-resolved-users/v1` JSON 或兼容三列 TSV |
 | 其它 `bin/*.sh` | 外部拉取、索引/links 重建、viewer、安装与更新辅助 | 明确的文件或 JSON/文本回执 |
 
 机器协议只统一执行边界，不做插件发现，也不改变底层业务语义。普通工具调用的成功或失败由
-`byteworker-cli/v1` envelope 表达；`bin/byteworker <tool> --help` 是只读发现路径，必须绕过
-envelope 并原样继承已注册底层工具的 argparse 文本与退出码，成功时退出码为 0。
+`byteworker-cli/v1` envelope 表达，并从 registry 附加 `command_path/stability/side_effect`。
+`bin/byteworker <command path> --help` 是只读发现路径，必须在 update、cache 写入、optional runtime
+探测和业务 handler 之前返回；已注册底层工具原样继承 argparse 文本与退出码，launcher 原生命令
+由 registry 渲染帮助，成功时退出码均为 0。Agent 通过 `commands list/describe/search --json` 读取
+结构化命令事实，不解析人类帮助文本，也不加载完整 `bin/README.md`。
+
+对外命令路径分为两个名字层：`system/source/digest/kb/automation/external/maintainer` 是推荐的逻辑
+namespace，原有 `digest-flow`、`kb-query` 等扁平路径是稳定兼容入口。二者只在
+`lib/command_registry.py` 中建立 alias 关系；launcher 在依赖探测和 facade 调用前把推荐路径解析到
+同一个既有 handler，不复制 parser 或业务实现。manifest 为直接命令返回 `preferred_path`，并单列
+`aliases/namespaces`；description 接受两种路径并在使用 alias 时返回 `alias_target`。仓库调用方尚未
+完成迁移前，不隐藏或删除扁平入口，也不物理移动 `bin/` 执行器。
+
+facade 子进程隔离保留 update-before-import、runtime 环境和异常边界。stdout 由
+`lib/bounded_process.py` 流式收集：1 MiB 内维持既有 inline 语义，超过后不再进入 envelope 内存，
+而是保留为 `0600` 临时 artifact；stderr 持续排空但只保留 64 KiB。receipt 带 size、SHA-256、
+content type 和临时文件标记，调用方消费后删除。真实 workflow metadata 显示当前固定进程成本通常
+低于 active duration 的 1%，因此不以微基准引入单进程 fast path；决策基线见
+[`COMMAND_PERFORMANCE_BASELINE.md`](COMMAND_PERFORMANCE_BASELINE.md)。
 
 ### 4.3 Source 子系统
 
@@ -793,6 +817,8 @@ Source 子系统允许 provider 内部异构，但交给事务层的边界必须
 ```mermaid
 flowchart LR
     CLI["bin/source.py"]
+    CLISVC["lib/source_cli_service.py<br/>通用应用操作与输出回执"]
+    OPC["lib/source_operation_contract.py<br/>声明式参数 schema"]
     OPS["lib/source_operations.py<br/>结构化 operation registry"]
     CHATOPS["lib/source_chat_operations.py<br/>群聊 Profile + transport 编排"]
     CAP["lib/source_capture.py<br/>结构化 auth / inspect / capture 兼容实现"]
@@ -810,7 +836,12 @@ flowchart LR
     TXN["lib/digest_txn.py"]
     QUERY["lib/kb_query.py"]
 
-    CLI --> OPS
+    CLI --> OPC
+    CLI --> CLISVC
+    CLISVC --> OPS
+    CLISVC --> REG
+    CLISVC --> PROF
+    OPS --> OPC
     OPS --> CHATOPS
     OPS --> CAP
     OPS --> PROF
@@ -1022,7 +1053,10 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/context_view.py` | 解析固定 context 章节并按 intent 返回有预算投影 | 否 |
 | `lib/semantic_policy.py` | 校验 IM 分数、阈值、reason code 和 message evidence | 否 |
 | `lib/kb_mutation.py` | 非 digest plan 校验、章节处理和统一事务提交 | 仅显式 execute |
-| `bin/todo.py` | Todo 解析、状态变更及共享锁内 journal/commit/rollback | 写命令显式执行 |
+| `lib/todo_models.py` + `lib/todo_time.py` | Todo typed state、偏好和确定性时间解析 | 否 |
+| `lib/todo_store.py` | Markdown parse/render、共享锁、journal、精确 commit 与失败回滚 | 仅由 Todo 写命令调用 |
+| `lib/todo_service.py` | Todo 应用操作与提醒分类，不解析 CLI 或直接执行 Git | 通过 store 写入 |
+| `bin/todo.py` | 参数解析、服务调用与 JSON 编码 | 写命令显式执行 |
 | `lib/provenance.py` | anchor schema、sidecar、节点 `[E]` 物化、raw 扫描 | 仅由事务调用 |
 | `lib/provenance_backfill.py` | 历史出处 audit → plan → validate → apply | 仅显式 apply |
 | `lib/doctor.py` | 编排布局、节点、raw、provenance、links、报告、Dreaming state、INDEX 与来源契约扫描 | scan 否；fix 受白名单限制 |
@@ -1241,14 +1275,21 @@ Profile，不能为了矩阵好看而保存不可执行配置。
 - `lib/kb_query.py` 来解析新的 provider 私有结构；
 - `bin/source.py` 加一串新的 provider 条件分支。
 
+新增 operation provider 时，在 adapter 的 `operation_arguments`、`runtime_requirements` 和
+`run()` 中声明参数、runtime 与 handler；`source capabilities`、argparse 和 launcher runtime
+解析复用这份声明。共享 operation 上同名参数的定义若不一致，registry 必须 fail closed。
+
 ### 7.2 新增命令或写流程
 
 1. 先判断它属于 Agent 语义、确定性应用服务还是纯维护工具。
-2. 确定性命令通过 `bin/byteworker-cli.py` 暴露统一 envelope。
-3. 外部来源写 raw/节点必须复用 digest transaction；无新来源的节点更新和
+2. 在 `lib/command_registry.py` 增加唯一 CommandSpec，声明入口、使用者、可见性、stability、
+   副作用、runtime、输出协议和按需文档；帮助、manifest、facade 和测试不得再维护平行名单。
+3. 确定性命令通过 `bin/byteworker-cli.py` 暴露统一 envelope；通用 facade/launcher 不得按新工具名
+   增加协议或 runtime 特例。
+4. 外部来源写 raw/节点必须复用 digest transaction；无新来源的节点更新和
    context/dashboard/report 写入必须复用 KB mutation；可重建且不提交的派生预览可使用独立工具。
-4. 新的真相源字段或目录必须先修改 `docs/development/DESIGN.md`。
-5. 新的主流程或模块依赖必须同时修改本文件。
+5. 新的真相源字段或目录必须先修改 `docs/development/DESIGN.md`。
+6. 新的主流程或模块依赖必须同时修改本文件。
 
 ### 7.3 禁止的演进方式
 
@@ -1350,6 +1391,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
 | Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
 | Session preflight | 更新先于 Python import、健康静默、blocking、更新 notice、Todo notice、报告迁移、PATH/NVM/显式 override |
+| Command discovery | registry 唯一性、入口/文档存在、顶层完整分组、嵌套 help 只读且不探测 optional runtime、tombstone 默认隐藏、manifest/description schema |
 | Agent route / semantic | workflow 闭包、独立入口自足、context 字符预算、冲突唯一 owner、IM 阈值/reason/evidence |
 | 自动报告 | 首次/升级只询问一次、local-only 配置、宿主真相源、跨日报/周报租约、过期恢复、成功/失败回执、每次完整 routine digest |
 | Dreaming | 默认关闭无状态写、三启用确认、三类 process schedule、next due、enabled/operational 分离、harness tick、run_id/heartbeat/log retention、due/idle/busy、fencing、旧报告 owner 冲突 |
@@ -1376,6 +1418,13 @@ byteworker/
 ├── bin/                  # CLI facade、直接入口和 shell 集成
 ├── lib/                  # 确定性 Python 实现
 │   ├── runtime_deps.py   # Python/Node/内部 CLI 发现、探测与运行环境
+│   ├── command_registry.py # 命令事实、帮助、runtime/副作用元数据与机器清单
+│   ├── source_operation_contract.py # provider operation 的 argparse 声明
+│   ├── source_cli_service.py # Source 通用应用操作、持久化与紧凑回执
+│   ├── todo_models.py    # Todo typed state 与枚举
+│   ├── todo_time.py      # Todo 偏好和确定性时间解析
+│   ├── todo_store.py     # Todo Markdown、共享锁与 Git 事务
+│   ├── todo_service.py   # Todo 应用操作和提醒分类
 │   ├── session_preflight.py # 每 session 一次的静默公共准备
 │   ├── kb_write_txn.py   # durable writer 共享锁和回滚原语
 │   ├── kb_mutation.py    # 非 digest 内容事务
@@ -1391,6 +1440,7 @@ byteworker/
 │   ├── settings.py # 统一配置 façade；不替代底层 truth source
 │   ├── dreaming_state.py # Dreaming v2 local state、权限、锁与迁移
 │   ├── dreaming_models.py # Dreaming 跨阶段结构契约校验
+│   ├── dreaming_cli_*.py # Dreaming schedule/process/review/report/action parser + handler
 │   ├── dreaming_grants.py # IM grant revision 与撤销清理
 │   ├── dreaming_collection.py # 窗口、coverage、gap 与去重
 │   ├── dreaming_batch.py # spool、manifest、receipt、commit/cursor

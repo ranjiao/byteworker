@@ -80,7 +80,7 @@ bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 pyth
 
 | 层 | 依赖 | 说明 |
 |----|------|------|
-| **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.9` | Python 用于确定性维护 Todo / 索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
+| **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.10` | Python 用于确定性维护 Todo / 索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
 | **内部数据源** | `lark-cli` + `meegle` + 对应 skills + 用户授权 | 文档 / Base 使用 `lark-cli`;Meego 使用独立的 `meegle` OAuth；风神由 byteworker 原生只读客户端访问，只需单独注入用户态或服务态凭据。安装助手会询问现在启用哪些来源,跳过后也会在首次使用时引导|
 
 装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)，运行期使用同一套 resolver 自动

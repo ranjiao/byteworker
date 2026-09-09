@@ -10,6 +10,11 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "bin" / "byteworker-cli.py"
 LAUNCHER = ROOT / "bin" / "byteworker"
+LIB = ROOT / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+
+from command_registry import facade_entrypoints  # noqa: E402
 
 
 class MachineProtocolTests(unittest.TestCase):
@@ -127,28 +132,7 @@ class MachineProtocolTests(unittest.TestCase):
         self.assertEqual("cli", payload["context"]["tool"])
 
     def test_registered_tool_help_passes_through_launcher(self):
-        tools = [
-            "todo",
-            "source",
-            "digest-txn",
-            "kb-mutate",
-            "kb-query",
-            "context",
-            "doctor",
-            "wiki",
-            "digest-job",
-            "digest-run",
-            "digest-flow",
-            "workflow-budget",
-            "digest-analysis",
-            "digest-capture",
-            "digest-parallel",
-            "report-automation",
-            "dreaming",
-            "provenance-backfill",
-            "index",
-        ]
-        for tool in tools:
+        for tool in facade_entrypoints():
             with self.subTest(tool=tool):
                 result = subprocess.run(
                     [str(LAUNCHER), tool, "--help"],
@@ -266,9 +250,9 @@ class MachineProtocolTests(unittest.TestCase):
     def test_source_bundle_help_says_request_is_a_file_path(self):
         result = self.run_cli("source", "bundle", "--help")
         self.assertEqual(0, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertIn("request JSON 文件路径", payload["data"])
-        self.assertIn("不接受内联", payload["data"])
+        self.assertTrue(result.stdout.startswith("usage:"), result.stdout)
+        self.assertIn("request JSON 文件路径", result.stdout)
+        self.assertIn("不接受内联", result.stdout)
 
     def test_source_bundle_materializes_local_file_through_registry(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

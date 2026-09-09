@@ -8,6 +8,18 @@ from typing import Any, TextIO
 
 
 PROTOCOL_VERSION = "byteworker-cli/v1"
+ARTIFACT_PROTOCOL = "byteworker-cli-artifact/v1"
+INLINE_STDOUT_LIMIT_BYTES = 1024 * 1024
+STDERR_CAPTURE_LIMIT_BYTES = 64 * 1024
+
+
+def output_policy() -> dict[str, Any]:
+    return {
+        "inline_stdout_limit_bytes": INLINE_STDOUT_LIMIT_BYTES,
+        "stderr_capture_limit_bytes": STDERR_CAPTURE_LIMIT_BYTES,
+        "artifact_protocol": ARTIFACT_PROTOCOL,
+        "artifact_docs": "references/command-output.md",
+    }
 
 
 def context(
@@ -15,14 +27,24 @@ def context(
     tool: str,
     operation: str,
     execution_time_ms: int,
+    command_path: str = "",
+    stability: str = "",
+    side_effect: str = "",
 ) -> dict[str, Any]:
-    return {
+    result = {
         "protocol": PROTOCOL_VERSION,
         "tool": tool,
         "operation": operation,
         "execution_time_ms": max(0, execution_time_ms),
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
+    if command_path:
+        result["command_path"] = command_path
+    if stability:
+        result["stability"] = stability
+    if side_effect:
+        result["side_effect"] = side_effect
+    return result
 
 
 def error_payload(
