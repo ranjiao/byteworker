@@ -50,6 +50,8 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 `references/workflow-routes.json` 是可机器检查的加载闭包。确定意图后只加载对应 workflow 的
 `required`，再按 source type/features 加条件文件；失败时才加载 `on_error`。不得用“普通流程”
 代替显式闭包，也不得为了找一个命令整读其它能力。
+隔离 worker 或动态输入接近上限时按 `references/workflow-budgets.md` 获取完整 token budget receipt；
+超预算执行固定 action，不静默截断证据。
 
 公共 CLI envelope 见 `references/machine-protocol.md`。统一使用
 `bin/byteworker <tool> ...`；直接飞书 CLI 用 `bin/byteworker lark ...`，辅助脚本用
@@ -59,7 +61,7 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 
 - search：`references/command-search.md` + `references/citations.md`
 - update：`references/command-update.md` + `references/conflict-policy.md` +
-  `references/kb-mutation.md`
+  `references/kb-mutation.md` + `references/write-rules.md`
 - brief：`references/command-brief.md` + `references/command-search.md` +
   `references/citations.md`
 - dashboard：`references/command-dashboard.md` + `references/kb-mutation.md` +
@@ -92,7 +94,7 @@ bin/byteworker context view --kb "<KB>" --intent "<intent>"
 
 ## Digest
 
-标准 digest 的公共闭包必须包含：
+digest：
 
 - `references/digest-core.md`
 - `references/digest-dependencies.md`
@@ -101,33 +103,37 @@ bin/byteworker context view --kb "<KB>" --intent "<intent>"
 - `references/write-rules.md`
 - `references/conflict-policy.md`
 
-按来源加读：飞书文档 `digest-doc.md`（评论加 `references/digest-comments.md`，白板只读取
+来源：飞书文档 `digest-doc.md`（评论加 `references/digest-comments.md`，白板只读取
 结构 JSON 并加读 `digest-whiteboard.md`）；群聊 `digest-chat.md`；Meego `digest-meego.md`；Base
 `digest-base.md`；风神 `digest-aeolus.md`；网页/本地资料 `digest-reading.md`；会议簇
 `digest-meeting.md`；立场分析 `digest-analysis.md`；大型输入 `digest-large.md`；routine
 `digest-routine.md`。Wiki 空间探索先读 `references/digest-wiki-space.md`，确认页面后按
 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
-来源先产生 `byteworker-source-bundle/v2`，Agent 再生成只引用 bundle 的
-`digest-plan/v2` 和完整候选节点。标准路径先运行 `bin/digest-txn.py preflight`；候选完成后
-直接运行 `execute`，由它在写入前完成完整 validate 与锁内复验。独立 `validate` 只用于失败排障。
-两个以上来源共同更新
-节点时用 `digest-batch-plan/v2`。语义判断、冲突分类、实体取舍和候选正文由 Agent 负责；
-hash、幂等、schema、INDEX、journal、精确 commit 和 rollback 由事务负责。只有
-`status=committed` receipt 表示写入成功。
+标准无语义阶段按 `references/digest-flow.md` 统一走 `digest-flow`；`SourceBundle v2` 经
+`digest-analysis-pipeline.md` / `digest-concurrency.md` 生成 `digest-plan/v2`。候选完成后运行
+`digest-flow commit`（内部 execute 含锁内复验）；独立 `validate` 只用于失败排障，多来源用
+`digest-batch-plan/v2`。Agent 做语义判断、冲突分类；事务负责 hash/schema/INDEX/journal/
+commit/rollback；只认 `status=committed`。
 
-关键事实使用 `[E1]` 等标记映射到 raw anchor，主记录声明 `primary_source`。新建/更新 person
-时运行 `bin/resolve-users.sh --format json`，按 feishu_id 消解并同步可见通讯录字段；空查询不
-清除旧值。
+标准路径由 `digest-flow` 自动建立 `run_id`、记录确定性阶段并结束终态；只有恢复或诊断时才按
+`references/digest-observability.md` 手工调用底层日志命令。
 
-Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用户并取得登录授权；运行时
-`source inspect / capture` 仍 fail closed。资源 Permission Denied 请求所有者共享，**禁止用重复登录或静默切 bot 掩盖**。
+事实 `[E1]` 绑 raw，主记录设 `primary_source`。raw / Bundle 的 `source_title`
+留原题；宽泛时，按来源可确认的作者、团队、项目/周期命名；不明标“归属待确认”。
+person 用 `bin/resolve-users.sh --format json --jobs 4` 按 feishu_id 消解。
+
+Meego/Base/风神/群聊先做 `source auth-status`。宿主注入的 user 凭据失效时，要求重新注入，
+禁止用重复登录或静默切 bot 掩盖。其它未就绪先授权。`source inspect / capture` 仍 fail closed；
+资源权限不足时请所有者共享。
 结构化大视图保存完整快照，普通行不建节点，left_view 不等于删除。
 查询具体记录用 `kb-query source-record`，不让 Agent 扫完整 raw。
 
 大型输入 worker 和 Wiki resume page 必须从 workflow manifest 解析完整 digest 闭包；子 Agent
-必须显式使用 `fork_turns="none"`，prompt 自足且只传来源、确认范围、KB 和临时 artifact 路径，
-不得继承主对话。主 Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终紧凑回执。
+必须使用宿主提供的**全新隔离上下文**，prompt 自足且只传来源、确认范围、KB 和临时 artifact
+路径，不得继承主对话。`fork_turns` 是 Codex adapter 的专有参数；其中
+`fork_turns="all"` 表示继承全部历史，违反本流程，其他宿主不得被要求理解或伪造该参数。主
+Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终紧凑回执。
 
 ## 写入
 
@@ -137,19 +143,8 @@ Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用�
 - Agent 不直接执行 temp、INDEX、journal、git add/commit 或失败回滚。
 - mutation 候选与 plan 放系统临时目录或 KB，不得进入 skill 仓库。
 - knowledge mutation 必须按唯一 `conflict-policy.md` 声明 disposition；来源较新不等于可覆盖。
-- 新建或更新 `area` 主题领域节点时，标题和概述必须显式写出业务、团队或个人限定语；同一主题在
-  不同业务中的节奏、指标、技术判断与共识分别保存，不得合并成看似公司级的通用方法论。无法从
-  来源确认归属时先保留为 reading/project 并披露边界，不创建宽泛 `area`。
-- 新建或更新内部 `org` 时，名称优先使用飞书通讯录返回的完整正式部门路径；通过
-  `resolve-users.sh --format json` 的实时结果与已有 person 的 `department_path` 交叉核对，不按
-  口语简称或路径片段臆造组织。组织负责人必须来自用户确认或明确权威来源，不能从成员、职级、
-  文档作者或会议角色推断；未确认时询问用户并显式标记“待用户确认”。人员的**通讯录当前归属**、
-  **管理职责**和**汇报关系**是三类独立事实，分别记录来源与日期：用户确认某人负责更细组织或
-  向某人汇报时，不得据此伪造或覆盖较粗的 `department_path`；目录只返回祖先路径、与管理职责
-  不同或暂未更新时并列披露。用户给出账号简称、异体姓名或英文名时先用通讯录与 `feishu_id`
-  对齐已有 person，唯一命中才复用，禁止创建重复人物。项目协作、会议同现和历史链接不证明当前
-  成员关系或组织层级；用户纠正归属时修正当前 TL;DR、基本信息和 links，同时把旧关系作为带日期
-  的历史协作保留。
+- area/org/person 的范围、目录证据、负责人和关系分型统一按 `references/write-rules.md`；digest
+  与 update 的机器路由都必须包含它，不在常驻入口复制细则。
 
 ## 知识库检索回答引用(每次必做)
 
@@ -159,10 +154,10 @@ Meego/Base/风神/群聊先调用 `source auth-status`。未就绪时告诉用�
 
 ## 报告、Todo 与 Doctor
 
-自动日报/周报每次先运行完整 **routine digest**，不受 `.last-routine-digest` **七天**提醒限制；
-只重放所有已登记且启用的来源，不新增来源、不扩大范围、不发起 OAuth。报告候选通过 mutation
-保留“手动补充 / 备注”，commit 后才调用 report-automation complete。调度细则见
-`references/report-scheduling.md`。
+自动日报/周报先完整 **routine digest**（不受七天限制），再按周期枚举主日历
+`self_rsvp_status=accept` 日程；可访问的纪要、妙记转写和直接关联文档先 digest 后入报告，不建
+routine、不递归、不 OAuth / 申请权限。mutation 保留手动备注，commit 后 complete。细则见
+`references/report-calendar-meetings.md`。
 
 Todo 以自然语言为主，内部 id 不要求用户记忆。digest 识别出的 Todo 只是候选，用户确认后才写。
 
