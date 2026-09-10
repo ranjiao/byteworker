@@ -5,8 +5,10 @@
 
 ## Session 与 runtime
 
-每个新 session 先运行一次 `bin/byteworker preflight`。健康时无输出；有输出时解析
-`byteworker-session-preflight/v1.notices`。launcher 负责 Python >=3.10 和一致的运行环境：
+每个新 session 先运行一次 preflight：真人对话使用 `bin/byteworker preflight --interactive`，
+定时任务或 runner 使用 `bin/byteworker preflight --unattended`。无参数按无人值守安全默认处理。
+健康时无输出；有输出时解析 `byteworker-session-preflight/v1.notices`。launcher 负责 Python >=3.10
+和一致的运行环境：
 
 - 工具：`bin/byteworker <tool> ...`
 - 飞书 CLI：`bin/byteworker lark ...`

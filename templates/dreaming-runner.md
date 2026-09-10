@@ -2,7 +2,8 @@
 
 这是用户明确启用的本地 Dreaming 定时任务。不要改变 Dreaming 设置，也不要处理未授权来源。
 
-1. 在 byteworker skill 仓库运行一次 `bin/byteworker preflight`。
+1. 在 byteworker skill 仓库运行一次 `bin/byteworker preflight --unattended`；无人值守运行不展示
+   任何能力 Tip，也不调用 `discover recommend`。
 2. 从 `references/workflow-routes.json` 解析 `dreaming` workflow，并读取其完整 required 闭包。
 3. 调用 `bin/byteworker dreaming run-due --kb "<KB>" --owner "<TASK_ID>"`。
 4. `disabled/idle/busy` 时安静结束。

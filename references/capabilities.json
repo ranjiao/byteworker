@@ -1,0 +1,143 @@
+{
+  "schema_version": "byteworker-capability-catalog/v1",
+  "capabilities": [
+    {
+      "id": "digest",
+      "title": "把资料收进知识库",
+      "outcome": "把文档、会议、群聊、结构化视图、网页或本地 Markdown 消化成可持续更新的知识。",
+      "example": "把这个飞书文档收进知识库 <URL>",
+      "setup": "首次使用对应来源时可能需要最小权限授权。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "search",
+      "title": "带出处地回答工作问题",
+      "outcome": "从已经沉淀的知识中回答问题，并给出原始出处、原文时间、收录时间和置信度。",
+      "example": "我们关于这个项目定过什么，还有哪些问题没定？",
+      "setup": "至少先摄取一份相关资料。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "routine",
+      "title": "持续更新反复变化的来源",
+      "outcome": "把持续更新的文档、群聊、Meego、Base 或风神视图登记为定期来源，报告生成前先检查增量。",
+      "example": "把这个周报文档登记为定期更新来源",
+      "setup": "需要用户确认具体来源和无人值守访问范围。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "brief",
+      "title": "开会前快速准备",
+      "outcome": "结合日历和知识库，为即将开始的会议整理相关项目、人物、决策和未决问题。",
+      "example": "帮我准备今天下午的会议",
+      "setup": "读取日历时需要对应的飞书权限。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "dashboard",
+      "title": "集中查看当前重点",
+      "outcome": "把长期关注、需关注事项、Todo 和项目最新状态汇总成工作看板。",
+      "example": "看看我的工作看板，当前最需要关注什么？",
+      "setup": "有多个项目或关注事项时价值更高。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "todo",
+      "title": "用自然语言管理待办",
+      "outcome": "创建、完成、延期、取消和查询本地待办，不要求记内部编号。",
+      "example": "明天下午三点提醒我提交周报",
+      "setup": "无需额外配置；无对话时不会承诺后台推送。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "reports",
+      "title": "自动生成日报和周报",
+      "outcome": "由宿主本地定时任务先更新定期来源，再生成带出处的日报和周报。",
+      "example": "帮我设置自动日报和周报",
+      "setup": "需要用户确认时间、通知偏好和本地任务运行环境。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "thinking",
+      "title": "持续沉淀自己的判断",
+      "outcome": "把自己的观点、假设和推演与来源事实分开保存，并在同一主题上持续更新。",
+      "example": "把刚才关于组织调整的判断保存为我的观点",
+      "setup": "只有用户明确要求保存时才写入。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "viewer",
+      "title": "在浏览器里探索知识库",
+      "outcome": "用本地只读 Viewer 浏览 Markdown 节点并沿实体关系跳转。",
+      "example": "打开知识库浏览器",
+      "setup": "仅适用于有本地浏览器且能运行本地服务的环境。",
+      "proactive_policy": "contextual"
+    },
+    {
+      "id": "dreaming",
+      "title": "主动发现重要变化",
+      "outcome": "在明确授权的范围内周期性分析信息、保存待关注事项并按配置生成摘要或提醒。",
+      "example": "我想持续关注这些来源的重要变化",
+      "setup": "默认关闭；启用前必须完整确认隐私、成本、来源、频率、保存和通知设置。",
+      "proactive_policy": "explicit_only"
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "search-after-first-digest",
+      "capability_id": "search",
+      "priority": 100,
+      "after_any": ["digest"],
+      "minimum_events": {"digest": 1},
+      "requires_unused": ["search"],
+      "bypass_cooldown": true,
+      "max_impressions": 1,
+      "message": "这份资料已经入库。你可以马上问一个基于它的问题，我会带原文出处回答。"
+    },
+    {
+      "id": "routine-after-repeated-source",
+      "capability_id": "routine",
+      "priority": 90,
+      "after_any": ["digest"],
+      "signal_any": ["repeated_source"],
+      "requires_unused": ["routine"],
+      "message": "这个来源会持续变化，可以登记为定期更新来源；自动报告运行前也会先检查它的增量。"
+    },
+    {
+      "id": "thinking-after-user-judgment",
+      "capability_id": "thinking",
+      "priority": 80,
+      "after_any": ["search", "update", "dashboard"],
+      "signal_any": ["user_judgment"],
+      "requires_unused": ["thinking"],
+      "message": "刚才形成的是你的判断，而不是来源事实。需要的话可以把它保存为“我的观点”，以后在同一主题上持续更新。"
+    },
+    {
+      "id": "reports-after-manual-reports",
+      "capability_id": "reports",
+      "priority": 70,
+      "after_any": ["reports"],
+      "minimum_events": {"reports": 2},
+      "facts_equal": {"report_automation_enabled": false},
+      "message": "你已经多次手工生成报告，可以设置本地自动日报和周报，并在生成前先更新定期来源。"
+    },
+    {
+      "id": "dashboard-for-multiple-projects",
+      "capability_id": "dashboard",
+      "priority": 60,
+      "background": true,
+      "minimum_facts": {"projects": 3},
+      "requires_unused": ["dashboard"],
+      "message": "知识库里已经有多个项目，可以用工作看板集中查看长期关注、需关注事项和最新状态。"
+    },
+    {
+      "id": "viewer-for-growing-kb",
+      "capability_id": "viewer",
+      "priority": 50,
+      "background": true,
+      "minimum_facts": {"knowledge_nodes": 20},
+      "requires_unused": ["viewer"],
+      "message": "知识库已经有一定规模；如果当前是本地桌面环境，可以打开只读 Viewer 浏览节点和关系。"
+    }
+  ]
+}

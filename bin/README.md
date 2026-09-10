@@ -10,11 +10,13 @@
 每个新 session 先调用一次：
 
 ```bash
-bin/byteworker preflight
+bin/byteworker preflight --interactive
 ```
 
 健康时完全无输出；有输出时只处理 `byteworker-session-preflight/v1.notices`。飞书任务可显式加
 `--require feishu`，Meego 任务加 `--require meego`；已登记来源会自动推导。
+自动报告、Dreaming runner 和其它定时任务改用 `preflight --unattended`；无参数也按无人值守安全
+默认处理，两者都不会返回能力 Tip。
 
 之后所有确定性工具通过同一个 runtime-safe launcher 调用：
 
@@ -36,6 +38,9 @@ bin/byteworker commands search "digest" --json
 `automation dreaming`；原有 `digest-flow`、`kb-query`、`dreaming` 等扁平路径继续兼容。Agent 应从
 manifest 的 `preferred_path` 和 `aliases` 选择新路径，不自行猜测映射。默认帮助隐藏 tombstone；
 `bin/byteworker --help --all` 可审计全部兼容入口。
+
+面向用户的目标、例句和能力建议另由 `references/capabilities.json` 定义；不要把底层命令清单直接
+展示成产品功能。Agent 通过 `discover status/recommend/feedback` 读取能力地图并维护本地限频状态。
 
 registry 中 `execution=facade` 的 tool 调用输出 `byteworker-cli/v1` JSON envelope：
 
@@ -106,6 +111,7 @@ cd "$BYTEWORKER_ROOT"
 | `byteworker-launcher.py` | 内部入口 | preflight、机器 CLI、lark/meegle/run 分发 | 取决于子命令 |
 | `session-preflight.py` | Agent / 自动化 | 每 session 一次合并启动检查 | 更新 skill 状态、Todo/报告本地状态检查 |
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
+| `discover.py` | Agent | 查看用户能力地图并记录低频建议、拒绝或延后 | 写 KB 已排除的 `state/capability_discovery.json` |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
 | `digest-flow.py` | Agent / 维护者 | 自动编排无语义 digest 阶段并保存可恢复 checkpoint | 写 KB 已排除的 `state/digest/flows/`；commit 委派事务 |
 | `workflow-budget.py` | Agent / 维护者 | 展开完整 workflow 闭包并计算静态/动态 token 预算 | 只读规则与显式输入，返回方法、计数和固定 overflow action |
@@ -1072,8 +1078,9 @@ python3 bin/repair_links.py "$BYTEWORKER_KB" [--dry-run] [--autolink]
 Agent 日常只需：
 
 ```bash
-bin/byteworker preflight
-bin/byteworker preflight --require feishu
+bin/byteworker preflight --interactive
+bin/byteworker preflight --interactive --require feishu
+bin/byteworker preflight --unattended
 ```
 
 - 默认健康路径 stdout/stderr 均为空，退出码 `0`。
@@ -1082,6 +1089,7 @@ bin/byteworker preflight --require feishu
 - `--json` 仅供排障，健康时也展示 KB、resolved runtime 与完整检查结果。
 - preflight 自动从 `sources/*.json` 推导已经配置的飞书/Meego runtime；`--require` 用于本次
   即将访问但尚未登记的来源。
+- 只有 `--interactive` 允许返回低频能力建议；无参数和 `--unattended` 都禁止，适合定时任务。
 - `bin/byteworker lark ...`、`bin/byteworker meegle ...` 和
   `bin/byteworker run <command> ...` 继承同一 runtime resolver。显式设置的
   `BYTEWORKER_PYTHON_BIN/BYTEWORKER_NODE_BIN/BYTEWORKER_LARK_CLI_BIN/BYTEWORKER_MEEGLE_BIN`

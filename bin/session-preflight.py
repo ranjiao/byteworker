@@ -30,6 +30,17 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument("--skip-update", action="store_true", help=argparse.SUPPRESS)
     result.add_argument("--json", action="store_true", help="健康时也输出完整 JSON")
+    interaction = result.add_mutually_exclusive_group()
+    interaction.add_argument(
+        "--interactive",
+        action="store_true",
+        help="允许返回面向真人对话的低频能力建议",
+    )
+    interaction.add_argument(
+        "--unattended",
+        action="store_true",
+        help="无人值守运行；明确禁止能力建议（默认）",
+    )
     return result
 
 
@@ -41,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         required_sources=args.require,
         skip_update=args.skip_update,
         environ=os.environ,
+        allow_capability_suggestions=args.interactive,
     )
     if args.json or result["status"] != "healthy":
         payload = result
