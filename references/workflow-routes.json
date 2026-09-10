@@ -164,6 +164,12 @@
         "references/todo.md"
       ]
     },
+    "discover": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/capability-discovery.md"
+      ]
+    },
     "report": {
       "required": [
         "references/machine-protocol.md",
@@ -225,6 +231,15 @@
     }
   },
   "budgets": {
+    "discover": {
+      "static_rules_tokens": 16000,
+      "worker_prompt_tokens": 0,
+      "dynamic_context_tokens": 0,
+      "source_packet_tokens": 0,
+      "total_input_tokens": 16000,
+      "output_tokens": 4000,
+      "overflow_action": "return_capability_summary"
+    },
     "digest": {
       "static_rules_tokens": 100000,
       "worker_prompt_tokens": 0,
@@ -352,11 +367,11 @@
       "overflow_action": "compact_context_or_ask_user"
     },
     "todo": {
-      "static_rules_tokens": 16000,
+      "static_rules_tokens": 16750,
       "worker_prompt_tokens": 0,
       "dynamic_context_tokens": 6000,
       "source_packet_tokens": 0,
-      "total_input_tokens": 22000,
+      "total_input_tokens": 22750,
       "output_tokens": 4000,
       "overflow_action": "compact_context_or_ask_user"
     },
@@ -379,11 +394,11 @@
       "overflow_action": "split_evidence_batch"
     },
     "doctor": {
-      "static_rules_tokens": 16000,
+      "static_rules_tokens": 16500,
       "worker_prompt_tokens": 0,
       "dynamic_context_tokens": 0,
       "source_packet_tokens": 0,
-      "total_input_tokens": 16000,
+      "total_input_tokens": 16500,
       "output_tokens": 4000,
       "overflow_action": "reject_with_budget_receipt"
     }

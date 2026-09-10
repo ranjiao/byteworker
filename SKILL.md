@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、全局工作上下文、可选主动后台机制 Dreaming 和兼容诊断。当用户要保存或查询工作资料、沉淀自己的思考、管理待办提醒、生成工作报告、配置自动信息分析或摘要提醒、启用/关闭/查看 Dreaming、通过 Dreaming 分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help 时触发。
+description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、全局工作上下文、个性化能力推荐、可选主动后台机制 Dreaming 和兼容诊断。当用户要保存或查询工作资料、了解 byteworker 能做什么、推荐下一步、沉淀自己的思考、管理待办提醒、生成工作报告、配置自动信息分析或摘要提醒、启用/关闭/查看 Dreaming、通过 Dreaming 分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help 时触发。
 ---
 
 # byteworker
@@ -17,6 +17,7 @@ description: 个人飞书工作知识库。把飞书文档、妙记、会议、�
 | todo | 用自然语言管理待办和提醒 |
 | context | 查看或维护全局工作上下文 |
 | thinking | 保存或持续更新用户自己的自然语言认知与推演 |
+| discover | 按当前知识库状态查看能力地图或推荐下一步 |
 | dreaming | 用自然语言设置、启停或查看后台信息助手；默认关闭 |
 | doctor | 检查或修复 schema/skill 兼容问题 |
 | help | 原样展示 `references/help.md` |
@@ -26,11 +27,13 @@ description: 个人飞书工作知识库。把飞书文档、妙记、会议、�
 
 ## 每个 Session 先做
 
-首次使用本 skill 时只运行一次：
+真人参与的 session 首次使用本 skill 时只运行一次：
 
 ```bash
-bin/byteworker preflight
+bin/byteworker preflight --interactive
 ```
+
+定时任务、runner 和其它无人值守 session 改用 `preflight --unattended`；无参数也默认不产生 Tip。
 
 访问尚未登记的飞书/Meego 来源时分别加 `--require feishu` / `--require meego`。
 
@@ -69,6 +72,7 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 - context：`references/command-context.md` + `references/kb-mutation.md`
 - thinking：`references/thinking.md` + `references/kb-mutation.md`
 - todo：`references/todo.md`
+- discover：`references/capability-discovery.md`
 - report：`references/report-scheduling.md` + `references/periodic-report.md` +
   `references/digest-routine.md` + `references/kb-mutation.md` + `references/citations.md`
 - dreaming：`references/dreaming.md` + `references/dreaming-analysis.md` +
@@ -80,6 +84,14 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
   `references/dreaming-harness-trae.md`；process job 还必须从 manifest 加载
   `features.routine_digest` 的完整普通 digest 闭包
 - doctor：`references/doctor.md`
+
+## 能力发现
+
+用户问能力地图，或成功任务需要低频推荐时，读取 `references/capability-discovery.md` 并严格执行
+其中的 status/recommend/feedback、限频和失败降级规则；不把底层 command registry 当用户功能列表。
+只有任务成功后才展示 contextual 或 preflight suggestion；语义信号必须有当前对话证据。
+无人值守 session 禁止调用 recommend 或展示任何 Tip。
+Dreaming 固定为 `explicit_only`，不进入通用推荐，仍只由用户明确意图触发完整导览。
 
 ## Context
 
