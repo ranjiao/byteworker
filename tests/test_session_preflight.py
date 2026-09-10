@@ -112,6 +112,130 @@ class SessionPreflightTests(unittest.TestCase):
             self.assertEqual(["feishu"], result["required_sources"])
             self.assertEqual(str(kb.resolve()), result["kb"])
 
+    def test_surfaces_background_capability_suggestion_only_when_otherwise_quiet(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.layout(root)
+            suggestion = {
+                "recommendation_id": "dashboard-for-multiple-projects",
+                "capability_id": "dashboard",
+            }
+            with (
+                mock.patch.object(
+                    session_preflight,
+                    "cached_check_runtime",
+                    return_value=(runtime(), "hit"),
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "runtime_environment",
+                    return_value={"PATH": "/usr/bin"},
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "_run_json",
+                    return_value=(0, [], ""),
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "report_status",
+                    return_value={
+                        "needs_onboarding": False,
+                        "prompt_upgrade_available": False,
+                    },
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "peek_background_recommendation",
+                    return_value=suggestion,
+                ),
+            ):
+                result = session_preflight.run_preflight(
+                    root,
+                    skip_update=True,
+                    allow_capability_suggestions=True,
+                )
+            self.assertEqual("attention", result["status"])
+            self.assertEqual("CAPABILITY_SUGGESTION", result["notices"][0]["code"])
+            self.assertEqual(suggestion, result["notices"][0]["data"]["suggestion"])
+
+    def test_unattended_default_never_checks_capability_suggestions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.layout(root)
+            with (
+                mock.patch.object(
+                    session_preflight,
+                    "cached_check_runtime",
+                    return_value=(runtime(), "hit"),
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "runtime_environment",
+                    return_value={"PATH": "/usr/bin"},
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "_run_json",
+                    return_value=(0, [], ""),
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "report_status",
+                    return_value={
+                        "needs_onboarding": False,
+                        "prompt_upgrade_available": False,
+                    },
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "peek_background_recommendation",
+                ) as recommendation,
+            ):
+                result = session_preflight.run_preflight(root, skip_update=True)
+            self.assertEqual("healthy", result["status"])
+            self.assertEqual([], result["notices"])
+            recommendation.assert_not_called()
+
+    def test_capability_discovery_failure_does_not_block_preflight(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.layout(root)
+            with (
+                mock.patch.object(
+                    session_preflight,
+                    "cached_check_runtime",
+                    return_value=(runtime(), "hit"),
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "runtime_environment",
+                    return_value={"PATH": "/usr/bin"},
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "_run_json",
+                    return_value=(0, [], ""),
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "report_status",
+                    return_value={
+                        "needs_onboarding": False,
+                        "prompt_upgrade_available": False,
+                    },
+                ),
+                mock.patch.object(
+                    session_preflight,
+                    "peek_background_recommendation",
+                    side_effect=OSError("read only"),
+                ),
+            ):
+                result = session_preflight.run_preflight(root, skip_update=True)
+            self.assertEqual("healthy", result["status"])
+            self.assertTrue(result["ready"])
+            self.assertEqual([], result["notices"])
+
     def test_surfaces_update_todo_and_one_time_report_notices(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -392,6 +516,27 @@ class SessionPreflightTests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertNotIn("runtime", payload)
         self.assertEqual("TODO_REMINDERS", payload["notices"][0]["code"])
+
+    def test_cli_passes_explicit_interaction_mode(self):
+        healthy = {
+            "schema_version": "byteworker-session-preflight/v1",
+            "status": "healthy",
+            "ready": True,
+            "kb": "/tmp/kb",
+            "runtime": {},
+            "notices": [],
+        }
+        with mock.patch.object(
+            PREFLIGHT_CLI, "run_preflight", return_value=healthy
+        ) as run:
+            self.assertEqual(0, PREFLIGHT_CLI.main(["--interactive"]))
+        self.assertTrue(run.call_args.kwargs["allow_capability_suggestions"])
+
+        with mock.patch.object(
+            PREFLIGHT_CLI, "run_preflight", return_value=healthy
+        ) as run:
+            self.assertEqual(0, PREFLIGHT_CLI.main(["--unattended"]))
+        self.assertFalse(run.call_args.kwargs["allow_capability_suggestions"])
 
 
 if __name__ == "__main__":

@@ -95,6 +95,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `state/digest/run-logs/` | 每个 digest 输入的私密结构化阶段/usage 时间线；只含白名单枚举、计数、耗时和 call id 哈希 | `digest-run` 及带 `--run-id` 的 `digest-txn` | 30 天保留、5 MiB 轮转；不进入 KB Git |
 | `state/digest/flows/` | 每个标准 digest 的私有 phase、source ref hash 和 artifact 路径 checkpoint | `digest-flow` | 跨 session 恢复；终态保留；不进入 KB Git |
 | `state/report_automation.json` | 自动报告的一次性设置选择、宿主线索、prompt 版本、跨任务租约和最近真实运行回执 | `report-automation` 按需原子写入 | 本机运行状态；宿主任务系统仍是真相源 |
+| `state/capability_discovery.json` | 能力使用次数、提示展示/拒绝/延后和全局开关；不含用户正文或来源身份 | `discover` 按成功任务或用户反馈原子写入 | 本机交互状态；可删除重建 |
 | `state/dreaming/` | Dreaming 权限、运行计划、日志配置、定期来源覆盖 checkpoint、报告 outbox 和私密中间状态 | `dreaming` / `settings` façade 委派写入 | 本机后台状态；不进入 KB Git |
 
 数据目录路径由用户首次使用时指定(默认目录名 `byteworker_kb`,路径可配置),
@@ -334,7 +335,28 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
 状态目录继续遵守 §1.B 的本地排除规则：写入前把 `/state/` 加到知识库
 `.git/info/exclude`，不得提交、push 或进入报告事实来源。
 
-### F.1 Dreaming 设置与 Job 状态
+### F.1 能力发现状态
+
+`state/capability_discovery.json` 使用 `byteworker-capability-discovery/v1`，由
+`lib/capability_discovery.py` 在独立文件锁内原子维护。它是可删除重建的本地交互状态，不是知识、
+来源、报告或用户偏好的真相源。
+
+- 只保存 `tips_enabled`、成功使用计数、能力 ID、展示/使用次数、最后时间、拒绝和延后状态；禁止
+  保存用户正文、prompt、来源 URL、凭据或外部响应。
+- `references/capabilities.json` 使用 `byteworker-capability-catalog/v1`，是用户能力名称、目标、例句、
+  设置边界与推荐规则的事实源；底层命令事实仍只属于 `lib/command_registry.py`。
+- 推荐资格只读取 `knowledge/`、`reports/`、`sources/` 的文件数量和自动报告 enabled 状态，不读取
+  文件正文，不访问网络，不探测授权，也不改变任何业务状态。
+- 通用建议至少间隔 7 天或 5 次成功使用，同一能力最多展示两次；首次 digest 后的 search 建议只
+  展示一次且可绕过全局间隔。`dismissed` 单项不再展示，`snoozed_until` 到期后才恢复，全局开关优先。
+- 只有 `preflight --interactive` 才 peek 到期建议且不记录展示；无参数或 `--unattended` 禁止建议。
+  Agent 在当前交互任务成功并真实展示后显式写 `shown`；无人值守流程不调用 recommend。
+  上下文 `recommend` 在记录成功使用和返回建议时原子记录展示，避免并发重复。
+- 能力发现错误不阻塞其它 workflow。Dreaming 固定为 `explicit_only`，不得进入通用推荐候选。
+
+状态文件和锁为 `0600`，父目录为 `0700`，继续遵守 §1.B 的 `/state/` Git 排除规则。
+
+### F.2 Dreaming 设置与 Job 状态
 
 `state/dreaming/state.json` 使用 `byteworker-dreaming/v2`。`lib/dreaming_state.py` 负责安全
 路径、权限、共享 state lock、原子 JSON 和 schema migration；`lib/dreaming_scheduler.py` 只

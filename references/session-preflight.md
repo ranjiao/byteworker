@@ -6,9 +6,10 @@
 ## 唯一启动入口
 
 ```bash
-bin/byteworker preflight
-bin/byteworker preflight --require feishu
-bin/byteworker preflight --require meego
+bin/byteworker preflight --interactive
+bin/byteworker preflight --interactive --require feishu
+bin/byteworker preflight --interactive --require meego
+bin/byteworker preflight --unattended
 ```
 
 preflight 合并：
@@ -17,9 +18,11 @@ preflight 合并：
 - 静默执行自动更新及真实更新后的 post-update doctor；
 - 定位 `.kbconfig` 与知识库目录，验证 `context.md` / `todo.md`；
 - 检查到期/临期 Todo；
-- 检查自动报告 onboarding 和 prompt upgrade 状态。
+- 检查自动报告 onboarding、prompt upgrade 和低频能力发现状态。
 
 已登记来源从知识库 `sources/*.json` 自动推导。`--require` 只用于即将访问但尚未登记的来源。
+能力建议采用 fail-safe 默认：只有真人参与的对话显式传 `--interactive` 才允许返回；无参数或
+`--unattended` 都禁止。自动报告、Dreaming runner 和其它定时任务必须使用 `--unattended`。
 
 ## 输出与 Agent 行为
 
@@ -31,6 +34,8 @@ preflight 合并：
   `todo ... mark-reminded`。
 - `REPORT_AUTOMATION_ONBOARDING` / `REPORT_AUTOMATION_PROMPT_UPGRADE`：先完成当前请求，再按
   `references/report-scheduling.md` 询问；preflight 已负责一次性状态限频。
+- `CAPABILITY_SUGGESTION`：先完成当前请求；成功后按
+  `references/capability-discovery.md` 展示一条并记录 shown，失败或等待用户裁决时不展示。
 - `UPDATE_CHECK_NOTICE`：转述有限摘要；按严重程度决定是否请用户立即处理。
 
 只有排障时运行 `bin/byteworker preflight --json`，它会额外展示 resolved executable/version。

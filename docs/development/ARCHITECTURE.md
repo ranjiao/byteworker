@@ -136,7 +136,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    I["用户调用 byteworker"]
+    I["用户调用 byteworker<br/>interactive / unattended"]
     B["bin/byteworker shell bootstrap<br/>解析 Python"]
     U["加载任何 Python 模块前<br/>静默运行 update-check"]
     G{"代码是否真实 fast-forward？"}
@@ -144,7 +144,7 @@ flowchart TD
     X["exec 当前版本 launcher<br/>加载单一版本模块"]
     K["读取 .kbconfig<br/>定位私有知识库"]
     C["验证 context.md / todo.md"]
-    T["Todo check + report status"]
+    T["Todo check + report status<br/>低频能力建议资格"]
     N{"有 notice 或 blocking？"}
     Z["健康静默退出"]
     R{"意图路由"}
@@ -162,6 +162,7 @@ flowchart TD
     R -->|"自动报告 / 自然语言补跑"| W["报告流程"]
     R -->|"用户显式启停 / 宿主 tick"| DR["可选 Dreaming 控制面"]
     R -->|"todo / context"| L["本地用户状态流程"]
+    R -->|"能力地图 / 推荐下一步"| E["能力发现流程"]
     R -->|"doctor / maintenance"| M["维护与恢复流程"]
     R -->|"help"| H["只读帮助文档"]
 ```
@@ -173,14 +174,19 @@ Python 绝对路径持久化为本机缓存；缓存没有 TTL，每次只做
 `deps --refresh`、`runtime-reset` 仍可要求重建。`lib/runtime_deps.py` 从显式 override、当前
 PATH、常见本地目录和 NVM installations 中解析可执行文件，实际执行仍由 `bin/byteworker`
 注入同一组环境。preflight 的更新检查在 shell 中先完成，之后 `exec` 当前工作树的 launcher，
-因此不会在一次调用中混用更新前后模块。`lib/session_preflight.py` 只合并 KB 定位、依赖、Todo
-和自动报告设置检查，并接收 shell 传入的有限更新 notice。它不读取 `context.md` 正文：
+因此不会在一次调用中混用更新前后模块。`lib/session_preflight.py` 只合并 KB 定位、依赖、Todo、
+自动报告设置和低频能力建议资格检查，并接收 shell 传入的有限更新 notice。能力建议采用 fail-safe
+默认：只有真人对话显式使用 `preflight --interactive` 才计算和返回；无参数或 `--unattended` 均
+禁止，已有旧定时任务也因此不会误触发。建议只读取本地有界计数和状态，不访问外部来源；存在
+其它 notice、blocking 或没有到期建议时保持静默。它不读取
+`context.md` 正文：
 语义任务在路由后通过 `context view --intent` 读取固定章节投影，help/纯维护任务不承担这部分
 context。
 公共阶段的目的不是“加载所有数据”，而是以稳定协议建立安全边界。
 
 Dreaming 不属于公共 preflight。状态缺失等同关闭；普通 session、安装、升级和
-digest/search/update 等既有入口不读取 Dreaming 状态，也不提示启用。
+digest/search/update 等既有入口不读取 Dreaming 状态，也不提示启用。能力目录把 Dreaming 标为
+`explicit_only`，通用推荐同样不能绕过该边界。
 
 ### 2.2 单来源 digest 主流程
 
@@ -482,6 +488,12 @@ packet、总输入和输出 token 预算。固定 tokenizer 不可用时回执�
 定义。IM 结果必须先通过 `lib/semantic_policy.py` 校验分数、阈值、reason code 和消息证据，
 再允许写报告或触发 digest。
 
+能力发现使用独立的 `references/capabilities.json` 表达用户目标、自然语言例句、设置边界和可推荐
+规则；它不复用面向工具执行的 command registry。`lib/capability_discovery.py` 只根据 Agent 传入的
+有限成功事件/语义枚举与本地可计数里程碑做选择、限频和反馈持久化，不解析用户正文。Agent 仍是
+语义 owner，只在主任务成功结束后展示最多一条建议。发现状态失败、关闭或损坏不影响任何核心
+workflow。
+
 ## 3. 数据生命周期
 
 ### 3.1 真相源与派生物
@@ -770,12 +782,13 @@ flowchart TB
 | 模块 | 职责 | 输出 |
 |---|---|---|
 | `bin/byteworker` + `bin/byteworker-launcher.py` | shell 先定位 Python 并完成 update-check，再 exec 当前版本 launcher；统一执行 preflight、机器 CLI 或外部工具 | 单一版本模块、静默健康路径、机器 envelope 或下游输出 |
-| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、Todo 与自动报告设置检查，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；默认仅异常输出 |
+| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、Todo、自动报告设置与低频能力建议资格；区分 interactive / unattended，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；无人值守不输出能力建议，交互模式默认仅异常或到期建议输出 |
 | `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
 | `lib/command_registry.py` | 命令名、入口、operation、逻辑 namespace、兼容 alias、使用者、可见性、stability、副作用、runtime、协议与文档的唯一真相源 | `byteworker-command-manifest/v1` / `byteworker-command-description/v1`；推荐 namespace 和兼容入口帮助 |
 | `bin/byteworker-cli.py` | registry 中确定性工具的统一 facade；子进程调用直接 CLI；任意层级 `-h/--help` 原样透传到底层 argparse | 普通调用返回 `byteworker-cli/v1` envelope；help 返回底层文本和退出码 |
 | `lib/bounded_process.py` | 并行排空工具 stdout/stderr；小 stdout 有界 inline，越界时才落 `0600` 系统临时文件 | `byteworker-cli-artifact/v1` receipt；stderr 有界摘要输入 |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
+| `bin/discover.py` + `lib/capability_discovery.py` | 展示用户能力地图；记录有限成功事件、提示展示/拒绝/延后；按本地里程碑确定性推荐 | `byteworker-capability-status/v1` / `byteworker-capability-recommendation/v1`；不含用户正文 |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
 | `bin/digest-flow.py` + `lib/digest_flow.py` | start/capture/prepare/commit/status；自动记录无语义阶段并保存可恢复 checkpoint | `byteworker-digest-flow/v1`、唯一 next action、私有 artifact 路径或 transaction receipt |
 | `bin/workflow-budget.py` + `lib/workflow_budget.py` | 展开 router/条件闭包/worker prompt，核算静态规则与显式动态输入 token | `byteworker-workflow-budget-receipt/v1`、方法版本、分项预算与固定 overflow action |

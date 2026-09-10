@@ -71,7 +71,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "preflight", "执行每个 session 一次的启动检查", "system", "launcher",
         "agent", "public", "stable", "state-write", "plain",
         "references/session-preflight.md", entrypoint="session-preflight.py",
-        usage="byteworker preflight [--kb PATH] [--require SOURCE] [--json]",
+        usage="byteworker preflight [--kb PATH] [--require SOURCE] [--interactive|--unattended] [--json]",
     ),
     CommandSpec(
         "deps", "检查或刷新本地运行依赖", "system", "launcher", "user",
@@ -89,6 +89,12 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "agent", "public", "stable", "none", MANIFEST_VERSION,
         "references/machine-protocol.md", operations=("list", "describe", "search"),
         usage="byteworker commands {list,describe,search} [--json]",
+    ),
+    CommandSpec(
+        "discover", "查看用户能力地图并管理低频功能建议", "system", "facade",
+        "agent", "public", "stable", "state-write", "byteworker-cli/v1",
+        "references/capability-discovery.md", entrypoint="discover.py",
+        operations=("status", "recommend", "feedback"),
     ),
     CommandSpec(
         "update-status", "读取自动更新状态", "system", "facade-special", "agent",
@@ -245,6 +251,7 @@ COMMAND_ALIASES: tuple[CommandAlias, ...] = (
     CommandAlias(("system", "deps"), ("deps",), "检查或刷新运行依赖"),
     CommandAlias(("system", "runtime-reset"), ("runtime-reset",), "重置 runtime 缓存"),
     CommandAlias(("system", "update-status"), ("update-status",), "读取更新状态"),
+    CommandAlias(("system", "discover"), ("discover",), "查看能力地图和功能建议"),
     CommandAlias(("source", "auth"), ("source", "auth-status"), "检查来源授权"),
     CommandAlias(("source", "wiki"), ("wiki",), "探索 Wiki 空间"),
     CommandAlias(("digest", "flow"), ("digest-flow",), "标准 digest 生命周期"),

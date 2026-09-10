@@ -7,6 +7,10 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from capability_discovery import (
+    CapabilityDiscoveryError,
+    peek_background_recommendation,
+)
 from report_automation import record_decision, status as report_status
 from runtime_deps import cached_check_runtime, runtime_environment
 
@@ -92,6 +96,7 @@ def run_preflight(
     kb_override: Path | None = None,
     required_sources: Iterable[str] = (),
     skip_update: bool = False,
+    allow_capability_suggestions: bool = False,
     environ: Mapping[str, str] | None = None,
     runner=subprocess.run,
 ) -> dict[str, Any]:
@@ -273,6 +278,20 @@ def run_preflight(
                 _notice(
                     "REPORT_AUTOMATION_PROMPT_UPGRADE",
                     "宿主自动报告 prompt 版本落后；完成当前请求后询问用户是否更新。",
+                )
+            )
+
+    if allow_capability_suggestions and not notices and not blocking:
+        try:
+            suggestion = peek_background_recommendation(kb)
+        except (CapabilityDiscoveryError, OSError):
+            suggestion = None
+        if suggestion:
+            notices.append(
+                _notice(
+                    "CAPABILITY_SUGGESTION",
+                    "有一项适合当前知识库的能力建议；完成当前请求且成功后再展示。",
+                    data={"suggestion": suggestion},
                 )
             )
 

@@ -53,6 +53,8 @@ class ArchitectureContractTests(unittest.TestCase):
             "lib/machine_protocol.py",
             "lib/runtime_deps.py",
             "lib/session_preflight.py",
+            "bin/discover.py",
+            "lib/capability_discovery.py",
             "lib/digest_txn.py",
             "lib/doctor_sources.py",
             "lib/kb_query.py",

@@ -62,6 +62,18 @@ class ReportSchedulingContractTests(unittest.TestCase):
         self.assertIn("所有已登记且启用", daily)
         self.assertIn("所有已登记且启用", weekly)
 
+    def test_unattended_templates_never_request_capability_tips(self):
+        for path in (
+            "templates/report-automation-daily.md",
+            "templates/report-automation-weekly.md",
+            "templates/report-automation-recovery.md",
+            "templates/dreaming-runner.md",
+        ):
+            with self.subTest(path=path):
+                text = self.read(path)
+                self.assertIn("preflight --unattended", text)
+                self.assertNotIn("preflight --interactive", text)
+
     def test_reports_discover_accepted_calendar_meeting_artifacts(self):
         routes = json.loads(self.read("references/workflow-routes.json"))
         calendar_reference = "references/report-calendar-meetings.md"
@@ -111,7 +123,7 @@ class ReportSchedulingContractTests(unittest.TestCase):
                 self.assertIn(term, discovery)
         self.assertIn("日历枚举失败或不完整同样 fail closed", scheduling)
         self.assertIn("覆盖完整范围", architecture)
-        self.assertIn("PROMPT_VERSION = 3", self.read("lib/report_automation.py"))
+        self.assertIn("PROMPT_VERSION = 4", self.read("lib/report_automation.py"))
 
     def test_recovery_task_checks_last_success_before_retrying(self):
         recovery = self.read("templates/report-automation-recovery.md")
