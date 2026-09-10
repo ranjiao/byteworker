@@ -40,10 +40,10 @@
 需要修复历史报告时仍可用自然语言要求补跑。
 
 **8. 新 session 只有一次静默 preflight**
-Agent 每个 session 只调用一次 `bin/byteworker preflight`：自动更新、知识库定位、Todo、自动报告
+Agent 每个交互 session 只调用一次 `bin/byteworker preflight --interactive`：自动更新、知识库定位、Todo、自动报告
 设置与 Python/Node/lark-cli/meegle runtime 一次检查完。健康时完全没有输出；只有确实需要处理
 时才返回有限 notice。后续命令统一通过 `bin/byteworker` 启动，不依赖 Agent 猜 NVM 或 Python
-路径。
+路径。定时任务使用 `preflight --unattended`，不会触发能力 Tip。
 
 ## 用法
 
@@ -59,9 +59,13 @@ Agent 每个 session 只调用一次 `bin/byteworker preflight`：自动更新�
 | 自然语言:“明天下午三点提醒我 X” | **待办提醒** —— 增加 / 完成 / 延期 / 取消 / 查看个人待办 |
 | 自动日报 / 周报 | **宿主本地定时任务** —— 每次先跑定期摄取,再生成报告；安装时引导设置 |
 | `/byteworker context <增删改>` | **全局上下文** —— 对话式维护你的工作上下文(个人工作倾向、需要告诉模型的零散信息等) |
+| 自然语言:“byteworker 还能帮我做什么?” | **能力发现** —— 根据当前知识库展示可用能力和下一步，不要求先学命令 |
 | `/byteworker help` | **帮助** |
 
 也支持自然语言,如「把这个文档存进知识库」「我们关于 X 定过什么」「后天提醒我跟进评测」。
+成功完成任务后，byteworker 可能低频补充一条与当前场景有关的能力建议；同一能力最多提示两次，
+可以说“以后再说”“别再提示这个”或“关闭功能建议”。推荐只读取本地里程碑，不会为了提示访问
+外部来源或发起授权；默认关闭的后台信息助手也不会作为通用 Tip 推荐。
 
 ## 浏览知识库
 
