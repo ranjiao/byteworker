@@ -14,6 +14,11 @@
    对清单逐源执行其原有普通 digest 工作流，不缩减依赖、语义、冲突、候选、引用或事务步骤：
    Profile 来源按 `source_type/source_uid` 重放；`origin=legacy_raw` 时按返回的历史 raw 定位兼容
    配置；Wiki 子树执行原有完整扫描和变化展示，变化页面仍按普通文档 digest。
+   `feishu_chat` 的 `source capture` 已直接产出 SourceBundle，只传 `--out <bundle.json>`，
+   不得再传 `--bundle-out`；只有先产出独立 capture JSON 的来源才同时使用两者。
+   任一来源的预算回执返回 `route_large_input` 或 `shard_source_packet` 时，必须按
+   `features.large_digest_worker` 启动全新隔离 worker，并按该来源分片归并；不得把
+   `ROUTINE_DIGEST_INPUT_OVER_BUDGET` 作为本轮终态，也不得因其它来源可处理而截断该来源。
    每个普通来源取得 DigestTxn `committed/noop` 后，把
    `byteworker-dreaming-digest-result/v1` 写入 KB 外临时文件并调用 `process digest-record`；
    Wiki 完整扫描使用 `status=observed` 和真实 scan receipt。全部记录后调用

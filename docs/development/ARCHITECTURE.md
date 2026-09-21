@@ -1104,7 +1104,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_analysis.py` | FindingBundle schema、batch/hash、evidence ref 和 grant revision 复验 | 否 |
 | `lib/dreaming_consolidation.py` | Finding event history、当前投影、跨 batch revision、重建和 grant purge | 私密 Finding state |
 | `lib/dreaming_process.py` | analysis receipt、可选 consolidation、batch commit/cursor 的幂等编排 | 仅通过 analysis/consolidation/batch owner |
-| `lib/dreaming_digest.py` | 快照 Profile/兼容历史 raw 定期来源，核验普通 digest 或 Wiki scan 的真实回执，完整后推进 per-source checkpoint | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
+| `lib/dreaming_digest.py` | 快照 Profile/兼容历史 raw 定期来源；历史 raw 缺少 UID 时，仅用同库归档中相同来源 URL 或群 ID 的最新显式 UID 补全；核验普通 digest 或 Wiki scan 的真实回执，完整后推进 per-source checkpoint | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
 | `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
 | `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
 | `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |

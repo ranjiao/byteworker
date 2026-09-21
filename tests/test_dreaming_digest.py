@@ -328,6 +328,77 @@ class DreamingDigestTests(unittest.TestCase):
             self.assertEqual(1, len(inventory))
             self.assertEqual("profile", inventory[0]["origin"])
 
+    def test_legacy_routine_recovers_uid_from_newer_raw_with_same_url(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            now = datetime(2026, 8, 3, 23, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), now)
+            (kb / "raw_data" / "legacy.md").write_text(
+                "---\n"
+                "source_type: feishu_doc\n"
+                "source_url: https://example.test/wiki/wiki123\n"
+                "routine: weekly\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+            (kb / "raw_data" / "middle.md").write_text(
+                "---\n"
+                "source_type: feishu_doc\n"
+                "source_uid: stale-wiki-token\n"
+                "source_url: https://example.test/wiki/wiki123\n"
+                "routine: weekly\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+            (kb / "raw_data" / "newest.md").write_text(
+                "---\n"
+                "source_type: feishu_doc\n"
+                "source_uid: docx123\n"
+                "source_url: https://example.test/wiki/wiki123\n"
+                "routine: weekly\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+
+            inventory = routine_inventory(kb)
+
+            self.assertEqual(1, len(inventory))
+            self.assertEqual("docx123", inventory[0]["source_uid"])
+            self.assertEqual("raw_data/newest.md", inventory[0]["raw_path"])
+
+    def test_legacy_chat_without_uid_is_superseded_by_profile_using_chat_id(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            now = datetime(2026, 8, 3, 23, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), now)
+            profile = feishu_chat_profile()
+            self.save_profile(kb, profile)
+            (kb / "raw_data" / "legacy.md").write_text(
+                "---\n"
+                "source_type: feishu_chat\n"
+                f"source_chat_id: {profile['source_uid']}\n"
+                "routine: weekly\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+            (kb / "raw_data" / "newer.md").write_text(
+                "---\n"
+                "source_type: feishu_chat\n"
+                f"source_uid: {profile['source_uid']}\n"
+                f"source_chat_id: {profile['source_uid']}\n"
+                "routine: weekly\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+
+            inventory = routine_inventory(kb)
+
+            self.assertEqual(1, len(inventory))
+            self.assertEqual("profile", inventory[0]["origin"])
+
     def test_legacy_routine_without_identity_fails_closed(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             now = datetime(2026, 8, 3, 23, tzinfo=timezone.utc)
