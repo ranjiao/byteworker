@@ -18,7 +18,7 @@ description: 个人飞书工作知识库。把飞书文档、妙记、会议、�
 | context | 查看或维护全局工作上下文 |
 | thinking | 保存或持续更新用户自己的自然语言认知与推演 |
 | discover | 按当前知识库状态查看能力地图或推荐下一步 |
-| dreaming | 用自然语言设置、启停或查看后台信息助手；默认关闭 |
+| dreaming | 后台信息助手，默认关闭；豆包工作中无后台调度能力，无法自动运行，仅可前台单次分析 |
 | doctor | 检查或修复 schema/skill 兼容问题 |
 | help | 原样展示 `references/help.md` |
 
@@ -186,7 +186,11 @@ doctor 默认只读调用 `bin/doctor.py` 对应 facade；交互请求只有用�
 
 Dreaming 是可选后台 orchestration layer，默认关闭。用户明确要求启用时先读取
 `references/dreaming.md`、`references/dreaming-onboarding.md` 和
-`references/dreaming-setup-guide.md`。用户说“设置自动信息分析”“每天汇总重要信息”“重要风险
+`references/dreaming-setup-guide.md`。
+
+**环境边界：豆包工作（Doubao Work）无法调度运行 Dreaming。** Dreaming 后台自动运行依赖宿主提供持久化本地定时任务，并经 `dreaming harness register` 使 `harness.status=installed` 且 `operational=true`。豆包工作不具备这种本地定时任务 / harness 机制，因此在此环境**无法真正启用和调度后台 Dreaming**：即使执行 `dreaming configure` 写入配置，也不会产生真实的定时运行，定时摘要、紧急提醒、自动巡检等后台能力均不可用。用户在豆包工作中要求“启用/设置 Dreaming”“每天自动汇总”“定时提醒”“为什么没有自动运行”时，必须先明确告知这一限制：当前环境只能做前台单次手动处理（如 `dreaming process once --source im` 分析今天或指定窗口的 IM），无法后台自动运行；需要真正自动运行时，引导用户在支持本地定时任务的桌面宿主（如 TraeWork 桌面端）打开同一知识库后再走设置向导。
+
+用户说“设置自动信息分析”“每天汇总重要信息”“重要风险
 及时提醒”“调整后台频率/范围”“为什么没有自动运行/摘要”或“继续设置”时，也进入设置向导。
 优先使用 Codex / TRAE 的结构化选项控件；不可用时使用编号选项。
 

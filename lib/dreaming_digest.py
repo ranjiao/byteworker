@@ -41,6 +41,18 @@ def _source_key(source_type: str, source_uid: str) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def _legacy_identity_keys(frontmatter: Mapping[str, Any]) -> list[tuple[str, str, str]]:
+    source_type = str(frontmatter.get("source_type", "")).strip()
+    keys = []
+    source_url = str(frontmatter.get("source_url", "")).strip()
+    if source_type and source_url:
+        keys.append((source_type, "source_url", source_url))
+    source_chat_id = str(frontmatter.get("source_chat_id", "")).strip()
+    if source_type == "feishu_chat" and source_chat_id:
+        keys.append((source_type, "source_chat_id", source_chat_id))
+    return keys
+
+
 def routine_inventory(kb: Path) -> list[dict[str, Any]]:
     try:
         profiles = list_profiles(kb)
@@ -73,15 +85,34 @@ def routine_inventory(kb: Path) -> list[dict[str, Any]]:
                 "origin": "profile",
             }
         )
-    legacy: dict[tuple[str, str], dict[str, Any]] = {}
-    supported_legacy_types = set(create_default_registry().source_types())
+    raw_records = []
+    identity_uids: dict[tuple[str, str, str], list[tuple[Path, str]]] = {}
     for raw_path in sorted((kb / "raw_data").glob("*.md")):
         frontmatter, _ = parse_file(str(raw_path))
+        raw_records.append((raw_path, frontmatter))
+        source_uid = str(frontmatter.get("source_uid", "")).strip()
+        if source_uid:
+            for identity_key in _legacy_identity_keys(frontmatter):
+                identity_uids.setdefault(identity_key, []).append(
+                    (raw_path, source_uid)
+                )
+
+    legacy: dict[tuple[str, str], dict[str, Any]] = {}
+    supported_legacy_types = set(create_default_registry().source_types())
+    for raw_path, frontmatter in raw_records:
         cadence = str(frontmatter.get("routine", "")).strip()
         source_type = str(frontmatter.get("source_type", "")).strip()
         source_uid = str(frontmatter.get("source_uid", "")).strip()
         if cadence not in {"daily", "weekly", "monthly"}:
             continue
+        if source_type:
+            candidates = [
+                candidate
+                for identity_key in _legacy_identity_keys(frontmatter)
+                for candidate in identity_uids.get(identity_key, [])
+            ]
+            if candidates:
+                source_uid = max(candidates, key=lambda item: item[0])[1]
         if not source_type or not source_uid:
             raise DreamingError(
                 "DREAMING_ROUTINE_SOURCE_INVALID",

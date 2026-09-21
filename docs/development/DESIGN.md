@@ -1171,7 +1171,9 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 - **「定期摄取清单」表** = 会定期更新、需周期性复查的源(滚动周会文档、群聊、Meego / Base / 风神
   保存视图等)。结构化来源由 `sources/*.json` 中启用的 `routine` 派生；没有 profile 的旧来源
   才兼容扫描带 `routine` 的 raw。两者都按稳定 `source_uid` 合并成一源一行，profile 的启用/
-  禁用与 cadence 优先于任何历史 raw。`上次摄取` = 该源最近 raw 的规范化周期 / 窗口;没有周期的完整
+  禁用与 cadence 优先于任何历史 raw。早期 routine raw 缺少 `source_uid` 时，只允许从同库其它
+  raw 的相同 `source_url` 或 `source_chat_id` 恢复最新显式 UID；没有匹配时继续失败关闭，且不
+  改写历史 raw。`上次摄取` = 该源最近 raw 的规范化周期 / 窗口;没有周期的完整
   视图快照使用 `ingested` 日期。日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`,群聊窗口用完整
   高水位时间戳。「定期摄取」例程逐源 re-digest(见 SKILL「定期摄取」)。*替代了旧的「待消化」
   表 —— 后者无机制主动入列、形同虚设;`digest_status: pending/failed` 的中断 raw 改由扫
