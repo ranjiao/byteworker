@@ -69,14 +69,14 @@ Agent 每个交互 session 只调用一次 `bin/byteworker preflight --interacti
 
 ## 浏览知识库
 
-知识库节点是 markdown,直接读原始 md 格式不友好。byteworker 自带一个**纯前端、只读**的 viewer:
+知识库节点是 markdown,直接读原始 md 格式不友好。byteworker 自带一个**内容只读**的 viewer:
 
 ```bash
 # 在 byteworker skill 目录下运行:
 bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 python3)
 ```
 
-它起一个本地静态文件服务器(`python3 -m http.server`,零自定义后端):在一个临时目录里把 skill 自带的 viewer 与你的知识库数据目录挂在一起(只读),用 viewer 页面渲染 —— 左侧按 8 类列出全部节点 + 搜索框,点开渲染 md,frontmatter 与正文里的 `links` / 节点 id 都可点,沿实体图跳转。viewer 代码随 skill 分发、始终在本仓库内,你的数据目录一个字节都不写入;viewer 纯只读,编辑知识库仍走 byteworker skill。
+它通过 `bin/viewer-server.py` 在 127.0.0.1 提供本地浏览：节点、原文和报告只读；设置页可保存访问保护、Dreaming 和来源 routine 配置。默认会话口令保护知识库文件、Dreaming 日志和设置 API，页面代码公开；`.git`、隐藏文件及内部配置路径始终拒绝访问。访问保护开关重启 viewer 后生效。设置先完整校验，再统一发布；保存失败保留待保存编辑，切页或关闭会等待保存成功。编辑知识内容仍走 byteworker skill。
 
 > ⚠️ `browse.sh` 需要在**本地、有浏览器、能跑本地服务**的环境运行。如果你通过云平台 / 沙箱里的托管 agent(如托管 Codex / OpenClaw)使用本 skill,沙箱通常起不了 web 服务、也没有浏览器 —— `browse.sh` 在那种环境用不了,这是预期的、不是故障;那种情况直接用对话查询(`/byteworker search`)即可。
 

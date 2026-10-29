@@ -144,6 +144,7 @@ bin/byteworker dreaming runs show --kb "<KB>" "<run_id>"
 bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 ```
 
+本地 viewer 启用访问保护时，日志 API 与知识库文件、设置 API 均需本次会话口令；使用启动输出或设置页中的带口令链接打开调试页。
 本地 viewer 提供专用调试页，路径固定为 `/app/dreaming-debug.html`；启动 `bin/browse.sh` 后访问：
 `http://localhost:<端口>/app/dreaming-debug.html`。该页面不挂到主页面导航，供 Agent 和维护者直接
 通过 URL 查看 run list、阶段事件、process Finding/evidence、报告产物和 maintenance/recovery

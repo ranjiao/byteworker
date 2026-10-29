@@ -1582,6 +1582,9 @@ const state = {
   appSettingsError: '',
   appSettingsDirty: false,
   appSettingsSaveTimer: null,
+  appSettingsRevision: 0,
+  appSettingsPending: null,
+  appSettingsSavePromise: null,
   paletteOpen: false,
   paletteQ: '',
   paletteSel: 0,
@@ -1670,6 +1673,7 @@ function nodeDir(id) {
 }
 
 function kbUrl(path) {
+  if (API_TOKEN) path += (path.includes('?') ? '&' : '?') + 'api_token=' + encodeURIComponent(API_TOKEN);
   if (!state.reloadToken) return path;
   return path + (path.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(state.reloadToken);
 }
@@ -3136,12 +3140,11 @@ function setSetting(key, value) {
 function openSettings() {
   state.settingsOpen = true;
   renderSettings();
-  if (state.settingsTab !== 'display') loadSystemSettings();
+  if (state.settingsTab !== 'display' && !state.appSettings) loadSystemSettings();
 }
-function closeSettings() {
+async function closeSettings() {
+  if (!(await flushSettings(true))) return;
   state.settingsOpen = false;
-  state.appSettingsDirty = false;
-  clearSettingsSaveTimer();
   D.settingsPortal.innerHTML = '';
 }
 async function settingsApi(method, body) {
@@ -3167,6 +3170,7 @@ async function settingsApi(method, body) {
 }
 async function loadSystemSettings() {
   if (!state.settingsOpen || state.settingsTab === 'display') return;
+  if (state.appSettingsDirty && !(await flushSettings())) return;
   state.appSettingsLoading = true;
   state.appSettingsError = '';
   renderSettings();
@@ -3189,6 +3193,8 @@ function clearSettingsSaveTimer() {
 function scheduleSystemSettingsSave() {
   if (!state.settingsOpen || state.settingsTab === 'display') return;
   state.appSettingsDirty = true;
+  state.appSettingsRevision++;
+  state.appSettingsPending = { patch: collectSettingsPatch(), revision: state.appSettingsRevision };
   state.appSettingsError = '';
   clearSettingsSaveTimer();
   state.appSettingsSaveTimer = setTimeout(() => {
@@ -3197,10 +3203,9 @@ function scheduleSystemSettingsSave() {
   }, 250);
   updateSettingsStatus();
 }
-function setSettingsTab(tab) {
+async function setSettingsTab(tab) {
+  if (!(await flushSettings(true))) return;
   state.settingsTab = tab;
-  state.appSettingsDirty = false;
-  clearSettingsSaveTimer();
   renderSettings();
   if (tab !== 'display' && !state.appSettings && !state.appSettingsLoading) {
     loadSystemSettings();
@@ -3222,10 +3227,7 @@ function updateProcessScheduleFields() {
     element.hidden = element.dataset.processKind !== kind;
   });
 }
-async function saveSystemSettings() {
-  if (!state.appSettings || state.appSettingsSaving) return;
-  let saved = false;
-  try {
+function collectSettingsPatch() {
     let patch;
     if (state.settingsTab === 'global') {
       patch = {
@@ -3302,23 +3304,46 @@ async function saveSystemSettings() {
     } else {
       return;
     }
-    clearSettingsSaveTimer();
+    return patch;
+}
+async function flushSettings(confirmDiscard = false) {
+  clearSettingsSaveTimer();
+  await saveSystemSettings();
+  if (!state.appSettingsDirty) return true;
+  if (!confirmDiscard || !confirm(`保存失败：${state.appSettingsError || '未知错误'}\n是否放弃尚未保存的修改并继续？`)) return false;
+  clearSettingsSaveTimer();
+  state.appSettingsPending = null;
+  state.appSettingsDirty = false;
+  state.appSettingsError = '';
+  return true;
+}
+function saveSystemSettings() {
+  if (state.appSettingsSavePromise) return state.appSettingsSavePromise;
+  if (!state.appSettingsPending) return Promise.resolve();
+  state.appSettingsSavePromise = (async () => {
     state.appSettingsSaving = true;
-    state.appSettingsError = '';
-    updateSettingsStatus();
-    state.appSettings = await settingsApi('PATCH', patch);
-    state.appSettingsDirty = false;
-    saved = true;
-  } catch (e) {
-    state.appSettingsError = e.message || String(e);
-  } finally {
-    state.appSettingsSaving = false;
-    if (saved) {
-      renderSettings();
-    } else {
-      updateSettingsStatus();
+    try {
+      while (state.appSettingsPending) {
+        const draft = state.appSettingsPending;
+        state.appSettingsError = '';
+        updateSettingsStatus();
+        const persisted = await settingsApi('PATCH', draft.patch);
+        state.appSettings = persisted;
+        if (draft.revision === state.appSettingsRevision) {
+          state.appSettingsPending = null;
+          state.appSettingsDirty = false;
+        }
+      }
+    } catch (e) {
+      state.appSettingsError = e.message || String(e);
+    } finally {
+      state.appSettingsSaving = false;
+      state.appSettingsSavePromise = null;
+      if (!state.appSettingsDirty) renderSettings();
+      else updateSettingsStatus();
     }
-  }
+  })();
+  return state.appSettingsSavePromise;
 }
 function scheduleValue(job, key, fallback = '') {
   const schedule = job?.schedule || {};
@@ -3344,7 +3369,7 @@ function renderSystemActions(readOnly = false) {
     : state.appSettingsSaving
       ? '<span class="settings-muted">正在保存…</span>'
       : state.appSettingsDirty
-        ? '<span class="settings-muted">正在同步修改…</span>'
+        ? '<span class="settings-muted">有未保存的修改…</span>'
         : '<span class="settings-muted">修改后会自动生效</span>';
   return `<div class="settings-actions" id="settings-system-actions">
     <button class="settings-secondary" id="settings-system-reload">重新读取</button>
@@ -3415,7 +3440,7 @@ function renderDreamingSettings() {
   return `
     <div class="settings-section">
       <div class="settings-section-h">${icon('eye', 13)}<span>Dreaming 设置</span><span class="hint">${d.operational ? '已自动运行' : (d.enabled ? '等待本地任务' : '未启用')}</span></div>
-      <div class="settings-section-note">后台信息助手会按授权范围静默分析可见信息，生成待关注事项和晨报。本页保存运行偏好，真实运行仍依赖本地定时任务。<a class="settings-link" href="/app/dreaming-debug.html" target="_blank" rel="noopener">查看运行日志 ↗</a></div>
+      <div class="settings-section-note">后台信息助手会按授权范围静默分析可见信息，生成待关注事项和晨报。本页保存运行偏好，真实运行仍依赖本地定时任务。<a class="settings-link" href="/app/dreaming-debug.html?api_token=${encodeURIComponent(API_TOKEN)}" target="_blank" rel="noopener">查看运行日志 ↗</a></div>
       <div class="settings-form">
         <div class="settings-row"><label>信息范围</label><div class="settings-control-row">
           <select id="settings-im-mode" class="settings-select">
@@ -3524,7 +3549,7 @@ function settingsFooterText() {
   if (state.settingsTab === 'legacy-report') return '旧版报告仅展示历史兼容状态';
   if (state.appSettingsError) return `保存失败：${state.appSettingsError}`;
   if (state.appSettingsSaving) return '正在把修改写入本地配置';
-  if (state.appSettingsDirty) return '修改后会自动生效';
+  if (state.appSettingsDirty) return '有未保存的修改';
   return '当前页设置会自动写入知识库本地配置';
 }
 function bindSettingsBodyEvents() {
