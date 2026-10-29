@@ -1499,3 +1499,28 @@ byteworker/
 4. 修改 Source：再读本文件第 4.3、7.1 节和 Source 重构账本。
 5. 修改事务或查询：先确认没有把 provider 特例带回 core。
 6. 查计划、证据或历史：从 `docs/development/README.md` 路由，不遍历整个目录。
+
+### Viewer 配置与访问边界
+
+本地 viewer 的页面代码公开；启用会话口令时，KB 静态 GET/HEAD、Dreaming 日志和设置 API
+均要求同一 token。KB 静态内容仅开放 knowledge/raw_data/reports 和 INDEX/context/todo/dashboard.md；
+隐藏路径、内部 state/sources/provenance/journal 和越出 app/KB 根的符号链接
+始终拒绝；唯一的 state 静态例外是调试页链接的 reports/<id>/artifacts/report.html，
+同样要求 token 且禁止符号链接改道。前端为 KB 请求及日志页面、报告链接传递 token。
+
+settings façade 持有共享 KB 写锁和 Dreaming 状态锁，在权限受限的系统临时目录上调用既有
+writer，先完成整个 patch 的校验与准备，再发布变化文件；失败按原始字节回滚。
+暂存范围限定为 viewer.json、Dreaming state.json；IM 撤权时的 spool/batches、finding-history.jsonl、
+findings.json，以及 IM grant 更新时 state 引用的 actions/<id>.json。迁移只发布新生成的
+migrations/state-v1-*.json，不复制历史备份、日志或报告。
+context.md、state/report_automation.json 和 sources/*.json 是聚合视图/校验的读取依赖。
+非空 Source patch 另暂存 INDEX.md、固定为操作开始日期的 journal/YYYY-MM/YYYY-MM-DD.md，
+以及 .git/HEAD、index、当前分支 ref 与对应 HEAD/分支 reflog。影子 Git 通过只读 alternates
+访问原对象库，禁用 hooks、签名与自动维护；只发布新对象、当前 ref/reflog、index 和
+COMMIT_EDITMSG，不复制 .git 历史、其它 refs 或配置。knowledge/raw_data 仅在 Source patch
+时作为索引重建器的只读输入链接，不复制内容。符号链接检查仅针对暂存/发布的路径及其祖先，
+不遍历或拒绝 KB 其它位置的链接。
+此策略不引入新的持久化 schema；不提供进程崩溃恢复或跨文件读快照隔离。
+前端按编辑 revision 串行保存快照，切页/关闭等待队列完成；失败时显示包含错误的放弃修改确认，
+取消则保留编辑和错误并阻止导航，确认则清除待保存草稿和错误并继续；
+较早请求成功不得清除较新编辑。
