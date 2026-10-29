@@ -15,14 +15,18 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+from zoneinfo import ZoneInfo
 
-from dreaming_grants import set_im_grant
+from dreaming_grants import IM_MODES, set_im_grant
 from dreaming_scheduler import configure as configure_dreaming
 from dreaming_scheduler import status as dreaming_status
-from dreaming_state import DreamingError, atomic_write_json
+from dreaming_state import DreamingError, atomic_write_json, state_lock
+from kb_write_txn import kb_write_lock, atomic_write
 from lark_recipient import resolve_lark_recipient
 from report_automation import ReportAutomationError
 from report_automation import status as report_automation_status
@@ -283,6 +287,117 @@ def _legacy_report_kind(value: Any) -> dict[str, Any]:
     }
 
 
+def _checked_settings_path(kb: Path, relative: Path) -> Path:
+    """Reject links only along a path that this transaction stages/writes."""
+    if relative.is_absolute() or ".." in relative.parts:
+        raise SettingsError("SETTINGS_PATH_INVALID", "配置路径越界。")
+    path = kb
+    for part in relative.parts:
+        path = path / part
+        if path.is_symlink():
+            raise SettingsError("SETTINGS_PATH_INVALID", "配置事务目标不能是符号链接。")
+    return path
+
+
+def _stage_settings(
+    kb: Path, staged: Path, patch: Mapping[str, Any], source_now: datetime,
+) -> dict[Path, bytes]:
+    """Copy only writer inputs/targets, keeping original bytes for rollback."""
+    before: dict[Path, bytes] = {}
+    staged.mkdir()
+
+    def stage(relative: Path, *, tree: bool = False) -> None:
+        source = _checked_settings_path(kb, relative)
+        if tree and source.is_dir():
+            for child in source.iterdir():
+                stage(child.relative_to(kb), tree=True)
+        elif source.is_file():
+            content = source.read_bytes()
+            before[relative] = content
+            target = staged / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+
+    # Read dependencies for the response and existing Dreaming validators.
+    for name in ("context.md", "state/report_automation.json", "state/viewer.json",
+                 "state/dreaming/state.json"):
+        stage(Path(name))
+    _checked_settings_path(kb, Path("sources"))
+    for path in (kb / "sources").glob("*.json"):
+        stage(path.relative_to(kb))
+
+    dreaming = patch.get("dreaming")
+    im = dreaming.get("im") if isinstance(dreaming, Mapping) else None
+    if isinstance(im, Mapping) and str(im.get("mode", "off")).strip() in IM_MODES:
+        mode = str(im.get("mode", "off")).strip()
+        raw = dreaming_status(staged)
+        grants = raw.get("grants", {})
+        old_im = grants.get("im", {}) if isinstance(grants, Mapping) else {}
+        old_mode = old_im.get("mode") if isinstance(old_im, Mapping) else None
+        # Only revocation walks spool/batches or purges findings. In particular,
+        # ordinary Dreaming saves and grant renewals need no spool snapshots.
+        if mode == "off" or (old_mode == "all_visible" and mode == "monitored"):
+            for name in ("spool", "batches"):
+                stage(Path("state/dreaming") / name, tree=True)
+            for name in ("finding-history.jsonl", "findings.json"):
+                stage(Path("state/dreaming") / name)
+        actions = raw.get("actions", {})
+        if isinstance(actions, Mapping):
+            for action_id in actions:
+                stage(Path("state/dreaming/actions") / f"{action_id}.json")
+
+    if isinstance(patch.get("sources"), list) and patch["sources"]:
+        def git(root: Path, *args: str) -> str:
+            result = subprocess.run(["git", *args], cwd=root, text=True,
+                                    capture_output=True, check=False)
+            if result.returncode:
+                raise SourceProfileError("SOURCE_PROFILE_GIT_ERROR", result.stderr.strip())
+            return result.stdout.strip()
+
+        if git(kb, "remote"):
+            raise SourceProfileError("SOURCE_PROFILE_KB_REMOTE", "知识库 Git 配置了 remote，拒绝写入。")
+        # Existing history is read-only via Git alternates. Only new objects,
+        # the active ref/reflogs and index can be published from this shadow repo.
+        for name in ("objects/info", "refs"):
+            (staged / ".git" / name).mkdir(parents=True, exist_ok=True)
+        (staged / ".git/config").write_text(
+            "[core]\nrepositoryformatversion = 0\nbare = false\nlogAllRefUpdates = true\n"
+        )
+        (staged / ".git/objects/info/alternates").write_text(str(kb / ".git/objects") + "\n")
+        for name in ("HEAD", "index", "logs/HEAD"):
+            stage(Path(".git") / name)
+        head = (staged / ".git/HEAD").read_text().strip()
+        if head.startswith("ref: "):
+            ref = Path(head[5:])
+            stage(Path(".git") / ref)
+            if not (staged / ".git" / ref).exists():
+                # The current ref may be packed; seed a loose shadow ref without
+                # copying packed refs or any other branch/history metadata.
+                resolved = subprocess.run(["git", "rev-parse", "--verify", "HEAD"],
+                                          cwd=kb, capture_output=True, text=True)
+                if resolved.returncode == 0:
+                    target = staged / ".git" / ref
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(resolved.stdout)
+            stage(Path(".git/logs") / ref)
+        for key in ("user.name", "user.email"):
+            value = subprocess.run(["git", "config", "--get", key], cwd=kb,
+                                   capture_output=True, text=True)
+            if value.returncode == 0:
+                git(staged, "config", key, value.stdout.strip())
+        git(staged, "config", "core.hooksPath", "/dev/null")
+        git(staged, "config", "commit.gpgsign", "false")
+        git(staged, "config", "gc.auto", "0")
+        git(staged, "config", "maintenance.auto", "false")
+        stage(Path("INDEX.md"))
+        stage(Path(source_now.strftime("journal/%Y-%m/%Y-%m-%d.md")))
+        # The index rebuilder only reads these roots; never copy their contents.
+        for name in ("knowledge", "raw_data"):
+            if (kb / name).exists():
+                (staged / name).symlink_to(kb / name, target_is_directory=True)
+    return before
+
+
 def update_settings(kb: Path, patch: Mapping[str, Any]) -> dict[str, Any]:
     """Apply a small settings patch and return the fresh aggregate view."""
 
@@ -295,13 +410,60 @@ def update_settings(kb: Path, patch: Mapping[str, Any]) -> dict[str, Any]:
             "这些设置暂不支持在 viewer 中修改。",
             details={"fields": unsupported},
         )
-    if "viewer" in patch:
-        _update_viewer(kb, patch["viewer"])
-    if "dreaming" in patch:
-        _update_dreaming(kb, patch["dreaming"])
-    if "sources" in patch:
-        _update_sources(kb, patch["sources"])
-    return settings_view(kb)
+    kb = kb.expanduser().resolve()
+    # Reuse both writer locks. Existing writers run only against the private
+    # staging copy, so their own lock acquisition never nests on live locks.
+    with kb_write_lock(kb), state_lock(kb):
+        with tempfile.TemporaryDirectory(prefix="byteworker-settings-") as temporary:
+            staged = Path(temporary) / "kb"
+            source_now = datetime.now(ZoneInfo("Asia/Shanghai"))
+            before = _stage_settings(kb, staged, patch, source_now)
+            if "viewer" in patch:
+                _update_viewer(staged, patch["viewer"])
+            if "dreaming" in patch:
+                _update_dreaming(staged, patch["dreaming"])
+            if "sources" in patch:
+                _update_sources(staged, patch["sources"], now=source_now)
+            result = settings_view(staged)
+            result["kb"]["path"] = str(kb)
+            # This tree contains only selected files, generated migration backups
+            # and new Git objects. rglob does not follow the read-only root links.
+            metadata = {Path(".git/config"), Path(".git/objects/info/alternates"),
+                        Path(".git/info/exclude")}
+            after = {
+                path.relative_to(staged): path.read_bytes()
+                for path in staged.rglob("*")
+                if path.is_file() and not path.is_symlink()
+                and not path.name.endswith(".lock")
+                and path.relative_to(staged) not in metadata
+            }
+            changed = sorted(path for path in before.keys() | after.keys()
+                             if before.get(path) != after.get(path))
+            backups = {
+                relative: before[relative] if relative in before else (
+                    _checked_settings_path(kb, relative).read_bytes()
+                    if _checked_settings_path(kb, relative).is_file() else None
+                )
+                for relative in changed
+            }
+            applied = []
+            try:
+                for relative in changed:
+                    target = _checked_settings_path(kb, relative)
+                    applied.append(relative)
+                    if relative in after:
+                        atomic_write(target, after[relative])
+                    else:
+                        target.unlink(missing_ok=True)
+                # All prepared files have now been published.
+            except Exception:
+                for relative in reversed(applied):
+                    if backups[relative] is not None:
+                        atomic_write(kb / relative, backups[relative])
+                    else:
+                        (kb / relative).unlink(missing_ok=True)
+                raise
+    return result
 
 
 def _update_viewer(kb: Path, patch: Any) -> None:
@@ -444,7 +606,7 @@ def _merge_job_patch(target: dict[str, Any], jobs: Mapping[str, Any]) -> None:
             )
 
 
-def _update_sources(kb: Path, patch: Any) -> None:
+def _update_sources(kb: Path, patch: Any, *, now: datetime | None = None) -> None:
     if not isinstance(patch, list):
         raise SettingsError("SETTINGS_PATCH_INVALID", "来源设置必须是数组。")
     by_uid = {profile["source_uid"]: profile for profile in list_profiles(kb)}
@@ -468,7 +630,7 @@ def _update_sources(kb: Path, patch: Any) -> None:
             "enabled": enabled,
             "cadence": cadence if enabled else None,
         }
-        save_profile(kb, profile, skill_root=Path(__file__).resolve().parents[1])
+        save_profile(kb, profile, skill_root=Path(__file__).resolve().parents[1], now=now)
 
 
 def normalize_settings_error(exc: Exception) -> SettingsError:
