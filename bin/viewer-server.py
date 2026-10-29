@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Local Byteworker viewer server with a narrow settings API.
 
-The server binds to 127.0.0.1 only.  Static files remain regular read-only
-viewer/KB content.  The write API is explicitly token-gated and routes all
-changes through lib/settings.py.
+The server binds to 127.0.0.1 only. KB content, logs and settings share
+optional session authentication; internal paths are always denied. Settings
+writes route through lib/settings.py.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -54,14 +55,15 @@ class ViewerHandler(SimpleHTTPRequestHandler):
     def _authorized(self) -> bool:
         if not self.auth_required:
             return True
-        return self.headers.get("X-Byteworker-Token", "") == self.api_token
+        return (self.headers.get("X-Byteworker-Token", "") or
+                parse_qs(urlsplit(self.path).query).get("api_token", [""])[0]) == self.api_token
 
     def _reject_unauthorized(self) -> None:
         self._send_json(
             {
                 "error": {
                     "code": "VIEWER_API_UNAUTHORIZED",
-                    "message": "设置接口需要本次 viewer 会话 token。",
+                    "message": "知识库、日志和设置接口需要本次 viewer 会话 token。",
                 }
             },
             status=HTTPStatus.FORBIDDEN,
@@ -107,8 +109,9 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             return
         try:
             patch = self._read_json_body()
-            update_settings(self.kb, patch)
-            self._send_json(self._settings_view())
+            persisted = update_settings(self.kb, patch)
+            persisted["viewer"]["session_access_token_required"] = self.auth_required
+            self._send_json(persisted)
         except json.JSONDecodeError as exc:
             self._send_json(
                 {
@@ -137,6 +140,9 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             )
 
     def _handle_dreaming_runs_get(self) -> None:
+        if not self._authorized():
+            self._reject_unauthorized()
+            return
         request = urlsplit(self.path)
         prefix = "/api/dreaming/runs/"
         try:
@@ -197,7 +203,50 @@ class ViewerHandler(SimpleHTTPRequestHandler):
         if path == "/api/dreaming/runs" or path.startswith("/api/dreaming/runs/"):
             self._handle_dreaming_runs_get()
             return
-        super().do_GET()
+        if self._static_allowed():
+            super().do_GET()
+
+    def _static_allowed(self) -> bool:
+        decoded = unquote(urlsplit(self.path).path)
+        parts = decoded.split("/")
+        report_artifact = bool(re.fullmatch(
+            r"/kb/state/dreaming/reports/[A-Za-z0-9_-]+/artifacts/report\.html", decoded
+        ))
+        private = {"state", "sources", "provenance", "journal", "bin", "lib"}
+        if any(part.startswith(".") or (part in private and not (report_artifact and part == "state")) or "\\" in part for part in parts if part):
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return False
+        namespace = parts[1] if len(parts) > 1 else ""
+        root = self.kb.resolve() if namespace == "kb" else (Path(self.directory) / "app").resolve()
+        target = Path(self.translate_path(self.path)).resolve()
+        if namespace not in {"app", "kb"} or not target.is_relative_to(root):
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return False
+        if report_artifact and target != self.kb.resolve() / decoded.removeprefix("/kb/"):
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return False
+        if any(part.startswith(".") or (part in private and not (report_artifact and part == "state"))
+               for part in target.relative_to(root).parts):
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return False
+        if namespace == "kb" and not report_artifact:
+            relative = target.relative_to(root)
+            content_dirs = {"knowledge", "raw_data", "reports"}
+            content_files = {"INDEX.md", "context.md", "todo.md", "dashboard.md"}
+            if not relative.parts or not (
+                relative.parts[0] in content_dirs
+                or (len(relative.parts) == 1 and relative.name in content_files)
+            ):
+                self.send_error(HTTPStatus.FORBIDDEN)
+                return False
+        if namespace == "kb" and not self._authorized():
+            self._reject_unauthorized()
+            return False
+        return True
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        if self._static_allowed():
+            super().do_HEAD()
 
     def do_PATCH(self) -> None:  # noqa: N802
         if self.path.split("?", 1)[0] == "/api/settings":

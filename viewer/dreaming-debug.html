@@ -529,7 +529,7 @@ function renderResult(result) {
       <div class="section-title">报告结果</div>
       ${result.available
         ? `<div class="report-summary">${esc(result.summary || "摘要为空")}</div>
-           ${result.html_url ? `<a class="artifact-link" href="${esc(result.html_url)}" target="_blank">打开完整 HTML 报告 ↗</a>` : ""}
+           ${result.html_url ? `<a class="artifact-link" href="${esc(result.html_url + '?api_token=' + encodeURIComponent(new URLSearchParams(location.search).get('api_token') || ''))}" target="_blank">打开完整 HTML 报告 ↗</a>` : ""}
            <details class="json-details"><summary>查看结构化 report.json</summary><pre>${esc(JSON.stringify(result.document, null, 2))}</pre></details>`
         : '<div class="notice">没有找到本轮报告产物。</div>'}
     </section>`;
@@ -612,7 +612,7 @@ function showError(message = "") {
 }
 
 async function api(path) {
-  const response = await fetch(path, { cache: "no-store" });
+  const response = await fetch(path, { cache: "no-store", headers: { "X-Byteworker-Token": new URLSearchParams(location.search).get("api_token") || "" } });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error?.message || `HTTP ${response.status}`);
   return payload;

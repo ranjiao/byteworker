@@ -86,7 +86,7 @@ class ViewerLayoutContractTests(unittest.TestCase):
         self.assertIn("分钟检查一次", self.viewer)
         self.assertIn("填写日常使用的字母用户名", self.viewer)
         self.assertIn("系统会自动查找对应飞书账号", self.viewer)
-        self.assertIn('href="/app/dreaming-debug.html"', self.viewer)
+        self.assertIn('href="/app/dreaming-debug.html?api_token=', self.viewer)
         self.assertIn("查看运行日志", self.viewer)
 
     def test_system_settings_auto_save_without_explicit_save_button(self):

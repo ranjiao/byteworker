@@ -33,7 +33,7 @@ class ViewerDreamingDebugTests(unittest.TestCase):
             return sock.getsockname()[1]
 
     def request_json(self, url: str):
-        with urllib.request.urlopen(url, timeout=5) as response:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"X-Byteworker-Token": "settings-token"}), timeout=5) as response:
             return response.status, json.loads(response.read().decode("utf-8"))
 
     def test_debug_page_is_standalone_and_has_valid_javascript(self):
@@ -51,7 +51,7 @@ class ViewerDreamingDebugTests(unittest.TestCase):
         self.assertIn("/api/dreaming/runs?", page)
         self.assertIn("options.forceDetail || !state.detail", page)
         self.assertNotIn("summary?.status === \"running\"", page)
-        self.assertIn('href="/app/dreaming-debug.html"', index)
+        self.assertIn('href="/app/dreaming-debug.html?api_token=', index)
         self.assertIn("查看运行日志", index)
 
         if shutil.which("node") is None:
@@ -67,7 +67,7 @@ class ViewerDreamingDebugTests(unittest.TestCase):
         )
         self.assertEqual(0, completed.returncode, completed.stderr)
 
-    def test_read_only_log_api_lists_and_shows_runs_without_token(self):
+    def test_read_only_log_api_lists_and_shows_runs_with_token(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             root = Path(temporary)
             serve_root = root / "serve"

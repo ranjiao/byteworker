@@ -12,7 +12,7 @@
 #        kb/  → 知识库数据目录(只读浏览,绝不写入)
 #   3. 在临时根起本地 viewer server:
 #      - 静态浏览仍只读；
-#      - /api/settings 只绑定 127.0.0.1,并要求本次会话 token；
+#      - 只绑定 127.0.0.1；启用口令时保护 KB、日志和设置 API；
 #   4. 打开浏览器到 viewer 页面。Ctrl-C 停止,临时目录自动清理。
 #
 # viewer 浏览/检索/沿 links 跳转仍是只读；设置页只通过受限 API 写入已支持的配置项。
@@ -102,13 +102,13 @@ PY
 URL_WITH_TOKEN="$URL?api_token=$API_TOKEN"
 if [ "$AUTH_MODE" = "token" ]; then
   OPEN_URL="$URL_WITH_TOKEN"
-  echo "访问保护:已开启(本次访问口令已附在 URL 中)"
+  echo "访问保护:已开启(知识库文件、Dreaming 日志和设置 API 均需口令；页面代码公开；内部路径始终禁止)"
 else
   OPEN_URL="$URL"
   echo "访问保护:已关闭(仅绑定本机 127.0.0.1)"
 fi
 echo "byteworker viewer → $OPEN_URL"
-echo "Dreaming 调试日志 → $DEBUG_URL"
+echo "Dreaming 调试日志 → $DEBUG_URL?api_token=$API_TOKEN"
 echo "(本地 viewer server;Ctrl-C 停止)"
 
 # 1 秒后开浏览器(等服务器起来)
