@@ -64,6 +64,8 @@ Python 版本不再兼容，或用户显式运行 `bin/byteworker deps --refresh
 
 ## 自动更新内部语义
 
+- 更新脚本仅允许当前分支为 `master`；其它分支或 detached HEAD 直接报错并退出 `1`，
+  `--force` 不绕过检查。脚本不自动处置分支，Agent 根据错误和当前任务决定后续操作。
 - 成功检查后 7 天内不重复 fetch；失败按短周期指数退避。
 - 跨进程锁与 `.update-state.json` 保存检查、失败和 postflight 状态。
 - 只有代码 HEAD 真实变化后才运行 post-update doctor；未完成的 doctor 独立重试，不重复 merge。
