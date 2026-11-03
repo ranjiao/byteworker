@@ -1487,6 +1487,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
 <div id="settings-portal"></div>
 
 <script src="vendor/markdown-it.min.js"></script>
+<script src="index-parser.js"></script>
 <script>
 'use strict';
 
@@ -1919,31 +1920,6 @@ function isStale(n) {
 }
 
 // ---- INDEX.md parsing (from original viewer) -----------------
-function parseIndex(text) {
-  const out = [];
-  let cur = null;
-  for (const raw of text.split('\n')) {
-    const h = raw.match(/^##\s+.*\(([a-z]+)\)\s*$/);
-    if (h && DIR[h[1]]) { cur = h[1]; continue; }
-    if (raw.startsWith('## ')) { cur = null; continue; }
-    if (!cur) continue;
-    const m = raw.match(/^\|(.+)\|$/);
-    if (!m) continue;
-    const c = m[1].split('|').map(s => s.trim());
-    if (c[0] === 'id' || /^-+$/.test(c[0])) continue;
-    if (!c[0]) continue;
-    out.push({
-      id: c[0],
-      title: c[1] || c[0],
-      tldr: c[2] || '',
-      status: c[3] || 'current',
-      last_verified: c[4] || '',
-      type: cur,
-    });
-  }
-  return out;
-}
-
 // ---- YAML-ish frontmatter parser (from original) ------------
 function parseFM(text) {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
@@ -2047,10 +2023,16 @@ async function scanAll() {
   // re-render rail if currently viewing a node
   const cur = currentEntry();
   if (cur?.kind === 'node') renderRail(cur.id);
+  else if (!cur) renderHome();
 }
 
 function updateScanStatus() {
   const { done, total } = state.scanProgress;
+  if (state.indexIssue) {
+    D.scanDot.classList.remove("ready");
+    D.scanStatus.textContent = state.indexIssue;
+    return;
+  }
   if (state.scanDone) {
     D.scanDot.classList.add('ready');
     D.scanStatus.textContent = `${state.nodes.length} 个节点 · 索引就绪`;
@@ -4227,6 +4209,7 @@ document.querySelectorAll('.rail-tab').forEach(el => {
     state.rail = el.dataset.rail;
     const cur = currentEntry();
     if (cur?.kind === 'node') renderRail(cur.id);
+  else if (!cur) renderHome();
     else document.querySelectorAll('.rail-tab').forEach(t => t.classList.toggle('on', t === el));
   });
 });
@@ -4280,24 +4263,32 @@ function clearKbCaches() {
 }
 
 function applyIndex(text) {
-  state.nodes = parseIndex(text);
+  const parsed = inspectIndex(text);
+  state.indexIssue = parsed.issue;
+  state.nodes = parsed.nodes;
   state.byId = {};
   state.byType = {};
   for (const n of state.nodes) state.byId[n.id] = n;
   for (const t of TYPE_ORDER) state.byType[t] = state.nodes.filter(n => n.type === t);
-  D.brandSub.textContent = `${state.nodes.length} 个节点 · 只读`;
+  D.brandSub.textContent = `${state.nodes.length} 个节点 · 知识内容只读`;
 }
 
 async function loadIndex() {
   const r = await fetch(kbUrl(KB + 'INDEX.md'), { cache: 'no-store' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
+  if (!r.ok) {
+    const error = new Error('HTTP ' + r.status);
+    error.status = r.status;
+    throw error;
+  }
   return r.text();
 }
 
 function renderDisconnected(error) {
+  const denied = error.status === 401 || error.status === 403;
   D.readerBody.innerHTML = `<div class="err">
-      <strong>读不到 INDEX.md。</strong><br>
-      请在 skill 仓库运行 <code>bin/browse.sh</code>,然后打开它打印的 <code>http://localhost:端口/app/index.html</code>。不要直接打开当前这个 <code>file://</code> 页面 —— viewer 需要本地静态服务器把 viewer 挂在 <code>/app</code>、把知识库数据挂在 <code>/kb</code>。<br>
+      <strong>${denied ? '知识库访问未获授权。' : '读不到 INDEX.md。'}</strong><br>
+      ${denied ? '请使用 bin/browse.sh 打印的带会话口令地址重新打开；不要关闭鉴权来绕过错误。' : '确认本地 Viewer 服务仍在运行，使用 bin/browse.sh 打印的 http://localhost 地址打开；若 INDEX 缺失，请先让 Byteworker 检查并重建索引。'}<br>
+      知识文件未被本次读取修改。<br>
       <span style="color:var(--ink-4)">原始错误:${esc(error.message)}</span>
     </div>`;
   D.scanStatus.textContent = '未连接';
@@ -4318,6 +4309,7 @@ async function reloadKb() {
     renderSidebar();
     updateScanStatus();
     if (cur) renderCurrent();
+    else renderHome();
     scanAll().catch(e => console.warn('scan failed', e));
   } catch (e) {
     renderDisconnected(e);
@@ -4326,6 +4318,15 @@ async function reloadKb() {
     D.btnReload.disabled = false;
     D.btnReload.classList.remove('spinning');
   }
+}
+
+function renderHome() {
+  if (state.indexIssue) {
+    D.readerBody.innerHTML = `<div class="err"><strong>${esc(state.indexIssue)}</strong><p>原始知识文件未被修改。请让 Byteworker 检查知识库并重建 INDEX，然后点击重新载入。</p></div>`;
+    return;
+  }
+  const recent = [...state.nodes].sort((a,b) => (parseDateValue(updatedValue(b)) || 0) - (parseDateValue(updatedValue(a)) || 0)).slice(0, 8);
+  D.readerBody.innerHTML = `<div class="prose"><h2>${recent.length ? '最近更新' : '开始使用知识库'}</h2>${recent.length ? recent.map(n => `<p><a href="#${encodeURIComponent(n.id)}">${esc(n.title)}</a> · ${esc(updatedLabel(n))}</p>`).join('') : '<p>给 Byteworker 一份本地 Markdown 或资料链接，摄取成功后问一个问题，核对答案中的出处。</p>'}<p>报告可从左侧报告入口查看。知识内容只读；设置页可修改受控配置。</p></div>`;
 }
 
 async function boot() {
@@ -4343,7 +4344,7 @@ async function boot() {
   // initial route: hash or first node
   const hash = decodeURIComponent(location.hash.replace(/^#/, ''));
   if (hash && state.byId[hash]) navOpen({ kind: 'node', id: hash });
-  else updateScanStatus();
+  else { renderHome(); updateScanStatus(); }
 
   // background scan
   scanAll().catch(e => console.warn('scan failed', e));

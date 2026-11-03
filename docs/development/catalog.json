@@ -98,6 +98,20 @@
       "kind": "archived-initiative",
       "status": "completed",
       "authority": "none"
+    },
+    {
+      "id": "review-followups",
+      "path": "docs/development/archive/initiatives/2026-11-review-followups.md",
+      "kind": "plan",
+      "status": "completed",
+      "authority": "implementation_scope"
+    },
+    {
+      "id": "local-validation",
+      "path": "docs/development/governance/validation.md",
+      "kind": "guide",
+      "status": "current",
+      "authority": "validation_commands"
     }
   ]
 }
