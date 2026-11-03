@@ -9,6 +9,12 @@
   飞书文档、风神等已有 `sources/` profile 的来源，把 enabled/cadence 写进该来源自己的
   profile；尚无 profile schema 的来源才兼容给 raw frontmatter 加 `routine: weekly`。INDEX 优先从
   profiles 派生，同一 `source_uid` 有 profile 时，历史 raw 的 routine 不再生效。
+- **Dreaming 历史兼容**：后台快照遇到缺少 `source_uid` 的 routine raw，只从同库中
+  `source_type` 相同且 `source_url` 相同（群聊也可按相同 `source_chat_id`）的归档恢复显式 UID；
+  已有 UID 始终保留。候选 UID 一致时可直接恢复；存在多个 UID 时，所有候选必须有带时区的
+  ISO8601 `ingested`，按 UTC 时间取最新记录，且最新时间只能对应一个 UID。缺少时间、无效时间、
+  无匹配或最新 UID 有歧义时失败关闭，不按文件名或文件修改时间猜测，不改写历史 raw。
+  恢复后仍由 Profile 的启用/禁用与 cadence 优先。
 - **运行**(触发:不带来源的 `digest` / 用户说"跑定期摄取""检查周报更新" / 操作前必读「到期提醒」后用户确认):
   - 开始时先告知用户本次会复查 INDEX「定期摄取清单」里的多少个来源;逐源处理时用短状态说明当前来源、是否在拉取 / 比对 / digest / 跳过。来源较多或单源处理超过约 30-60 秒时,按 `SKILL.md`「长流程状态输出」发 heartbeat,不要等全部来源处理完才第一次汇报。
   1. 读 INDEX「定期摄取清单」,逐源处理 ——
