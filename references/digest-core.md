@@ -1,191 +1,67 @@
 # byteworker · digest 主流程
 
-> 由 `SKILL.md`「digest」路由到这里。执行任何摄取前先读本文件,再按来源类型读取对应
-> `references/digest-*.md` 细则。分析阶段统一遵守 `references/digest-analysis-pipeline.md`，并发统一
-> 遵守 `references/digest-concurrency.md`。无语义阶段统一按 `references/digest-flow.md` 编排。
+普通单来源使用本文件、`digest-flow.md`、`digest-inline.md` 与路由返回的来源和 policy 文件。
+完整日志、并发、事务兼容手册按 feature 或失败加载，不沿解释性链接整包展开。
 
-## 触发
+## 流程与闸门
 
-子命令 `digest`;或自然语言 —— 用户给出飞书文档/妙记 URL、会议、群、Meego / 多维表格视图 / 风神看板、
-或本地 md 路径,说"存入知识库""消化这个""记一下""把 XX 群最近的讨论存进来"。
+1. **分类与范围**：识别当前指定的 source type；通过 `workflow-budget resolve --workflow digest`
+   加 `--source-type` 获取闭包。不带来源加 `routine`；Wiki 空间先走 wiki_space，单页仍是
+   feishu_doc；同场会的日历、妙记、投屏文档按会议簇一次确认。大型输入先预估节点和依赖规模，
+   合并确认摄取深度，再加 large_input；不得无差别铺开。
+2. **抓取**：先 `digest-flow start`，再按来源细则抓取全部已确认 component，保存原系统 locator。
+   飞书正文和全部评论双路抓取，内嵌白板只取结构 JSON；顺序分页串行，coverage 不完整不得假装
+   complete。外部引用不是自动授权，依赖正文须先通过下面的依赖闸门。
+3. **准备与幂等**：`digest-flow prepare` 自动构造 SourceBundle v2、运行 transaction preflight、
+   analysis prepare 和 dependency/semantic planner。Agent 不手算 hash、digest_key，不手拼 raw。
+   noop 按回执结束；new_source/new_version 按 next_action 继续。resume_failed 表示已有相同 payload
+   的 pending/failed raw，必须加 recovery 读事务细则、核查历史 raw 后人工恢复；不得自动覆盖或继续
+   生成候选/提交。正文未变不能证明评论或白板未变。
+4. **重要依赖**：只消费 packet 的 dependency_candidates，按 `digest-dependencies.md` 判断重要性，
+   复用足够新的已摄取版本。没有重要依赖静默继续；有则在读取依赖正文和写节点前合并询问范围。
+   拒绝或暂缓后继续当前对象，标注“依赖未摄取 / 待核实”，不补写缺失事实，不自动递归二跳。
+5. **语义分析**：只消费一次 packet 的 sections、参与者和 anchor 索引，按 `semantic-policy.md`
+   区分【事实】/【主张】/【意图】/【观察】/【推断】。正文、评论、白板不重复扫描；补证只按
+   component/path 或 anchor 定点回读。读取已产出的计划，不重复运行
+   `digest-parallel plan --stage semantic`；只有 planner 选择 parallel 才加 parallel_execution。
+6. **冲突**：生成最多 32 条短 query，一次 `kb-query conflict-search` 召回同源节点和有限 snippet，
+   再按 `digest-inline.md` 规划 conflict 阶段。仅 snippet 不足以裁决具体事实时定点读节点。
+   `conflict-policy.md` 是唯一动作表；独立来源冲突须等待用户裁决，来源较新本身不能覆盖。
+7. **候选**：按下节扇出；使用 `templates/node-<type>.md` 与 `templates/digest-plan-v2.json`。
+   更新节点先合并原内容，保存基线 `base_sha256`，新增/删除 link 的反向节点同时纳入 plan。
+   原 raw 永不覆盖；raw_id/path 冲突加版本或 hash 后缀。plan 只引用 Bundle，不复制 source/anchors；
+   evidence 和主来源按 `provenance.md`。候选、plan、artifact 只放系统临时目录或 KB 私有目录。
+8. **提交与汇报**：只调用 `digest-flow commit`，内含完整校验与锁内复验；独立 validate 只用于排障。
+   以 `status=committed`、commit、raw_id、节点和 warning 回执为准；noop 不重复写，失败不声称完成。
+   不得仅凭 Agent已生成候选就声称落库。多来源共同更新同一节点或须同成同败时加 batch，使用
+   `digest-batch-plan/v2`，不得拆成部分提交。结束只核验紧凑回执，不重读完整 raw/候选/diff。
 
-**不带来源**的 `digest`、或"跑定期摄取""检查周报更新" → 运行定期摄取(见 `references/digest-routine.md`)。
+## 扇出与语义规则
 
-## 主流程
-
-长流程状态输出：输入分类后用 `digest-flow start` 创建 `run_id/work_dir`，确定性阶段由 flow 自动
-记录；Agent 只为依赖/语义/冲突/候选等真实判断阶段打点。告诉用户本次会经历「分类 → 拉原文 →
-幂等检查 → 分析预处理 → 依赖判断 → 语义分析 → 冲突检测 → 节点写入 → 回滚点」，只在真实阶段
-变化时回显一行短状态。单阶段超过 60 秒且没有变化时可发一次 heartbeat，只说阶段和数量，不贴
-原文，也不为发状态主动轮询。大型输入遵守 `references/digest-large.md`，主/子 Agent 不重复处理并
-复用同一 `run_id`。
-
-1. **分类** —— 判定 `source_type`:`feishu_doc` / `feishu_minutes` / `feishu_meeting` /
-   `feishu_chat` / `meego` / `feishu_base` / `aeolus` / `web` / `local_md`。**若输入是一整场会议**
-   (日历会议链接 / 日程,或同属一场会的投屏文档 + 妙记多个 URL)→ 这是「会议簇」,整体摄取成
-   一个 event,见下方场景细则。
-   飞书 Wiki **单页**仍归 `feishu_doc`；空间首页、整库探索或子树选择属于前置
-   `feishu_wiki` 探索，先按 `references/digest-wiki-space.md` 得到用户确认的页面列表，
-   不把整棵树当成一篇来源。
-2. **摄取原文** —— 独立只读组件通过 `digest-flow capture` 按 `digest-concurrency.md` 有界并发，
-   顺序分页与最终 coverage
-   校验保持串行:
-   - `feishu_doc` → 用 `lark-doc +fetch --api-version v2 --detail with-ids` 读取文档正文,并按
-     `references/digest-comments.md` 独立读取全部评论(含已解决)、完整回复链和正文锚点。
-     **摄取前必读** `references/digest-doc.md` 与它路由的评论细则。
-   - `feishu_minutes` → 优先用 `lark-vc` / `lark-minutes` 取纪要、AI 产物(总结/待办/章节)、逐字稿;若只有会议号/日程,先用 `lark-vc` 定位会议产物和 minute token。抓取完成后通过 `source bundle --source-type feishu_minutes` 规范化逐字稿和 segment anchors。若能从妙记元数据、会议名/时间、日历日程、纪要正文中的文档引用找到对应会议文档,把这些链接记为 `related_source_urls` 并写入 event「事件信息」。
-   - `feishu_meeting` → 用 `lark-vc` 取会议纪要产物;拿到 minute token 后再取妙记正文 / AI 产物。同步 best-effort 查找该会议的日历链接和会议文档链接,找到则写入 raw / event,找不到不臆造。
-   - `feishu_chat` → 首次运行 `bin/byteworker run bin/pull-chat.sh` 确认 chat_id/窗口并保存 v2 Profile；后续运行 `source capture --source-type feishu_chat --kb ... --source-uid ... --out ...`，它包装完整分页、增量高水位、逐字稿/locator 并直接输出 Bundle。**摄取前必读** `references/digest-chat.md`。
-   - `meego` → 先通过机器协议运行 `source inspect`,基于真实字段元数据选择并说明最小稳定投影，
-     首次把权威坐标和投影保存为 `byteworker-source-profile/v2`；之后按 `--kb + --source-uid`
-     capture。已有同源快照时由 SnapshotStore 直接从 KB 选择上一份完整快照并运行
-     `source diff` 缩小语义复核范围。**摄取前必读** `references/digest-meego.md`。
-   - `feishu_base` → 先通过机器协议运行 `source inspect`,用户确认字段后保存 v2 Profile 并运行 `source capture`
-     串行拉完明确 Base 视图。**摄取前必读** `references/digest-base.md`。
-   - `aeolus` → 先通过机器协议运行 `source inspect`，确认报表、dataset 和看板 public filters；
-     再用 `source register --kb ...` 把这个 dashboard sheet 的独立 selector/filter profile
-     写进用户 KB，最后只按 `source_uid` capture。**摄取前必读**
-     `references/digest-aeolus.md`。
-   - `web` → 外部读物(blog/论文/wiki):用宿主 agent 的网页抓取/浏览能力取得正文,本地 PDF / 文章则读取本地文件。**摄取前必读** `references/digest-reading.md`。
-   - `local_md` → 直接读取本地文件，再通过 `source bundle --source-type local_md` 生成 Bundle。
-   - `web` → 宿主浏览器抓取正文后，通过 `source bundle --source-type web` 生成 Bundle。
-   失败按 `references/error-handling.md` 中止。
-3. **幂等检查** —— 来源 adapter 把本次实际摄取的正文、评论、白板或结构化快照交给
-   `digest-flow prepare`，写成系统
-   临时目录中的 `byteworker-source-bundle/v2`。bundle 是来源身份、外部 component、coverage、
-   anchors 与 provider metadata 的唯一交接结构；flow 自动运行 transaction preflight（完整格式见
-   `references/digest-transaction.md`)。脚本计算 `source_uid` / `source_revision` /
-   `digest_period` 或 `source_window` / 逐组件 hash / `content_hash` / `digest_key`;Agent不得
-   手算或覆盖这些值。飞书文档评论变化不依赖正文 revision,白板变化也属于 payload 变化,不能因
-   正文未变而跳过。根据返回状态处理:
-   - 完全相同 `digest_key` 已存在且 `digest_status: digested` → **no-op**:不写 raw、不改节点、
-     不追加 journal;向用户说明"该来源同一版本已摄取过",并列出已有 `raw_id` / `digest_targets`。
-   - 同一 `source_uid + digest_period/source_window` 但 `content_hash` 不同(含飞书文档
-     `comment_hash` 单独变化)→ 视为同源新版本:
-     继续流程,但后续必须更新已有主记录节点,不得另起重复 `reading` / `event` / `decision`。
-   - 历史 raw 缺少 `digest_key` / `payload_schema` 时,脚本用
-     `source_uid/source_url + digest_period/source_window + content_hash` 以及可比的
-     `body_hash` / `comment_hash` / `whiteboard_hash` 做兼容判重。必要时只补 raw
-     frontmatter 的运维字段,不得改 raw 正文。
-4. **分析预处理与重要依赖判断(条件式用户闸门)** —— `digest-flow prepare` 在 preflight 非 noop
-   后自动运行一次 analysis prepare，按 `references/digest-analysis-pipeline.md` 把正文、评论、白板、参与者
-   和 anchor 整理成系统临时 analysis packet。随后只消费 packet 的去重候选，按
-   `digest-parallel plan --stage dependency` 的 inline/parallel 结果判断候选是否满足
-   `references/digest-dependencies.md` 的「缺失会实质影响本次 digest 正确性或完整性」
-   的重要依赖。没有重要依赖 → 静默继续;有 → **在读取依赖正文和写节点前**,把候选、重要原因、
-   建议范围合并成一次询问,由用户选择是否增加本次 digest 内容。未经同意不扩展;用户拒绝或暂缓时,
-   当前对象照常 digest,但把受影响结论标为「依赖未摄取 / 待核实」。同场会议簇的组成物件仍按
-   `references/digest-meeting.md` 的整体确认处理,不重复询问。
-5. **语义分析与准备 raw 计划** —— 先对同一 analysis packet 运行
-   `digest-parallel plan --stage semantic`；达到固定阈值时由最多 4 个只读 worker 分析各 shard，再经
-   单一 reducer 合并事实、实体、决策、立场和 evidence，生成最多 32 条的临时
-   `byteworker-conflict-query/v1`；此时尚不做冲突裁决。
-   再决定唯一 `raw_id` 与 `raw_data/<YYYY-MM-DD>-<slug>.md`，在
-   `digest-plan/v2` 里只引用已经校验的 source bundle，并写未摄取依赖与节点候选；不得把
-   `source` 或 `provenance.anchors` 从 bundle 复制到 plan。此时不手工拼 raw。飞书文档、
-   妙记 / 录屏、日历会议、网页等可打开来源必须由 bundle 保留
-   用户可打开的 `source_url`。事务脚本会逐字拼入正文、canonical 评论/白板,自动写
-   `ingested`、hash、`digest_key`、`digest_targets` 与 `digest_status: digested`。目标文件或
-   `raw_id` 已存在时必须改用 `-2`/revision/hash 后缀,**绝不覆盖旧 raw**。
-   同时按 `references/provenance.md` 把抓取阶段保留的稳定 locator 写成 bundle
-   `anchors`;不要等摘要完成后按文本猜位置。
-6. **冲突检测** —— 唯一动作表见 `references/conflict-policy.md`。通过 `kb-query conflict-search`
-   一次扫描完成 `source_uid` 同源定位和所有事实 query 的有界召回；默认只读返回的 TL;DR/snippet，
-   再运行 `digest-parallel plan --stage conflict`，只在 query/候选达到固定阈值时并发语义比对；merge
-   后由单一 reducer 判断是否与新输入矛盾。只有可能影响具体事实且信息不足时才定点读取候选 path。
-   独立来源冲突时高亮矛盾点并等待用户裁决；只有可验证 revision、
-   supersede 或用户明确确认才可按对应 disposition 更新，时间较新本身不构成覆盖依据。
-7. **digest 扇出**(docs/development/DESIGN.md §4.3):
-   - 必产 1 个主记录节点(会议、群聊窗口 → `event`;外部读物、内部路线思考/方法论/调研/白皮书 → `reading`)。**会议簇**(同一场会的日历 + 投屏文档 + 妙记)仍只产 1 个 `event`,不按物件拆 —— 见 `references/digest-meeting.md`。
-   - **库内标题消歧**:生成主记录和扇出节点前，先判断原始 `source_title` / 会议标题 / 视图标题
-     是否足够具体。若标题只是“个人工作总结”“复盘”“算法方案”“直播模型算法方案”“项目规划”
-     这类宽泛名称，候选节点的 `title`、正文 H1 和 TL;DR 首句必须补上来源中可证实的作者本人、
-     团队、业务、项目、周期或会议场景，例如“张三：2026 H1 个人工作总结”或
-     “抖音直播推荐团队：XX 项目直播模型算法方案”。raw frontmatter 和 SourceBundle 仍保留
-     原始标题；不得为了消歧改写 raw 正文或 `source_title`。若来源无法证明归属，先保留为
-     `reading` / `event` 并标注“归属待确认”，不要臆造团队或项目，必要时询问用户。
-   - **同源主记录去重**:若同一 `source_uid + digest_period/source_window` 已有主记录节点(可从
-     历史 raw `digest_targets`、节点 `sources` 或标题/链接召回),更新该节点,不要新建重复
-     `reading` / `event`。`decision` 也按同一事实/同一来源去重;新版本改变原决策时,走
-     supersede / 冲突裁决,不并排制造两个同义决策。
-   - **结构化保存视图**:Meego / Base / 风神整个视图只产一张同源 `reading` 主记录。普通行/报表变化只留在
-     raw + provenance；只有满足 `references/semantic-policy.md` 的晋升 reason code 和最低证据
-     才进入实体图，不由 Agent 自行解释“长期/稳定/重要”。
-     `left_view` 只表示离开视图，不得推断为删除。
-   - **主记录来源链接**:`event` / `reading` 正文必须附上原始来源链接,不能只放 raw_id。`event`
-     写在「事件信息」,包括原始文档 / 妙记 / 日历日程 / 已找到的会议文档;`reading` 写在「来源」。
-     若是会议但没找到对应会议文档,可写“会议文档:未找到”或不写该项,不得编造链接。
-   - **资料型 `reading` 扇出规则**:若 `reading` 是外部读物,默认只产 `reading`,一般不抽 `decision`、不更新实体;若是内部路线思考 / 方法论 / 调研 / 白皮书,则 `reading` 是"这篇资料本身"的主记录,同时可按内容抽取明确决策、更新相关 `project`/`area`/`person`/`org`。不要把整篇资料硬塞进某个 `project` 或 `event`;项目节点只摘项目相关事实,决策节点只摘真正生效的决定。
-   - 抽取 N 个 `decision`:输入中每个明确决策一节点。
-   - 创建或更新涉及的实体节点(`person`/`project`/`org`/`area`)。
-   - **实体消解与通讯录补全**(docs/development/DESIGN.md §4.3):建实体前在 INDEX 比对,命中则更新而非新建。
-     `person` 必须把文档/群聊里的 open_id 交给
-     `bin/byteworker run bin/resolve-users.sh --format json --jobs 4`，按 `feishu_id` 消解，并消费同一次查询返回的
-     `enterprise_email`、`department_path` 与顶层 `resolved_at`。新建 person 必须写
-     `feishu_id` 和 `directory_verified_at`;可见的邮箱/部门同步写入 frontmatter 与「基本信息」。
-     更新已有 person 时也刷新通讯录字段：部门非空且变化则更新当前值，并在「协作历史与关键交互」
-     保留带日期的旧部门 → 新部门；查询为空不清除旧值。`department_path` 只有明确命中已有
-     `org` 才连边，不按路径片段自动建组织。**新建 person 不允许写 `feishu_id: ?`**;解析失败时
-     先不要建 person,在主记录正文保留姓名 / open_id 并汇报「待解析人物」。**同名陷阱** ——
-     中文名相同但 `feishu_id` 不同 = 不同的人,**不合并**、**向用户确认后**各自建节点;
-     `project`/`org`/`area` 按名比对,有歧义问用户。
-   - **内部组织名称与负责人**：创建或触达 `org` 时，优先使用飞书通讯录实时返回的完整
-     `department_path` 作为正式组织名；已有 person 的 `department_path` / `directory_verified_at`
-     只作带时效的交叉核对。不得从口语简称拼接正式名称，也不得按路径片段自动建组织树。若现有
-     org 名与目录路径冲突或成员路径不一致，列出差异并请用户裁决。每个内部 org 的负责人都要在
-     「基本信息」记录，但只能来自用户确认或直接证明该职责的权威组织来源；不得从职级、关键成员、
-     文档作者、会议主持人或项目 owner 推断。一般情况下应询问用户；用户暂缓确认时明确写
-     “负责人：待用户确认”，并把负责人确认日期与目录核验日期分开记录。
-   - **人员与组织关系分型**：person 的通讯录当前归属、管理职责、汇报关系分别记录，不互相
-     推导。用户确认的细粒度管理职责或汇报关系不得写回 `department_path`；目录只返回祖先路径
-     或与职责不同可以并列存在，但必须分别标明用户确认日期和目录核验时间。账号简称、异体姓名、
-     英文名先经通讯录和 `feishu_id` 唯一消解，避免重复 person。项目/会议同现只证明协作，不证明
-     当前成员关系、负责人或父子组织；纠正当前关系时保留旧材料为带日期的历史协作。
-   - **参与方立场分析**(细则 `references/digest-analysis.md`):只分析
-     `references/semantic-policy.md` 定义的关键参与方。立场必须绑定发言/行为 anchor；
-     动机/利益默认不持久化，除非直接自述或至少两条独立可定位观察支持【推断】。
-   - **思路与视角沉淀**(细则 `references/digest-analysis.md`):摄取时若有人(使用者/主管/同事)陈述了对某 `project`/`area` 的思路、想法、打法或意图 → 在该节点「思路与视角」章节追加一条带日期、带作者、带【主张】/【意图】标记的条目(按事件发生时间倒序)。第一方陈述用【主张】/【意图】,从发言推断仍用【推断】;**绝不把主观意图当成客观结论**。跨主题、不挂某个项目的工作底色不进节点,留给使用者维护 `context.md`。
-   - **结合 `context.md` 重点关注**(操作前必读已把 `context.md` 当透镜加载):凡正文或评论涉及
-     `context.md` 里记录的**使用者本人、其项目 / 团队、直属上司 / 汇报对象、用户点名特别关注的
-     人员及这些人的指令 / 表态** —— 重点抽取、确保进入相应节点,不淡化、不漏。评论的 P0 / P1
-     优先级与证据语义见 `references/digest-comments.md`;职位高只提高关注度,不自动提高事实置信度。
-   - **重点高亮**:文档若提到**重大事故、指标重大变化、或其它需要 highlight 的内容** → 在对应节点**显著记录**(如 `event` 的「结论」、`project` 的「关键进展 / 问题 / 风险」),并在汇报时**单独、突出**地提醒用户。
-   - **Todo 候选识别**(细则 `references/todo.md`):结合 `context.md` 的“我的身份 / 我的职责范围 / 当前重点”,识别明确 @本人 / 指派给本人,或职责范围内需要用户关注的行动、DDL、风险、待确认项。明确分配给别人、已完成 / 取消、一般广播不列候选;模型推导只能标“推断”。来源待办照常写进 event / report,但**未经用户确认不得写 `todo.md`**。
-8. **写入事务** —— Agent按 `templates/node-<type>.md` 生成每个节点的**完整候选文件**;
-   所有节点显式给 `evidence`,新节点至少一条；主记录设置 `primary_source`,关键事实句尾写
-   `[E<n>]`,plan 中逐条映射到 `raw_id + anchor_id`;
-   更新节点时记录读取基线的 `base_sha256`,并把本次新增/删除 link 的反向节点一并纳入 plan。
-   通过机器协议运行 `digest-flow commit`；flow 委托 `digest-txn execute`，在任何写入前完成完整候选校验，并在锁内
-   复验后原子写 raw/节点,重建 INDEX,追加
-   journal,精确暂存本次路径并在知识库本地 git 创建 commit。只有 receipt
-   `status=committed` 才算完成;`status=noop` 不得重复写。详见
-   `references/digest-flow.md`、`references/digest-transaction.md` 与 `references/write-rules.md`。
-   独立 `validate` 只在 execute
-   返回候选校验错误时用于排障。多份来源需要共同更新节点
-   或必须同成同败时，使用只引用各 SourceBundle 的 `digest-batch-plan/v2`，不得拆成多个可能
-   留下半成品的提交；v1 只兼容历史调用。
-9. **汇报** —— 以事务 receipt 为准告诉用户 commit、raw_id、新建/更新节点、warning、是否因幂等检查跳过或合并了重复来源;不得仅凭 Agent已生成候选就声称落库。若发现重要依赖,还要说明哪些已随本次摄取、哪些未摄取及其影响。若命中「重点高亮」内容(重大事故 / 指标剧变 / 涉及你或你关注的人的重要指令等)→ 单独、显眼地提醒。若有 Todo 候选,末尾一次性列最多 5 项“事项 / 与你相关的依据 / 时间 / 来源”,询问哪些加入;用户回复序号 / 全部后再写 `todo.md`。最终汇报前不要让用户等到最后才第一次看到进展。
-
-## 规模预估
-
-若输入很大(长文档、跨多业务/多表格、引用大量子文档),digest 前先预估本次会新建/更新约多少节点、牵出哪些子文档,告诉用户并确认摄取深度 —— **不无差别一次性铺开**。
-
-## 分场景细则
-
-| 场景 | 必读 |
-|------|------|
-| 所有标准 digest | `references/provenance.md` |
-| 摄取群聊(`feishu_chat`) | `references/digest-chat.md` |
-| 摄取 Meego 保存视图(`meego`) | `references/digest-meego.md` |
-| 摄取多维表格视图(`feishu_base`) | `references/digest-base.md` |
-| 摄取风神看板(`aeolus`) | `references/digest-aeolus.md` |
-| 摄取飞书文档(`feishu_doc`) | `references/digest-doc.md` |
-| 探索飞书知识库空间、选择待 digest 页面 | `references/digest-wiki-space.md` |
-| 飞书文档含内嵌白板 | 加读 `references/digest-whiteboard.md` |
-| 摄取外部读物(`web`) / 内部资料型文档(`feishu_doc`) | `references/digest-reading.md` |
-| 摄取一场会议(日历会议 / 投屏文档 + 妙记 同属一场会) | `references/digest-meeting.md` |
-| 产出 `event` 立场分析 / 给 `project`·`area` 写「思路与视角」 | `references/digest-analysis.md` |
-| 输入大(长文档 / 滚动周报 / 大群聊窗口,或规模预估提示要读大量正文) | 加读 `references/digest-large.md` —— 委派子 agent 在隔离上下文里摄取 |
-| 不带来源的 `digest` / "跑定期摄取" / "检查周报更新" | `references/digest-routine.md` |
-
-`feishu_minutes` / `feishu_meeting` 单独摄取无额外细则(但若它属于一场带投屏文档的会议 → 走上面「会议簇」行);`local_md` 直接读取本地文件 —— 按主流程执行即可。
+- 必产一个主记录：会议、群聊窗口用 event；外部读物和内部路线思考/方法论/调研/白皮书用
+  reading；结构化视图也只产一张同源 reading。会议簇不按物件拆主记录。
+- 同一 source_uid + digest_period/source_window 更新已有主记录，不因新版本重复建节点；决策按
+  同一事实去重，结论改变走冲突或 supersede。结构化普通记录留 raw/provenance，晋升只按
+  `semantic-policy.md` 的 reason 和最低证据；left_view 不表示删除。
+- 外部读物默认只产 reading；内部资料按证据抽取已生效 decision、更新相关实体，不把整篇塞进
+  project/event。内部资料加 internal_reading；立场或“思路与视角”加 stakeholder_analysis。
+- 每个明确生效决策产一个 decision；涉及的 person/project/org/area 先比对 INDEX 和同源召回，
+  命中则更新，不建重复实体；歧义须确认，语义相似不等于同一事实。
+- **库内标题消歧**统一按 `write-rules.md`：不得为了消歧改写 raw 正文或 `source_title`。
+  无法证实归属时标“归属待确认”。event「事件信息」或 reading「来源」保留原始可打开链接；
+  会议关联文档和日历找到则记录，未找到不编造。
+- 人员批量用 `resolve-users.sh --format json --jobs 4`，按 feishu_id 消解；新建须有真实 id，失败
+  保留姓名/open_id 并报告待解析。resolved_at 写 directory_verified_at，可见邮箱/部门同步到
+  frontmatter 和基本信息；部门变化保留带日期历史，查询为空不清除旧值。同名不同 id 不合并，
+  向用户确认后分别建节点；department_path 只有明确命中已有 org 才连边，不按路径片段自动建组织。
+  project/org/area 有歧义也须确认。
+- area/org/person 的范围和关系按 `write-rules.md`：用实时完整 `department_path` 作为正式组织名，
+  负责人确认日期与目录核验日期分开记录。不得从职位、协作或同现推断成员、负责人或汇报关系。
+- 使用 context view 的 digest 投影关注本人、项目/团队、直属上司和用户点名人员；职位只提高
+  关注度，不提高证据置信度。主观意图不得变成客观事实；重点事故、指标变化、重要指令必须进入
+  相关节点并在汇报单独提醒。跨主题工作底色不写实体或 context。
+- Todo 只产候选：明确指派本人或职责内待关注事项；排除别人的任务、完成/取消项和一般广播，
+  模型推导标“推断”。来源待办保存在 event；末尾最多列 5 项及关联依据、时间、来源，确认后才
+  按 `todo.md` 写入，不能在 digest 中直接改 todo。
+- 汇报说明周期范围、扩展或未摄取依赖及其影响。长流程只在真实阶段变化时给短状态；单阶段超过
+  60 秒可一次 heartbeat，不贴原文、不主动轮询，不做主/子重复语义分析。

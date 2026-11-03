@@ -5,7 +5,7 @@
 
 ## 通用规则
 
-- **标准 digest 统一走事务工具**:按 `references/digest-transaction.md` 生成临时 plan 与完整候选
+- **标准 digest 统一走事务工具**:按 `references/digest-inline.md`（批量/排障用 `references/digest-transaction.md`）生成临时 plan 与完整候选
   节点,通过机器协议在 `preflight` 后直接运行 `bin/digest-txn.py execute`；`execute` 内置完整校验和锁内
   复检，独立 `validate` 仅用于失败诊断。禁止为单篇业务资料在 skill 仓库写硬编码
   落库脚本;禁止绕过事务工具手算 digest hash、手拼 raw 或声称未收到 receipt 的写入已完成。

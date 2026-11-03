@@ -1,0 +1,99 @@
+{
+  "baseline_commit": "15471df430f3d94859956bc82636eaf9f1a76e03",
+  "date": "2026-11-03",
+  "scenario": "digest feishu_doc, all comments, no whiteboard/routine/parallel/recovery/batch/internal_reading; fresh context",
+  "method": "tiktoken:o200k_base",
+  "actual_model_usage": false,
+  "excluded": [
+    "external lark skills",
+    "source material",
+    "context projection",
+    "node templates",
+    "tool envelope metadata",
+    "conversation history and cache effects"
+  ],
+  "variants": {
+    "before": {
+      "files": 16,
+      "static_rules_characters": 67719,
+      "static_rules_tokens": 30903,
+      "discovery_characters": 13133,
+      "discovery_tokens": 3203,
+      "total_tokens": 34106,
+      "paths": [
+        "SKILL.md",
+        "references/machine-protocol.md",
+        "references/digest-core.md",
+        "references/discovery-completion.md",
+        "references/digest-flow.md",
+        "references/digest-observability.md",
+        "references/digest-analysis-pipeline.md",
+        "references/digest-concurrency.md",
+        "references/digest-dependencies.md",
+        "references/digest-transaction.md",
+        "references/provenance.md",
+        "references/write-rules.md",
+        "references/conflict-policy.md",
+        "references/semantic-policy.md",
+        "references/digest-doc.md",
+        "references/digest-comments.md"
+      ],
+      "file_sha256": {
+        "SKILL.md": "8343c1804dd89e3b75b4fcbe4a056b34c9f07eaa71078ff70471f5252562f3e6",
+        "references/machine-protocol.md": "f2b74010ef7423c14201d259b1faf5efa833fff54d4f277e2a5b642a7895597d",
+        "references/digest-core.md": "0772909ceee9f64ae115fcd4a2c34ee099e512d335ffedfd17fb90c1bbd024f4",
+        "references/discovery-completion.md": "d410e8fd2069e2f19685c1ba2b94d272239e9da02a2b560e52a03648b656b065",
+        "references/digest-flow.md": "0bf9e7d0cf5a2ea38d5a790af29eda19b443ff5364f6dd33a6f57fae5453b6fe",
+        "references/digest-observability.md": "e7e709c7894c90083ac9bbce0922d04e06ced19af95288b37f3a60326e559d23",
+        "references/digest-analysis-pipeline.md": "e0a28dbe173371c5bc77b7ecbf496d58bee6ed487d299d9c50dddd2aabff85ee",
+        "references/digest-concurrency.md": "fe0b4048c16080c1fc75c22f8a54fb9c82aef4c64678aa90693f282ea47a4122",
+        "references/digest-dependencies.md": "327c9659a2d2328d485d9cb948b0ad368a45299c76f36f1ea86e9877291a2ec2",
+        "references/digest-transaction.md": "2c4a23cf2eff1a66ca22524d6e88eed35de0c2ed24a5cd0ca85f8f4996ba0610",
+        "references/provenance.md": "18b9c3daf237a7a583318f79b6ad3a4f480c91648874e32bd02b5e007068b5e2",
+        "references/write-rules.md": "e21267118aae3153a46e4b77119d7952a0897df3d5bf5240e4579f8c07e1bb4e",
+        "references/conflict-policy.md": "48e5b831f53579620f44069318630b17414767eaac8e622d7b446243b3525fbb",
+        "references/semantic-policy.md": "d15fc648cdc56b81e8a9cdccbda5261054e51da5c6b09fa6fd3bb629616a8615",
+        "references/digest-doc.md": "fabdf8d6cef69c5366b80e580b07f5a907e52a96bf177775a494b76563c1762a",
+        "references/digest-comments.md": "2dc0f2d0c35558bccb4c93e00c85412f920d47bf4485470d41ec88535ee28fa9"
+      }
+    },
+    "after": {
+      "files": 13,
+      "static_rules_characters": 44053,
+      "static_rules_tokens": 20451,
+      "discovery_characters": 563,
+      "discovery_tokens": 121,
+      "total_tokens": 20572,
+      "paths": [
+        "SKILL.md",
+        "references/machine-protocol.md",
+        "references/digest-core.md",
+        "references/discovery-completion.md",
+        "references/digest-flow.md",
+        "references/digest-inline.md",
+        "references/digest-dependencies.md",
+        "references/provenance.md",
+        "references/write-rules.md",
+        "references/conflict-policy.md",
+        "references/semantic-policy.md",
+        "references/digest-doc.md",
+        "references/digest-comments.md"
+      ],
+      "file_sha256": {
+        "SKILL.md": "68dc66f1d0fafe4a01049af9871743f8cd34528c8a469d3b90ab07fdf85eca82",
+        "references/machine-protocol.md": "f2b74010ef7423c14201d259b1faf5efa833fff54d4f277e2a5b642a7895597d",
+        "references/digest-core.md": "c5c24f97fd380fa0fb86e502750d745fb9c0e2279d32b7d2f6c6d1370972c38b",
+        "references/discovery-completion.md": "d410e8fd2069e2f19685c1ba2b94d272239e9da02a2b560e52a03648b656b065",
+        "references/digest-flow.md": "597b600c891a2dc1643ac9c81156c82f7d548db5702f00e02d8196677245a013",
+        "references/digest-inline.md": "f0a2955492886374dadbf3eea48a45c32f39f84e3530859e5ad591811aacc8ef",
+        "references/digest-dependencies.md": "327c9659a2d2328d485d9cb948b0ad368a45299c76f36f1ea86e9877291a2ec2",
+        "references/provenance.md": "18b9c3daf237a7a583318f79b6ad3a4f480c91648874e32bd02b5e007068b5e2",
+        "references/write-rules.md": "06062969e4d9f45e3edb39b59dbf3b57f69f85b4862aa613f2486e7cdebb4e2e",
+        "references/conflict-policy.md": "48e5b831f53579620f44069318630b17414767eaac8e622d7b446243b3525fbb",
+        "references/semantic-policy.md": "d15fc648cdc56b81e8a9cdccbda5261054e51da5c6b09fa6fd3bb629616a8615",
+        "references/digest-doc.md": "f7b6f7a010545e582432bb9e5df049022b72efa16f3b3c831a355d6fbeb1a2e1",
+        "references/digest-comments.md": "32f303db1144d60d37b96a2a1bb67994b7e93ba94560cba0e39cea5c7905092b"
+      }
+    }
+  }
+}

@@ -25,7 +25,7 @@ bin/byteworker digest-flow capture --kb "<KB>" --run-id "<RUN_ID>" \
 ```
 
 命令自动记录 capture started/completed|failed；失败保持可恢复状态，不用部分结果继续。顺序分页和
-coverage 规则仍按来源 reference 与 `digest-concurrency.md`。
+coverage 规则仍按来源 reference 与 `digest-inline.md`；worker 并行时再加 parallel_execution。
 
 ## 3. 一次准备到语义闸门
 
@@ -39,7 +39,7 @@ bin/byteworker digest-flow prepare --kb "<KB>" --run-id "<RUN_ID>" \
 命令依次完成 Bundle、preflight、analysis packet、dependency/semantic planner，并自动记录确定性阶段。
 幂等命中直接终结为 noop；否则只消费返回的 `next_action`：`dependency_review` 或
 `semantic_analysis`。artifact 路径可用 `digest-flow status` 恢复，不重跑已完成抓取。
-需要向用户询问依赖范围或冲突时，按 `digest-observability.md` 先记录 `digest-run wait`；答复后
+需要向用户询问依赖范围或冲突时，按 `digest-inline.md` 先记录 `digest-run wait`；答复后
 `resume`。等待不是失败，且不计入 active duration。
 
 ## 4. 提交与恢复
@@ -54,4 +54,4 @@ bin/byteworker digest-flow status --kb "<KB>" --run-id "<RUN_ID>"
 
 `commit` 自动记录 transaction 并写 committed/noop 终态；失败保持 `commit_failed` 供修复后重试。
 flow state 只保存 source ref hash、固定 phase 和私有 artifact 路径，不保存正文、标题、URL、凭据或
-语义候选。usage 仍由宿主按 `digest-observability.md` 单独上报。
+语义候选。宿主上报 usage 或恢复/诊断时，加 recovery 按 `digest-observability.md` 处理。

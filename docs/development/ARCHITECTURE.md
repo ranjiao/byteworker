@@ -465,8 +465,25 @@ foreground `process once`，持续处理进入显式 IM grant。新 KB 不创建
 
 ### 2.6 Agent 文档路由与语义收敛
 
-`SKILL.md` 只承担意图路由和全局不变量。`references/workflow-routes.json` 是机器可检查的
+`SKILL.md` 承担意图路由和全局不变量。`references/workflow-routes.json` 是机器可检查的
 workflow 闭包：每个入口声明 `required/on_error`，digest 再按 `source_type/features` 条件加载。
+Agent 通过 `workflow-budget resolve` 获取 `byteworker-workflow-route/v1`，不把全部路由/预算读入
+上下文。resolve 复用 `lib/workflow_budget.py.resolve_route`，只展开路径，不读规则正文、不计 token、
+resolver 本身不访问 KB、runtime 或 provider；公开调用仍经过既有 launcher/runtime 缓存与 facade。
+inspect 继续基于同一 resolver 计完整预算。两者不维护平行名单。
+
+普通 digest 的必读执行层是 `digest-core.md`、`digest-flow.md` 和 `digest-inline.md`，同时完整
+加载 machine-protocol、digest-dependencies、provenance、write-rules、conflict-policy、semantic-policy
+和所选来源规则。inline 承载标准抓取 request、packet/plan 交接、冲突召回、候选契约与日常语义
+日志，不复制事务实现或省略证据、范围、冲突和组织身份闸门。完整并发/分析手册只在 planner 选择
+parallel 时加 parallel_execution；恢复/usage 上报加 recovery，加载日志与事务细则；多来源原子提交加 batch。
+preflight_state=resume_failed 必须核查历史 pending/failed raw 并人工恢复，不能按新版本继续生成候选或提交。
+失败的 on_error 加载诊断/事务/日志细则。条件触发时保留已选 feature 重新 resolve，只补读未读路径。
+解释性链接不等于额外必读，不允许普通来源沿链接重新加载整个旧闭包。
+flow prepare 已产生 packet 和 dependency/semantic plan，Agent 直接消费，不能重复预处理或规划；
+conflict planner 仍对新召回结果执行一次。语义 owner、coverage、inline/parallel 阈值及成功判定不变。
+大型 worker 和 Wiki resume 保留完整执行手册；Dreaming routine 的闭包同时包含 inline，独立入口
+不能借压缩遗漏普通 digest 行为。
 Dreaming 的授权、宿主与运行细则只在 dreaming feature 中加载；area/org/person 治理统一由
 `write-rules.md` 承载，并同时属于 digest 与 update 的 required 闭包，不复制进常驻路由器。
 子 Agent、无人值守报告和 Wiki resume 都必须从 manifest 递归展开闭包，不依赖上一 session
@@ -804,7 +821,7 @@ flowchart TB
 | `bin/discover.py` + `lib/capability_discovery.py` | 展示用户能力地图；记录有限成功事件、提示展示/拒绝/延后；按本地里程碑确定性推荐 | `byteworker-capability-status/v1` / `byteworker-capability-recommendation/v1`；不含用户正文 |
 | `bin/digest-txn.py` | digest 的 preflight / validate / execute / snapshot-node | transaction report/receipt |
 | `bin/digest-flow.py` + `lib/digest_flow.py` | start/capture/prepare/commit/status；自动记录无语义阶段并保存可恢复 checkpoint | `byteworker-digest-flow/v1`、唯一 next action、私有 artifact 路径或 transaction receipt |
-| `bin/workflow-budget.py` + `lib/workflow_budget.py` | 展开 router/条件闭包/worker prompt，核算静态规则与显式动态输入 token | `byteworker-workflow-budget-receipt/v1`、方法版本、分项预算与固定 overflow action |
+| `bin/workflow-budget.py` + `lib/workflow_budget.py` | resolve 只展开选中路径；inspect 用同一 resolver 核算静态规则与显式动态输入 token | `byteworker-workflow-route/v1` 路径回执；`byteworker-workflow-budget-receipt/v1` 预算、方法与固定 overflow action |
 | `bin/digest-run.py` | 单输入 start/stage/wait/resume/heartbeat/usage/complete/list/show；固定 6 小时 stale 窗口 | 时间线、active duration、waiting/stale 状态、最慢阶段与 token 汇总 |
 | `bin/digest-analysis.py` | SourceBundle components 单次读取、结构去噪、依赖候选/语义文本/参与者/anchor 索引整理；不做语义判断 | 系统临时 `byteworker-digest-analysis-packet/v1` 和无正文 receipt |
 | `bin/digest-capture.py` | 执行最多 4 个显式、独立、只读的 lark/comments capture job；provider 命令构造留在该 adapter，不进入事务 core | `byteworker-digest-capture-receipt/v1` 和显式 `0600` artifact |
@@ -1166,6 +1183,7 @@ flowchart LR
 | `byteworker-im-semantic/v1` | Agent + `semantic_policy.py` | 0..4 分数、固定阈值、reason code、message evidence；验证后才能写 |
 | `byteworker-context-view/v1` | `context_view.py` | 固定 intent/章节、显式字符预算，不静默截断 |
 | `byteworker-workflow-routes/v2` | `SKILL.md` + `workflow_budget.py` + route contract tests | 独立入口闭包可递归展开；静态规则/worker prompt/context/source/总输入/输出预算分离；超限 action 固定 |
+| `byteworker-workflow-route/v1` | `workflow-budget resolve` + `resolve_route` | 只返回所选闭包和 prompt 路径；与 inspect 同一 resolver；无 KB/runtime/provider 副作用 |
 | `byteworker-workflow-budget-receipt/v1` | `workflow_budget.py` | tokenizer 或版本化保守估算显式；完整条件闭包计数；动态内容不回显、不静默截断 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |

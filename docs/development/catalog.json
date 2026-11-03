@@ -112,6 +112,13 @@
       "kind": "guide",
       "status": "current",
       "authority": "validation_commands"
+    },
+    {
+      "id": "digest-rule-loading-2026-11",
+      "path": "docs/development/evidence/benchmarks/2026-11-digest-rule-loading.md",
+      "kind": "benchmark",
+      "status": "point_in_time",
+      "authority": "engineering-evidence"
     }
   ]
 }

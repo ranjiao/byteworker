@@ -1347,7 +1347,11 @@ code 与证据，请用户确认。
 28. **冲突与语义阈值单一所有者** — 独立来源冲突默认并列并交用户裁决；只有 revision、
    supersede 或用户确认可改当前值。知识晋升、参与方推断和 IM 评分使用固定 reason/evidence/
    threshold，不以模型自由描述替代。
-29. **Agent progressive disclosure 可测试** — `byteworker-workflow-routes/v2` 声明独立入口的
+29. **Agent progressive disclosure 可测试** — `workflow-budget resolve` 的临时回执
+   `byteworker-workflow-route/v1` 只包含所选 workflow/source/features 与 static_rule_paths/worker_prompt_paths，
+   使用与 inspect 相同的 resolver，不读取业务数据、不新增持久化文件。普通 digest 以 core/flow/inline
+   加完整安全语义 policy 为必读，并发、恢复、批量按 feature 补读；已有 Bundle/Plan/KB schema 不变。
+   `byteworker-workflow-routes/v2` 声明独立入口的
    required/on_error/source/features/worker prompt 闭包；预算分离静态规则、动态 context、来源 packet、
    总输入与输出 token。`byteworker-workflow-budget-receipt/v1` 标记 tokenizer 或保守估算方法，超限
    返回固定压缩/路由动作而不截断 evidence；子 Agent、自动报告和 Wiki resume 不依赖隐式流程。

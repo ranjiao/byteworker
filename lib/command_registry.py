@@ -162,7 +162,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "workflow-budget", "检查完整 workflow token 预算", "digest", "facade",
         "agent", "advanced", "stable", "none", "byteworker-cli/v1",
         "references/workflow-budgets.md", entrypoint="workflow-budget.py",
-        operations=("inspect",),
+        operations=("resolve", "inspect"),
     ),
     CommandSpec(
         "kb-query", "查询节点、证据、冲突和结构化记录", "knowledge",
