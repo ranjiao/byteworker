@@ -178,7 +178,7 @@ PATH、常见本地目录和 NVM installations 中解析可执行文件，实际
 自动报告设置和低频能力建议资格检查，并接收 shell 传入的有限更新 notice。能力建议采用 fail-safe
 默认：只有真人对话显式使用 `preflight --interactive` 才计算和返回；无参数或 `--unattended` 均
 禁止，已有旧定时任务也因此不会误触发。建议只读取本地有界计数和状态，不访问外部来源；存在
-其它 notice、blocking 或没有到期建议时保持静默。它不读取
+blocking 或没有到期建议时保持静默；普通 Todo、报告升级或更新 notice 不抑制候选。它不读取
 `context.md` 正文：
 语义任务在路由后通过 `context view --intent` 读取固定章节投影，help/纯维护任务不承担这部分
 context。
@@ -493,6 +493,15 @@ packet、总输入和输出 token 预算。固定 tokenizer 不可用时回执�
 有限成功事件/语义枚举与本地可计数里程碑做选择、限频和反馈持久化，不解析用户正文。Agent 仍是
 语义 owner，只在主任务成功结束后展示最多一条建议。发现状态失败、关闭或损坏不影响任何核心
 workflow。
+
+交互业务 workflow 的 required 闭包包含 `references/discovery-completion.md`；主 Agent 在成功
+请求的最终回复前必须执行一次 `discover complete --interactive --after ...`，不预判是否需要建议。
+complete 先记成功使用，再按上下文规则优先、里程碑规则兜底选择最多一条，原子记展示。
+preflight 仅提供候选，收尾重新选择并替代候选，避免两处各展示一条或推荐本轮已用能力。
+worker、失败/待裁决请求和无人值守不执行公共收尾；complete/recommend CLI 无参数交互标记或
+显式 unattended 均不读写发现状态。recommend 保留为 complete 的兼容 CLI 名称。
+`discover diagnose` 只读当前状态和有界计数，以与选择器相同的规则返回逐项原因；不创建锁、
+不记成功/展示，不模拟未来成功。state 缺失与损坏显式可见；诊断也不访问外部来源。
 
 ## 3. 数据生命周期
 
