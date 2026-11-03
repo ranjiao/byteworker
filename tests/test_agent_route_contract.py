@@ -68,7 +68,7 @@ class AgentRouteContractTests(unittest.TestCase):
             "references/machine-protocol.md",
             "references/digest-core.md",
             "references/digest-dependencies.md",
-            "references/digest-transaction.md",
+            "references/digest-inline.md",
             "references/provenance.md",
             "references/write-rules.md",
             "references/conflict-policy.md",
@@ -77,6 +77,49 @@ class AgentRouteContractTests(unittest.TestCase):
         for name in ("digest", "large_digest_worker", "wiki_resume_page"):
             with self.subTest(workflow=name):
                 self.assertTrue(required.issubset(self.closure(name)))
+                if name != "digest":
+                    self.assertIn("references/digest-transaction.md", self.closure(name))
+
+    def test_ordinary_digest_defers_manuals_but_preserves_all_safety_policies(self):
+        route = self.workflows["digest"]
+        deferred = {
+            "references/digest-observability.md": "recovery",
+            "references/digest-analysis-pipeline.md": "parallel_execution",
+            "references/digest-concurrency.md": "parallel_execution",
+            "references/digest-transaction.md": "batch",
+        }
+        for path, feature in deferred.items():
+            with self.subTest(path=path):
+                self.assertNotIn(path, route["required"])
+                self.assertIn(path, route["features"][feature])
+        self.assertIn("references/digest-inline.md", route["required"])
+        self.assertIn("references/digest-comments.md", route["source_type"]["feishu_doc"])
+        self.assertIn("references/digest-reading.md", route["features"]["internal_reading"])
+        self.assertIn("references/digest-inline.md", self.workflows["dreaming"]["features"]["routine_digest"])
+
+    def test_inline_contract_preserves_capture_evidence_wait_and_write_boundaries(self):
+        text = (ROOT / "references/digest-inline.md").read_text(encoding="utf-8")
+        for contract in (
+            "byteworker-digest-capture-plan/v1", "顺序分页仍串行", "component 失败必须停止",
+            "0600", "0700", "不重复调用底层", "最多 32", "240 字符", "只扫描 KB 节点一次",
+            "base_sha256", "conflict_disposition", "conflict_evidence", "removal",
+            "primary_source", "evidence", "不复制 anchors/source", "锁内复验", "失败回滚",
+            "禁止手工 git add/commit", "commit hash", "DEPENDENCY_APPROVAL_REQUIRED",
+            "CONFLICT_DECISION_REQUIRED", "digest-run resume", "estimated", "不得伪造实测值",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, text)
+
+    def test_failed_payload_recovery_keeps_transaction_rules_and_stops_writing(self):
+        paths = self.closure("digest") + self.workflows["digest"]["features"]["recovery"]
+        self.assertIn("references/digest-transaction.md", paths)
+        self.assertIn("references/digest-observability.md", paths)
+        core = (ROOT / "references/digest-core.md").read_text(encoding="utf-8")
+        inline = (ROOT / "references/digest-inline.md").read_text(encoding="utf-8")
+        self.assertIn("resume_failed", core)
+        self.assertIn("不得自动覆盖或继续", core)
+        self.assertIn("人工恢复前\n不生成候选或提交", inline)
+        self.assertIn("department_path 只有明确命中已有 org 才连边", core)
 
     def test_unattended_prompts_reference_machine_checked_route(self):
         for relative in (

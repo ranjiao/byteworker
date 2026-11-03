@@ -29,7 +29,7 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertIn("references/digest-observability.md", skill)
         self.assertIn(
             "references/digest-observability.md",
-            routes["workflows"]["digest"]["required"],
+            routes["workflows"]["digest"]["features"]["recovery"],
         )
         for stage in (
             "classify",
@@ -87,7 +87,7 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertIn("kb-query conflict-search", core)
         self.assertIn(
             "references/digest-analysis-pipeline.md",
-            routes["workflows"]["digest"]["required"],
+            routes["workflows"]["digest"]["features"]["parallel_execution"],
         )
         self.assertLess(
             observability.index("`semantic_analysis`"),
@@ -118,7 +118,7 @@ class DigestTransactionContractTests(unittest.TestCase):
         self.assertIn("digest-parallel plan --stage semantic", core)
         self.assertIn(
             "references/digest-concurrency.md",
-            routes["workflows"]["digest"]["required"],
+            routes["workflows"]["digest"]["features"]["parallel_execution"],
         )
         for route in (
             "digest_dependency_worker",

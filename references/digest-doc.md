@@ -5,7 +5,7 @@
 飞书文档(尤其调研 / 规划类)常是「枢纽文档」,摄取规则:
 
 - **正文与评论必须双路并发读取**:先读 `references/digest-comments.md` 和
-  `references/digest-concurrency.md`，用 `digest-capture` 同时启动两条独立只读 job。正文用
+  `references/digest-inline.md`，用 `digest-flow capture` 同时启动两条独立只读 job。正文用
   `lark-doc +fetch --api-version v2 --detail with-ids`;评论用
   `bin/byteworker run bin/pull_doc_comments.py --url "<URL>"`,固定拉取全部评论(含已解决)、完整回复链与
   relation 锚点。正文 fetch 成功不代表评论已读取;评论状态必须在 raw frontmatter 明示。

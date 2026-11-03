@@ -223,6 +223,15 @@ bin/byteworker digest-flow status --kb "$BYTEWORKER_KB" --run-id "$DIGEST_RUN_ID
 
 ## 5B. `workflow-budget.py`：完整 workflow token 预算
 
+`resolve` 只返回本次来源/feature 的规则路径，Agent 无需整读 manifest；resolver 不计算 token、不访问 KB：
+
+```bash
+bin/byteworker workflow-budget resolve --workflow digest --source-type feishu_doc
+```
+
+普通路径加载 core/flow/inline 与安全语义 policy；parallel_execution/recovery/batch 等条件触发时
+再 resolve 并补读新增文件。已有 inspect 和完整 worker 闭包仍保留。
+
 ```bash
 bin/byteworker workflow-budget inspect --workflow digest \
   --source-type feishu_doc --feature comments \

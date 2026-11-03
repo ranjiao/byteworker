@@ -70,7 +70,8 @@ bin/byteworker run bin/resolve-users.sh --ids "<CSV>" --format json --jobs 4
 
 ## 4. 分片计划
 
-三个语义阶段都先让确定性 planner 决定 inline 或 parallel：
+三个语义阶段都先让确定性 planner 决定 inline 或 parallel。标准 flow 已返回 dependency/semantic
+plan，直接复用；只为新 conflict 输入运行 planner。下列底层命令也供恢复使用，不重复规划：
 
 ```bash
 bin/byteworker digest-parallel plan \

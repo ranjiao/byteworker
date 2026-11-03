@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,11 @@ class DigestParallelTests(unittest.TestCase):
         semantic_text_size=0,
         dependency_context_size=0,
     ):
+        # Repeated "x" compresses heavily with tiktoken and no longer exercises
+        # the parallel path. Use stable, varied identifiers with both counters.
+        dependency_context = hashlib.shake_256(b"dependency-context-fixture").hexdigest(
+            (dependency_context_size + 1) // 2
+        )[:dependency_context_size]
         value = {
             "schema_version": "byteworker-digest-analysis-packet/v1",
             "input_hash": "sha256:source",
@@ -45,7 +51,7 @@ class DigestParallelTests(unittest.TestCase):
                 {
                     "candidate_id": f"dep-{index:03d}",
                     "reference": f"doc-id:{index}",
-                    "contexts": ["context " + "x" * dependency_context_size],
+                    "contexts": ["context " + dependency_context],
                 }
                 for index in range(dependencies)
             ],
