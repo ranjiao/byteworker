@@ -47,6 +47,11 @@ def _tokens(query: str) -> List[str]:
     return list(dict.fromkeys([query, *material]))
 
 
+def _cjk_pairs(text: str) -> set[str]:
+    return {part[i:i + 2] for part in re.findall(r"[\u3400-\u9fff]+", text)
+            for i in range(len(part) - 1)}
+
+
 def _node_records(kb: Path) -> Dict[str, Dict[str, Any]]:
     records: Dict[str, Dict[str, Any]] = {}
     for path in sorted((kb / "knowledge").glob("**/*.md")):
@@ -86,11 +91,12 @@ def _search_records(
     if graph_depth not in {0, 1}:
         raise QueryError("轻量查询仅支持 graph_depth=0 或 1")
     tokens = _tokens(query)
+    query_pairs = _cjk_pairs(query)
     include_inactive_thinking = any(
         marker in query.lower()
         for marker in ("inactive", "不生效", "历史思考", "旧思考")
     )
-    ranked: List[Tuple[int, str, List[str]]] = []
+    ranked: List[Tuple[float, str, List[str]]] = []
     weights = (
         ("id", 12),
         ("title", 10),
@@ -115,11 +121,17 @@ def _search_records(
             if matched:
                 score += weight * len(matched)
                 reasons.append(f"{field}:{','.join(matched[:3])}")
+        if not score:
+            title_pairs = _cjk_pairs(str(record["title"]) + " " + " ".join(record["tags"]))
+            overlap = query_pairs & title_pairs
+            if len(overlap) >= 2:
+                score = min(0.9, len(overlap) / 10)
+                reasons.append("cjk_title:" + ",".join(sorted(overlap)[:4]))
         if score:
             ranked.append((score, node_id, reasons))
     ranked.sort(key=lambda item: (-item[0], item[1]))
 
-    selected: List[Tuple[int, str, List[str]]] = ranked[: min(limit, max_nodes)]
+    selected: List[Tuple[float, str, List[str]]] = ranked[: min(limit, max_nodes)]
     selected_ids = {item[1] for item in selected}
     graph_added = 0
     if graph_depth == 1 and len(selected) < max_nodes:
