@@ -167,6 +167,10 @@ flowchart TD
     R -->|"help"| H["只读帮助文档"]
 ```
 
+`bin/update-check.sh` 在更新、状态写入或 postflight 前检查当前分支：仅允许 `master`，
+其它分支和 detached HEAD 输出错误并退出 `1`，`--force` 不绕过检查。脚本不切换或修复分支；
+bootstrap 仍将错误转为 preflight notice。显式停用自动更新时不检查分支。
+
 `bin/byteworker` 是不会预加载仓库 Python 模块的稳定 shell bootstrap。它将首次解析成功的
 Python 绝对路径持久化为本机缓存；缓存没有 TTL，每次只做
 最小可执行与版本检查，路径被删除、失去执行权限或解释器不再兼容时才重新扫描。库层同样持久化
