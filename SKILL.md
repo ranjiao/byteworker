@@ -50,9 +50,14 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 
 ## Workflow 路由
 
-`references/workflow-routes.json` 是可机器检查的加载闭包。确定意图后只加载对应 workflow 的
-`required`，再按 source type/features 加条件文件；失败时才加载 `on_error`。不得用“普通流程”
-代替显式闭包，也不得为了找一个命令整读其它能力。
+`references/workflow-routes.json` 是机器真相源，Agent 不整读它。确定意图后运行：
+
+```bash
+bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE>
+```
+
+无来源的流程省略 source-type；条件触发时加 `--feature <FEATURE>`，失败才加 `--include-on-error`。
+加载返回的 static_rule_paths / worker_prompt_paths，已读文件不重复读；解释性链接不触发整包加载，明确条件规则仍须补读。
 隔离 worker 或动态输入接近上限时按 `references/workflow-budgets.md` 获取完整 token budget receipt；
 超预算执行固定 action，不静默截断证据。
 
@@ -114,30 +119,20 @@ bin/byteworker context view --kb "<KB>" --intent "<intent>"
 
 ## Digest
 
-digest：
+digest 先 resolve 来源闭包，完整加载安全与语义 policy；出处按 `references/provenance.md`。
 
-- `references/digest-core.md`
-- `references/digest-dependencies.md`
-- `references/digest-transaction.md`
-- `references/provenance.md`
-- `references/write-rules.md`
-- `references/conflict-policy.md`
+来源规则由 resolve 选择，飞书正文和全部评论（`references/digest-comments.md`）均必读；白板只取结构 JSON 并加 whiteboard。
+会议簇、立场、大型输入、routine 按对应来源/feature 加载；Wiki 空间走 wiki_space（`references/digest-wiki-space.md`），
+确认页面后按 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
-来源：飞书文档 `digest-doc.md`（评论加 `references/digest-comments.md`，白板只读取
-结构 JSON 并加读 `digest-whiteboard.md`）；群聊 `digest-chat.md`；Meego `digest-meego.md`；Base
-`digest-base.md`；风神 `digest-aeolus.md`；网页/本地资料 `digest-reading.md`；会议簇
-`digest-meeting.md`；立场分析 `digest-analysis.md`；大型输入 `digest-large.md`；routine
-`digest-routine.md`。Wiki 空间探索先读 `references/digest-wiki-space.md`，确认页面后按
-feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
+按 `references/digest-flow.md` 编排、`references/digest-inline.md` 交接，复用 prepare 的 packet/plan。
+planner 选择 parallel 才加 parallel_execution，读 `digest-analysis-pipeline.md` / `digest-concurrency.md`；
+多来源原子提交加 batch，读 `references/digest-transaction.md`；内部资料加 internal_reading。
+候选完成后只运行 `digest-flow commit`（锁内复验）；独立 `validate` 只用于失败排障。
+多来源用 `digest-batch-plan/v2`。Agent 做语义判断、冲突分类；事务负责确定性写入与回滚；只认 `status=committed`。
 
-标准无语义阶段按 `references/digest-flow.md` 统一走 `digest-flow`；`SourceBundle v2` 经
-`digest-analysis-pipeline.md` / `digest-concurrency.md` 生成 `digest-plan/v2`。候选完成后运行
-`digest-flow commit`（内部 execute 含锁内复验）；独立 `validate` 只用于失败排障，多来源用
-`digest-batch-plan/v2`。Agent 做语义判断、冲突分类；事务负责 hash/schema/INDEX/journal/
-commit/rollback；只认 `status=committed`。
-
-标准路径由 `digest-flow` 自动建立 `run_id`、记录确定性阶段并结束终态；只有恢复或诊断时才按
-`references/digest-observability.md` 手工调用底层日志命令。
+flow 自动记录确定性阶段与终态；语义打点和等待按 inline。恢复、诊断或 usage 上报加 recovery
+读取 `references/digest-observability.md`。
 
 事实 `[E1]` 绑 raw，主记录设 `primary_source`。raw / Bundle 的 `source_title`
 留原题；宽泛时，按来源可确认的作者、团队、项目/周期命名；不明标“归属待确认”。
