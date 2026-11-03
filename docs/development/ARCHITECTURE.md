@@ -1104,7 +1104,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_analysis.py` | FindingBundle schema、batch/hash、evidence ref 和 grant revision 复验 | 否 |
 | `lib/dreaming_consolidation.py` | Finding event history、当前投影、跨 batch revision、重建和 grant purge | 私密 Finding state |
 | `lib/dreaming_process.py` | analysis receipt、可选 consolidation、batch commit/cursor 的幂等编排 | 仅通过 analysis/consolidation/batch owner |
-| `lib/dreaming_digest.py` | 快照 Profile/兼容历史 raw 定期来源，核验普通 digest 或 Wiki scan 的真实回执，完整后推进 per-source checkpoint | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
+| `lib/dreaming_digest.py` | 快照 Profile/兼容历史 raw 定期来源；仅为缺失 UID 的历史 raw 从同库同类型、同 URL 或群 ID 的归档恢复明确身份，不覆盖已有 UID；核验普通 digest 或 Wiki scan 的真实回执，完整后推进 per-source checkpoint | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
 | `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
 | `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
 | `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |
@@ -1115,6 +1115,16 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_evaluation.py` | KB/仓库外 Golden/legacy/Dreaming ID 对比、分层 recall 与两周门槛 | 私有评估目录 metrics/history |
 
 ## 5. 跨层契约
+
+Dreaming 的历史 UID 恢复只属于 routine inventory 的只读兼容层，不进入 provider adapter、
+digest 事务或查询层，也不迁移 raw schema。候选 UID 全部一致时可恢复；否则要求所有候选的
+`ingested` 均为带时区的 ISO8601 时间，归一为 UTC 后选择最新时间唯一对应的 UID。缺失/无效
+时间、最新时间有冲突或无同源归档时沿用 `DREAMING_ROUTINE_SOURCE_INVALID` 失败关闭；
+不得用文件名或 mtime 判定身份新旧。恢复后仍服从 Profile 的启停与 cadence，不改写历史文件。
+runner 重放仍使用普通 digest 的 capture 与大输入 planner 契约：群聊 capture 直接用 `--out`
+产出 Bundle；预算超限进入既有 `large_digest_worker` 闭包，按 inline/parallel 计划执行。
+宿主能力不足或执行失败保持 process 失败，不截断来源、不推进 checkpoint。宿主后台可用性
+以真实本地定时任务和 harness 登记为准，不能根据产品名称或配置写入推断已接通。
 
 ```mermaid
 flowchart LR
