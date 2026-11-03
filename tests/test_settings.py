@@ -248,7 +248,7 @@ class SettingsFacadeTests(unittest.TestCase):
                                  set((kb / ".git/objects").rglob("*")) - objects))
             with mock.patch("settings._stage_settings", side_effect=inspect_stage):
                 result = update_settings(kb, patch)
-            self.assertEqual(str(kb), result["kb"]["path"])
+            self.assertEqual(str(kb.resolve()), result["kb"]["path"])
             self.assertFalse(result["viewer"]["access_token_required"])
             self.assertNotEqual(baseline, git("rev-parse", "HEAD"))
             self.assertEqual(2, len(result["sources"]))

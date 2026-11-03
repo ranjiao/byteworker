@@ -270,6 +270,7 @@ class CommandRegistryTests(unittest.TestCase):
                 **os.environ,
                 "HOME": str(root),
                 "PATH": "/usr/bin:/bin:/usr/local/bin",
+                "BYTEWORKER_PYTHON_BIN": sys.executable,
             }
             completed = subprocess.run(
                 [str(target_bin / "byteworker"), "--help"],

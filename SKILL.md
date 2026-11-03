@@ -251,3 +251,5 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
 系统边界以 [`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md) 为准，
 schema 以 [`docs/development/DESIGN.md`](docs/development/DESIGN.md) 为准。修改模块、依赖、
 信息流、失败边界或成功判定时，必须在**同一变更**同步架构文档和契约测试。
+
+失败恢复见 `references/error-recovery.md`。

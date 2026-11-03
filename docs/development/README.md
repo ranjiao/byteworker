@@ -24,3 +24,5 @@
 `ARCHITECTURE.md` 和 `DESIGN.md` 暂时保留稳定路径，避免破坏既有入口。两者是历史形成的长文档；
 后续修改涉及某个独立模块时，应优先把该模块拆成有明确 owner 的现状文档，再从稳定入口链接，
 而不是继续追加新的实施记录、review 或 benchmark。
+
+本地检查命令见 [验证指南](governance/validation.md)，本次 review 范围见 [完成记录](archive/initiatives/2026-11-review-followups.md)。
