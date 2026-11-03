@@ -32,6 +32,60 @@ class UpdateCheckTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, target)
 
+    def test_wrong_branch_fails_before_update_or_postflight(self):
+        for branch in ("codex/work", "main", None):
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temporary:
+                repo = Path(temporary) / "repo"
+                self.copy_update_tools(repo)
+                (repo / "bin/update-postflight.py").write_text(
+                    "from pathlib import Path\n"
+                    "Path(__file__).resolve().parents[1].joinpath('hook-ran').touch()\n",
+                    encoding="utf-8",
+                )
+                self.run_git(repo, "init", "-b", "master")
+                self.run_git(repo, "config", "user.email", "update@example.test")
+                self.run_git(repo, "config", "user.name", "Update Tests")
+                self.run_git(repo, "add", ".")
+                self.run_git(repo, "commit", "-m", "initial")
+                if branch is None:
+                    self.run_git(repo, "checkout", "--detach")
+                else:
+                    self.run_git(repo, "checkout", "-b", branch)
+                head = self.run_git(repo, "rev-parse", "HEAD").stdout
+                state = repo / ".update-state.json"
+                state.write_text(
+                    json.dumps({
+                        "version": 1,
+                        "last_success_at": 100,
+                        "postflight_pending": True,
+                        "postflight_commit": head.strip(),
+                    }),
+                    encoding="utf-8",
+                )
+                before_state = state.read_bytes()
+                for arguments in ([], ["--force"]):
+                    with self.subTest(arguments=arguments):
+                        completed = subprocess.run(
+                            ["bash", str(repo / "bin/update-check.sh"), *arguments],
+                            env={
+                                **os.environ,
+                                "BYTEWORKER_UPDATE_NOW": "200",
+                                "BYTEWORKER_UPDATE_REPO_URL": str(repo / "missing.git"),
+                                "BYTEWORKER_NO_AUTO_UPDATE": "0",
+                            },
+                            text=True,
+                            capture_output=True,
+                        )
+                        self.assertEqual(1, completed.returncode)
+                        self.assertEqual("", completed.stdout)
+                        self.assertIn(branch or "detached HEAD", completed.stderr)
+                        self.assertIn("仅支持 master", completed.stderr)
+                        self.assertEqual(head, self.run_git(repo, "rev-parse", "HEAD").stdout)
+                        self.assertEqual(before_state, state.read_bytes())
+                        self.assertFalse((repo / "hook-ran").exists())
+                        self.assertFalse((repo / ".git" / "FETCH_HEAD").exists())
+                        self.assertFalse((repo / ".update-check.lock").exists())
+
     def test_postflight_runs_only_after_a_real_fast_forward(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             root = Path(temporary)

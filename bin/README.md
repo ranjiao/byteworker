@@ -1158,7 +1158,8 @@ bin/update-check.sh --force
 - 只允许 fast-forward，不覆盖本地分叉或冲突改动。
 - 只有代码 HEAD 真实变化后才触发 postflight doctor。
 - `BYTEWORKER_NO_AUTO_UPDATE=1` 可停用。
-- 始终退出 `0`；有输出表示需要把 notice 告诉用户，无输出表示无需处理。
+- 非 `master` 分支或 detached HEAD 直接报错并退出 `1`，不更新、不自动切分支；`--force` 不绕过。
+- 其它情况退出 `0`；有输出表示需要把 notice 告诉用户，无输出表示无需处理。
 
 查询当前状态：
 

@@ -11,7 +11,7 @@
 #   有输出 = 已更新及其 doctor 摘要,或自动更新不可用、需用户处理
 #             (SKILL.md 把该行转告用户);
 #   无输出 = 未到检查/重试周期、另一进程正在检查、或已是最新。
-# 始终 exit 0,绝不打断调用方。
+# 非 master 分支报错并 exit 1；其余情况 exit 0。
 #
 # 协议适配:本仓库是 public repo,HTTPS 拉取无需认证。
 # 若当前 origin 是 SSH(git@github.com) 但环境无 SSH key,
@@ -38,6 +38,14 @@ NOTICE=""
 PYTHON_BIN="${BYTEWORKER_PYTHON_BIN:-python3}"
 
 [ "${BYTEWORKER_NO_AUTO_UPDATE:-0}" = "1" ] && exit 0
+
+if git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  BR=$(git -C "$DIR" symbolic-ref --quiet --short HEAD 2>/dev/null) || BR="detached HEAD"
+  if [ "$BR" != "master" ]; then
+    echo "byteworker:更新失败，当前为 ${BR}，自动更新仅支持 master。请检查分支后决定如何处理。" >&2
+    exit 1
+  fi
+fi
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1 || [ ! -f "$DIR/bin/update-state.py" ]; then
   echo "byteworker:更新状态工具不可用,自动更新已停用。"
@@ -139,9 +147,6 @@ if ! git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 0
 fi
 
-BR=$(git -C "$DIR" symbolic-ref --short HEAD 2>/dev/null) || \
-   BR=$(git -C "$DIR" rev-parse --abbrev-ref HEAD 2>/dev/null) || \
-   BR="master"
 if ! BEFORE=$(git -C "$DIR" rev-parse HEAD 2>/dev/null); then
   "${STATE_CMD[@]}" failure --code missing-head >/dev/null 2>&1 || true
   append_notice "byteworker:skill 仓库没有可更新的 HEAD,自动更新跳过。"
