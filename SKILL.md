@@ -205,6 +205,7 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
   `dreaming configure`，回显所有 job、timezone、日志保留期和 `next_due_at`，再询问确认。
 - `enabled=true` 不等于会自动运行。宿主任务真实创建后必须 `dreaming harness register`；
   只有 `harness.status=installed` 且 `operational=true` 才能声称后台已配置完成。
+  宿主无本地定时能力时只提供前台单次分析。
 - 检测到 TRAE / TRAE SOLO / TraeWork 环境时必须加载 `references/dreaming-harness-trae.md`。
   当前会话没有 Schedule 工具时，提示用户在 TRAE 任务面板创建本地 Code 定时任务、每 30 分钟
   执行 runner，并先 Run now；没有真实任务和首次触发证据时保持 harness pending，禁止猜私有
@@ -220,7 +221,7 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
 - `process prepare` 后的 Agent 分析必须读 `references/dreaming-analysis.md`；Finding 持久与去重
   规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
 - 后台 process 每轮先快照并重放全部已登记且启用的 routine 来源，包括 Profile 和普通 digest
-  仍兼容的历史 raw 来源；逐源执行原有来源规则、语义分析和 DigestTxn，只有真实
+  仍兼容的历史 raw 来源（UID 恢复见 `references/digest-routine.md`）；逐源执行原有来源规则、语义分析和 DigestTxn，只有真实
   `committed/noop` 才算完成。Wiki 子树沿用原有完整扫描与变化展示语义。全部来源完成后才推进
   来源覆盖 checkpoint；任一来源失败则 process 失败且报告保持阻塞。
 - 任何报告、Todo、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在

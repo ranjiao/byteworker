@@ -41,6 +41,33 @@ def _source_key(source_type: str, source_uid: str) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def _legacy_identity_keys(frontmatter: Mapping[str, Any]) -> list[tuple[str, str, str]]:
+    source_type = str(frontmatter.get("source_type", "")).strip()
+    keys = []
+    source_url = str(frontmatter.get("source_url", "")).strip()
+    if source_type and source_url:
+        keys.append((source_type, "source_url", source_url))
+    source_chat_id = str(frontmatter.get("source_chat_id", "")).strip()
+    if source_type == "feishu_chat" and source_chat_id:
+        keys.append((source_type, "source_chat_id", source_chat_id))
+    return keys
+
+
+def _recover_legacy_uid(
+    candidates: list[tuple[datetime | None, str]],
+) -> str:
+    """Recover only an unambiguous identity; filenames do not establish recency."""
+    uids = {uid for _, uid in candidates}
+    if len(uids) == 1:
+        return next(iter(uids))
+    dated = [(ingested, uid) for ingested, uid in candidates if ingested is not None]
+    if not dated or len(dated) != len(candidates):
+        return ""
+    latest = max(ingested for ingested, _ in dated)
+    latest_uids = {uid for ingested, uid in dated if ingested == latest}
+    return next(iter(latest_uids)) if len(latest_uids) == 1 else ""
+
+
 def routine_inventory(kb: Path) -> list[dict[str, Any]]:
     try:
         profiles = list_profiles(kb)
@@ -73,19 +100,37 @@ def routine_inventory(kb: Path) -> list[dict[str, Any]]:
                 "origin": "profile",
             }
         )
-    legacy: dict[tuple[str, str], dict[str, Any]] = {}
-    supported_legacy_types = set(create_default_registry().source_types())
+    raw_records = []
+    identity_uids: dict[tuple[str, str, str], list[tuple[datetime | None, str]]] = {}
     for raw_path in sorted((kb / "raw_data").glob("*.md")):
         frontmatter, _ = parse_file(str(raw_path))
+        raw_records.append((raw_path, frontmatter))
+        source_uid = str(frontmatter.get("source_uid", "")).strip()
+        if source_uid:
+            for identity_key in _legacy_identity_keys(frontmatter):
+                identity_uids.setdefault(identity_key, []).append(
+                    (parse_time(frontmatter.get("ingested")), source_uid)
+                )
+
+    legacy: dict[tuple[str, str], dict[str, Any]] = {}
+    supported_legacy_types = set(create_default_registry().source_types())
+    for raw_path, frontmatter in raw_records:
         cadence = str(frontmatter.get("routine", "")).strip()
         source_type = str(frontmatter.get("source_type", "")).strip()
         source_uid = str(frontmatter.get("source_uid", "")).strip()
         if cadence not in {"daily", "weekly", "monthly"}:
             continue
+        if source_type and not source_uid:
+            candidates = [
+                candidate
+                for identity_key in _legacy_identity_keys(frontmatter)
+                for candidate in identity_uids.get(identity_key, [])
+            ]
+            source_uid = _recover_legacy_uid(candidates)
         if not source_type or not source_uid:
             raise DreamingError(
                 "DREAMING_ROUTINE_SOURCE_INVALID",
-                "历史定期来源缺少稳定 source_type/source_uid，无法后台重放。",
+                "历史定期来源缺少稳定 source_type/source_uid，且无法从同源归档唯一恢复。",
                 details={"raw_path": str(raw_path.relative_to(kb))},
             )
         if source_uid in profile_uids:
