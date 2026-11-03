@@ -112,7 +112,7 @@ class SessionPreflightTests(unittest.TestCase):
             self.assertEqual(["feishu"], result["required_sources"])
             self.assertEqual(str(kb.resolve()), result["kb"])
 
-    def test_surfaces_background_capability_suggestion_only_when_otherwise_quiet(self):
+    def test_background_suggestion_coexists_with_report_upgrade_and_todo(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.layout(root)
@@ -134,14 +134,14 @@ class SessionPreflightTests(unittest.TestCase):
                 mock.patch.object(
                     session_preflight,
                     "_run_json",
-                    return_value=(0, [], ""),
+                    return_value=(0, [{"id": "todo-1", "title": "due"}], ""),
                 ),
                 mock.patch.object(
                     session_preflight,
                     "report_status",
                     return_value={
                         "needs_onboarding": False,
-                        "prompt_upgrade_available": False,
+                        "prompt_upgrade_available": True,
                     },
                 ),
                 mock.patch.object(
@@ -156,8 +156,11 @@ class SessionPreflightTests(unittest.TestCase):
                     allow_capability_suggestions=True,
                 )
             self.assertEqual("attention", result["status"])
-            self.assertEqual("CAPABILITY_SUGGESTION", result["notices"][0]["code"])
-            self.assertEqual(suggestion, result["notices"][0]["data"]["suggestion"])
+            self.assertEqual(
+                ["TODO_REMINDERS", "REPORT_AUTOMATION_PROMPT_UPGRADE", "CAPABILITY_SUGGESTION"],
+                [notice["code"] for notice in result["notices"]],
+            )
+            self.assertEqual(suggestion, result["notices"][-1]["data"]["suggestion"])
 
     def test_unattended_default_never_checks_capability_suggestions(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -231,7 +234,9 @@ class SessionPreflightTests(unittest.TestCase):
                     side_effect=OSError("read only"),
                 ),
             ):
-                result = session_preflight.run_preflight(root, skip_update=True)
+                result = session_preflight.run_preflight(
+                    root, skip_update=True, allow_capability_suggestions=True
+                )
             self.assertEqual("healthy", result["status"])
             self.assertTrue(result["ready"])
             self.assertEqual([], result["notices"])

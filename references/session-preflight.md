@@ -35,7 +35,8 @@ preflight 合并：
 - `REPORT_AUTOMATION_ONBOARDING` / `REPORT_AUTOMATION_PROMPT_UPGRADE`：先完成当前请求，再按
   `references/report-scheduling.md` 询问；preflight 已负责一次性状态限频。
 - `CAPABILITY_SUGGESTION`：先完成当前请求；成功后按
-  `references/capability-discovery.md` 展示一条并记录 shown，失败或等待用户裁决时不展示。
+  `references/discovery-completion.md` 调用 complete 重新选择和记录一条，替代启动候选；不另写
+  shown。可与普通 notice 共存，blocking 时不计算。失败或等待用户裁决时不展示。
 - `UPDATE_CHECK_NOTICE`：转述有限摘要；按严重程度决定是否请用户立即处理。
 
 只有排障时运行 `bin/byteworker preflight --json`，它会额外展示 resolved executable/version。

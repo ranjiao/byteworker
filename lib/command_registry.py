@@ -94,7 +94,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "discover", "查看用户能力地图并管理低频功能建议", "system", "facade",
         "agent", "public", "stable", "state-write", "byteworker-cli/v1",
         "references/capability-discovery.md", entrypoint="discover.py",
-        operations=("status", "recommend", "feedback"),
+        operations=("status", "complete", "recommend", "diagnose", "feedback"),
     ),
     CommandSpec(
         "update-status", "读取自动更新状态", "system", "facade-special", "agent",
