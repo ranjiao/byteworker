@@ -350,8 +350,12 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
 - 通用建议至少间隔 7 天或 5 次成功使用，同一能力最多展示两次；首次 digest 后的 search 建议只
   展示一次且可绕过全局间隔。`dismissed` 单项不再展示，`snoozed_until` 到期后才恢复，全局开关优先。
 - 只有 `preflight --interactive` 才 peek 到期建议且不记录展示；无参数或 `--unattended` 禁止建议。
-  Agent 在当前交互任务成功并真实展示后显式写 `shown`；无人值守流程不调用 recommend。
-  上下文 `recommend` 在记录成功使用和返回建议时原子记录展示，避免并发重复。
+  主 Agent 在交互业务请求成功后统一调用 `complete --interactive`，重新选择一条并替代启动候选，
+  原子记成功和展示，不另记 shown。update/context 作为额外成功事件 ID，仍兼容 v1 schema。
+  无人值守流程不调用 complete/recommend；两者 CLI 默认及 --unattended 均不读写发现状态。
+- `diagnose` 返回 `byteworker-capability-diagnostic/v1` 当前快照，含 state_exists、成功次数、最后
+  提示时间、全局 gates、有界 observations 和逐规则 reasons；无锁只读原子状态，不模拟成功。
+  诊断不新增持久字段，损坏状态仍返回 CAPABILITY_DISCOVERY_STATE_INVALID。
 - 能力发现错误不阻塞其它 workflow。Dreaming 固定为 `explicit_only`，不得进入通用推荐候选。
 
 状态文件和锁为 `0600`，父目录为 `0700`，继续遵守 §1.B 的 `/state/` Git 排除规则。

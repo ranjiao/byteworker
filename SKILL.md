@@ -87,10 +87,18 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 
 ## 能力发现
 
-用户问能力地图，或成功任务需要低频推荐时，读取 `references/capability-discovery.md` 并严格执行
-其中的 status/recommend/feedback、限频和失败降级规则；不把底层 command registry 当用户功能列表。
-只有任务成功后才展示 contextual 或 preflight suggestion；语义信号必须有当前对话证据。
-无人值守 session 禁止调用 recommend 或展示任何 Tip。
+真人交互中，digest/search/update/brief/dashboard/todo/context/thinking、来源登记、报告和 Viewer
+请求成功后，最终回复前**必须**执行公共收尾，不先判断是否需要推荐：
+
+```bash
+bin/byteworker discover complete --kb "<KB>" --interactive --after <capability>
+```
+
+报告映射 `reports`，来源登记映射 `routine`，其它同名。只由主 Agent 每个用户请求调用一次；
+失败、等待用户裁决、隔离 worker、help/discover/doctor/dreaming 不执行。返回 suggestion 时在
+结果后附一句 message 和 example；null 静默。完整规则见 `references/capability-discovery.md`。
+preflight 建议只作候选，收尾重新选择，不重复展示或写 shown；语义信号须有当前对话证据。
+无人值守 session 禁止调用 complete/recommend 或展示 Tip；CLI 无交互标记也不推荐、不记使用。
 Dreaming 固定为 `explicit_only`，不进入通用推荐，仍只由用户明确意图触发完整导览。
 
 ## Context
