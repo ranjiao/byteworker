@@ -62,10 +62,7 @@ class ViewerRuntimeTests(unittest.TestCase):
                   html.indexOf('function nodeDir('),
                   html.indexOf('\\nfunction kbUrl(', html.indexOf('function nodeDir('))
                 );
-                const parseIndex = html.slice(
-                  html.indexOf('function parseIndex('),
-                  html.indexOf('\\n// ---- YAML-ish', html.indexOf('function parseIndex('))
-                );
+                const parseIndex = fs.readFileSync({json.dumps(str(ROOT / "viewer/index-parser.js"))}, 'utf8');
                 const source = constants + '\\n' + nodeDir + '\\n' + parseIndex;
                 const context = {{}};
                 vm.createContext(context);
@@ -226,10 +223,12 @@ class ViewerRuntimeTests(unittest.TestCase):
                 vm.createContext(context);
 
                 (async () => {{
+                  vm.runInContext(fs.readFileSync({json.dumps(str(ROOT / 'viewer/index-parser.js'))}, 'utf8'), context);
                   vm.runInContext(source, context, {{ filename: 'viewer/index.html' }});
                   await vm.runInContext('__viewerBoot()', context);
                   await new Promise(resolve => setTimeout(resolve, 0));
                   const result = {{
+                    home: getElement('reader-body').innerHTML,
                     brand: getElement('brand-sub').textContent,
                     scanStatus: getElement('scan-status').textContent,
                     theme: document.documentElement.dataset.theme,
@@ -247,7 +246,9 @@ class ViewerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(0, completed.returncode, completed.stderr)
         result = json.loads(completed.stdout)
-        self.assertEqual("0 个节点 · 只读", result["brand"])
+        self.assertIn("开始使用知识库", result["home"])
+        self.assertIn("本地 Markdown", result["home"])
+        self.assertEqual("0 个节点 · 知识内容只读", result["brand"])
         self.assertEqual("0 个节点 · 索引就绪", result["scanStatus"])
         self.assertEqual("light", result["theme"])
         self.assertEqual("normal", result["density"])

@@ -244,7 +244,7 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
 - 用户明确要求分析今天、昨天或指定窗口的 IM 时，使用 foreground
   `dreaming process once --source im`；独立 Inbox 已移除，旧命令只返回 `INBOX_REMOVED`。
 - Dreaming 只通过公开 `bin/byteworker` 命令调用既有能力，不 import digest/query 内部模块。
-- Dreaming 禁用、失败或状态损坏不能阻塞 digest/search/update 等既有能力。
+- Dreaming 禁用、失败或状态损坏不能阻塞 digest/search/update。
 
 ## 安全与架构
 
@@ -257,5 +257,6 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
   原文、不为发状态主动轮询。大型 worker 由主 Agent 使用有界等待，避免主/子双重处理。
 
 系统边界以 [`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md) 为准，
-schema 以 [`docs/development/DESIGN.md`](docs/development/DESIGN.md) 为准。修改模块、依赖、
-信息流、失败边界或成功判定时，必须在**同一变更**同步架构文档和契约测试。
+schema 以 `docs/development/DESIGN.md` 为准。模块、依赖、信息流、失败边界或成功判定变化时，**同一变更**同步架构文档和契约测试。
+
+失败恢复见 `references/error-recovery.md`。
