@@ -76,6 +76,9 @@ bin/byteworker dreaming harness register --kb "<KB>" --task-id "<宿主任务 id
 `--acknowledge-capability-tour`；未确认成本和机器条件时不能代填
 `--acknowledge-machine-runtime`；未逐项展示 schedule 时不能代填 `--acknowledge-schedule`。
 `enabled=true` 但 harness 为 `pending/error` 时必须明确说“不会自动运行”，不能声称后台已完成。
+如果宿主没有真实本地定时任务能力，必须先说明后台不可用，只能按
+`references/dreaming-review.md` 做前台单次分析；写入配置不代表任务已接通。用户需要自动运行时，
+引导其在支持本地任务的宿主打开同一知识库；不能仅根据产品名称推断当前能力。
 
 ## 禁用与状态
 

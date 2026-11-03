@@ -328,6 +328,183 @@ class DreamingDigestTests(unittest.TestCase):
             self.assertEqual(1, len(inventory))
             self.assertEqual("profile", inventory[0]["origin"])
 
+    def test_legacy_routine_recovers_uid_from_newer_raw_with_same_url(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            now = datetime(2026, 8, 3, 23, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), now)
+            (kb / "raw_data" / "legacy.md").write_text(
+                "---\n"
+                "source_type: feishu_doc\n"
+                "source_url: https://example.test/wiki/wiki123\n"
+                "routine: weekly\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+            (kb / "raw_data" / "middle.md").write_text(
+                "---\n"
+                "source_type: feishu_doc\n"
+                "source_uid: stale-wiki-token\n"
+                "source_url: https://example.test/wiki/wiki123\n"
+                "ingested: 2026-08-03T00:00:00Z\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+            (kb / "raw_data" / "newest.md").write_text(
+                "---\n"
+                "source_type: feishu_doc\n"
+                "source_uid: docx123\n"
+                "source_url: https://example.test/wiki/wiki123\n"
+                "ingested: 2026-08-04T00:00:00Z\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+
+            inventory = routine_inventory(kb)
+
+            self.assertEqual(1, len(inventory))
+            self.assertEqual("docx123", inventory[0]["source_uid"])
+            self.assertEqual("raw_data/legacy.md", inventory[0]["raw_path"])
+
+    def write_legacy_raw(self, kb, name, **fields):
+        path = kb / "raw_data" / name
+        path.write_text(
+            "\n".join(["---", *(f"{key}: {value}" for key, value in fields.items()), "---", "body", ""]),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_legacy_routine_preserves_explicit_uid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary), datetime(2026, 8, 3, tzinfo=timezone.utc))
+            self.write_legacy_raw(
+                kb, "a-routine.md", source_type="feishu_doc", source_uid="explicit-uid",
+                source_url="https://example.test/wiki/shared", routine="weekly",
+                ingested="2026-08-03T00:00:00Z",
+            )
+            self.write_legacy_raw(
+                kb, "z-other.md", source_type="feishu_doc", source_uid="different-uid",
+                source_url="https://example.test/wiki/shared", ingested="2026-08-04T00:00:00Z",
+            )
+
+            inventory = routine_inventory(kb)
+
+            self.assertEqual(["explicit-uid"], [item["source_uid"] for item in inventory])
+
+    def test_legacy_uid_recovery_uses_ingested_time_not_filename(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary), datetime(2026, 8, 3, tzinfo=timezone.utc))
+            self.write_legacy_raw(
+                kb, "legacy.md", source_type="feishu_doc",
+                source_url="https://example.test/wiki/shared", routine="weekly",
+            )
+            self.write_legacy_raw(
+                kb, "z-old.md", source_type="feishu_doc", source_uid="old-uid",
+                source_url="https://example.test/wiki/shared", ingested="2026-08-05T00:30:00+08:00",
+            )
+            self.write_legacy_raw(
+                kb, "a-new.md", source_type="feishu_doc", source_uid="new-uid",
+                source_url="https://example.test/wiki/shared", ingested="2026-08-04T17:00:00Z",
+            )
+            before = {path: path.read_bytes() for path in (kb / "raw_data").glob("*.md")}
+
+            inventory = routine_inventory(kb)
+
+            self.assertEqual(["new-uid"], [item["source_uid"] for item in inventory])
+            self.assertEqual("raw_data/legacy.md", inventory[0]["raw_path"])
+            self.assertEqual(before, {path: path.read_bytes() for path in before})
+
+    def test_legacy_uid_recovery_fails_closed_when_chronology_is_ambiguous(self):
+        for uncertain_time in (
+            None, "not-a-time", "2026-08-04", "2026-08-04T00:00:00",
+            "2026-08-04T08:00:00+08:00",
+        ):
+            with self.subTest(ingested=uncertain_time), tempfile.TemporaryDirectory() as temporary:
+                kb = self.make_kb(Path(temporary), datetime(2026, 8, 3, tzinfo=timezone.utc))
+                self.write_legacy_raw(
+                    kb, "legacy.md", source_type="feishu_doc",
+                    source_url="https://example.test/wiki/shared", routine="weekly",
+                )
+                self.write_legacy_raw(
+                    kb, "a.md", source_type="feishu_doc", source_uid="uid-a",
+                    source_url="https://example.test/wiki/shared", ingested="2026-08-04T00:00:00Z",
+                )
+                fields = {"ingested": uncertain_time} if uncertain_time is not None else {}
+                self.write_legacy_raw(
+                    kb, "z.md", source_type="feishu_doc", source_uid="uid-b",
+                    source_url="https://example.test/wiki/shared", **fields,
+                )
+
+                with self.assertRaises(DreamingError) as caught:
+                    routine_inventory(kb)
+
+                self.assertEqual("DREAMING_ROUTINE_SOURCE_INVALID", caught.exception.code)
+
+    def test_legacy_uid_recovery_accepts_consistent_uid_without_timestamps(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary), datetime(2026, 8, 3, tzinfo=timezone.utc))
+            self.write_legacy_raw(
+                kb, "legacy.md", source_type="feishu_doc",
+                source_url="https://example.test/wiki/shared", routine="weekly",
+            )
+            for name in ("a.md", "z.md"):
+                self.write_legacy_raw(
+                    kb, name, source_type="feishu_doc", source_uid="consistent-uid",
+                    source_url="https://example.test/wiki/shared",
+                )
+
+            inventory = routine_inventory(kb)
+
+            self.assertEqual(["consistent-uid"], [item["source_uid"] for item in inventory])
+
+    def test_legacy_uid_recovery_requires_same_source_identity(self):
+        for other_type, other_url in (
+            ("feishu_chat", "https://example.test/wiki/shared"),
+            ("feishu_doc", "https://example.test/wiki/other"),
+        ):
+            with self.subTest(source_type=other_type, source_url=other_url), tempfile.TemporaryDirectory() as temporary:
+                kb = self.make_kb(Path(temporary), datetime(2026, 8, 3, tzinfo=timezone.utc))
+                self.write_legacy_raw(
+                    kb, "legacy.md", source_type="feishu_doc",
+                    source_url="https://example.test/wiki/shared", routine="weekly",
+                )
+                self.write_legacy_raw(
+                    kb, "other.md", source_type=other_type, source_uid="unrelated-uid",
+                    source_url=other_url,
+                )
+
+                with self.assertRaises(DreamingError) as caught:
+                    routine_inventory(kb)
+
+                self.assertEqual("DREAMING_ROUTINE_SOURCE_INVALID", caught.exception.code)
+
+    def test_legacy_chat_recovery_respects_enabled_and_disabled_profiles(self):
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled), tempfile.TemporaryDirectory() as temporary:
+                kb = self.make_kb(Path(temporary), datetime(2026, 8, 3, tzinfo=timezone.utc))
+                profile = feishu_chat_profile()
+                profile["routine"]["enabled"] = enabled
+                if not enabled:
+                    profile["routine"]["cadence"] = ""
+                self.save_profile(kb, profile)
+                self.write_legacy_raw(
+                    kb, "legacy.md", source_type="feishu_chat",
+                    source_chat_id=profile["source_uid"], routine="weekly",
+                )
+                self.write_legacy_raw(
+                    kb, "newer.md", source_type="feishu_chat", source_uid=profile["source_uid"],
+                    source_chat_id=profile["source_uid"], routine="weekly",
+                )
+
+                inventory = routine_inventory(kb)
+
+                self.assertEqual(1 if enabled else 0, len(inventory))
+                if enabled:
+                    self.assertEqual("profile", inventory[0]["origin"])
+                    self.assertEqual(profile["routine"]["cadence"], inventory[0]["cadence"])
+
     def test_legacy_routine_without_identity_fails_closed(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             now = datetime(2026, 8, 3, 23, tzinfo=timezone.utc)
