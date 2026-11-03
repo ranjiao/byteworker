@@ -5,6 +5,9 @@
 
 ## 1. 一次预处理
 
+标准 `digest-flow prepare` 已完成本节预处理和 dependency/semantic planner；复用返回的 packet/plan，
+不得因加载本文件再跑一遍。下面的底层 prepare 命令仅用于恢复或诊断。
+
 SourceBundle preflight 返回 `new_source/new_version/resume_failed` 后，先开启 `analysis_prepare`，运行：
 
 ```bash
@@ -32,8 +35,8 @@ worker 启动和规则闭包加载不得计入 `dependency_review` 或 `conflict
 
 ## 2. 依赖与语义顺序
 
-1. `dependency_review` 先按 `references/digest-concurrency.md` 运行
-   `digest-parallel plan --stage dependency`，只消费各 shard 的 `dependency_candidates`，批量判断哪些候选满足
+1. `dependency_review` 复用 flow 返回的 dependency plan（底层恢复才运行
+   `digest-parallel plan --stage dependency`），只消费各 shard 的 `dependency_candidates`，批量判断哪些候选满足
    `references/digest-dependencies.md`。不得再对正文运行多轮 `rg/jq`，也不得读取未授权依赖正文。
 2. 用户确认依赖边界后进入 `semantic_analysis`，按 planner 的 inline/parallel 决定只消费 packet 或
    各 shard；merge 后由单一 reducer 形成事实、实体、决策、立场、evidence anchor，以及紧凑的

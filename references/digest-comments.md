@@ -43,7 +43,7 @@
 
 ## 人员优先级
 
-先读 `context.md`,再把评论 / 回复里的 `user_id` 批量交给
+先消费 `context view --intent digest` 的投影，再把评论 / 回复里的 `user_id` 批量交给
    `bin/byteworker run bin/resolve-users.sh --ids ... --format json --jobs 4`，解析姓名、`feishu_id` 与当前通讯录画像;
 新建 / 更新 person 的规则仍按 `references/digest-doc.md`。
 

@@ -15,18 +15,18 @@
         "references/digest-core.md",
         "references/discovery-completion.md",
         "references/digest-flow.md",
-        "references/digest-observability.md",
-        "references/digest-analysis-pipeline.md",
-        "references/digest-concurrency.md",
+        "references/digest-inline.md",
         "references/digest-dependencies.md",
-        "references/digest-transaction.md",
         "references/provenance.md",
         "references/write-rules.md",
         "references/conflict-policy.md",
         "references/semantic-policy.md"
       ],
       "on_error": [
-        "references/error-handling.md"
+        "references/error-handling.md",
+        "references/digest-observability.md",
+        "references/digest-analysis-pipeline.md",
+        "references/digest-transaction.md"
       ],
       "source_type": {
         "feishu_doc": [
@@ -47,13 +47,31 @@
         "whiteboard": ["references/digest-whiteboard.md"],
         "stakeholder_analysis": ["references/digest-analysis.md"],
         "large_input": ["references/digest-large.md"],
-        "routine": ["references/digest-routine.md"]
+        "routine": ["references/digest-routine.md"],
+        "parallel_execution": [
+          "references/digest-analysis-pipeline.md",
+          "references/digest-concurrency.md"
+        ],
+        "recovery": [
+          "references/digest-observability.md",
+          "references/digest-transaction.md"
+        ],
+        "batch": [
+          "references/digest-transaction.md"
+        ],
+        "internal_reading": ["references/digest-reading.md"]
       }
     },
     "large_digest_worker": {
       "extends": "digest",
       "include_router": false,
-      "required": ["references/digest-large.md"],
+      "required": [
+        "references/digest-large.md",
+        "references/digest-observability.md",
+        "references/digest-analysis-pipeline.md",
+        "references/digest-concurrency.md",
+        "references/digest-transaction.md"
+      ],
       "worker_prompt": ["templates/digest-worker-prompt.md"]
     },
     "digest_dependency_worker": {
@@ -102,7 +120,11 @@
       "include_router": false,
       "required": [
         "references/wiki-digest-jobs.md",
-        "references/digest-doc.md"
+        "references/digest-doc.md",
+        "references/digest-observability.md",
+        "references/digest-analysis-pipeline.md",
+        "references/digest-concurrency.md",
+        "references/digest-transaction.md"
       ],
       "worker_prompt": ["templates/digest-worker-prompt.md"]
     },
@@ -211,6 +233,7 @@
         "routine_digest": [
           "references/digest-core.md",
           "references/digest-flow.md",
+          "references/digest-inline.md",
           "references/digest-observability.md",
           "references/digest-analysis-pipeline.md",
           "references/digest-concurrency.md",

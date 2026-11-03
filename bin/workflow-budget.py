@@ -14,17 +14,24 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from workflow_budget import WorkflowBudgetError, inspect_budget  # noqa: E402
+from workflow_budget import (  # noqa: E402
+    WorkflowBudgetError,
+    inspect_budget,
+    load_manifest,
+    resolve_route,
+)
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="inspect complete workflow token budgets")
+    result = argparse.ArgumentParser(description="resolve workflow rules or inspect token budgets")
     sub = result.add_subparsers(dest="command", required=True)
-    inspect = sub.add_parser("inspect")
-    inspect.add_argument("--workflow", required=True)
-    inspect.add_argument("--source-type", default="")
-    inspect.add_argument("--feature", action="append", default=[])
-    inspect.add_argument("--include-on-error", action="store_true")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--workflow", required=True)
+    common.add_argument("--source-type", default="")
+    common.add_argument("--feature", action="append", default=[])
+    common.add_argument("--include-on-error", action="store_true")
+    sub.add_parser("resolve", parents=[common], help="return only selected rule paths")
+    inspect = sub.add_parser("inspect", parents=[common], help="measure complete token budgets")
     inspect.add_argument("--context", type=Path)
     inspect.add_argument("--source-packet", type=Path)
     return result
@@ -33,14 +40,23 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     try:
-        value = inspect_budget(
+        route_args = dict(
             workflow=args.workflow,
             source_type=args.source_type,
             features=args.feature,
             include_on_error=args.include_on_error,
-            context_path=args.context,
-            source_packet_path=args.source_packet,
         )
+        if args.command == "resolve":
+            value = {
+                "schema_version": "byteworker-workflow-route/v1",
+                **resolve_route(load_manifest(), **route_args),
+            }
+        else:
+            value = inspect_budget(
+                **route_args,
+                context_path=args.context,
+                source_packet_path=args.source_packet,
+            )
     except WorkflowBudgetError as exc:
         json.dump({"error": exc.as_dict()}, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")
