@@ -281,7 +281,7 @@ def run_preflight(
                 )
             )
 
-    if allow_capability_suggestions and not notices and not blocking:
+    if allow_capability_suggestions and not blocking:
         try:
             suggestion = peek_background_recommendation(kb)
         except (CapabilityDiscoveryError, OSError):

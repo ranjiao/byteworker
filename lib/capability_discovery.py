@@ -16,6 +16,7 @@ from typing import Any, Iterator, Mapping, Sequence
 STATE_SCHEMA = "byteworker-capability-discovery/v1"
 STATUS_SCHEMA = "byteworker-capability-status/v1"
 RECOMMENDATION_SCHEMA = "byteworker-capability-recommendation/v1"
+DIAGNOSTIC_SCHEMA = "byteworker-capability-diagnostic/v1"
 CATALOG_SCHEMA = "byteworker-capability-catalog/v1"
 TIP_COOLDOWN = timedelta(days=7)
 TIP_SUCCESS_INTERVAL = 5
@@ -290,19 +291,6 @@ def _is_unused(state: Mapping[str, Any], capability_id: str) -> bool:
     return int(events.get(capability_id, 0)) == 0 and int(capability.get("uses", 0)) == 0
 
 
-def _available_for_tip(
-    state: Mapping[str, Any], capability_id: str, now: datetime
-) -> bool:
-    capabilities = state.get("capabilities", {})
-    value = capabilities.get(capability_id, {}) if isinstance(capabilities, Mapping) else {}
-    if value.get("disposition", "active") == "dismissed":
-        return False
-    if int(value.get("impressions", 0)) >= MAX_CAPABILITY_IMPRESSIONS:
-        return False
-    snoozed_until = _parse_time(value.get("snoozed_until"))
-    return snoozed_until is None or snoozed_until <= now
-
-
 def _cadence_ready(state: Mapping[str, Any], now: datetime) -> bool:
     last_tip = _parse_time(state.get("last_tip_at"))
     if last_tip is None:
@@ -321,7 +309,7 @@ def _thresholds_match(actual: Mapping[str, Any], expected: object) -> bool:
     return True
 
 
-def _rule_matches(
+def _rule_reasons(
     rule: Mapping[str, Any],
     *,
     state: Mapping[str, Any],
@@ -330,37 +318,44 @@ def _rule_matches(
     after: str,
     signals: set[str],
     background: bool,
-) -> bool:
+) -> list[str]:
+    reasons = []
     if bool(rule.get("background")) != background:
-        return False
+        reasons.append("trigger_mismatch")
     after_any = set(rule.get("after_any", []))
     if after_any and after not in after_any:
-        return False
+        reasons.append("after_mismatch")
     signal_any = set(rule.get("signal_any", []))
     if signal_any and not signal_any.intersection(signals):
-        return False
+        reasons.append("signal_required")
     events = state.get("events", {})
     if not isinstance(events, Mapping) or not _thresholds_match(
         events, rule.get("minimum_events")
     ):
-        return False
+        reasons.append("insufficient_events")
     if not _thresholds_match(facts, rule.get("minimum_facts")):
-        return False
+        reasons.append("insufficient_facts")
     equal = rule.get("facts_equal", {})
     if isinstance(equal, Mapping) and any(facts.get(key) != value for key, value in equal.items()):
-        return False
+        reasons.append("configuration_mismatch")
     if any(not _is_unused(state, item) for item in rule.get("requires_unused", [])):
-        return False
+        reasons.append("already_used")
     capability_id = str(rule["capability_id"])
-    if not _available_for_tip(state, capability_id, now):
-        return False
     capabilities = state.get("capabilities", {})
     capability = capabilities.get(capability_id, {}) if isinstance(capabilities, Mapping) else {}
-    if int(capability.get("impressions", 0)) >= int(
-        rule.get("max_impressions", MAX_CAPABILITY_IMPRESSIONS)
+    if capability.get("disposition") == "dismissed":
+        reasons.append("dismissed")
+    snoozed_until = _parse_time(capability.get("snoozed_until"))
+    if snoozed_until and snoozed_until > now:
+        reasons.append("snoozed")
+    if int(capability.get("impressions", 0)) >= min(
+        int(rule.get("max_impressions", MAX_CAPABILITY_IMPRESSIONS)),
+        MAX_CAPABILITY_IMPRESSIONS,
     ):
-        return False
-    return bool(rule.get("bypass_cooldown")) or _cadence_ready(state, now)
+        reasons.append("impression_limit")
+    if not rule.get("bypass_cooldown") and not _cadence_ready(state, now):
+        reasons.append("cooldown")
+    return reasons
 
 
 def _select_suggestion(
@@ -380,7 +375,7 @@ def _select_suggestion(
         reverse=True,
     )
     for rule in rules:
-        if not _rule_matches(
+        if _rule_reasons(
             rule,
             state=state,
             facts=facts,
@@ -451,7 +446,7 @@ def recommend(
 ) -> dict[str, Any]:
     current = now or _now()
     catalog = load_catalog(catalog_path)
-    known = {item["id"] for item in catalog["capabilities"]}
+    known = {item["id"] for item in catalog["capabilities"]} | {"update", "context"}
     if after not in known:
         raise CapabilityDiscoveryError(
             "CAPABILITY_UNKNOWN", f"未知能力: {after}"
@@ -485,6 +480,10 @@ def recommend(
                 after=after,
                 signals=normalized_signals,
             )
+            if suggestion is None:
+                suggestion = _select_suggestion(
+                    catalog, state=state, facts=facts, now=current, background=True
+                )
         if suggestion:
             _record_shown(state, suggestion["capability_id"], current)
         _save_unlocked(kb, state, current)
@@ -492,7 +491,65 @@ def recommend(
         "schema_version": RECOMMENDATION_SCHEMA,
         "recorded_success": after,
         "suggestion": suggestion,
+        "reason": "recommended" if suggestion else (
+            "tips_disabled" if not state.get("tips_enabled", True) else "no_eligible_rule"
+        ),
     }
+
+
+def complete(
+    kb: Path, *, after: str, interactive: bool = False,
+    outcome: str = "success", signals: Sequence[str] = (),
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Finish one user task; reject unattended or unsuccessful work before any I/O."""
+    if outcome not in {"success", "failed", "needs_input"}:
+        raise CapabilityDiscoveryError("CAPABILITY_OUTCOME_INVALID", "未知任务结果。")
+    reason = "unattended" if not interactive else (
+        f"task_{outcome}" if outcome != "success" else ""
+    )
+    if reason:
+        return {"schema_version": RECOMMENDATION_SCHEMA, "recorded_success": None,
+                "suggestion": None, "reason": reason}
+    return recommend(kb, after=after, signals=signals, now=now)
+
+
+def diagnose(
+    kb: Path, *, after: str = "", interactive: bool = False,
+    outcome: str = "success", signals: Sequence[str] = (),
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Explain current eligibility without creating locks or consuming a tip."""
+    current = now or _now()
+    catalog = load_catalog()
+    if after and after not in set(capability_ids()) | {"update", "context"}:
+        raise CapabilityDiscoveryError("CAPABILITY_UNKNOWN", f"未知能力: {after}")
+    if set(signals) - VALID_SIGNALS:
+        raise CapabilityDiscoveryError("CAPABILITY_SIGNAL_UNKNOWN", "未知能力发现信号。")
+    if outcome not in {"success", "failed", "needs_input"}:
+        raise CapabilityDiscoveryError("CAPABILITY_OUTCOME_INVALID", "未知任务结果。")
+    state = _load_unlocked(kb, current)
+    facts = _observations(kb, bounded=True)
+    gates = []
+    if not interactive:
+        gates.append("unattended")
+    if outcome != "success":
+        gates.append(f"task_{outcome}")
+    if not state.get("tips_enabled", True):
+        gates.append("tips_disabled")
+    rules = []
+    for rule in catalog["recommendations"]:
+        reasons = _rule_reasons(
+            rule, state=state, facts=facts, now=current, after=after,
+            signals=set(signals), background=bool(rule.get("background")),
+        )
+        rules.append({"id": rule["id"], "capability_id": rule["capability_id"],
+                      "eligible": not gates and not reasons, "reasons": gates + reasons})
+    return {"schema_version": DIAGNOSTIC_SCHEMA, "evaluation": "current_state",
+            "state_exists": state_path(kb).is_file(),
+            "successful_uses": state.get("successful_uses", 0),
+            "last_tip_at": state.get("last_tip_at"), "gates": gates,
+            "observations": facts, "rules": rules}
 
 
 def peek_background_recommendation(
