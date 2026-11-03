@@ -269,9 +269,10 @@ class CommandRegistryTests(unittest.TestCase):
             env = {
                 **os.environ,
                 "HOME": str(root),
-                "PATH": "/usr/bin:/bin:/usr/local/bin",
+                "PATH": f"{target_bin}:/usr/bin:/bin:/usr/local/bin",
                 "BYTEWORKER_PYTHON_BIN": sys.executable,
             }
+            (target_bin / "python3").symlink_to(sys.executable)
             completed = subprocess.run(
                 [str(target_bin / "byteworker"), "--help"],
                 cwd=root,

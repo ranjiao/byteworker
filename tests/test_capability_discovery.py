@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,8 @@ if str(LIB) not in sys.path:
 from capability_discovery import (  # noqa: E402
     CATALOG_SCHEMA,
     STATE_SCHEMA,
+    complete,
+    diagnose,
     feedback,
     load_catalog,
     peek_background_recommendation,
@@ -178,6 +181,139 @@ class CapabilityDiscoveryTests(unittest.TestCase):
                 "byteworker-capability-status/v1",
                 envelope["data"]["schema_version"],
             )
+
+    def test_interactive_completion_reaches_milestones_without_preflight_and_no_duplicates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            for index in range(3):
+                (kb / "knowledge/projects" / f"project-{index}.md").touch()
+            first = complete(kb, after="search", interactive=True, now=NOW)
+            self.assertEqual("dashboard", first["suggestion"]["capability_id"])
+            second = complete(kb, after="search", interactive=True, now=NOW)
+            self.assertIsNone(second["suggestion"])
+            saved = json.loads(state_path(kb).read_text())
+            self.assertEqual(2, saved["events"]["search"])
+            self.assertEqual(1, saved["capabilities"]["dashboard"]["impressions"])
+            # Using the candidate capability makes it ineligible even after cooldown.
+            self.assertIsNone(complete(kb, after="dashboard", interactive=True,
+                                     now=NOW + timedelta(days=8))["suggestion"])
+
+    def test_failed_and_unattended_completions_do_not_create_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            for interactive, outcome, reason in (
+                (False, "success", "unattended"),
+                (True, "failed", "task_failed"),
+                (True, "needs_input", "task_needs_input"),
+            ):
+                result = complete(kb, after="digest", interactive=interactive,
+                                  outcome=outcome, now=NOW)
+                self.assertEqual(reason, result["reason"])
+                self.assertIsNone(result["suggestion"])
+                self.assertFalse((kb / "state").exists())
+
+    def test_contextual_priority_and_update_judgment_signal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            for index in range(3):
+                (kb / "knowledge/projects" / f"project-{index}.md").touch()
+            first = complete(kb, after="digest", interactive=True, now=NOW)
+            self.assertEqual("search", first["suggestion"]["capability_id"])
+            result = complete(kb, after="update", interactive=True,
+                              signals=["user_judgment"], now=NOW + timedelta(days=8))
+            self.assertEqual("thinking", result["suggestion"]["capability_id"])
+
+    def test_diagnosis_is_read_only_and_explains_suppression(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            result = diagnose(kb, after="digest", interactive=True, now=NOW)
+            self.assertFalse(result["state_exists"])
+            self.assertFalse((kb / "state").exists())
+            rules = {r["id"]: r for r in result["rules"]}
+            self.assertIn("insufficient_events", rules["search-after-first-digest"]["reasons"])
+            self.assertIn("signal_required", rules["routine-after-repeated-source"]["reasons"])
+            self.assertIn("insufficient_facts", rules["dashboard-for-multiple-projects"]["reasons"])
+            feedback(kb, action="snooze", capability_id="routine", now=NOW)
+            feedback(kb, action="dismiss", capability_id="thinking", now=NOW)
+            complete(kb, after="digest", interactive=True, now=NOW)
+            before = state_path(kb).read_bytes()
+            result = diagnose(kb, after="digest", interactive=True, now=NOW)
+            self.assertEqual(before, state_path(kb).read_bytes())
+            rules = {r["id"]: r for r in result["rules"]}
+            self.assertIn("snoozed", rules["routine-after-repeated-source"]["reasons"])
+            self.assertIn("dismissed", rules["thinking-after-user-judgment"]["reasons"])
+            self.assertIn("impression_limit", rules["search-after-first-digest"]["reasons"])
+            self.assertIn("cooldown", rules["dashboard-for-multiple-projects"]["reasons"])
+            feedback(kb, action="disable", now=NOW)
+            self.assertIn("tips_disabled", diagnose(kb, interactive=True)["gates"])
+            self.assertIn("unattended", diagnose(kb)["gates"])
+
+    def test_cli_completion_requires_interactive_and_diagnose_does_not_consume(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            def run(*args):
+                result = subprocess.run(
+                    [str(ROOT / "bin/byteworker"), "discover", *args, "--kb", str(kb)],
+                    env={**os.environ, "BYTEWORKER_NO_AUTO_UPDATE": "1"},
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                return json.loads(result.stdout)["data"]
+            for operation in ("complete", "recommend"):
+                for mode in ([], ["--unattended"]):
+                    result = run(operation, "--after", "digest", *mode)
+                    self.assertEqual("unattended", result["reason"])
+                    self.assertFalse(state_path(kb).exists())
+            run("diagnose", "--interactive", "--after", "digest")
+            self.assertFalse(state_path(kb).exists())
+            self.assertEqual("search", run("complete", "--interactive", "--after", "digest")
+                             ["suggestion"]["capability_id"])
+
+    def test_every_interactive_business_route_loads_completion_contract(self):
+        manifest = json.loads((ROOT / "references/workflow-routes.json").read_text())
+        for name in ("digest", "search", "update", "brief", "dashboard", "todo",
+                     "context", "thinking", "report"):
+            self.assertIn("references/discovery-completion.md",
+                          manifest["workflows"][name]["required"], name)
+
+    def test_daily_interaction_with_old_report_settings_reaches_one_tip(self):
+        import session_preflight
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            (kb / "context.md").touch()
+            (kb / "todo.md").touch()
+            for index in range(3):
+                (kb / "knowledge/projects" / f"project-{index}.md").touch()
+            (kb / "state").mkdir()
+            (kb / "state/report_automation.json").write_text(json.dumps({
+                "schema_version": "byteworker-report-automation/v1",
+                "decision": "configured", "prompt_version": 2,
+            }))
+            with (
+                mock.patch.object(session_preflight, "cached_check_runtime", return_value=(
+                    {"ready": True, "core_ready": True,
+                     "python": {"path": sys.executable}, "programs": {}}, "hit")),
+                mock.patch.object(session_preflight, "runtime_environment", return_value={}),
+                mock.patch.object(session_preflight, "_run_json", return_value=(0, [], "")),
+            ):
+                result = session_preflight.run_preflight(
+                    ROOT, kb_override=kb, skip_update=True, allow_capability_suggestions=True
+                )
+                self.assertEqual(
+                    ["REPORT_AUTOMATION_PROMPT_UPGRADE", "CAPABILITY_SUGGESTION"],
+                    [notice["code"] for notice in result["notices"]],
+                )
+                self.assertFalse(state_path(kb).exists())
+                done = complete(kb, after="search", interactive=True, now=NOW)
+                self.assertEqual("dashboard", done["suggestion"]["capability_id"])
+                before = state_path(kb).read_bytes()
+                automatic = session_preflight.run_preflight(
+                    ROOT, kb_override=kb, skip_update=True
+                )
+                self.assertNotIn("CAPABILITY_SUGGESTION",
+                                 [notice["code"] for notice in automatic["notices"]])
+                self.assertEqual("unattended", complete(kb, after="reports")["reason"])
+                self.assertEqual(before, state_path(kb).read_bytes())
 
 
 if __name__ == "__main__":
