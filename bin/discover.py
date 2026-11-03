@@ -18,8 +18,9 @@ from capability_discovery import (  # noqa: E402
     CapabilityDiscoveryError,
     VALID_SIGNALS,
     capability_ids,
+    complete,
+    diagnose,
     feedback,
-    recommend,
     status,
 )
 
@@ -32,12 +33,22 @@ def parser() -> argparse.ArgumentParser:
     show = sub.add_parser("status")
     show.add_argument("--kb", required=True, type=Path)
 
-    suggestion = sub.add_parser("recommend")
-    suggestion.add_argument("--kb", required=True, type=Path)
-    suggestion.add_argument("--after", required=True, choices=capability_ids())
-    suggestion.add_argument(
-        "--signal", action="append", default=[], choices=sorted(VALID_SIGNALS)
-    )
+    for operation in ("complete", "recommend", "diagnose"):
+        suggestion = sub.add_parser(operation)
+        suggestion.add_argument("--kb", required=True, type=Path)
+        suggestion.add_argument(
+            "--after", required=operation != "diagnose", default="",
+            choices=(*capability_ids(), "update", "context"),
+        )
+        suggestion.add_argument(
+            "--signal", action="append", default=[], choices=sorted(VALID_SIGNALS)
+        )
+        suggestion.add_argument(
+            "--outcome", choices=("success", "failed", "needs_input"), default="success"
+        )
+        interaction = suggestion.add_mutually_exclusive_group()
+        interaction.add_argument("--interactive", action="store_true")
+        interaction.add_argument("--unattended", action="store_true")
 
     response = sub.add_parser("feedback")
     response.add_argument("--kb", required=True, type=Path)
@@ -69,8 +80,12 @@ def _run(args: argparse.Namespace) -> object:
     kb = _validate_kb(args.kb)
     if args.operation == "status":
         return status(kb)
-    if args.operation == "recommend":
-        return recommend(kb, after=args.after, signals=args.signal)
+    if args.operation in {"complete", "recommend", "diagnose"}:
+        action = diagnose if args.operation == "diagnose" else complete
+        return action(
+            kb, after=args.after, signals=args.signal,
+            interactive=args.interactive, outcome=args.outcome,
+        )
     if args.operation == "feedback":
         return feedback(
             kb,
