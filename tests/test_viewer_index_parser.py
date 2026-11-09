@@ -43,3 +43,26 @@ class ViewerIndexParserTests(unittest.TestCase):
         self.assertEqual(['', '', 'INDEX 部分内容无法解析'], [row['issue'] for row in rows])
         self.assertEqual([[], ['project-demo'], ['project-demo']],
                          [[node['id'] for node in row['nodes']] for row in rows])
+
+    def test_person_display_fields_follow_optional_directory_columns(self):
+        cases = [
+            '## 人员 (person)\n'
+            f'| id | 标题 | {header}TL;DR | status | last_verified |\n'
+            f'| person-demo | Demo | {fields}研究 \\| 协作 | stale | 2026-11-09 |\n'
+            for header, fields in (
+                ('', ''),
+                ('feishu_id | ', 'demo | '),
+                ('feishu_id | department_path | ', 'demo | 示例组 | '),
+            )
+        ]
+        for result in self.inspect_indexes(cases):
+            with self.subTest(result=result):
+                self.assertEqual('', result['issue'])
+                self.assertEqual([{
+                    'id': 'person-demo',
+                    'title': 'Demo',
+                    'tldr': '研究 | 协作',
+                    'status': 'stale',
+                    'last_verified': '2026-11-09',
+                    'type': 'person',
+                }], result['nodes'])

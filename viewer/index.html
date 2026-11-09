@@ -390,7 +390,7 @@ body.sidebar-resizing * {
   border-left-color: var(--accent); font-weight: 500;
 }
 .entity-row .title { flex: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.entity-row .updated {
+:is(.entity-row, .home-row) .updated {
   --fresh-color: var(--ink-4);
   display: inline-flex;
   align-items: center;
@@ -408,16 +408,16 @@ body.sidebar-resizing * {
   flex-shrink: 0;
   transition: background var(--duration-fast), border-color var(--duration-fast);
 }
-.entity-row .updated.fresh-now { --fresh-color: var(--fresh-now); }
-.entity-row .updated.fresh-recent { --fresh-color: var(--fresh-recent); }
-.entity-row .updated.fresh-aging { --fresh-color: var(--fresh-aging); }
-.entity-row .updated.fresh-stale { --fresh-color: var(--fresh-stale); }
-.entity-row .updated.fresh-unknown {
+:is(.entity-row, .home-row) .updated.fresh-now { --fresh-color: var(--fresh-now); }
+:is(.entity-row, .home-row) .updated.fresh-recent { --fresh-color: var(--fresh-recent); }
+:is(.entity-row, .home-row) .updated.fresh-aging { --fresh-color: var(--fresh-aging); }
+:is(.entity-row, .home-row) .updated.fresh-stale { --fresh-color: var(--fresh-stale); }
+:is(.entity-row, .home-row) .updated.fresh-unknown {
   --fresh-color: var(--ink-4);
   background: var(--bg-chip);
   border-color: transparent;
 }
-.entity-row:hover .updated {
+:is(.entity-row, .home-row):hover .updated {
   background: color-mix(in oklch, var(--fresh-color) 17%, transparent);
   border-color: color-mix(in oklch, var(--fresh-color) 24%, transparent);
 }
@@ -458,17 +458,36 @@ body.sidebar-resizing * {
   padding: 0 16px; border-bottom: 1px solid var(--divider);
   flex-shrink: 0;
 }
-.crumbs { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; overflow: hidden; }
-.crumb {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 4px 8px; border-radius: 5px;
-  font-size: 12px; color: var(--ink-3);
-  max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  flex-shrink: 0;
+.reader-toolbar .tbtn[hidden] { display: none; }
+.reader-history {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+  container-type: inline-size;
 }
-.crumb:hover { background: var(--bg-hover); color: var(--ink); }
-.crumb.on { color: var(--ink); font-weight: 500; }
-.crumb-sep { color: var(--ink-4); font-size: 11px; padding: 0 2px; }
+.history-caption {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  color: var(--ink-3); font-size: 11px; white-space: nowrap;
+}
+.history-entries { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.history-entry {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 2;
+  min-width: 0; max-width: 220px; padding: 3px 8px;
+  border: 1px solid var(--line); border-radius: 6px;
+  font-size: 12px; color: var(--ink-2); white-space: nowrap;
+}
+.history-entry-label { overflow: hidden; text-overflow: ellipsis; }
+button.history-entry:not([aria-current]):hover { background: var(--bg-hover); border-color: var(--line-strong); }
+.history-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.history-entry[aria-current="page"] {
+  background: var(--bg-active); border-color: var(--accent-tint);
+  color: var(--ink); font-weight: 600; flex-shrink: 1;
+}
+@container (max-width: 255px) {
+  .history-caption span { display: none; }
+  .history-entries { flex: 1; }
+  .history-entry { padding-inline: 5px; }
+  .history-entry:not([aria-current]) .tdot { display: none; }
+  .history-entry[aria-current="page"] { flex-shrink: 0; max-width: 58%; }
+}
 
 .reader-body { flex: 1; overflow-y: auto; }
 .reader-inner {
@@ -507,6 +526,44 @@ body.sidebar-resizing * {
   margin: 8px 0 26px;
 }
 .reader-tldr strong { color: var(--ink); margin-right: 4px; font-weight: 600; }
+
+/* ---- home ---------------------------------------------------- */
+.reader-home { padding-inline: min(var(--reader-px, 56px), 8%); }
+.home-heading { align-items: center; flex-wrap: wrap; margin-bottom: 22px; gap: 12px; }
+.home-search { margin: 0; align-self: center; min-height: 30px; }
+.home-updates {
+  list-style: none; margin: 0; padding: 0;
+  border-block: 1px solid var(--line);
+}
+.home-updates li + li { border-top: 1px solid var(--divider); }
+.home-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+  gap: clamp(6px, 1vw, 14px); padding: 9px 8px; border-radius: 6px;
+  transition: background var(--duration-fast);
+}
+.home-row:hover { background: var(--bg-hover); }
+.home-row:focus-visible, .home-search:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
+.home-row-title {
+  display: block; color: var(--ink); font-weight: 600; line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.home-row-type {
+  display: flex; align-items: center; gap: 5px; margin-top: 3px;
+  color: var(--ink-3); font-size: 11px; line-height: 1.25;
+}
+.home-row-type .tdot { width: 6px; height: 6px; }
+.home-row-arrow {
+  color: var(--ink-4); transition: transform var(--duration-fast), color var(--duration-fast);
+}
+.home-row:hover .home-row-arrow, .home-row:focus-visible .home-row-arrow {
+  color: var(--accent); transform: translateX(2px);
+}
+.home-empty { margin: 0; color: var(--ink-3); }
+@media (prefers-reduced-motion: reduce) {
+  .home-row, .home-row-arrow { transition: none; }
+}
 
 /* ---- prose --------------------------------------------------- */
 .prose { color: var(--ink); font-size: 14.5px; line-height: 1.7; }
@@ -1142,6 +1199,30 @@ body.sidebar-resizing * {
   background: var(--ink-4); margin: 9px auto 0;
 }
 
+/* Person notes share the section and label grids used by project notes. */
+.reader-person { padding-inline: min(var(--reader-px, 56px), 8%); }
+.reader-person .sx-doc {
+  container: person-document / inline-size;
+  overflow-wrap: anywhere;
+}
+.reader-person :is(.sx-prose, .sx-kv dd.sx-kv-full, .sx-refs-row-full .sx-refs-chips) {
+  padding-left: 0;
+}
+.reader-person :is(.sx-kv dt, .sx-refs-label, .nodelink) { white-space: normal; }
+.reader-person .nodelink { max-width: 100%; }
+.reader-person .nodelink > span:last-child { min-width: 0; }
+.reader-person .sx-doc :is(.sx-stance-row, .sx-stance-party) {
+  padding: 6px 0; background: transparent; border: 0; border-radius: 0;
+}
+.reader-person :is(.sx-stance-row, .sx-stance-party) + :is(.sx-stance-row, .sx-stance-party) {
+  border-top: 1px solid var(--divider);
+}
+@container person-document (max-width: 420px) {
+  .reader-person .sx-doc .sx-kv { grid-template-columns: minmax(0, 1fr); row-gap: 6px; }
+  .reader-person .sx-kv-row { display: grid; gap: 2px; }
+  .reader-person .sx-refs-row { grid-template-columns: minmax(0, 1fr); row-gap: 2px; }
+}
+
 @media (max-width: 640px) {
   .sx-body { padding-left: 0; }
   .sx-refs-row, .sx-member-row { grid-template-columns: 1fr; row-gap: 4px; }
@@ -1443,7 +1524,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
   <!-- Reader -->
   <section class="reader-wrap">
     <div class="reader-toolbar">
-      <div class="crumbs" id="crumbs"></div>
+      <div class="reader-history" id="reader-history"></div>
       <button class="tbtn" id="btn-copy" title="复制 id">
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8a2 2 0 0 1 0-2.8l2-2a2 2 0 0 1 2.8 2.8L8 7.5"/><path d="M9 6a2 2 0 0 1 0 2.8l-2 2a2 2 0 0 1-2.8-2.8L6 6.5"/></svg>
       </button>
@@ -1655,7 +1736,7 @@ const D = {
   sidebarResizer: $('sidebar-resizer'),
   scanDot: $('scan-dot'),
   scanStatus: $('scan-status'),
-  crumbs: $('crumbs'),
+  readerHistory: $('reader-history'),
   readerBody: $('reader-body'),
   railScroll: $('rail-scroll'),
   railGraphCount: $('rail-graph-count'),
@@ -2083,11 +2164,12 @@ function updateNavButtons() {
 function renderCurrent() {
   const e = currentEntry();
   if (!e) {
-    D.crumbs.innerHTML = '';
+    D.readerHistory.innerHTML = '';
     D.railScroll.innerHTML = '<div class="empty-rail">未选中节点。</div>';
     return;
   }
-  renderCrumbs();
+  D.btnCopy.hidden = false;
+  renderReaderHistory();
   if (e.kind === 'node') {
     renderReaderNode(e.id);
     renderRail(e.id);
@@ -2271,28 +2353,32 @@ function highlightSidebar(id) {
   });
 }
 
-// ---- crumbs render ----------------------------------------
-function renderCrumbs() {
+// ---- reader history ---------------------------------------
+function renderReaderHistory() {
   const start = Math.max(0, state.hIdx - 2);
   const trail = state.history.slice(start, state.hIdx + 1);
-  const html = trail.map((e, i) => {
+  const entries = trail.map((e, i) => {
     const real = start + i;
-    const on = real === state.hIdx;
+    const current = real === state.hIdx ? ' aria-current="page"' : '';
     let label, dot = '';
     if (e.kind === 'node') {
       const n = state.byId[e.id];
       label = n ? n.title : e.id;
-      dot = n ? `<span class="tdot ${n.type}"></span>` : '';
+      dot = n ? `<span class="tdot ${n.type}" aria-hidden="true"></span>` : '';
     } else {
       label = e.label;
     }
-    return (i > 0 ? '<span class="crumb-sep">/</span>' : '') +
-      `<button class="crumb${on ? ' on' : ''}" data-i="${real}" title="${esc(label)}">
-        ${dot}<span>${esc(label)}</span>
-      </button>`;
+    return `<button type="button" class="history-entry" data-i="${real}" title="${esc(label)}"${current}>
+      ${dot}<span class="history-entry-label">${esc(label)}</span>
+    </button>`;
   }).join('');
-  D.crumbs.innerHTML = html;
-  D.crumbs.querySelectorAll('[data-i]').forEach(el => {
+  D.readerHistory.innerHTML = `
+    <span class="history-caption" aria-hidden="true" title="浏览历史">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6a5 5 0 1 1 .8 4M2 2.5V6h3.5M7 4v3l2 1.2"/></svg>
+      <span>浏览历史</span>
+    </span>
+    <div class="history-entries" role="group" aria-label="浏览历史">${entries}</div>`;
+  D.readerHistory.querySelectorAll('[data-i]').forEach(el => {
     el.addEventListener('click', () => navJump(+el.dataset.i));
   });
 }
@@ -2328,7 +2414,7 @@ async function renderReaderNode(id) {
   const effectiveStatus = isStale({ type: n.type, status, last_verified: fm.last_verified || n.last_verified }) ? 'stale' : status;
   const statusLabel = { current: '现行', stale: '陈旧', superseded: '已取代' }[effectiveStatus] || effectiveStatus;
   const tags = Array.isArray(fm.tags) ? fm.tags : [];
-  const html = `<div class="reader-inner">
+  const html = `<div class="reader-inner${n.type === 'person' ? ' reader-person' : ''}">
     <div class="reader-eyebrow">
       <span class="tchip ${n.type}">${TYPE_LABEL[n.type]}</span>
       <span class="status ${effectiveStatus}">${statusLabel}</span>
@@ -4321,12 +4407,35 @@ async function reloadKb() {
 }
 
 function renderHome() {
+  D.readerHistory.innerHTML = '<span class="history-entry" aria-current="page">首页</span>';
+  D.btnCopy.hidden = true;
   if (state.indexIssue) {
     D.readerBody.innerHTML = `<div class="err"><strong>${esc(state.indexIssue)}</strong><p>原始知识文件未被修改。请让 Byteworker 检查知识库并重建 INDEX，然后点击重新载入。</p></div>`;
     return;
   }
-  const recent = [...state.nodes].sort((a,b) => (parseDateValue(updatedValue(b)) || 0) - (parseDateValue(updatedValue(a)) || 0)).slice(0, 8);
-  D.readerBody.innerHTML = `<div class="prose"><h2>${recent.length ? '最近更新' : '开始使用知识库'}</h2>${recent.length ? recent.map(n => `<p><a href="#${encodeURIComponent(n.id)}">${esc(n.title)}</a> · ${esc(updatedLabel(n))}</p>`).join('') : '<p>给 Byteworker 一份本地 Markdown 或资料链接，摄取成功后问一个问题，核对答案中的出处。</p>'}<p>报告可从左侧报告入口查看。知识内容只读；设置页可修改受控配置。</p></div>`;
+  const recent = [...state.nodes].sort((a, b) => updatedSortKey(b) - updatedSortKey(a)).slice(0, 8);
+  const rows = recent.map(n => `<li>
+    <a class="home-row" href="#${encodeURIComponent(n.id)}">
+      <span>
+        <span class="home-row-title">${esc(n.title)}</span>
+        <span class="home-row-type"><span class="tdot ${n.type}" aria-hidden="true"></span>${TYPE_LABEL[n.type]}</span>
+      </span>
+      ${updatedChip(n)}
+      <svg class="home-row-arrow" aria-hidden="true" width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l4 4-4 4"/></svg>
+    </a>
+  </li>`).join('');
+  D.readerBody.innerHTML = `<div class="reader-inner reader-home">
+    <div class="reader-title-row home-heading">
+      <h1 class="reader-title" id="home-title">${rows ? '最近更新' : '开始使用知识库'}</h1>
+      ${rows ? `<button type="button" class="primary-source-button home-search">
+        <svg aria-hidden="true" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 3 3"/></svg>
+        搜索知识库 <span class="kbd" aria-hidden="true">⌘K</span>
+      </button>` : ''}
+    </div>
+    ${rows ? `<ol class="home-updates" aria-labelledby="home-title">${rows}</ol>` :
+      '<p class="home-empty">给 Byteworker 一份本地 Markdown 或资料链接，摄取成功后问一个问题，核对答案中的出处。</p>'}
+  </div>`;
+  D.readerBody.querySelector('.home-search')?.addEventListener('click', openPalette);
 }
 
 async function boot() {

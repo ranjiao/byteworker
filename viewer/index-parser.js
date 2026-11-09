@@ -10,16 +10,18 @@ function parseIndex(text) {
     if (!cur) continue;
     const m = raw.match(/^\|(.+)\|$/);
     if (!m) continue;
-    const c = m[1].split('|').map(s => s.trim());
+    const c = m[1].split(/(?<!\\)\|/).map(s => s.replace(/\\\|/g, '|').trim());
     if (c[0].toLowerCase() === 'id' || /^:?-+:?$/.test(c[0])) continue;
     if (!c[0] || c.length < 5 || !c[0].startsWith(cur + '-') || seen.has(c[0])) continue;
     seen.add(c[0]);
+    // Person indexes may have directory columns before the three display fields.
+    const summary = cur === 'person' ? c.length - 3 : 2;
     out.push({
       id: c[0],
       title: c[1] || c[0],
-      tldr: c[2] || '',
-      status: c[3] || 'current',
-      last_verified: c[4] || '',
+      tldr: c[summary] || '',
+      status: c[summary + 1] || 'current',
+      last_verified: c[summary + 2] || '',
       type: cur,
     });
   }
