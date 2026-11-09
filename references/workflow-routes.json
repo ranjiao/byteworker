@@ -167,9 +167,11 @@
         "references/machine-protocol.md",
         "references/command-dashboard.md",
         "references/discovery-completion.md",
-        "references/kb-mutation.md",
         "references/citations.md"
-      ]
+      ],
+      "features": {
+        "write": ["references/kb-mutation.md"]
+      }
     },
     "context": {
       "required": [

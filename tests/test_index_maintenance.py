@@ -91,6 +91,26 @@ class IndexMaintenanceTest(unittest.TestCase):
                 INDEX.rebuild(Path(tmp), dry_run=True)
             self.assertEqual(raised.exception.code, "INDEX_KB_INVALID")
 
+    def test_duplicate_raw_capture_status_does_not_block_index_but_source_uid_does(self):
+        for key, applies in (("comments_status", True), ("source_uid", False)):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
+                kb = self._make_kb(Path(tmp))
+                raw = kb / "raw_data" / "2026-07-30-example.md"
+                raw.write_text(
+                    "---\nraw_id: raw-2026-07-30-example\nsource_type: feishu_doc\n"
+                    f"{key}: one\n{key}: two\n---\n\narchived content\n",
+                    encoding="utf-8",
+                )
+                original = raw.read_bytes()
+                if applies:
+                    self.assertEqual("rebuilt", INDEX.rebuild(kb, dry_run=False)["status"])
+                    self.assertIn("person-alice", (kb / "INDEX.md").read_text())
+                else:
+                    with self.assertRaisesRegex(INDEX.IndexMaintenanceError, "存在影响 INDEX 重建的结构错误"):
+                        INDEX.rebuild(kb, dry_run=False)
+                    self.assertEqual("# stale\n", (kb / "INDEX.md").read_text())
+                self.assertEqual(original, raw.read_bytes())
+
     @mock.patch.object(INDEX, "_invoke_rebuild")
     def test_rebuild_reports_preview_failure(self, invoke):
         invoke.return_value = subprocess.CompletedProcess(

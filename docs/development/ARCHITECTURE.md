@@ -72,7 +72,7 @@ flowchart TB
     subgraph K["C. 用户知识库目录：私有、持久、仅本地 Git"]
         K1["sources / raw_data / provenance"]
         K2["knowledge / reports / journal"]
-        K3["context / todo / dashboard / INDEX"]
+        K3["context / todo / settings / INDEX"]
     end
 
     R1 -->|"指导 Agent"| T
@@ -509,7 +509,10 @@ packet、总输入和输出 token 预算。固定 tokenizer 不可用时回执�
 返回 manifest 固定的路由/压缩 action，不截断 evidence。
 
 `context.md` 仍是真相源，但 `lib/context_view.py` 按 intent 返回固定章节投影，并设置 12k
-软预算、24k 硬预算；mutation 另限制完整 context 不超过 32 KiB。语义决定使用唯一 policy：
+软预算、24k 硬预算；mutation 另限制完整 context 不超过 32 KiB。`preferences` intent 只暴露
+「我的身份」和「交互与提醒偏好」，供 session 启动和上手引导确定语言，不加载业务职责；所有 intent
+都从完整文件解析 `interaction_language`，避免因投影不含身份表而丢失语言。语言选择遵循用户当前
+明确要求、已保存交互语言、当前对话语言的顺序，命令名和资料原文不改变回复语言。语义决定使用唯一 policy：
 冲突动作由 `conflict-policy.md` 定义，知识晋升/参与方推断/IM 评分由 `semantic-policy.md`
 定义。IM 结果必须先通过 `lib/semantic_policy.py` 校验分数、阈值、reason code 和消息证据，
 再允许写报告或触发 digest。
@@ -540,10 +543,10 @@ flowchart TD
     RAW["raw_data/<br/>本次实际读取内容"]
     PROV["provenance/<br/>精确 locator"]
     NODE["knowledge/<br/>可演进知识节点"]
-    USER["context / todo<br/>dashboard 手动项"]
+    USER["context / todo<br/>settings.md 手动项"]
     REPORT["reports/<br/>用户可编辑归档快照"]
     INDEX["INDEX.md<br/>可重建索引"]
-    DASH["dashboard 派生段<br/>可重建视图"]
+    DASH["工作看板<br/>按需生成"]
 
     EXT --> PROF
     EXT --> RAW
@@ -556,8 +559,7 @@ flowchart TD
     PROF --> INDEX
     RAW --> INDEX
     NODE --> INDEX
-    INDEX --> DASH
-    NODE --> DASH
+    NODE -->|绑定节点摘要| DASH
     USER --> DASH
 
     classDef truth fill:#dcfce7,stroke:#16a34a,color:#052e16
@@ -566,7 +568,7 @@ flowchart TD
     class INDEX,DASH derived
 ```
 
-真相源损坏时不能靠 INDEX 反推修复；INDEX 或 dashboard 派生段不一致时，直接从真相源重建。
+真相源损坏时不能靠 INDEX 反推修复；INDEX 不一致时从真相源重建；工作看板每次从本地输入生成。
 
 ### 3.2 八类知识节点
 
@@ -836,7 +838,7 @@ flowchart TB
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
 | `bin/dreaming.py` + `lib/dreaming_cli_*.py` | 主入口只校验 KB、组合 parser 和编码错误；schedule/process/review/report/action 子域各自注册 leaf handler | 原有 job/grant/report/action 回执与不含正文的 batch 摘要 |
-| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务、默认 token 保护且可由用户关闭的 `/api/settings`、只读 Dreaming 日志 API | JSON 设置视图、受控 PATCH 回执、运行日志白名单元数据；不提供任意文件写入 |
+| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务、会话鉴权、设置与待办操作、只读 Dreaming 日志和实时看板 | 设置回执、Todo 归档回执、运行日志白名单元数据 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
 | `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |
@@ -1091,9 +1093,17 @@ Agent 提供候选、目标 `base_sha256`、章节模式、冲突处置、journa
 INDEX，并统一完成 journal、精确暂存、commit 和 rollback。它不允许写 raw/provenance/sources/
 todo。
 
-Dashboard mutation 只保存派生视图和用户明确维护的手动章节。刷新从既有节点、Todo、context 和
-当天 journal 渲染，不得为了填充“今日进展”创建 journal 或其它业务事实；新进展必须先由其对应
-的 update/thinking/report/digest 入口持久化。
+工作看板的 Python 读模型由 `lib/dashboard_view.py` 提供。对话使用 `dashboard view`，Viewer 使用
+带会话访问控制的 `GET /api/dashboard`，两者调用同一生成器。它读取 `settings.md` 的长期关注
+和看板提醒、已绑定节点的摘要、Todo、context 时区与到期窗口及当日 journal。没有绑定项时跳过
+节点扫描。「需要关注」来自手动提醒及 Todo 截止时间。只输出 Markdown，
+无文件、外部来源或 Git 副作用。日志只作操作记录，不得为了填充“今日进展”创建业务事实。
+日报和周报使用 `dashboard inputs` 读取同一手动项解析器，不生成完整视图。
+
+`lib/dashboard_settings.py` 拥有手动项格式和旧看板的只读兼容解析。dashboard mutation 只写
+`settings.md`，已有文件只允许修改固定章节。迁移命令复用共享锁、baseline 校验、文件与
+Git index 快照及回滚。事务逐项比较手动内容，写后复读，才移除 `dashboard.md`，并在同一
+本地 commit 提交两者和迁移审计日志。内容歧义、不一致或提交失败时保留旧看板。
 
 postflight 在共享锁内扫描和修复；repair、路径检查、暂存、commit 或 receipt 失败时恢复目标文件、
 Git index 和必要的 HEAD ref。事务成功的唯一证明是 `status=committed` 和 commit hash。Agent
@@ -1139,7 +1149,8 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_analysis.py` | FindingBundle schema、batch/hash、evidence ref 和 grant revision 复验 | 否 |
 | `lib/dreaming_consolidation.py` | Finding event history、当前投影、跨 batch revision、重建和 grant purge | 私密 Finding state |
 | `lib/dreaming_process.py` | analysis receipt、可选 consolidation、batch commit/cursor 的幂等编排 | 仅通过 analysis/consolidation/batch owner |
-| `lib/dreaming_digest.py` | 快照 Profile/兼容历史 raw 定期来源；仅为缺失 UID 的历史 raw 从同库同类型、同 URL 或群 ID 的归档恢复明确身份，不覆盖已有 UID；核验普通 digest 或 Wiki scan 的真实回执，完整后推进 per-source checkpoint | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
+| `lib/routine_identity.py` | 为 INDEX 与 Dreaming 归并飞书文档的历史 UID 和文档链接，确认每个归并来源的 Profile 唯一 | 否 |
+| `lib/dreaming_digest.py` | 快照归并后的定期来源；恢复历史 UID、核验普通 digest 或 Wiki scan 的真实回执，完整后推进 per-source checkpoint | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
 | `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
 | `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
 | `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |
@@ -1151,11 +1162,15 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 
 ## 5. 跨层契约
 
-Dreaming 的历史 UID 恢复只属于 routine inventory 的只读兼容层，不进入 provider adapter、
-digest 事务或查询层，也不迁移 raw schema。候选 UID 全部一致时可恢复；否则要求所有候选的
-`ingested` 均为带时区的 ISO8601 时间，归一为 UTC 后选择最新时间唯一对应的 UID。缺失/无效
-时间、最新时间有冲突或无同源归档时沿用 `DREAMING_ROUTINE_SOURCE_INVALID` 失败关闭；
-不得用文件名或 mtime 判定身份新旧。恢复后仍服从 Profile 的启停与 cadence，不改写历史文件。
+INDEX 和 Dreaming 在定期摄取的只读兼容层共用飞书文档身份归并。通过已存档的
+UID 和 HTTPS 文档链接建立别名关系，链接保留主机和 `/wiki/` 或 `/docx/` 路径，忽略查询参数和锚点。
+同名不足以建立关系，其他来源类型仍按各自标识分组。唯一的 Profile 决定归并来源的启停与 cadence，
+多个 Profile 对应同一文档时报告冲突。
+Dreaming 优先在显式登记为定期的历史记录中选择执行 UID，无此类 UID 时从同源归档恢复。
+候选 UID 一致时直接使用；否则要求所有候选的 `ingested` 均为带时区的 ISO8601 时间，
+归一为 UTC 后选择最新时间唯一对应的 UID。证据不足时仍以
+`DREAMING_ROUTINE_SOURCE_INVALID` 停止，历史文件保留原始身份。多个历史 UID 归并后的运行 revision
+根据执行 UID、来源 URL 和 cadence 计算，不随同配置的新 raw 文件名变化。
 runner 重放仍使用普通 digest 的 capture 与大输入 planner 契约：群聊 capture 直接用 `--out`
 产出 Bundle；预算超限进入既有 `large_digest_worker` 闭包，按 inline/parallel 计划执行。
 宿主能力不足或执行失败保持 process 失败，不截断来源、不推进 checkpoint。宿主后台可用性
@@ -1261,6 +1276,10 @@ flowchart TD
 
 任何“不确定但继续写”的实现都违反本架构。权限不足、分页不完整、身份不一致、凭据污染、
 hash 不一致、重复 ID、目标文件并发变化和 KB remote 都必须 fail closed。
+
+INDEX 重建继续阻断涉及索引输入的重复字段。仅当 raw 的重复字段全是索引不读取的
+`comment_count`、`comments_status` 或 `whiteboards_status` 时，索引事务可继续。
+doctor 仍报告这些结构错误，重建只写 INDEX 和 journal。
 
 URL 凭据污染包括 userinfo，以及 query/fragment 中大小写、百分号编码、连字符/下划线变体的认证
 字段。所有 durable writer 先竞争同一个 KB 写锁；锁内必须重新检查 staged/dirty/baseline。
@@ -1548,9 +1567,12 @@ byteworker/
 
 ### Viewer 配置与访问边界
 
+节点浏览按存储的状态显示节点，创建、更新及核实日期作为元数据。对话搜索按原始证据的
+相关性、支持程度和时效判断置信度。节点年龄不触发看板告警、状态推断或搜索降级。
+
 本地 viewer 的页面代码公开；浏览器默认请求的 `/favicon.ico` 通过现有静态检查读取
-`/app/favicon.ico`。启用会话口令时，KB 静态 GET/HEAD、Dreaming 日志和设置 API
-均要求同一 token。KB 静态内容仅开放 knowledge/raw_data/reports 和 INDEX/context/todo/dashboard.md；
+`/app/favicon.ico`。启用会话口令时，KB 静态 GET/HEAD、Dreaming 日志、设置 API、Todo 归档
+与实时看板 GET 均要求同一 token。KB 静态内容仅开放 knowledge/raw_data/reports 和 INDEX/context/todo.md；
 隐藏路径、内部 state/sources/provenance/journal 和越出 app/KB 根的符号链接
 始终拒绝；唯一的 state 静态例外是调试页链接的 reports/<id>/artifacts/report.html，
 同样要求 token 且禁止符号链接改道。前端为 KB 请求及日志页面、报告链接传递 token。
@@ -1577,8 +1599,22 @@ COMMIT_EDITMSG，不复制 .git 历史、其它 refs 或配置。knowledge/raw_d
 Viewer 的 INDEX 解析职责由 `viewer/index-parser.js` 承担，主页面负责状态和渲染。
 人员行的摘要、状态和核实日期来自末尾三列，兼容旧索引中的可选通讯录列。
 解析诊断统计待解析行时跳过 INDEX 生成的「定期摄取清单」和「群聊摄取进度」两张辅助表。
+启动链接每次使用新的 launch 参数；Viewer 入口与 INDEX 解析器响应要求缓存重新验证。
+入口升级解析器兼容性时更新脚本 URL 版本，避免旧浏览器缓存误报辅助表解析异常。
 解析异常独立于读取失败和正常空库；部分解析仍可浏览已识别节点，但不能显示索引就绪。
 无 hash 的首页展示最近更新或首次摄取引导；鉴权和设置发布边界不变。
+
+侧栏「待办」进入独立的 Todo 视图。主页面通过现有带会话鉴权的静态路径读取
+`todo.md`，按固定标题和字段解析记录，再在浏览器内分组、搜索和展开详情。
+解析遵循 `lib/todo_store.py` 的既有结构与状态，跳过模板注释，识别到的格式错误单独提示。
+旧记录缺少类型或状态时按普通任务和待处理读取，保存时写入明确值。
+文件缺失显示空列表，读取失败提供重试；离开页面后的异步结果不覆盖当前视图。
+网页通过 `POST /api/todo/status` 归档待办，JSON 只接受 `id` 和 `status`。
+端点检查本机 Host 和浏览器 Origin，委派 `todo_service.archive_todo` 在共享 KB 写锁内校验、
+写入 `todo.md` 和当天 journal，并创建本地 Git 回滚点。CLI 和 Viewer 共用状态保存与事务逻辑，
+写入路径拒绝符号链接。网页允许未归档项变为 `done` 或 `cancelled`，同结果重试直接回执，
+相反的已归档结果返回冲突。前端确认提交或同状态回执后重读列表并保留筛选条件。
+
 `kb_query` 保持无持久派生索引：完整词匹配优先；仅在单个节点未命中时，以标题/tag 中
 至少两个中文相邻字对低权重补召回。该层不做业务同义词判断，不将候选当作事实，
 原有 provenance 核验仍由后续 evidence 查询完成。性能优化须先用基线证明瓶颈。

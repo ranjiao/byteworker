@@ -1,6 +1,6 @@
 # byteworker · 写入规范
 
-> 由 `SKILL.md` 路由到这里。凡要写 `raw_data/`、`knowledge/`、`reports/`、`dashboard.md`、
+> 由 `SKILL.md` 路由到这里。凡要写 `raw_data/`、`knowledge/`、`reports/`、`settings.md`、
 > `INDEX.md`、`journal/`、`context.md` 或 `todo.md`,动手前必须遵守本文件。
 
 ## 通用规则

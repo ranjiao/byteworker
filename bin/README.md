@@ -128,10 +128,11 @@ cd "$BYTEWORKER_ROOT"
 | `todo.py` | Agent | Todo 薄 CLI；models/time/store/service 位于 `lib/todo_*.py` | 写命令事务化更新 todo、journal 和本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
 | `dreaming.py` | Agent / 自动化 | 组合 `lib/dreaming_cli_*.py` 的 schedule/process/review/report/action leaf handlers | 私密 state、`run-logs/` 与 KB 外评估指标 |
-| `viewer-server.py` | `browse.sh` 内部 | 本地 viewer 静态服务、token-gated 设置 API 与只读 Dreaming 日志 API | 只通过 `settings.py` 写受控配置 |
+| `viewer-server.py` | `browse.sh` 内部 | 本地 Viewer 静态服务、受会话访问控制的设置、看板和 Dreaming 日志接口 | 只通过 `settings.py` 写受控配置 |
 | `index.py` | Agent / 自动化 | INDEX 重建预演与执行的机器回执 | apply 写 INDEX、journal 和本地 commit |
-| `kb-mutate.py` | Agent / 自动化 | 非 digest 内容的版本化事务写入 | 写目标、INDEX、journal 和本地 commit |
+| `kb-mutate.py` | Agent / 自动化 | 非 digest 内容的版本化事务写入及旧看板迁移 | 写目标、按需更新 INDEX、追加 journal 并创建本地 commit |
 | `context.py` | Agent / 自动化 | 按 intent 读取有限 context 投影 | 只读 |
+| `dashboard.py` | Agent / 自动化 | 按需生成看板或读取报表共用的手动设置 | 只读 |
 | `semantic.py` | Agent / 自动化 | 校验 IM 等结构化语义决定 | 只读临时结果 |
 | `inbox.py` | 兼容调用方 | 已移除 Inbox 的稳定 tombstone | 只输出 `INBOX_REMOVED`，无业务副作用 |
 | `pull_doc_comments.py` | Agent / 维护者 | 拉取飞书文档全部评论和回复 | 只向 stdout 输出 JSON |
@@ -1106,7 +1107,8 @@ bin/byteworker preflight --unattended
 
 ### `browse.sh`
 
-在本机启动 Viewer。知识库浏览仍是静态只读；设置对话框里的系统设置通过
+在本机启动 Viewer。工作看板通过 `/api/dashboard` 按需只读生成，其余知识库浏览使用静态文件。
+设置对话框里的系统设置通过
 `viewer-server.py` 暴露的本机会话 API 写入受控配置。
 
 Dreaming 运行日志调试页不加入主界面导航，服务启动后直接访问：

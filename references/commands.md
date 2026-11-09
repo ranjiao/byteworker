@@ -5,5 +5,5 @@
 - search → `command-search.md`
 - update → `command-update.md` + `conflict-policy.md` + `kb-mutation.md`
 - brief → `command-brief.md` + `command-search.md`
-- dashboard → `command-dashboard.md` + `kb-mutation.md`
+- dashboard → `command-dashboard.md`；修改手动项时读 `kb-mutation.md`
 - context → `command-context.md` + `kb-mutation.md`

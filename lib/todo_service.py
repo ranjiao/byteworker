@@ -6,8 +6,36 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from todo_models import Preferences, Todo
-from todo_store import ensure_initialized, get_todo, load_todos, next_id, save, todo_json
-from todo_time import iso, parse_iso, resolve_time
+from todo_store import (
+    ensure_initialized, execute_write_transaction, get_todo, load_todos, next_id, save, todo_json,
+)
+from todo_time import iso, load_preferences, local_now, parse_iso, resolve_time
+
+
+def _save_status(path: Path, preamble: str, todos: list[Todo], todo: Todo, value: str, now: datetime):
+    todo.fields["status"] = value
+    todo.fields["updated_at"] = iso(now)
+    save(path, preamble, todos)
+    return todo_json(todo)
+
+
+def archive_todo(kb_dir: Path, todo_id: str, value: str):
+    """Archive an active Todo without allowing a stale client to overwrite its outcome."""
+    if value not in {"done", "cancelled"}:
+        raise ValueError("待办只能标记为完成或废弃。")
+    now = local_now(None, load_preferences(kb_dir))
+    path = kb_dir / "todo.md"
+
+    def archive():
+        preamble, todos = load_todos(path)
+        todo = get_todo(todos, todo_id)
+        if todo.status == value:
+            return {**todo_json(todo), "transaction": {"status": "unchanged"}}
+        if todo.status not in {"open", "waiting"}:
+            raise ValueError("这条待办已归档，请重新载入列表。")
+        return _save_status(path, preamble, todos, todo, value, now)
+
+    return execute_write_transaction(kb_dir, now=now, command="status", operation=archive)
 
 
 def command_check(todos: list[Todo], now: datetime, window_hours: int) -> list[dict[str, str]]:
@@ -83,10 +111,7 @@ def execute_storage_command(args, kb_dir: Path, prefs: Preferences, now: datetim
         return command_check(todos, now, args.window_hours or prefs.due_soon_hours)
     if args.command == "status":
         todo = get_todo(todos, args.todo_id)
-        todo.fields["status"] = args.value
-        todo.fields["updated_at"] = iso(now)
-        save(path, preamble, todos)
-        return todo_json(todo)
+        return _save_status(path, preamble, todos, todo, args.value, now)
     if args.command == "snooze":
         todo = get_todo(todos, args.todo_id)
         todo.fields["snoozed_until"] = iso(resolve_time(args.until, now, prefs, "remind"))

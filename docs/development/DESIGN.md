@@ -85,7 +85,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `reports/daily/`, `reports/weekly/`, `reports/morning/` | 日报 / 周报 / Dreaming 晨报归档快照 | legacy report automation 或 Dreaming report action 写入,用户可手改 | 可覆盖同周期 |
 | `reports/im/`（仅历史 KB 可存在） | 已移除 Inbox writer 留下的历史 IM 摘要 | 当前 skill 只读,用户可手改 | 禁止新建或改写 |
 | `INDEX.md` | 主索引:8 类节点登记表 + 定期摄取清单 + 群聊高水位 | skill 维护,可全量重建 | 高频更新 |
-| `dashboard.md` | 工作看板 —— 实时视图(长期关注 / 需关注 / 今日进展) | skill 维护/渲染 | 高频刷新 |
+| `settings.md` | 用户维护的长期关注与看板提醒 | 仅显式维护时写入 | 随知识库 Git 回滚 |
 | `context.md` | 格式化全局工作上下文 —— 身份 / 职责 / 重点 / 约束 / 提醒偏好 / 背景 | 用户通过 agent 维护 | 手维护 |
 | `todo.md` | 用户确认过的行动项、截止 / 提醒时间与完成状态 | 用户通过 agent 维护 | 高频更新 |
 | `.last-routine-digest` | 上次「定期摄取」例程运行日期(一行 `YYYY-MM-DD`)—— 到期提醒据此判断 | skill 写入 | 每次定期摄取覆盖 |
@@ -128,7 +128,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
   重新消化(LLM digest,非确定性),但 `raw_data` 本身丢了就无源可回。
 - `reports/` —— 日报 / 周报 / 晨报是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
   历史 `reports/im/` 同样是真相源，但 I7 后只读兼容，不得由 skill 新建、改写或删除。
-- `dashboard.md` 的 📌 长期关注列表 + ⚠️ 手动提醒 —— 用户状态,只此一处保存。
+- `settings.md` 的长期关注和看板提醒 —— 用户状态,只此一处保存。
 - 活动中的 `state/digest_jobs/` —— 保存用户已确认的多页处理范围与未完成状态。它是本机
   session 恢复 checkpoint，不进入实体图或 Git；已成功页面仍以 committed raw/transaction
   receipt 为最终事实，任务可据此 reconcile。
@@ -185,7 +185,7 @@ doctor 对 `sources/*.json` 逐文件复用当前 Profile validator，并按唯�
 
 **纯派生(derived —— 可随时丢弃,必须 100% 可重建,不必单独备份):**
 - `INDEX.md` —— 可从全部节点的 frontmatter + body 首行 TL;DR、加 `raw_data/` frontmatter **确定性**全量重建(见 §6)。
-- `dashboard.md` 的派生部分 —— 关注项当前状态、⚠️ 派生项、📅 今日进展,每次刷新重算。
+- 工作看板 —— 关注项当前状态、手动提醒、逾期/临期待办、今日进展，每次查看时生成。
 
 **推论(SKILL.md「重建与恢复」据此实现):**
 - 派生物永远服从真相源 —— 两者不一致时,**以真相源为准、重建派生物**,绝不反向改真相源。
@@ -609,10 +609,11 @@ I6 foreground/review/shadow：
 
 **`byteworker-kb-mutation/v1`**
 
-- 顶层固定为 `operation/conflict_disposition/conflict_evidence/writes/journal/commit`。
+- 顶层为 `operation/conflict_disposition/conflict_evidence/writes/journal/commit`，
+  仅旧看板迁移可附 `retire_dashboard_sha256` 以保护待退役的基线。
 - `operation` 为 `update/context/dashboard/report`，分别只允许
-  `knowledge/**/*.md`、`context.md`、`dashboard.md`、`reports/**/*.md`。
-- write 目标只允许 `context.md`、`dashboard.md`、`knowledge/**/*.md`、`reports/**/*.md`；
+  `knowledge/**/*.md`、`context.md`、`settings.md`、`reports/**/*.md`。
+- write 目标只允许 `context.md`、`settings.md`、`knowledge/**/*.md`、`reports/**/*.md`；
   其中历史 `reports/im/**` 显式拒绝；raw/provenance/sources/todo 不走此契约。
 - 已有目标必须带当前 `base_sha256`；新建目标的 baseline 为空。
 - mode 为 `replace`、`replace_section` 或 `replace_preserving_sections`。固定章节/可保留章节由
@@ -923,7 +924,7 @@ tags: [roadmap, q2]
 status: current | stale | superseded         # 实体常为 current/stale;记录可 superseded
 created: 2026-05-20
 updated: 2026-05-20
-last_verified: 2026-05-20                     # 新鲜度判断依据(看板 ⚠️ 段用)
+last_verified: 2026-05-20                     # 最近一次核实日期
 superseded_by: decision-xxx                   # 仅 status=superseded
 sources:                                      # 溯源:raw_id 或飞书原链接,≥1 条
   - raw-2026-05-20-q2-roadmap-review
@@ -942,8 +943,8 @@ links:                                        # 图的边,双向维护(写 A→B
 | `title` | ✓ | 面向知识库检索 / 浏览的库内标题，可不同于 raw `source_title`。当来源原题不够具体时，必须包含可证实的作者、团队、业务、项目、周期或会议场景限定语；正文 H1 必须与它一致 |
 | `type` | ✓ | 8 类之一,决定子目录与 body 结构 |
 | `tags` | ✓ | 自由二级标签,承载角色特异性(数据集名、渠道、技术栈…);优先复用已有 tag |
-| `status` | ✓ | `current` / `stale` 疑似过期 / `superseded` 已被取代 |
-| `created`/`updated`/`last_verified` | ✓ | 创建 / 最后修改 / 最后被新输入或人工确认的日期,格式固定为 `YYYY-MM-DD` |
+| `status` | ✓ | `current` / `stale` 已标为疑似过期 / `superseded` 已被取代。状态来自节点记录 |
+| `created`/`updated`/`last_verified` | ✓ | 创建 / 最后修改 / 最后被新输入或人工确认的日期，格式为 `YYYY-MM-DD`。仅作为元数据 |
 | `superseded_by` | ✗ | 退役时指向取代它的节点 |
 | `sources` | ✓ | 溯源根,指回 raw_data 或飞书链接 |
 | `primary_source` | 主记录 ✓ / 实体可选 | 节点最主要的 raw_id,必须同时位于 `sources` |
@@ -1075,7 +1076,7 @@ links:                                        # 图的边,双向维护(写 A→B
 > `reading` 是资料本身的 digest:外部读物通常弱相关于工作,默认**一篇文章一个 `reading` 节点**,
 > 不走 event/decision 扇出;内部路线思考 / 方法论 / 调研 / 技术白皮书则以 `reading`
 > 作为主记录,同时可按内容扇出明确 decision、更新相关 project/area/person/org。
-> `reading` 低维护(观点不会像项目状态那样过期),`status` 基本恒为 `current`,不进看板陈旧告警。
+> `reading` 记录来源当时的观点，`status` 通常为 `current`。
 
 **`thinking`(持续更新的自然语言思考)**
 
@@ -1176,12 +1177,11 @@ skill 自动维护,可从全部节点的 frontmatter + body 首行 TL;DR、加 `
 
 - **「定期摄取清单」表** = 会定期更新、需周期性复查的源(滚动周会文档、群聊、Meego / Base / 风神
   保存视图等)。结构化来源由 `sources/*.json` 中启用的 `routine` 派生；没有 profile 的旧来源
-  才兼容扫描带 `routine` 的 raw。两者都按稳定 `source_uid` 合并成一源一行，profile 的启用/
-  禁用与 cadence 优先于任何历史 raw。Dreaming 快照兼容早期缺少 `source_uid` 的 routine raw：
-  只从同库相同 `source_type`、相同 `source_url` 或群聊 `source_chat_id` 的归档恢复显式 UID，
-  不覆盖已有 UID。候选 UID 一致时直接恢复；否则所有候选必须有带时区的 ISO8601 `ingested`，
-  按 UTC 最新时间唯一对应的 UID 恢复。无匹配、时间缺失/无效或最新 UID 有歧义时失败关闭，
-  不使用文件名/mtime 判断身份新旧，不改写历史 raw，schema 不变。
+  才兼容扫描带 `routine` 的 raw。飞书文档按已记录的 UID 与文档链接归并别名，
+  INDEX 和 Dreaming 共用该规则。一个来源只对应一行索引和一个执行条目。
+  Profile 的启用、禁用与 cadence 优先于同一来源的历史 raw。
+  Dreaming 在多个历史 UID 间优先比较明确设为定期的记录，再按带时区的 `ingested`
+  选唯一最新 UID。归并只影响派生清单，历史 raw 的字段和内容原样保留。
   `上次摄取` = 该源最近 raw 的规范化周期 / 窗口;没有周期的完整
   视图快照使用 `ingested` 日期。日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`,群聊窗口用完整
   高水位时间戳。「定期摄取」例程逐源 re-digest(见 SKILL「定期摄取」)。*替代了旧的「待消化」
@@ -1362,46 +1362,40 @@ code 与证据，请用户确认。
 
 ---
 
-## 9. dashboard.md — 工作看板
+## 9. settings.md — 工作看板手动设置
 
-数据目录顶层文件,与 `INDEX.md` 并列。一个**实时工作视图**,**不是知识节点** —— 回答
-"我现在该看什么"。
-
-- **持久存储**(用户状态,只此一处保存):📌 长期关注列表、⚠️ 手动提醒。
-- **渲染**(每次刷新重算,不持久依赖):📌 各关注项的当前状态、⚠️ 派生项、📅 今日进展。
-
-结构:
+`settings.md` 保存用户手动维护的长期关注和看板提醒。它位于知识库根目录，由知识库本地
+Git 管理，新库可在首次维护时创建。首版格式：
 
 ```markdown
-# 工作看板 · dashboard
-> 最后刷新:<YYYY-MM-DD HH:MM>
+# 知识库设置
 
-## 📌 长期关注
-| 关注项 | 绑定节点 | 关注什么 | 当前状态 |
-|--------|----------|----------|----------|
+## 长期关注
 
-## ⚠️ 需要关注
-- (派生)<陈旧节点 / 未裁决冲突 …>
-- (手动)<用户提醒>
+| 关注项 | 绑定节点 | 关注什么 |
+| --- | --- | --- |
+| <名称> | <节点 id 或留空> | <备注> |
 
-## 📅 今日进展(<YYYY-MM-DD>)
-- <当天 journal 渲染>
+## 看板提醒
+
+- <常驻提示>
 ```
 
-- **📌 关注项**:`绑定节点` 列填知识节点 id(能绑则绑),或留空(自由文本项)。
-  `当前状态` 列刷新时从绑定节点拉 TL;DR/状态;自由文本项写"—"。
-- **📅 今日进展**:**不独立存储**,刷新时只从当天既有 `journal/` 渲染；Dashboard 不为刷新
-  反向创建 journal 或其它业务事实。用户主动要求记录的新进展先按其语义进入
-  update/thinking/report/digest 等正常写流程，再由后续刷新读取。跨天自动重置(journal 即历史
-  归档)。
-- **⚠️**:派生项刷新时由轻量新鲜度/冲突扫描得到;手动提醒持久存在文件内。
-- 看板是 view —— 每次"看板"触发都重新渲染,**不会过时**。
+工作看板由代码按需生成。关注状态来自所绑定节点的摘要。「需要关注」来自手动看板提醒与
+Todo 逾期和临期，后两者由截止时间及本地窗口决定。「今日进展」只读当前时区的
+当日 journal，并标明它是知识库操作记录。生成过程不得写 journal 或其它业务事实。
+知识库当前没有结构化的未裁决冲突清单。日报、周报通过 `dashboard inputs` 读取关注项。
+
+老库在 `settings.md` 尚未建立时可只读解析旧 `dashboard.md` 中的手动项。
+`kb-mutate migrate-dashboard` 先验证旧格式和手动项是否可完整迁移。确认后加
+`--apply`，在同一个可回滚事务内保存并复读设置，再退役旧快照。迁移前的文件在本地 Git
+历史可查，派生状态不导入设置。
 
 ---
 
 ## 10. context.md — 全局工作上下文
 
-数据目录顶层文件,与 `INDEX.md` / `dashboard.md` / `todo.md` 并列。**使用者通过对话维护**的
+数据目录顶层文件,与 `INDEX.md` / `settings.md` / `todo.md` 并列。**使用者通过对话维护**的
 格式化全局工作上下文 —— 语义任务按 intent 加载相关章节投影，作为 digest / search / brief /
 dashboard / todo 的「透镜」。
 
@@ -1411,8 +1405,12 @@ dashboard / todo 的「透镜」。
    统一由 KB mutation 执行。
 - **保持简短**:它是「透镜」不是「档案」。日常通过 `byteworker-context-view/v1` 读取相关章节；
   12k 字符给 warning、24k fail closed，完整文件 mutation 上限 32 KiB，不静默截断。
-- **用法**:身份表用于本人识别;职责 / 重点用于 digest 相关性与 Todo 候选判断;时区 / 默认时间
-  用于自然语言提醒解析;search / brief 在客观答案旁带出使用者视角,并在事实与陈述意图冲突时提示。
+- **用法**:身份表用于本人识别和交互语言选择;职责 / 重点用于 digest 相关性与 Todo 候选判断;
+  时区 / 默认时间用于自然语言提醒解析;search / brief 在客观答案旁带出使用者视角,并在事实与陈述意图冲突时提示。
+- **交互语言**:`我的身份` 表格使用固定行 `交互语言` 保存用户确认的持久回复语言，规范值使用
+  `zh-CN` / `en` / `en-US` 等 BCP-47 标签，中文、简体中文等别名在 context view 中规范化；
+  缺失或「待补充」不猜测默认语言，Agent 需用当前对话语言询问。命令名、URL 或资料原文不构成语言切换。
+  旧库若在「交互与提醒偏好」写有已确认语言，先兼容遵循，用户要求维护时再迁移到身份表。
 - **陈述性质分开**:“我的身份 / 我的职责范围”是用户提供的信息;“我的当前重点 / 主管方向”
   等主观内容呈现时标为“你的视角 / 用户陈述”,不把意图硬化为客观事实。
 - **与「思路与视角」章节的分工**:`context.md` 是**跨主题**的工作底色;节点的「思路与视角」
@@ -1421,8 +1419,8 @@ dashboard / todo 的「透镜」。
 **结构由模板锁定** —— 骨架见 skill 目录的
 [`templates/context.md`](../../templates/context.md):固定七个
 章节 `我的身份` / `我的职责范围` / `我的当前重点` / `主管方向` / `当前约束` /
-`交互与提醒偏好` / `背景信息`。身份使用固定表格(姓名、别名、`feishu_id`、person 节点、时区);
-其它章节使用简短条目,变更型信息优先带日期(`- <YYYY-MM-DD> —— <一句话>`)。
+`交互与提醒偏好` / `背景信息`。身份使用固定表格(姓名、别名、`feishu_id`、person 节点、时区、
+交互语言);其它章节使用简短条目,变更型信息优先带日期(`- <YYYY-MM-DD> —— <一句话>`)。
 首次使用、或数据目录缺 `context.md` 时,由 skill **整份复制**该模板初始化 —— 统一模板,避免各用户
 写出五花八门的格式。各章节无内容则留空;`<!-- 指引 -->` 注释保留(持续引导用户、不渲染)。
 用户明确维护时使用 mutation 的 `replace_section`，由 validator 保证章节名、baseline、journal、

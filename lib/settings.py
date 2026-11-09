@@ -80,9 +80,21 @@ def _context_summary(kb: Path) -> dict[str, Any]:
     path = kb / "context.md"
     text = _read_text(path)
     timezone_name = ""
+    language_name = ""
     for line in text.splitlines():
         normalized = line.strip()
-        if not normalized or "时区" not in normalized:
+        if not normalized:
+            continue
+        if normalized.startswith("|") and normalized.endswith("|"):
+            cells = [cell.strip() for cell in normalized.strip("|").split("|")]
+            if len(cells) >= 2:
+                label, value = cells[0], cells[1]
+                if label == "时区":
+                    timezone_name = value
+                elif label == "交互语言":
+                    language_name = "" if value == "待补充" else value
+            continue
+        if "时区" not in normalized:
             continue
         if ":" in normalized:
             timezone_name = normalized.split(":", 1)[1].strip()
@@ -90,10 +102,13 @@ def _context_summary(kb: Path) -> dict[str, Any]:
         if "：" in normalized:
             timezone_name = normalized.split("：", 1)[1].strip()
             break
+    if language_name in {"", "待补充"}:
+        language_name = ""
     return {
         "path": "context.md",
         "exists": path.is_file(),
         "timezone_hint": timezone_name,
+        "interaction_language_hint": language_name,
         "editable_in_viewer": False,
     }
 

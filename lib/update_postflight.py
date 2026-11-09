@@ -8,7 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-from doctor import DoctorReport, apply_repairs, scan
+from doctor import DoctorReport, Finding, apply_repairs, scan
+from frontmatter import frontmatter_state
 from kb_write_txn import (
     atomic_write,
     kb_write_lock,
@@ -54,6 +55,7 @@ INDEX_BLOCKERS = NODE_GRAPH_BLOCKERS | {
     "RAW_DUPLICATE_ID",
     "INDEX_REBUILD_FAILED",
 }
+RAW_CAPTURE_FIELDS_UNUSED_BY_INDEX = {"comment_count", "comments_status", "whiteboards_status"}
 
 
 def _one_line(value: str, limit: int = 180) -> str:
@@ -129,6 +131,22 @@ def _actions(
     return [action for action in ("index", "links") if action in fixes & allowed]
 
 
+def _blocks_index(kb: Path, finding: Finding) -> bool:
+    if finding.code != "RAW_DUPLICATE_FRONTMATTER_KEY":
+        return finding.code in INDEX_BLOCKERS
+    try:
+        opened, closed, duplicates = frontmatter_state(
+            (kb / finding.path).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError):
+        return True
+    # Doctor still reports these errors. INDEX never reads these capture fields.
+    return not (
+        opened and closed and duplicates
+        and set(duplicates) <= RAW_CAPTURE_FIELDS_UNUSED_BY_INDEX
+    )
+
+
 def _repair_blockers(
     kb: Path,
     action: str,
@@ -142,7 +160,7 @@ def _repair_blockers(
         reasons.append("知识库布局、Git 隔离或 source Profile 存在严重错误")
     if action == "links" and codes & NODE_GRAPH_BLOCKERS:
         reasons.append("节点图存在影响确定性修复的结构错误")
-    if action == "index" and codes & INDEX_BLOCKERS:
+    if action == "index" and any(_blocks_index(kb, item) for item in report.findings):
         reasons.append("节点或 raw 存在影响 INDEX 重建的结构错误")
     staged = _staged_paths(kb)
     if staged:

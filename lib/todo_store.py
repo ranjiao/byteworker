@@ -62,7 +62,7 @@ def load_todos(path: Path) -> tuple[str, list[Todo]]:
     for todo in todos:
         if todo.status not in VALID_STATUS:
             raise ValueError(f"{todo.todo_id} 的 status 非法：{todo.status}")
-        kind = todo.fields.get("kind", "task")
+        kind = todo.kind
         if kind not in VALID_KIND:
             raise ValueError(f"{todo.todo_id} 的 kind 非法：{kind}")
     return preamble, todos
@@ -88,9 +88,10 @@ def render_todos(preamble: str, todos: Iterable[Todo]) -> str:
     def render_item(todo: Todo) -> list[str]:
         checkbox = "x" if todo.status in {"done", "cancelled"} else " "
         result = [f"### [{checkbox}] {todo.todo_id} · {todo.title}"]
+        fields = {**todo.fields, "kind": todo.kind, "status": todo.status}
         seen = set()
         for key in FIELD_ORDER:
-            value = todo.fields.get(key, "")
+            value = fields.get(key, "")
             result.append(f"- {key}: {value}" if value else f"- {key}:")
             seen.add(key)
         for key in sorted(set(todo.fields) - seen):
@@ -194,7 +195,8 @@ def execute_write_transaction(
     command: str,
     operation: Callable[[], object],
 ) -> object:
-    if not (kb_dir / ".git").is_dir():
+    git_dir = kb_dir / ".git"
+    if git_dir.is_symlink() or not git_dir.is_dir():
         raise TodoTransactionError("知识库不是本地 Git 仓库")
     with kb_write_lock(kb_dir):
         if _git(kb_dir, "remote").stdout.splitlines():
@@ -203,6 +205,8 @@ def execute_write_transaction(
             raise TodoTransactionError("知识库已有 staged 变更，拒绝混入 Todo commit")
         todo_path = kb_dir / "todo.md"
         journal_path = kb_dir / "journal" / now.strftime("%Y-%m") / f"{now:%Y-%m-%d}.md"
+        if any(path.is_symlink() for path in (todo_path, journal_path, journal_path.parent, kb_dir / "journal")):
+            raise TodoTransactionError("Todo 事务目标不能使用符号链接")
         relative_paths = {"todo.md", str(journal_path.relative_to(kb_dir))}
         dirty = _git_paths(kb_dir, "diff", "--name-only")
         dirty.update(_git_paths(kb_dir, "ls-files", "--others", "--exclude-standard"))

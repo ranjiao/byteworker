@@ -42,10 +42,9 @@
 
   --warn: oklch(0.68 0.13 75);
   --good: oklch(0.58 0.13 150);
-  --fresh-now: oklch(0.52 0.13 150);
-  --fresh-recent: oklch(0.55 0.13 245);
-  --fresh-aging: oklch(0.60 0.13 80);
-  --fresh-stale: oklch(0.58 0.12 40);
+  --todo-done-color: oklch(0.52 0.13 150);
+  --todo-waiting-color: oklch(0.60 0.13 80);
+  --todo-overdue-color: oklch(0.58 0.12 40);
 
   --c-person:   oklch(0.55 0.13 250);
   --c-project:  oklch(0.55 0.13 150);
@@ -92,10 +91,9 @@
 
   --accent: #0a84ff;
   --accent-tint: rgba(10, 132, 255, 0.22);
-  --fresh-now: oklch(0.76 0.13 150);
-  --fresh-recent: oklch(0.76 0.12 245);
-  --fresh-aging: oklch(0.80 0.12 80);
-  --fresh-stale: oklch(0.72 0.12 40);
+  --todo-done-color: oklch(0.76 0.13 150);
+  --todo-waiting-color: oklch(0.80 0.12 80);
+  --todo-overdue-color: oklch(0.72 0.12 40);
 
   --c-person:   oklch(0.75 0.13 250);
   --c-project:  oklch(0.78 0.14 150);
@@ -391,7 +389,6 @@ body.sidebar-resizing * {
 }
 .entity-row .title { flex: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 :is(.entity-row, .home-row) .updated {
-  --fresh-color: var(--ink-4);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -399,38 +396,28 @@ body.sidebar-resizing * {
   height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: color-mix(in oklch, var(--fresh-color) 11%, transparent);
-  border: 1px solid color-mix(in oklch, var(--fresh-color) 16%, transparent);
+  background: color-mix(in oklch, var(--ink-4) 11%, transparent);
+  border: 1px solid color-mix(in oklch, var(--ink-4) 16%, transparent);
   font-family: var(--font-mono);
   font-size: 10px;
   line-height: 1;
-  color: var(--fresh-color);
+  color: var(--ink-4);
   flex-shrink: 0;
   transition: background var(--duration-fast), border-color var(--duration-fast);
 }
-:is(.entity-row, .home-row) .updated.fresh-now { --fresh-color: var(--fresh-now); }
-:is(.entity-row, .home-row) .updated.fresh-recent { --fresh-color: var(--fresh-recent); }
-:is(.entity-row, .home-row) .updated.fresh-aging { --fresh-color: var(--fresh-aging); }
-:is(.entity-row, .home-row) .updated.fresh-stale { --fresh-color: var(--fresh-stale); }
-:is(.entity-row, .home-row) .updated.fresh-unknown {
-  --fresh-color: var(--ink-4);
-  background: var(--bg-chip);
-  border-color: transparent;
-}
 :is(.entity-row, .home-row):hover .updated {
-  background: color-mix(in oklch, var(--fresh-color) 17%, transparent);
-  border-color: color-mix(in oklch, var(--fresh-color) 24%, transparent);
+  background: color-mix(in oklch, var(--ink-4) 17%, transparent);
+  border-color: color-mix(in oklch, var(--ink-4) 24%, transparent);
 }
 .entity-row.on .updated {
-  background: color-mix(in oklch, var(--fresh-color) 18%, var(--bg-active));
-  border-color: color-mix(in oklch, var(--fresh-color) 28%, transparent);
+  background: color-mix(in oklch, var(--ink-4) 18%, var(--bg-active));
+  border-color: color-mix(in oklch, var(--ink-4) 28%, transparent);
 }
 .entity-row .badge {
   font-family: var(--font-mono); font-size: 9.5px; padding: 1px 4px;
   border-radius: 3px; background: var(--bg-chip); color: var(--ink-4);
   flex-shrink: 0;
 }
-.entity-row.stale .badge { background: color-mix(in oklch, var(--warn) 18%, transparent); color: var(--warn); }
 
 .side-footer {
   padding: 8px 14px;
@@ -565,6 +552,99 @@ button.history-entry:not([aria-current]):hover { background: var(--bg-hover); bo
   .home-row, .home-row-arrow { transition: none; }
 }
 
+/* ---- personal todos ---------------------------------------- */
+.app.todo-mode { grid-template-columns: var(--sidebar-w, 244px) minmax(0, 1fr); }
+.app.todo-mode .rail { display: none; }
+.reader-todo {
+  padding-inline: min(var(--reader-px, 56px), 6%);
+  container-type: inline-size;
+}
+.todo-eyebrow { color: var(--ink-3); }
+.todo-intro { margin: 0 0 20px; color: var(--ink-3); font-size: 13px; }
+.todo-controls {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.todo-scopes { max-width: 100%; flex-wrap: wrap; }
+.settings-seg.todo-scopes button { min-height: 28px; padding-inline: 8px; white-space: nowrap; }
+.todo-count { color: var(--ink-3); font: 11px var(--font-mono); }
+.todo-search { flex: 1 1 165px; max-width: 240px; min-width: 0; margin: 0; }
+.todo-search input { width: 100%; }
+.todo-group { margin-top: 18px; }
+.todo-group h2 {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  padding: 0 8px 6px; font-size: 12px; font-weight: 600; color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
+}
+.todo-group.overdue :is(h2, .todo-deadline, .todo-deadline time) { color: var(--todo-overdue-color); }
+.todo-item { border-bottom: 1px solid var(--divider); }
+.todo-row {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) 112px 112px 12px;
+  align-items: center; gap: 10px; padding: 10px 8px; border-radius: 6px;
+  cursor: pointer; list-style: none; transition: background var(--duration-fast);
+}
+.todo-row::-webkit-details-marker { display: none; }
+.todo-row:hover, .todo-item[open] > .todo-row { background: var(--bg-hover); }
+.todo-row:focus-visible, .todo-scopes button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
+.todo-mark {
+  display: grid; place-items: center; width: 14px; height: 14px;
+  border: 1px solid var(--line-strong); border-radius: 4px; color: var(--ink-3);
+}
+.todo-mark.waiting { border-color: var(--todo-waiting-color); color: var(--todo-waiting-color); }
+.todo-mark.done { border-color: var(--todo-done-color); color: var(--todo-done-color); }
+.todo-title, .todo-meta { display: block; overflow-wrap: anywhere; }
+.todo-title { font-weight: 600; line-height: 1.4; }
+.todo-meta, .todo-time { color: var(--ink-3); font-size: 11px; }
+.todo-meta { margin-top: 3px; }
+.todo-time { min-width: 0; line-height: 1.4; }
+.todo-time span, .todo-time time { display: block; }
+.todo-time time { color: var(--ink-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.todo-chevron { color: var(--ink-3); transition: transform var(--duration-fast); }
+.todo-item[open] .todo-chevron { transform: rotate(90deg); }
+.todo-details {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  gap: 5px 12px; margin: 0; padding: 10px 8px 12px 32px;
+  font-size: 12px; color: var(--ink-2);
+}
+.todo-details dt { color: var(--ink-3); }
+.todo-details dd { margin: 0; overflow-wrap: anywhere; }
+.todo-details a { color: var(--accent); }
+.todo-details a:hover { text-decoration: underline; }
+.todo-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 0 8px 12px 32px;
+}
+.todo-actions button:disabled { opacity: 0.5; cursor: default; }
+.todo-action-message { color: var(--ink-3); font-size: 12px; }
+.todo-action-message.error, .todo-message.error { color: var(--todo-overdue-color); }
+.todo-message { margin: 16px 0; color: var(--ink-3); font-size: 13px; }
+.todo-message:empty { margin: 0; }
+html[data-density="compact"] .todo-row { padding-block: 6px; }
+html[data-density="spacious"] .todo-row { padding-block: 14px; }
+@container (max-width: 530px) {
+  .todo-row {
+    grid-template-columns: 14px minmax(0, 1fr) minmax(0, 1fr) 12px;
+    gap: 5px 8px;
+  }
+  .todo-task { grid-column: 2 / 4; }
+  .todo-deadline { grid-column: 2; }
+  .todo-reminder { grid-column: 3; }
+  .todo-chevron { grid-column: 4; grid-row: 1; }
+}
+@media (max-width: 650px) {
+  .app.todo-mode { grid-template-columns: min(31vw, 152px) minmax(0, 1fr); }
+  .todo-mode .report-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .todo-mode .side-search { justify-content: center; padding-inline: 6px; }
+  .todo-mode :is(.title-brand .sub, .side-search span, .sidebar-resizer, .side-sort svg, .side-shortcut.mini svg) {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .todo-row, .todo-chevron { transition: none; }
+}
+
 /* ---- prose --------------------------------------------------- */
 .prose { color: var(--ink); font-size: 14.5px; line-height: 1.7; }
 .prose h1 { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 0.6em; line-height: 1.2; }
@@ -672,7 +752,7 @@ button.history-entry:not([aria-current]):hover { background: var(--bg-hover); bo
 }
 .status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .status.current    { color: var(--good); background: color-mix(in oklch, var(--good) 12%, transparent); }
-.status.stale      { color: var(--warn); background: color-mix(in oklch, var(--warn) 16%, transparent); }
+.status.stale,
 .status.superseded { color: var(--ink-3); background: var(--bg-chip); }
 
 .tag {
@@ -1458,7 +1538,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="cmd-row">
-      <button class="side-search" id="btn-search">
+      <button class="side-search" id="btn-search" aria-label="全库搜索 / 跳转">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 3 3"/></svg>
         <span class="placeholder">全库搜索 / 跳转</span>
         <span class="kbd">⌘K</span>
@@ -1568,7 +1648,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
 <div id="settings-portal"></div>
 
 <script src="vendor/markdown-it.min.js"></script>
-<script src="index-parser.js"></script>
+<script src="index-parser.js?v=2"></script>
 <script>
 'use strict';
 
@@ -1623,6 +1703,7 @@ const API_TOKEN = (() => {
 
 // ---- state ----------------------------------------------------
 const state = {
+  todoWrite: null,
   // index data (loaded from INDEX.md)
   // each entry: { id, title, tldr, status, type, last_verified, updated?, created? }
   nodes: [],
@@ -1644,7 +1725,7 @@ const state = {
   scanProgress: { done: 0, total: 0 },
 
   // navigation history
-  history: [],           // entries: { kind: 'node'|'raw', id?, path?, label? }
+  history: [],           // entries: { kind: 'node'|'raw'|'todo'|'dashboard', id?, path?, label? }
   hIdx: -1,
 
   // ui
@@ -1957,47 +2038,21 @@ function updatedLabel(n) {
     const days = calendarDayAge(t);
     if (days === 0) return '今天';
     if (days === 1) return '昨天';
-    return days > 7 ? '超过7天' : `${days}天`;
+    return `${days}天`;
   }
   const minutes = Math.floor(Math.max(0, Date.now() - t) / 60000);
   if (minutes < 1) return '刚刚';
   if (minutes < 60) return `${minutes}分钟前`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}小时前`;
-  const days = Math.floor(hours / 24);
-  return days > 7 ? '超过7天' : `${Math.max(1, days)}天`;
-}
-
-function freshnessMeta(n) {
-  const t = updatedSortKey(n);
-  if (!Number.isFinite(t)) return { className: 'fresh-unknown', label: '更新时间未知' };
-  const dateOnly = isDateOnlyValue(updatedValue(n));
-  const days = dateOnly
-    ? calendarDayAge(t)
-    : Math.max(0, Date.now() - t) / 86400000;
-  if (days < 1) {
-    return { className: 'fresh-now', label: dateOnly ? '今天更新' : '24 小时内更新' };
-  }
-  if (days < 3) return { className: 'fresh-recent', label: '3 天内更新' };
-  if (days <= 7) return { className: 'fresh-aging', label: '7 天内更新' };
-  return { className: 'fresh-stale', label: '超过 7 天未更新' };
+  return `${Math.floor(hours / 24)}天`;
 }
 
 function updatedChip(n) {
-  const fresh = freshnessMeta(n);
-  const value = updatedValue(n) || '未知';
-  return `<span class="updated ${fresh.className}" title="最近更新: ${esc(value)} · ${fresh.label}">${esc(updatedLabel(n))}</span>`;
-}
-
-function isStale(n) {
-  if (!n) return false;
-  if (n.type === 'reading') return false;
-  if (n.status === 'stale') return true;
-  if (n.status === 'current' && n.last_verified) {
-    const d = Math.floor((Date.parse(TODAY) - Date.parse(n.last_verified)) / 86400000);
-    if (d > 90) return true;
-  }
-  return false;
+  const value = updatedValue(n);
+  const field = n?.updated ? '最近更新' : n?.last_verified ? '上次核实' : '创建日期';
+  const title = Number.isFinite(updatedSortKey(n)) ? `${field}：${value}` : '日期未知';
+  return `<span class="updated" title="${esc(title)}">${esc(updatedLabel(n))}</span>`;
 }
 
 // ---- INDEX.md parsing (from original viewer) -----------------
@@ -2168,7 +2223,12 @@ function renderCurrent() {
     D.railScroll.innerHTML = '<div class="empty-rail">未选中节点。</div>';
     return;
   }
-  D.btnCopy.hidden = false;
+  const isTodo = e.kind === 'todo';
+  D.app.classList.toggle('todo-mode', isTodo);
+  D.scTodo.classList.toggle('on', isTodo);
+  if (isTodo) D.scTodo.setAttribute('aria-current', 'page');
+  else D.scTodo.removeAttribute('aria-current');
+  D.btnCopy.hidden = isTodo;
   renderReaderHistory();
   if (e.kind === 'node') {
     renderReaderNode(e.id);
@@ -2181,8 +2241,9 @@ function renderCurrent() {
     D.scWeekly.classList.remove('on');
     D.scContext.classList.remove('on');
   } else {
-    renderReaderRaw(e.path, e.label);
-    renderReportNav(e);
+    if (isTodo) renderReaderTodos(e);
+    else renderReaderRaw(e.path, e.label, e.kind === 'dashboard');
+    renderReportNav(isTodo ? null : e);
     D.railScroll.innerHTML = '<div class="empty-rail">' + esc(e.label) + ' · 文档视图,无图谱上下文。</div>';
     D.railGraphCount.textContent = '—';
     highlightSidebar(null);
@@ -2274,12 +2335,12 @@ function renderSidebar() {
     const hidden = sorted.length - shown.length;
 
     const items = shown.map(n => {
-      const stale = isStale(n);
+      const stale = n.status === 'stale';
       const ssed = n.status === 'superseded';
       let badge = '';
       if (stale) badge = '<span class="badge">陈旧</span>';
       else if (ssed) badge = '<span class="badge">取代</span>';
-      return `<button class="entity-row${stale ? ' stale' : ''}" data-id="${esc(n.id)}" title="${esc(rowTooltip(n))}" aria-label="${esc(n.title)}">
+      return `<button class="entity-row" data-id="${esc(n.id)}" title="${esc(rowTooltip(n))}" aria-label="${esc(n.title)}">
         <span class="title" title="${esc(n.title)}">${esc(n.title)}</span>${badge}
         ${updatedChip(n)}
       </button>`;
@@ -2402,6 +2463,8 @@ async function renderReaderNode(id) {
   let full;
   try { full = await fetchNode(id); }
   catch (e) {
+    const current = currentEntry();
+    if (current?.kind !== 'node' || current.id !== id) return;
     D.readerBody.innerHTML = `<div class="err"><strong>读取失败。</strong><br>${esc(e.message)}</div>`;
     return;
   }
@@ -2411,13 +2474,12 @@ async function renderReaderNode(id) {
   if (!(current?.kind === 'node' && current.id === id)) return;
   renderSidebar();
   const status = fm.status || n.status || 'current';
-  const effectiveStatus = isStale({ type: n.type, status, last_verified: fm.last_verified || n.last_verified }) ? 'stale' : status;
-  const statusLabel = { current: '现行', stale: '陈旧', superseded: '已取代' }[effectiveStatus] || effectiveStatus;
+  const statusLabel = { current: '现行', stale: '陈旧', superseded: '已取代' }[status] || status;
   const tags = Array.isArray(fm.tags) ? fm.tags : [];
   const html = `<div class="reader-inner${n.type === 'person' ? ' reader-person' : ''}">
     <div class="reader-eyebrow">
       <span class="tchip ${n.type}">${TYPE_LABEL[n.type]}</span>
-      <span class="status ${effectiveStatus}">${statusLabel}</span>
+      <span class="status ${esc(status)}">${esc(statusLabel)}</span>
       <span class="id">${esc(n.id)}</span>
       ${(fm.last_verified || n.last_verified) ? `<span style="color:var(--ink-4)">·</span><span>核实于 ${esc(fm.last_verified || n.last_verified)} (${relTime(fm.last_verified || n.last_verified)})</span>` : ''}
     </div>
@@ -2667,21 +2729,28 @@ function linkifyIds(root) {
   });
 }
 
-// ---- reader render (raw md doc: INDEX, dashboard) ----------
-async function renderReaderRaw(path, label) {
+// ---- reader render (Markdown documents and the live dashboard) ----------
+async function renderReaderRaw(path, label, dashboard = false) {
   D.readerBody.innerHTML = `<div class="reader-inner"><div style="color:var(--ink-4);font-size:13px">加载中…</div></div>`;
+  let reader = D.readerBody.firstElementChild;
   try {
-    const r = await fetch(kbUrl(path), { cache: 'no-store' });
+    const r = await fetch(kbUrl(dashboard ? '/api/dashboard' : path), { cache: 'no-store' });
+    const view = dashboard ? await r.json().catch(() => ({})) : null;
+    if (dashboard && (!r.ok || typeof view.markdown !== 'string')) {
+      throw new Error(view.error?.message || '生成看板失败。');
+    }
     if (!r.ok) throw new Error('找不到: ' + path);
-    const text = await r.text();
+    const text = dashboard ? view.markdown : await r.text();
+    if (D.readerBody.firstElementChild !== reader) return;
     const html = md.render(text);
     D.readerBody.innerHTML = `<div class="reader-inner">
       <div class="reader-eyebrow">
         <span class="tchip" style="background: var(--bg-chip); color: var(--ink-3);">${esc(label)}</span>
-        <span class="id">${esc(path)}</span>
+        <span class="id">${esc(dashboard ? '实时视图' : path)}</span>
       </div>
       <div class="prose" id="prose-content">${html}</div>
     </div>`;
+    reader = D.readerBody.firstElementChild;
     const proseEl = document.getElementById('prose-content');
     linkifyIds(proseEl);
     normalizeKbArchiveLinks(proseEl);
@@ -2689,8 +2758,247 @@ async function renderReaderRaw(path, label) {
     linkifyReferences(proseEl);
     D.readerBody.scrollTop = 0;
   } catch (e) {
+    if (D.readerBody.firstElementChild !== reader) return;
     D.readerBody.innerHTML = `<div class="err"><strong>读取失败。</strong><br>${esc(e.message)}</div>`;
   }
+}
+
+// ---- reader render (personal todo.md) ------------------------
+const TODO_STATUS = { open: '待处理', waiting: '等待中', done: '已完成', cancelled: '已废弃' };
+const TODO_KIND = { task: '任务', follow_up: '跟进', watch: '关注' };
+const TODO_SCOPES = { active: '未归档', archived: '已归档', all: '全部' };
+const TODO_GROUPS = { overdue: '已逾期', scheduled: '有截止时间', unscheduled: '无截止时间', archived: '已归档' };
+
+function parseTodoMarkdown(text) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.indexOf('## Active');
+  if (start < 0 || !lines.includes('## Completed')) throw new Error('缺少 Active 或 Completed 章节。');
+  const items = new Map();
+  let item;
+  let inComment = false;
+  for (const line of lines.slice(start)) {
+    if (line.includes('<!--')) inComment = true;
+    if (inComment) {
+      if (line.includes('-->')) inComment = false;
+      continue;
+    }
+    const heading = line.match(/^### \[[ xX]\] (T-\d{8}-\d{3}) · (.+)$/);
+    if (heading) {
+      const [, id, title] = heading;
+      if (items.has(id)) throw new Error('存在重复的待办编号。');
+      item = { id, title: title.trim(), fields: Object.create(null) };
+      items.set(id, item);
+    } else if (line.startsWith('### [')) {
+      throw new Error('待办标题格式有误。');
+    } else {
+      const field = line.match(/^- ([a-z_]+):\s*(.*)$/);
+      if (field && item) item.fields[field[1]] = field[2].trim();
+    }
+  }
+  return Array.from(items.values(), item => {
+    const status = item.fields.status || 'open';
+    const kind = item.fields.kind || 'task';
+    if (!Object.hasOwn(TODO_STATUS, status) || !Object.hasOwn(TODO_KIND, kind)) {
+      throw new Error('待办的状态或类型无法识别。');
+    }
+    return { ...item, status, kind, archived: status === 'done' || status === 'cancelled' };
+  });
+}
+
+function todoTime(value, label, className) {
+  const display = value && value.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}).*$/, '$1 $2');
+  return `<span class="todo-time ${className}"><span>${label}</span>${
+    display ? `<time datetime="${esc(value)}" title="${esc(value)}">${esc(display)}</time>` : '<span>—</span>'
+  }</span>`;
+}
+
+function todoReference(value) {
+  if (value === 'direct:user') return '手动添加';
+  if (Object.hasOwn(state.byId, value)) return nodeLinkHTML(value);
+  if (isUrlSource(value)) return `<a href="${esc(value)}" target="_blank" rel="noopener noreferrer">${esc(value)}</a>`;
+  return esc(value);
+}
+
+function todoRow(item, now) {
+  const { fields: f, status, kind, archived } = item;
+  const mark = { waiting: 'clock', done: 'check', cancelled: 'x' }[status];
+  const snoozed = !archived && Date.parse(f.snoozed_until) > now;
+  const details = [
+    ['备注', esc(f.note)],
+    ['来源', f.source && todoReference(f.source)],
+    ['关联', f.links && f.links.split(/,\s+/).map(todoReference).join(' · ')],
+    ['原因', esc(f.reason)],
+    ['截止时间', esc(f.due_at)],
+    ['提醒时间', esc(f.remind_at)],
+    ['暂停至', esc(f.snoozed_until)],
+    ['原时间表达', esc(f.time_expression)],
+    ['上次提醒', esc(f.last_reminded_at)],
+    ['创建时间', esc(f.created_at)],
+    ['更新时间', esc(f.updated_at)],
+    ['编号', esc(item.id)]
+  ];
+  return `<details class="todo-item">
+    <summary class="todo-row">
+      <span class="todo-mark ${status}" aria-hidden="true">${mark ? icon(mark, 10) : ''}</span>
+      <span class="todo-task"><span class="todo-title">${esc(item.title)}</span>
+        <span class="todo-meta">${TODO_STATUS[status]} · ${TODO_KIND[kind]}</span></span>
+      ${todoTime(f.due_at, '截止', 'todo-deadline')}
+      ${todoTime(archived ? f.updated_at : snoozed ? f.snoozed_until : f.remind_at,
+        archived ? '更新' : snoozed ? '暂停至' : '提醒', 'todo-reminder')}
+      <span class="todo-chevron" aria-hidden="true">${icon('chevron', 12)}</span>
+    </summary>
+    <dl class="todo-details">${details.filter(([, value]) => value).map(([label, value]) =>
+      `<dt>${label}</dt><dd>${value}</dd>`
+    ).join('')}</dl>
+    ${archived ? '' : `<div class="todo-actions" data-todo-id="${esc(item.id)}">
+      <button type="button" class="settings-primary" data-todo-status="done">标记完成</button>
+      <button type="button" class="settings-secondary" data-todo-status="cancelled">废弃</button>
+      <span class="todo-action-message" role="status"></span>
+    </div>`}
+  </details>`;
+}
+
+function renderTodoList(items, scope, query) {
+  const now = Date.now();
+  const term = query.trim().toLowerCase();
+  const groups = { overdue: [], scheduled: [], unscheduled: [], archived: [] };
+  const sortTime = (value, fallback) => {
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? timestamp : fallback;
+  };
+  for (const item of items) {
+    if (scope !== 'all' && (scope === 'archived') !== item.archived) continue;
+    const searchable = [item.title, item.fields.note, item.fields.source, item.fields.links].join(' ').toLowerCase();
+    if (!searchable.includes(term)) continue;
+    const due = Date.parse(item.fields.due_at);
+    const group = item.archived ? 'archived' : due < now ? 'overdue' : item.fields.due_at ? 'scheduled' : 'unscheduled';
+    groups[group].push(item);
+  }
+  for (const group of [groups.overdue, groups.scheduled]) {
+    group.sort((a, b) => sortTime(a.fields.due_at, Infinity) - sortTime(b.fields.due_at, Infinity));
+  }
+  groups.archived.sort((a, b) => sortTime(b.fields.updated_at, -Infinity) - sortTime(a.fields.updated_at, -Infinity));
+  const sections = Object.entries(groups).filter(([, group]) => group.length).map(([key, group]) => `
+    <section class="todo-group ${key}" aria-labelledby="todo-group-${key}">
+      <h2 id="todo-group-${key}">${TODO_GROUPS[key]} <span class="todo-count">${group.length}</span></h2>
+      ${group.map(item => todoRow(item, now)).join('')}
+    </section>`);
+  const empty = term ? '没有匹配的待办。' :
+    { active: '没有未归档的待办。', archived: '没有已归档的待办。', all: '没有待办记录。' }[scope];
+  return sections.join('') || `<p class="todo-message">${empty}</p>`;
+}
+
+async function submitTodoStatus(id, status) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (API_TOKEN) headers['X-Byteworker-Token'] = API_TOKEN;
+  const response = await fetch('/api/todo/status', {
+    method: 'POST', headers, body: JSON.stringify({ id, status }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (response.status === 404) throw new Error('请重启本地 Viewer 后重试。');
+  if (!response.ok) throw new Error(result.error?.message || '待办操作失败。');
+  if (result.id !== id || result.status !== status ||
+      !['committed', 'unchanged'].includes(result.transaction?.status)) {
+    throw new Error('无法确认待办状态，请重新载入列表。');
+  }
+}
+
+async function renderReaderTodos(entry, notice = '') {
+  D.readerBody.innerHTML = `<div class="reader-inner reader-todo" id="todo-view">
+    <div class="reader-eyebrow todo-eyebrow">${icon('todo', 14)} 知识库</div>
+    <h1 class="reader-title">个人待办</h1>
+    <p class="todo-intro">展开待办可标记完成或废弃。</p>
+    <div class="todo-content"><p class="todo-message" role="status">正在读取待办…</p></div>
+  </div>`;
+  D.readerBody.scrollTop = 0;
+  const root = D.readerBody.firstElementChild;
+  const content = root.querySelector('.todo-content');
+  let items;
+  try {
+    await state.todoWrite?.catch(() => {});
+    if (D.readerBody.firstElementChild !== root) return;
+    const response = await fetch(kbUrl(KB + 'todo.md'), { cache: 'no-store' });
+    if (response.status === 404) items = [];
+    else if (!response.ok) {
+      throw new Error(response.status === 403 ? '请用带会话口令的 Viewer 地址重新打开。' : `读取失败（HTTP ${response.status}）。`);
+    } else {
+      items = parseTodoMarkdown(await response.text());
+    }
+  } catch (error) {
+    if (D.readerBody.firstElementChild !== root) return;
+    content.innerHTML = `<p class="todo-message" role="alert">无法加载待办。 ${esc(error.message)}</p>
+      <button type="button" class="primary-source-button todo-retry">重新读取</button>`;
+    content.querySelector('.todo-retry').addEventListener('click', () => renderReaderTodos(entry));
+    return;
+  }
+  if (D.readerBody.firstElementChild !== root) return;
+  const archived = items.filter(item => item.archived).length;
+  const counts = { active: items.length - archived, archived, all: items.length };
+  content.innerHTML = `<div class="todo-controls">
+    <div class="settings-seg todo-scopes" role="group" aria-label="待办范围">${Object.entries(TODO_SCOPES).map(([scope, label]) =>
+      `<button type="button" data-todo-scope="${scope}">${label} <span class="todo-count">${counts[scope]}</span></button>`
+    ).join('')}</div>
+    <label class="side-filter todo-search">${icon('search', 13)}
+      <input type="search" aria-label="搜索待办" placeholder="搜索待办…" value="${esc(entry.query)}" />
+    </label>
+  </div>
+  <p class="todo-message" role="status">${esc(notice)}</p>
+  <div class="todo-list"></div>`;
+  const list = content.querySelector('.todo-list');
+  const feedback = content.querySelector('.todo-message');
+  const search = content.querySelector('input');
+  const scopes = content.querySelectorAll('[data-todo-scope]');
+  const updateActionButtons = () => {
+    for (const button of list.querySelectorAll('[data-todo-status]')) button.disabled = Boolean(state.todoWrite);
+  };
+  const update = () => {
+    const scope = entry.scope || 'active';
+    for (const button of scopes) {
+      const selected = button.dataset.todoScope === scope;
+      button.classList.toggle('on', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    }
+    list.innerHTML = renderTodoList(items, scope, search.value);
+    updateActionButtons();
+  };
+  list.addEventListener('click', async event => {
+    const button = event.target.closest('[data-todo-status]');
+    if (!button || state.todoWrite) return;
+    const actions = button.closest('.todo-actions');
+    const { todoId } = actions.dataset;
+    const status = button.dataset.todoStatus;
+    const item = items.find(candidate => candidate.id === todoId);
+    if (!item || item.archived) return;
+    if (status === 'cancelled' && !window.confirm(`废弃「${item.title}」？`)) return;
+
+    const message = actions.querySelector('.todo-action-message');
+    message.classList.remove('error');
+    message.textContent = '正在保存…';
+    state.todoWrite = submitTodoStatus(todoId, status);
+    updateActionButtons();
+    try {
+      await state.todoWrite;
+      if (D.readerBody.firstElementChild === root) {
+        renderReaderTodos(entry, `「${item.title}」${TODO_STATUS[status]}。`);
+      }
+    } catch (error) {
+      const target = message.isConnected ? message : feedback;
+      target.classList.add('error');
+      target.textContent = error.message;
+    } finally {
+      state.todoWrite = null;
+      updateActionButtons();
+    }
+  });
+  search.addEventListener('input', () => {
+    entry.query = search.value;
+    update();
+  });
+  for (const button of scopes) button.addEventListener('click', () => {
+    entry.scope = button.dataset.todoScope;
+    update();
+  });
+  update();
 }
 
 function dateKey(d) {
@@ -2763,9 +3071,12 @@ async function firstExistingReport(kind) {
 async function openLatestReport(kind) {
   const label = kind === 'daily' ? '日报' : '周报';
   D.readerBody.innerHTML = `<div class="reader-inner"><div style="color:var(--ink-4);font-size:13px">查找最近${label}…</div></div>`;
+  const loading = D.readerBody.firstElementChild;
   try {
-    navOpen({ kind: 'raw', ...(await firstExistingReport(kind)) });
+    const report = await firstExistingReport(kind);
+    if (D.readerBody.firstElementChild === loading) navOpen({ kind: 'raw', ...report });
   } catch (e) {
+    if (D.readerBody.firstElementChild !== loading) return;
     D.readerBody.innerHTML = `<div class="err"><strong>读取失败。</strong><br>${esc(e.message)}</div>`;
   }
 }
@@ -2909,13 +3220,11 @@ function renderRailGraph(id) {
   const cardRow = (i) => {
     const x = state.byId[i];
     if (!x) return '';
-    const stale = isStale(x);
-    const statusLabel = stale ? 'stale' : (x.status || 'current');
     return `<button class="rail-card" data-id="${esc(i)}">
       <div class="rail-card-top">
         <span class="tdot ${x.type}"></span>
         <span class="rail-card-title">${esc(x.title)}</span>
-        ${stale ? '<span class="status stale">陈旧</span>' : ''}
+        ${x.status === 'stale' ? '<span class="status stale">陈旧</span>' : ''}
         ${x.status === 'superseded' ? '<span class="status superseded">已取代</span>' : ''}
       </div>
       <div class="rail-card-tldr">${esc(x.tldr || '')}</div>
@@ -3019,7 +3328,7 @@ function renderRailMeta(id) {
   if (!n) { D.railScroll.innerHTML = '<div class="empty-rail">未选中节点。</div>'; return; }
   const full = state.nodeFull[id];
   const fm = full?.fm || {};
-  const stale = isStale(n);
+  const status = fm.status || n.status || 'current';
   const tags = Array.isArray(fm.tags) ? fm.tags : [];
   const sources = Array.isArray(fm.sources) ? fm.sources : (fm.sources ? [fm.sources] : []);
   const linksCount = full?.links.length || 0;
@@ -3027,8 +3336,7 @@ function renderRailMeta(id) {
   rows.push(['id', `<span style="font-family:var(--font-mono)">${esc(n.id)}</span>`]);
   rows.push(['type', `<span class="tchip ${n.type}">${TYPE_LABEL[n.type]}</span>`]);
   if (TYPE_HELP[n.type]) rows.push(['note', esc(TYPE_HELP[n.type])]);
-  rows.push(['status', stale ? `<span class="status stale">陈旧</span>` :
-    `<span class="status ${n.status || 'current'}">${({current:'现行',stale:'陈旧',superseded:'已取代'})[n.status || 'current']}</span>`]);
+  rows.push(['status', `<span class="status ${esc(status)}">${esc(({current:'现行',stale:'陈旧',superseded:'已取代'})[status] || status)}</span>`]);
   if (fm.created) rows.push(['created', `<span style="font-family:var(--font-mono)">${esc(fm.created)}</span>`]);
   if (fm.updated) rows.push(['updated', `<span style="font-family:var(--font-mono)">${esc(fm.updated)}</span>`]);
   if (fm.last_verified || n.last_verified) {
@@ -3703,6 +4011,8 @@ function renderSettings() {
 
 // ---- inline SVG icons ----------------------------------
 const ICONS = {
+  search: '<circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 3 3"/>',
+  chevron: '<path d="M5 3l4 4-4 4"/>',
   gear: '<path d="M2 3.5h3M8 3.5h4M2 7h6M11 7h1M2 10.5h1M6 10.5h6"/><circle cx="6.5" cy="3.5" r="1.5"/><circle cx="9.5" cy="7" r="1.5"/><circle cx="4.5" cy="10.5" r="1.5"/>',
   x: '<path d="M3 3l8 8M11 3l-8 8"/>',
   sun: '<circle cx="7" cy="7" r="2.5"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.5 2.5l1 1M10.5 10.5l1 1M2.5 11.5l1-1M10.5 3.5l1-1"/>',
@@ -4285,10 +4595,10 @@ D.btnCopy.addEventListener('click', () => {
   }
 });
 D.scIndex.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'INDEX.md', label: '主索引 INDEX' }));
-D.scDash.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'dashboard.md', label: '工作看板' }));
+D.scDash.addEventListener('click', () => navOpen({ kind: 'dashboard', label: '工作看板' }));
 D.scDaily.addEventListener('click', () => openLatestReport('daily'));
 D.scWeekly.addEventListener('click', () => openLatestReport('weekly'));
-D.scTodo.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'todo.md', label: '个人待办' }));
+D.scTodo.addEventListener('click', () => navOpen({ kind: 'todo', label: '个人待办' }));
 D.scContext.addEventListener('click', () => navOpen({ kind: 'raw', path: KB + 'context.md', label: '全局上下文' }));
 document.querySelectorAll('.rail-tab').forEach(el => {
   el.addEventListener('click', () => {
@@ -4387,14 +4697,13 @@ async function reloadKb() {
   D.btnReload.disabled = true;
   D.btnReload.classList.add('spinning');
   D.brandSub.textContent = '重新载入…';
-  const cur = currentEntry();
   try {
     clearKbCaches();
     applyIndex(await loadIndex());
     state.recentIds = state.recentIds.filter(id => state.byId[id]);
     renderSidebar();
     updateScanStatus();
-    if (cur) renderCurrent();
+    if (currentEntry()) renderCurrent();
     else renderHome();
     scanAll().catch(e => console.warn('scan failed', e));
   } catch (e) {

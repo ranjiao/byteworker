@@ -48,7 +48,8 @@ byteworker skill 负责报告方法，Codex / Claude / TraeWork 等 harness 负�
    - 读范围内 `journal/` 行。
    - 扫范围内新增/更新的 `raw_data/` frontmatter:按 `ingested`、`source_window`、`digest_period` 判断归属。先按 docs/development/DESIGN.md §2.1 规范化时间:`ingested` / `source_window` 用完整 ISO8601,日期周期用 `YYYY-MM-DD`,ISO 周用 `YYYY-Www`。
    - 扫范围内新建/更新的 `knowledge/` 节点:优先读取 `event` / `decision`,再读取被它们 links 指向的 `project` / `person` / `org` / `area`。
-   - 对用户本人、团队、直属主管方向、`dashboard.md` 长期关注项做一跳图遍历补充。
+   - 用 `bin/byteworker dashboard inputs --kb "<KB>"` 读取 `data.watches`。对用户本人、团队、直属主管方向及
+     已绑定节点的长期关注项做一跳图遍历。该命令只读；读取失败时明确披露长期关注召回缺口。
    - 把上一步新 committed 的会议 event / raw / provenance 纳入同一范围；同一来源已 `noop` 时
      不重复计数，也不把“参加过会议”本身写成业务进展。
 6. **筛选重要性**

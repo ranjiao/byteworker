@@ -15,7 +15,7 @@
 #      - 只绑定 127.0.0.1；启用口令时保护 KB、日志和设置 API；
 #   4. 打开浏览器到 viewer 页面。Ctrl-C 停止,临时目录自动清理。
 #
-# viewer 浏览/检索/沿 links 跳转仍是只读；设置页只通过受限 API 写入已支持的配置项。
+# viewer 浏览/检索/沿 links 跳转只读；设置和待办归档使用受限 API。
 # 关键:viewer 代码始终在 skill 仓库内,业务数据不进入 skill 仓库。
 set -euo pipefail
 
@@ -78,7 +78,7 @@ trap 'rm -rf "$SERVE_ROOT"' EXIT INT TERM
 ln -s "$SKILL_DIR/viewer" "$SERVE_ROOT/app"
 ln -s "$KBDIR" "$SERVE_ROOT/kb"
 
-URL="http://localhost:$PORT/app/index.html"
+URL="http://localhost:$PORT/app/index.html?launch=${SERVE_ROOT##*.}"
 DEBUG_URL="http://localhost:$PORT/app/dreaming-debug.html"
 API_TOKEN=$("$PYTHON_BIN" - <<'PY'
 import secrets
@@ -99,10 +99,10 @@ required = bool(value.get("access_token_required", True))
 print("token" if required else "none")
 PY
 )
-URL_WITH_TOKEN="$URL?api_token=$API_TOKEN"
+URL_WITH_TOKEN="$URL&api_token=$API_TOKEN"
 if [ "$AUTH_MODE" = "token" ]; then
   OPEN_URL="$URL_WITH_TOKEN"
-  echo "访问保护:已开启(知识库文件、Dreaming 日志和设置 API 均需口令；页面代码公开；内部路径始终禁止)"
+  echo "访问保护:已开启(知识库文件、Dreaming 日志、设置和待办操作均需口令；页面代码公开；内部路径始终禁止)"
 else
   OPEN_URL="$URL"
   echo "访问保护:已关闭(仅绑定本机 127.0.0.1)"
