@@ -29,8 +29,17 @@ function parseIndex(text) {
 
 function inspectIndex(text) {
   const nodes = parseIndex(text);
-  const rows = text.split(/\r?\n/).filter(line => /^\|/.test(line) && !/^\|\s*(?:id\s*\||[-: ]+\|)/i.test(line));
+  const lines = text.split(/\r?\n/);
+  let rowCount = 0;
+  let auxiliary = false;
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      auxiliary = /^## (?:定期摄取清单|群聊摄取进度)(?:[ \t(]|$)/.test(line);
+    } else if (!auxiliary && /^\|/.test(line) && !/^\|\s*(?:id\s*\||[-: ]+\|)/i.test(line)) {
+      rowCount++;
+    }
+  }
   const recognized = /^##\s+.*\((?:person|project|area|org|event|decision|reading|thinking)\)\s*$/m.test(text);
-  const issue = rows.length > nodes.length ? 'INDEX 部分内容无法解析' : (!nodes.length && text.split(/\r?\n/).some(line => line.trim() && !/^\s*\|/.test(line)) && !recognized ? 'INDEX 格式不兼容' : '');
+  const issue = rowCount > nodes.length ? 'INDEX 部分内容无法解析' : (!nodes.length && lines.some(line => line.trim() && !/^\s*\|/.test(line)) && !recognized ? 'INDEX 格式不兼容' : '');
   return { nodes, issue };
 }

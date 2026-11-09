@@ -15,7 +15,7 @@ import sys
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.parse import parse_qs, unquote, urlsplit
 
 
@@ -203,8 +203,7 @@ class ViewerHandler(SimpleHTTPRequestHandler):
         if path == "/api/dreaming/runs" or path.startswith("/api/dreaming/runs/"):
             self._handle_dreaming_runs_get()
             return
-        if self._static_allowed():
-            super().do_GET()
+        super().do_GET()
 
     def _static_allowed(self) -> bool:
         decoded = unquote(urlsplit(self.path).path)
@@ -244,9 +243,13 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             return False
         return True
 
-    def do_HEAD(self) -> None:  # noqa: N802
-        if self._static_allowed():
-            super().do_HEAD()
+    def send_head(self) -> BinaryIO | None:
+        # Browsers may request this origin-level path without reading the page.
+        if urlsplit(self.path).path == "/favicon.ico":
+            self.path = "/app/favicon.ico"
+        if not self._static_allowed():
+            return None
+        return super().send_head()
 
     def do_PATCH(self) -> None:  # noqa: N802
         if self.path.split("?", 1)[0] == "/api/settings":
