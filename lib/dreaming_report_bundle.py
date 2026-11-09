@@ -20,6 +20,7 @@ from dreaming_state import (
     atomic_write_json,
     secure_path,
 )
+from provenance import report_citation_issues
 
 
 REPORT_DOCUMENT_SCHEMA = "byteworker-report-document/v1"
@@ -650,6 +651,15 @@ def render_report_bundle(
         preserved_notes = _existing_manual_notes(archive_path)
         if preserved_notes:
             normalized["manual_notes"] = preserved_notes
+    markdown = _render_markdown(normalized)
+    missing, _ = report_citation_issues(markdown)
+    if missing and archive_path.is_file() and not archive_path.is_symlink():
+        missing -= report_citation_issues(archive_path.read_text(encoding="utf-8"))[0]
+    if missing:
+        raise DreamingError(
+            "DREAMING_REPORT_DOCUMENT_INVALID",
+            "正文引用没有对应条目: " + ", ".join(sorted(missing)),
+        )
     directory = secure_path(
         kb,
         "reports",
@@ -662,7 +672,6 @@ def render_report_bundle(
     html_path = directory / "report.html"
     atomic_write_json(document_path, normalized)
     _write_private(summary_path, normalized["message_summary"] + "\n")
-    markdown = _render_markdown(normalized)
     _write_private(markdown_path, markdown)
     _write_private(html_path, _render_html(normalized))
     _write_archive(archive_path, markdown)

@@ -15,7 +15,7 @@ LIB_DIR = SKILL_ROOT / "lib"
 if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
-from doctor import apply_repairs, render_text, scan  # noqa: E402
+from doctor import render_text, scan  # noqa: E402
 from update_postflight import run_postflight  # noqa: E402
 
 
@@ -67,22 +67,14 @@ def main(argv: list[str] | None = None) -> int:
         transaction = None
         if args.command == "fix":
             actions = [item.strip() for item in args.only.split(",") if item.strip()]
-            if args.dry_run:
-                repairs = apply_repairs(
-                    kb,
-                    SKILL_ROOT,
-                    actions,
-                    autolink=args.autolink,
-                    dry_run=True,
-                )
-            else:
-                transaction = run_postflight(
-                    SKILL_ROOT,
-                    kb,
-                    allowed_actions=set(actions),
-                    force_autolink=args.autolink,
-                )
-                repairs = transaction.repairs
+            transaction = run_postflight(
+                SKILL_ROOT,
+                kb,
+                allowed_actions=set(actions),
+                force_autolink=args.autolink,
+                dry_run=args.dry_run,
+            )
+            repairs = transaction.repairs
         report = scan(kb, SKILL_ROOT)
     except (OSError, ValueError) as exc:
         print(f"doctor 错误: {exc}", file=sys.stderr)
@@ -111,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             print()
         sys.stdout.write(render_text(report))
 
-    if any(not item["ok"] for item in repairs):
+    if transaction is not None and transaction.execution_failed:
         return 1
     summary = report.summary()
     return 2 if summary["error"] or summary["warning"] else 0

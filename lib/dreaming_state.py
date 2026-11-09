@@ -414,6 +414,9 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
                 f"Dreaming v2 job 无效: {name}",
             )
     result = dict(value)
+    maintenance = normalized_jobs["maintenance"]
+    if maintenance.get("waiting_for_user") == "DOCTOR_USER_DECISION_REQUIRED":
+        normalized_jobs["maintenance"] = {**maintenance, "waiting_for_user": None}
     result["jobs"] = normalized_jobs
     result.setdefault("capability_tour_version", "")
     result.setdefault("capability_tour_acknowledged_at", None)

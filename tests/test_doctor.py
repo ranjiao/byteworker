@@ -23,6 +23,7 @@ from doctor import (  # noqa: E402
 from dreaming_state import empty_state  # noqa: E402
 from source_profiles import profile_relative_path, validate_profile  # noqa: E402
 import update_postflight  # noqa: E402
+from frontmatter import parse_file  # noqa: E402
 from update_postflight import render_message, run_postflight  # noqa: E402
 
 
@@ -788,6 +789,51 @@ links: []
             "DREAMING_STATE_INVALID",
             [item.code for item in findings if item.path == "state/dreaming/state.json"],
         )
+
+    def test_doctor_preview_and_apply_require_explicit_autolink(self):
+        self.add_one_way_area_link()
+        node = self.kb / "knowledge/readings/reading-example.md"
+        node.write_text(
+            node.read_text().replace("links: [area-example]", "links: []")
+            + "\n参见 area-example。\n"
+        )
+        self.rebuild_index()
+        self.commit_all()
+        before = node.read_bytes()
+        base = [
+            sys.executable, str(ROOT / "bin/doctor.py"), "fix", "--only", "links",
+            "--kb", str(self.kb), "--format", "json",
+        ]
+        for flags, expected in (
+            (["--dry-run"], []), ([], []),
+            (["--dry-run", "--autolink"], ["links"]),
+            (["--autolink"], ["links"]),
+        ):
+            with self.subTest(flags=flags):
+                result = subprocess.run(base + flags, capture_output=True, text=True)
+                self.assertIn(result.returncode, (0, 2), result.stderr)
+                data = json.loads(result.stdout)
+                self.assertEqual(expected, [repair["action"] for repair in data.get("repairs", [])])
+                if flags != ["--autolink"]:
+                    self.assertEqual(before, node.read_bytes())
+        self.assertIn("area-example", parse_file(str(node))[0]["links"])
+
+    def test_raw_index_blocker_does_not_block_independent_backlinks(self):
+        self.add_one_way_area_link()
+        raw = self.kb / "raw_data/2026-07-28-example.md"
+        raw.write_text(raw.read_text().replace("source_type: web", "source_type: web\nsource_type: web"))
+        raw_before = raw.read_bytes()
+        index = self.kb / "INDEX.md"
+        index.write_text("# stale\n")
+        self.commit_all()
+        preview = run_postflight(ROOT, self.kb, dry_run=True)
+        result = run_postflight(ROOT, self.kb)
+        self.assertEqual(["links"], [item["action"] for item in preview.repairs])
+        self.assertEqual(["links"], [item["action"] for item in result.repairs])
+        self.assertEqual("decision", result.status)
+        self.assertTrue(result.commit)
+        self.assertEqual("# stale\n", index.read_text())
+        self.assertEqual(raw_before, raw.read_bytes())
 
     def test_postflight_repairs_commits_and_preserves_unrelated_dirty_file(self):
         self.add_one_way_area_link()

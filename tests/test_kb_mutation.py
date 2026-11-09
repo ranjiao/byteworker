@@ -146,6 +146,40 @@ class KbMutationTests(unittest.TestCase):
         self.assertIn("## 手动补充 / 备注\nkeep this", rendered)
         self.assertNotIn("replace me", rendered)
 
+    def test_node_update_rejects_only_new_frontmatter_errors(self):
+        node = self.kb / "knowledge/projects/project-x.md"
+        node.parent.mkdir(parents=True)
+        baseline = "---\nid: project-x\nid: project-x\ntitle: Project X\n---\n\n# Project X\n"
+        node.write_text(baseline)
+        candidate = self.work / "node.md"
+        plan = self.plan({
+            "path": "knowledge/projects/project-x.md",
+            "content_path": str(candidate), "base_sha256": sha(node.read_bytes()),
+        }, operation="update")
+        candidate.write_text(baseline + "New paragraph.\n")
+        validate_mutation(self.kb, plan, ROOT)
+        candidate.write_text(baseline.replace("title: Project X", "title: Project X\ntitle: Duplicate"))
+        with self.assertRaisesRegex(MutationError, "字段重复: title"):
+            validate_mutation(self.kb, plan, ROOT)
+        self.assertEqual(baseline, node.read_text())
+
+    def test_report_update_rejects_only_new_missing_citations(self):
+        report = self.kb / "reports/daily/2026-07-31.md"
+        report.parent.mkdir(parents=True)
+        baseline = "# Daily\n\n## 本日重点\nOld [S1]\n"
+        report.write_text(baseline)
+        candidate = self.work / "report.md"
+        plan = self.plan({
+            "path": "reports/daily/2026-07-31.md",
+            "content_path": str(candidate), "base_sha256": sha(report.read_bytes()),
+        }, operation="report")
+        candidate.write_text(baseline + "Added note\n")
+        validate_mutation(self.kb, plan, ROOT)
+        candidate.write_text(baseline + "New [S2]\n")
+        with self.assertRaisesRegex(MutationError, "S2"):
+            validate_mutation(self.kb, plan, ROOT)
+        self.assertEqual(baseline, report.read_text())
+
     def test_legacy_reports_im_is_read_only(self):
         candidate = self.work / "legacy-im.md"
         candidate.write_text("# replacement\n", encoding="utf-8")
