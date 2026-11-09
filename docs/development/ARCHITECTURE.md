@@ -1543,7 +1543,8 @@ byteworker/
 
 ### Viewer 配置与访问边界
 
-本地 viewer 的页面代码公开；启用会话口令时，KB 静态 GET/HEAD、Dreaming 日志和设置 API
+本地 viewer 的页面代码公开；浏览器默认请求的 `/favicon.ico` 通过现有静态检查读取
+`/app/favicon.ico`。启用会话口令时，KB 静态 GET/HEAD、Dreaming 日志和设置 API
 均要求同一 token。KB 静态内容仅开放 knowledge/raw_data/reports 和 INDEX/context/todo/dashboard.md；
 隐藏路径、内部 state/sources/provenance/journal 和越出 app/KB 根的符号链接
 始终拒绝；唯一的 state 静态例外是调试页链接的 reports/<id>/artifacts/report.html，
@@ -1569,6 +1570,7 @@ COMMIT_EDITMSG，不复制 .git 历史、其它 refs 或配置。knowledge/raw_d
 ## Viewer 解析与中文候选召回边界
 
 Viewer 的 INDEX 解析职责由 `viewer/index-parser.js` 承担，主页面负责状态和渲染。
+解析诊断统计待解析行时跳过 INDEX 生成的「定期摄取清单」和「群聊摄取进度」两张辅助表。
 解析异常独立于读取失败和正常空库；部分解析仍可浏览已识别节点，但不能显示索引就绪。
 无 hash 的首页展示最近更新或首次摄取引导；鉴权和设置发布边界不变。
 `kb_query` 保持无持久派生索引：完整词匹配优先；仅在单个节点未命中时，以标题/tag 中

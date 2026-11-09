@@ -1,7 +1,10 @@
 import importlib.util
 import tempfile
 import unittest
+import urllib.request
+from functools import partial
 from pathlib import Path
+from threading import Thread
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +14,38 @@ spec.loader.exec_module(server)
 
 
 class ViewerAccessTests(unittest.TestCase):
+    def test_favicon_is_public_for_get_and_head(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'app').symlink_to(ROOT / 'viewer', target_is_directory=True)
+
+            class Handler(server.ViewerHandler):
+                kb = root
+                auth_required = True
+                api_token = 'secret'
+
+            factory = partial(Handler, directory=str(root))
+            with server.ThreadingHTTPServer(('127.0.0.1', 0), factory) as httpd:
+                worker = Thread(target=httpd.serve_forever)
+                worker.start()
+                try:
+                    url = f'http://127.0.0.1:{httpd.server_port}/favicon.ico'
+                    icon = (ROOT / 'viewer' / 'favicon.ico').read_bytes()
+                    self.assertEqual(b'\x00\x00\x01\x00', icon[:4])
+                    for method, body in (('GET', icon), ('HEAD', b'')):
+                        with self.subTest(method=method):
+                            request = urllib.request.Request(url, method=method)
+                            with urllib.request.urlopen(request, timeout=5) as response:
+                                self.assertEqual(200, response.status)
+                                self.assertEqual(url, response.geturl())
+                                self.assertIn(response.headers.get_content_type(),
+                                              {'image/x-icon', 'image/vnd.microsoft.icon'})
+                                self.assertEqual(len(icon), int(response.headers['Content-Length']))
+                                self.assertEqual(body, response.read())
+                finally:
+                    httpd.shutdown()
+                    worker.join()
+
     def test_private_reads_and_path_boundaries(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
