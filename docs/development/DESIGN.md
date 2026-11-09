@@ -410,9 +410,10 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
   Wiki scan 已完成，不是业务事实证据。
 - 初次启用只开启 `process/morning/maintenance/recovery`；`daily/weekly` 默认关闭，避免与现有
   `report_automation` 重复运行。
-- `maintenance` 默认工作日 03:30，通过公开 doctor facade 先 scan，再执行 finding 明确声明的
-  INDEX/links 确定性修复。剩余重要 error、证据/身份风险或自动化阻断项只向用户给有限元数据摘要，
-  以 `DOCTOR_USER_DECISION_REQUIRED` 进入 `waiting_for_user`；不保存业务正文，不猜语义修复。
+- `maintenance` 默认工作日 03:30，通过公开 doctor facade 扫描并执行允许的 INDEX/links 修复。
+  `state/dreaming/state.json` 可选 `maintenance_issues` 记录当前待办，每项仅含稳定摘要 id、问题码、
+  KB 相对路径和严重程度。完整扫描成功后替换列表，失败保留上次结果。旧整任务等待状态在读取时
+  解除，待办按问题跟踪。
 - 旧 v2 state 缺少 `maintenance` 或 capability tour 字段时，只在内存补成 disabled/未确认；
   `status` 不写回，也不因代码升级自动开启维护。下一次用户显式 enable 才记录新导览并开启该 job。
 - `manage_reports=true` 前必须确认旧 scheduler owner 已释放；如果
@@ -800,7 +801,8 @@ provider metadata 和可选 record index 的唯一交接契约。`digest-plan/v1
 anchors；`digest-batch-plan/v1` 保持只读兼容。batch
 不引入事务数据库：仍用 `base_sha256` 乐观基线 + Git 内短时写锁，拿锁后复验，一次重建 INDEX
 并生成一个本地 commit。标准事务强制 provenance；update 默认保留既有来源、证据和正文语义，
-有意删除必须在临时 plan 中显式授权并说明理由。
+有意删除必须在临时 plan 中显式授权并说明理由。新 raw 禁止重复 frontmatter 字段和空正文。
+节点写入拒绝新引入的 frontmatter 结构错误，报告写入拒绝新引入的缺失引用条目。
 
 `SourceBundle` 不定义统一正文 AST，也不要求飞书文档、群聊、妙记、Web、本地资料、
 Meego、Base、风神共享抓取代码结构。

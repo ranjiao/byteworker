@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
+from frontmatter import markdown_structure_issues, parse_frontmatter
 from kb_write_txn import (
     atomic_write,
     kb_write_lock,
@@ -21,6 +22,7 @@ from kb_write_txn import (
     snapshot_files,
     snapshot_git_index,
 )
+from provenance import report_citation_issues
 
 
 MUTATION_SCHEMA = "byteworker-kb-mutation/v1"
@@ -337,6 +339,29 @@ def _prepare_write(
             "KB_MUTATION_CONTEXT_TOO_LARGE",
             "context.md 不得超过 32 KiB；请先归档过期条目",
         )
+    if relative.startswith("knowledge/"):
+        text = content.decode("utf-8")
+        previous = current.decode("utf-8") if current is not None else ""
+        issues = markdown_structure_issues(text)
+        if current is not None:
+            issues -= markdown_structure_issues(previous)
+        if not parse_frontmatter(text)[1].strip() and (
+            current is None or parse_frontmatter(previous)[1].strip()
+        ):
+            issues.add("节点正文为空")
+        if issues:
+            raise MutationError(
+                "KB_MUTATION_CONTENT_INVALID", f"{relative}: " + "；".join(sorted(issues))
+            )
+    if relative.startswith("reports/"):
+        missing, _ = report_citation_issues(content.decode("utf-8"))
+        if missing and current is not None:
+            missing -= report_citation_issues(current.decode("utf-8"))[0]
+        if missing:
+            raise MutationError(
+                "KB_MUTATION_CONTENT_INVALID",
+                f"{relative}: 正文引用没有对应条目: " + ", ".join(sorted(missing)),
+            )
     return PreparedWrite(target, relative, content, base, mode)
 
 

@@ -22,7 +22,7 @@
 数据库或常驻锁：
 
 1. 用更新后的代码只读扫描；
-2. 自动执行 finding 明确声明的全部 `auto_fix`，不按 error/warning 猜测可修性；
+2. 自动执行 finding 明确声明的 INDEX/links 白名单项。正文补链必须由交互调用显式传 `--autolink`；
 3. 写入前确认知识库有本地 Git、没有 staged 变更，且目标节点、INDEX、当天 journal
    没有未提交编辑；知识库位于 skill 仓库/配置 remote、重复 ID、frontmatter 损坏等会让
    确定性修复失真的结构错误也直接阻断；
@@ -36,9 +36,9 @@
 ## Dreaming 周期维护
 
 Dreaming 启用后的 `maintenance` job 复用本文件同一 scan/fix facade 和事务边界，不能定义第二套
-修复白名单。细则见 `references/dreaming-maintenance.md`：只执行 finding 明确声明的
-`auto_fix`，复扫后把重要未决问题用有限元数据摘要交给用户；用户处理或忽略前进入
-`waiting_for_user`，避免重复提醒。maintenance 失败不改变 doctor 结果，也不阻塞其它能力。
+修复白名单。预演和实际执行用同一动作选择、阻断检查和显式 `--autolink` 规则。
+复扫回执的 `maintenance_issues` 只含问题标识、相对路径、问题码和严重程度。Dreaming 按问题
+去重和保留待办，仍按计划扫描。见 `references/dreaming-maintenance.md`。
 
 ## 用法
 
@@ -61,6 +61,7 @@ bin/byteworker doctor scan --kb /absolute/path/to/kb
 统一 envelope 中 `status=attention` 表示扫描完成但仍有 finding。退出码仍为：`0` 没有
 error/warning；`2` 扫描完成但仍有问题；`1` 参数、目录或执行失败。`info` 是明确兼容的历史
 格式，不单独导致非零。人工排障仍可直接运行 `python3 bin/doctor.py ...` 查看原始输出。
+`summary.auto_fixable` 统计默认安全动作，`summary.autolink_opt_in` 单列需要显式授权的正文补链。
 
 ## 检查范围
 

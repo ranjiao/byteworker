@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from dreaming_state import DreamingError, atomic_write_json, secure_path, utc_iso
@@ -10,6 +11,30 @@ from dreaming_state import DreamingError, atomic_write_json, secure_path, utc_is
 
 RESULT_SCHEMA = "byteworker-dreaming-run-result/v1"
 RESULT_STATUSES = {"pass", "warning", "fail", "noop"}
+
+
+def validate_maintenance_issues(raw_issues: object) -> list[dict[str, str]]:
+    if not isinstance(raw_issues, list):
+        raise DreamingError("DREAMING_RUN_RESULT_INVALID", "issues 必须是数组。")
+    issues = {}
+    for issue in raw_issues:
+        if not isinstance(issue, Mapping):
+            raise DreamingError("DREAMING_RUN_RESULT_INVALID", "维护问题格式无效。")
+        issue_id = _text(issue.get("id"), "issue.id", 64, required=True)
+        code = _text(issue.get("code"), "issue.code", 120, required=True)
+        path = _text(issue.get("path"), "issue.path", 512, required=True)
+        severity = issue.get("severity")
+        if (
+            not re.fullmatch(r"[a-f0-9]{64}", issue_id)
+            or not re.fullmatch(r"[A-Z][A-Z0-9_]+", code)
+            or PurePosixPath(path).is_absolute() or ".." in PurePosixPath(path).parts
+            or any(c in path for c in "\\:\n\r\0")
+            or severity not in ("error", "warning")
+            or issue_id in issues
+        ):
+            raise DreamingError("DREAMING_RUN_RESULT_INVALID", "维护问题标识或路径无效。")
+        issues[issue_id] = {"id": issue_id, "code": code, "path": path, "severity": severity}
+    return list(issues.values())
 
 
 def _text(value: object, field: str, limit: int, *, required: bool = False) -> str:

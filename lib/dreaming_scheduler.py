@@ -17,7 +17,7 @@ from dreaming_run_log import (
     append_run_event,
     logging_config,
 )
-from dreaming_run_result import save_run_result
+from dreaming_run_result import save_run_result, validate_maintenance_issues
 
 from dreaming_state import (
     STATE_SCHEMA,
@@ -42,7 +42,6 @@ HUMAN_BLOCKING_ERRORS = {
     "DREAMING_ROUTINE_SOURCE_INVALID",
     "DREAMING_ROUTINE_SOURCE_UNSUPPORTED",
     "DREAMING_GRANT_REQUIRED",
-    "DOCTOR_USER_DECISION_REQUIRED",
 }
 BACKOFF_MINUTES = 5
 BACKOFF_MAX_MINUTES = 240
@@ -526,6 +525,8 @@ def enable(
             ),
         )
         value = _empty_state(current)
+        if "maintenance_issues" in previous:
+            value["maintenance_issues"] = previous["maintenance_issues"]
         for field in (
             "grants",
             "runs",
@@ -1730,6 +1731,24 @@ def complete_run(
                 "DREAMING_LEASE_MISMATCH",
                 "Dreaming lease epoch 已过期。",
             )
+        maintenance_delta = {}
+        if result_document is not None and "issues" in result_document:
+            if job_name != "maintenance" or run_status != "success":
+                raise DreamingError(
+                    "DREAMING_RUN_RESULT_INVALID", "issues 只接受完成扫描的 maintenance 回执。"
+                )
+            issues = validate_maintenance_issues(result_document["issues"])
+            previous_issues = validate_maintenance_issues(value.get("maintenance_issues", []))
+            previous_ids = {issue["id"] for issue in previous_issues}
+            active_ids = {issue["id"] for issue in issues}
+            new = [issue for issue in issues if issue["id"] not in previous_ids]
+            maintenance_delta = {
+                "pending_count": len(issues),
+                "new_count": len(new),
+                "new": new[:10],
+                "resolved_count": len(previous_ids - active_ids),
+            }
+            value["maintenance_issues"] = issues
         normalized_batch_id = batch_id.strip()
         if job_name == "process" and run_status == "success":
             from dreaming_digest import process_has_complete_routine_digest
@@ -1800,6 +1819,8 @@ def complete_run(
             "batch_id": normalized_batch_id,
             "result_path": result_path,
         }
+        if maintenance_delta:
+            run["maintenance"] = maintenance_delta
         job["last_attempt"] = run
         job["last_run"] = run
         if run_status == "success":

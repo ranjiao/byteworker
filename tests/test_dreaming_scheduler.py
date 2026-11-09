@@ -286,33 +286,53 @@ class DreamingSchedulerTests(unittest.TestCase):
             self.assertEqual("morning", report["job"])
             self.assertEqual("2026-08-05", report["period"])
 
-    def test_maintenance_runs_on_schedule_and_waits_for_user_decision(self):
+    def test_maintenance_resumes_legacy_wait_and_tracks_issues_across_runs(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))
             enabled_at = datetime(2026, 8, 3, 18, 0, tzinfo=timezone.utc)
             self.enable_at(kb, enabled_at)  # 02:00 Asia/Shanghai
             due_at = enabled_at + timedelta(hours=1, minutes=30)
 
-            leased = run_due(kb, owner="host", now=due_at)
-
-            self.assertEqual("maintenance", leased["job"])
-            completed = complete_run(
-                kb,
-                token=leased["lease"]["token"],
-                run_status="partial",
-                error_code="DOCTOR_USER_DECISION_REQUIRED",
-                coverage_checkpoint="doctor:error=1,warning=2,commit=none",
-                now=due_at + timedelta(minutes=5),
-            )
-            self.assertEqual("partial", completed["status"])
-            maintenance = status(kb, now=due_at + timedelta(minutes=5))["jobs"][
-                "maintenance"
-            ]
-            self.assertEqual(
-                "DOCTOR_USER_DECISION_REQUIRED",
-                maintenance["waiting_for_user"],
-            )
-            self.assertIsNone(maintenance["next_attempt_at"])
+            state = json.loads(state_path(kb).read_text())
+            for name, job in state["jobs"].items():
+                job["enabled"] = name == "maintenance"
+            state["jobs"]["maintenance"]["waiting_for_user"] = "DOCTOR_USER_DECISION_REQUIRED"
+            atomic_write_json(state_path(kb), state)
+            issue = {
+                "id": "a" * 64, "code": "RAW_EMPTY_BODY",
+                "path": "raw_data/example.md", "severity": "error",
+            }
+            changed = {**issue, "id": "b" * 64}
+            for day, issues, new, resolved in (
+                (0, [issue], 1, 0), (1, [issue], 0, 0),
+                (2, [changed], 1, 1), (3, [], 0, 1),
+            ):
+                now = due_at + timedelta(days=day)
+                with self.subTest(day=day):
+                    leased = run_due(kb, owner="host", now=now)
+                    self.assertEqual("maintenance", leased["job"])
+                    if day == 1:
+                        complete_run(
+                            kb, token=leased["lease"]["token"], run_status="failed",
+                            error_code="DOCTOR_SCAN_FAILED", now=now,
+                        )
+                        self.assertEqual([issue], status(kb, now=now)["maintenance_issues"])
+                        now += timedelta(minutes=10)
+                        leased = run_due(kb, owner="host", now=now)
+                        self.assertEqual("maintenance", leased["job"])
+                    completed = complete_run(
+                        kb, token=leased["lease"]["token"], run_status="success", now=now,
+                        result_document={
+                            "schema_version": "byteworker-dreaming-run-result/v1",
+                            "job": "maintenance", "period": leased["period"],
+                            "summary": "scan complete", "issues": issues,
+                        },
+                    )
+                    self.assertEqual(new, completed["maintenance"]["new_count"])
+                    self.assertEqual(resolved, completed["maintenance"]["resolved_count"])
+                    saved = status(kb, now=now)
+                    self.assertEqual(issues, saved["maintenance_issues"])
+                    self.assertIsNone(saved["jobs"]["maintenance"]["waiting_for_user"])
 
     def test_expired_lease_is_fenced_and_replaced(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

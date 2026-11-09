@@ -5,7 +5,32 @@ rebuild-index 与 repair-links 共用，保证解析行为一致。
 """
 import json
 import os
+from collections import Counter
 from typing import Dict, Any, Tuple, List, Optional
+
+
+def frontmatter_state(text: str) -> tuple[bool, bool, list[str]]:
+    """Inspect delimiters and duplicate keys without changing legacy parsing."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False, False, []
+    keys: Counter[str] = Counter()
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            return True, True, sorted(key for key, count in keys.items() if count > 1)
+        if stripped and not stripped.startswith(("#", "-")) and ":" in line:
+            keys[line.partition(":")[0].strip()] += 1
+    return True, False, []
+
+
+def markdown_structure_issues(text: str) -> set[str]:
+    opened, closed, duplicates = frontmatter_state(text)
+    if not opened:
+        return {"缺少 frontmatter"}
+    if not closed:
+        return {"frontmatter 未闭合"}
+    return {f"frontmatter 字段重复: {key}" for key in duplicates}
 
 
 def parse_frontmatter(text: str) -> Tuple[Dict[str, Any], str]:

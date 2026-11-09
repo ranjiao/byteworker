@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 from constants import NODE_ID_PREFIXES, NODE_TYPES
-from frontmatter import parse_file, parse_frontmatter
+from frontmatter import markdown_structure_issues, parse_file, parse_frontmatter
 from kb_write_txn import kb_write_lock
 from provenance import (
     ProvenanceError,
@@ -700,6 +700,11 @@ def _validate_node_candidate(
     target = _safe_relative_path(kb, str(node.get("path", "")), ("knowledge",))
     candidate = _resolve_input_path(str(node.get("candidate", "")), manifest_path)
     content = candidate.read_text(encoding="utf-8")
+    issues = markdown_structure_issues(content)
+    if op == "update" and target.is_file() and issues:
+        issues -= markdown_structure_issues(target.read_text(encoding="utf-8"))
+    if issues:
+        raise DigestTxnError(f"候选节点结构无效: {target.relative_to(kb)}: " + "；".join(sorted(issues)))
     fm, body = parse_frontmatter(content)
     node_id = str(fm.get("id", "")).strip()
     node_type = str(fm.get("type", "")).strip()
@@ -1520,7 +1525,7 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
     if extra:
         if not isinstance(extra, dict):
             raise DigestTxnError("raw.extra_frontmatter 必须是对象")
-        protected = PROTECTED_RAW_FIELDS & set(extra)
+        protected = (PROTECTED_RAW_FIELDS | {key for key, _ in ordered}) & set(extra)
         if protected:
             raise DigestTxnError(
                 "raw.extra_frontmatter 不得覆盖受保护字段: " + ", ".join(sorted(protected))
@@ -1580,6 +1585,11 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
             output += "\n"
         output += "\n## 规范记录索引（派生）\n\n```json\n"
         output += text + "\n```\n"
+    issues = markdown_structure_issues(output)
+    if issues:
+        raise DigestTxnError("raw 结构无效: " + "；".join(sorted(issues)))
+    if not parse_frontmatter(output)[1].strip():
+        raise DigestTxnError("raw 正文为空；空窗口不应作为原文写入")
     return output
 
 

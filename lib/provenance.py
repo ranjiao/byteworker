@@ -682,3 +682,14 @@ def materialize_node_provenance(
     frontmatter_text = updated[: fm_match.end()]
     final_body = base_body.rstrip() + "\n\n" + "\n".join(rows).rstrip() + "\n"
     return frontmatter_text + final_body
+
+
+def report_citation_issues(text: str) -> tuple[set[str], set[str]]:
+    """Find unbound body markers and unused entries using the Doctor convention."""
+    parts = re.split(r"(?m)^## (?:引用|来源索引)\s*$", text, maxsplit=1)
+    body = set(re.findall(r"\[(S[1-9][0-9]*)\]", parts[0]))
+    pattern = re.compile(r"^\s*-\s+(?:\*\*)?\[(S[1-9][0-9]*)\](?:\*\*)?(?:\s|$)")
+    citations = {
+        match[1] for line in parts[1].splitlines() if (match := pattern.match(line))
+    } if len(parts) == 2 else set()
+    return body - citations, citations - body

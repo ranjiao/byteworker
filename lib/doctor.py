@@ -16,12 +16,13 @@ from doctor_sources import scan_source_contracts
 from dreaming_state import DreamingError, _read_json as read_dreaming_json
 from dreaming_state import _validate_v2 as validate_dreaming_v2
 from dreaming_state import state_path as dreaming_state_path
-from frontmatter import extract_tldr, extract_title, parse_file
+from frontmatter import extract_tldr, extract_title, frontmatter_state, parse_frontmatter
 from provenance import (
     EVIDENCE_MARKER_RE,
     ProvenanceError,
     anchor_index,
     load_provenance,
+    report_citation_issues,
 )
 
 
@@ -41,10 +42,6 @@ RAW_ID_RE = re.compile(r"^raw-[A-Za-z0-9._-]+$")
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 EVIDENCE_ROW_RE = re.compile(
     r"^\|\s*\*\*\[(E[1-9][0-9]*)\]\*\*\s*\|(?P<rest>.*)$"
-)
-REPORT_MARKER_RE = re.compile(r"\[(S[1-9][0-9]*)\]")
-REPORT_CITATION_RE = re.compile(
-    r"^\s*-\s+(?:\*\*)?\[(S[1-9][0-9]*)\](?:\*\*)?(?:\s|$)"
 )
 
 NODE_REQUIRED_FIELDS = (
@@ -122,11 +119,13 @@ class DoctorReport:
     findings: List[Finding]
 
     def summary(self) -> Dict[str, int]:
-        result = {"error": 0, "warning": 0, "info": 0, "auto_fixable": 0}
+        result = {"error": 0, "warning": 0, "info": 0, "auto_fixable": 0, "autolink_opt_in": 0}
         for item in self.findings:
             result[item.severity] += 1
-            if item.auto_fix:
+            if item.auto_fix in {"index", "links"}:
                 result["auto_fixable"] += 1
+            elif item.auto_fix == "autolink":
+                result["autolink_opt_in"] += 1
         return result
 
     def to_dict(self) -> Dict[str, Any]:
@@ -137,7 +136,32 @@ class DoctorReport:
             "counts": self.counts,
             "summary": self.summary(),
             "findings": [asdict(item) for item in self.findings],
+            "maintenance_issues": self.maintenance_issues(),
         }
+
+    def maintenance_issues(self) -> list[dict[str, str]]:
+        """Project important unresolved findings without storing their text."""
+        issues = {}
+        for item in self.findings:
+            if item.severity != "error" and not (
+                item.severity == "warning"
+                and (
+                    item.auto_fix in {"index", "links"}
+                    or item.code.startswith(
+                        ("NODE_EVIDENCE_", "RAW_PROFILE_", "ROUTINE_SOURCE_", "PERSON_")
+                    )
+                    or item.code in {"RAW_INCOMPLETE_DIGEST", "RAW_TARGET_NOT_IN_NODE_SOURCES"}
+                )
+            ):
+                continue
+            issue_id = hashlib.sha256(
+                "\0".join((item.code, item.path, item.message)).encode("utf-8")
+            ).hexdigest()
+            issues[issue_id] = {
+                "id": issue_id, "code": item.code, "path": item.path,
+                "severity": item.severity,
+            }
+        return list(issues.values())
 
 
 def _list_value(value: Any) -> List[str]:
@@ -153,24 +177,6 @@ def _relative(path: Path, root: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _frontmatter_state(path: Path) -> tuple[bool, bool, List[str]]:
-    lines = path.read_text(encoding="utf-8").splitlines()
-    if not lines or lines[0].strip() != "---":
-        return False, False, []
-    end = next(
-        (idx for idx, line in enumerate(lines[1:], start=1) if line.strip() == "---"),
-        None,
-    )
-    if end is None:
-        return True, False, []
-    keys: List[str] = []
-    for line in lines[1:end]:
-        if line and not line[0].isspace() and ":" in line:
-            keys.append(line.partition(":")[0].strip())
-    duplicates = sorted({key for key in keys if keys.count(key) > 1})
-    return True, True, duplicates
 
 
 def schema_fingerprint(skill_root: Path) -> str:
@@ -359,7 +365,8 @@ class Doctor:
     def _markdown(self, path: Path, kind: str) -> tuple[Dict[str, Any], str] | None:
         relative = _relative(path, self.kb)
         try:
-            has_open, has_close, duplicate_keys = _frontmatter_state(path)
+            text = path.read_text(encoding="utf-8")
+            has_open, has_close, duplicate_keys = frontmatter_state(text)
         except (OSError, UnicodeDecodeError) as exc:
             self.add("error", f"{kind}_UNREADABLE", relative, f"无法读取: {exc}")
             return None
@@ -381,7 +388,7 @@ class Doctor:
                 relative,
                 "frontmatter 存在重复字段: " + ", ".join(duplicate_keys),
             )
-        return parse_file(str(path))
+        return parse_frontmatter(text)
 
     def scan_raws(self) -> None:
         directory = self.kb / "raw_data"
@@ -1043,34 +1050,20 @@ class Doctor:
                         f"{kind} 报告文件名不符合当前规范。",
                     )
                 text = path.read_text(encoding="utf-8")
-                parts = re.split(
-                    r"(?m)^## (?:引用|来源索引)\s*$", text, maxsplit=1
-                )
-                body_markers = set(REPORT_MARKER_RE.findall(parts[0]))
-                citations = (
-                    {
-                        match.group(1)
-                        for line in parts[1].splitlines()
-                        if (match := REPORT_CITATION_RE.match(line))
-                    }
-                    if len(parts) == 2
-                    else set()
-                )
-                missing = sorted(body_markers - citations)
-                unused = sorted(citations - body_markers)
+                missing, unused = report_citation_issues(text)
                 if missing:
                     self.add(
                         "error",
                         "REPORT_CITATION_MISSING",
                         relative,
-                        "正文引用没有对应条目: " + ", ".join(missing),
+                        "正文引用没有对应条目: " + ", ".join(sorted(missing)),
                     )
                 if unused:
                     self.add(
                         "warning",
                         "REPORT_CITATION_UNUSED",
                         relative,
-                        "引用条目未被正文使用: " + ", ".join(unused),
+                        "引用条目未被正文使用: " + ", ".join(sorted(unused)),
                     )
 
     def scan_dreaming_state(self) -> None:
@@ -1212,7 +1205,7 @@ def render_text(report: DoctorReport) -> str:
         ).format(**report.counts),
         (
             "结果: error={error} warning={warning} info={info} "
-            "auto_fixable={auto_fixable}"
+            "auto_fixable={auto_fixable} autolink_opt_in={autolink_opt_in}"
         ).format(**summary),
     ]
     for severity in ("error", "warning", "info"):
@@ -1222,7 +1215,10 @@ def render_text(report: DoctorReport) -> str:
         label = {"error": "错误", "warning": "警告", "info": "兼容信息"}[severity]
         lines.extend(["", f"## {label} ({len(items)})"])
         for item in items:
-            suffix = f" [可自动修复:{item.auto_fix}]" if item.auto_fix else ""
+            if item.auto_fix == "autolink":
+                suffix = " [须显式 --autolink]"
+            else:
+                suffix = f" [可自动修复:{item.auto_fix}]" if item.auto_fix else ""
             lines.append(
                 f"- [{item.code}] {item.path}: {item.message}{suffix}"
             )

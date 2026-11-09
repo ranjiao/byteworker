@@ -680,6 +680,31 @@ links: []
         with self.assertRaisesRegex(DigestTxnError, "节点基线已变化"):
             validate_plan(self.kb, second_plan)
 
+    def test_write_rejects_empty_raw_and_duplicate_frontmatter(self):
+        body, comments = self.write_source()
+        raw_id = "raw-2026-07-27-test-plan"
+        plan_path = self.write_plan(
+            self.source_manifest(body, comments), raw_id,
+            "2026-07-27-test-plan", self.reading_text([raw_id]),
+        )
+        plan = json.loads(plan_path.read_text())
+        plan["raw"]["extra_frontmatter"] = {"comments_status": "complete"}
+        plan_path.write_text(json.dumps(plan))
+        head = run_git(self.kb, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(DigestTxnError, "comments_status"):
+            execute_plan(self.kb, plan_path, ROOT)
+
+        del plan["raw"]["extra_frontmatter"]
+        plan["source"].update(type="web", components=[
+            {"name": "body", "kind": "body", "mode": "verbatim", "path": str(body)},
+        ])
+        body.write_text(" \n")
+        plan_path.write_text(json.dumps(plan))
+        with self.assertRaisesRegex(DigestTxnError, "raw 正文为空"):
+            execute_plan(self.kb, plan_path, ROOT)
+        self.assertEqual([], list((self.kb / "raw_data").iterdir()))
+        self.assertEqual(head, run_git(self.kb, "rev-parse", "HEAD"))
+
     def test_standard_plan_requires_provenance(self):
         body, comments = self.write_source()
         source = self.source_manifest(body, comments)

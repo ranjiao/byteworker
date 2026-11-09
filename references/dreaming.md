@@ -232,10 +232,9 @@ checkpoint 和 Finding history；报告 job 不能再次独立执行完整 routi
 公开 doctor facade 执行 finding 明确声明的确定性低风险修复；复扫后筛选真正需要用户判断的
 error、证据/身份风险和自动化阻断项。不得猜业务字段、创建 Profile 或扩大来源授权。
 
-重要问题通过当前宿主给用户有限摘要，并以
-`DOCTOR_USER_DECISION_REQUIRED` 进入 `waiting_for_user`，直到用户处理/忽略后显式
-`retry-job maintenance`；这避免后台重复提醒。maintenance 失败只影响自身，不阻塞 process、
-报告或 recovery。
+重要问题按 Doctor 的稳定标识记录在 `maintenance_issues`。当前宿主任务只汇总本轮新增或变化项，
+已有待办不影响后续扫描和独立的安全修复。技术失败进入退避，待办保留。maintenance 失败只影响
+自身，不阻塞 process、报告或 recovery。
 
 ## 完成回执
 

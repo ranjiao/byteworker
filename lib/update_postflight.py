@@ -64,6 +64,7 @@ def _one_line(value: str, limit: int = 180) -> str:
 @dataclass
 class PostflightResult:
     status: str
+    execution_failed: bool = False
     repaired_findings: int = 0
     changed_files: int = 0
     commit: str = ""
@@ -73,6 +74,7 @@ class PostflightResult:
             "warning": 0,
             "info": 0,
             "auto_fixable": 0,
+            "autolink_opt_in": 0,
         }
     )
     reasons: List[str] = field(default_factory=list)
@@ -93,7 +95,7 @@ def _git(kb: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def _git_paths(kb: Path, *args: str) -> Set[str]:
-    result = _git(kb, *args, "-z")
+    result = _git(kb, "--no-optional-locks", *args, "-z")
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "无法读取知识库 Git 状态")
     return {value for value in result.stdout.split("\0") if value}
@@ -112,22 +114,24 @@ def _staged_paths(kb: Path) -> Set[str]:
     return _git_paths(kb, "diff", "--cached", "--name-only")
 
 
-def _actions(report: DoctorReport) -> tuple[List[str], bool]:
+def _actions(
+    report: DoctorReport, allowed: Set[str] | None, autolink: bool
+) -> List[str]:
     fixes = {item.auto_fix for item in report.findings if item.auto_fix}
     unknown = sorted(fixes - AUTO_FIX_ACTIONS)
     if unknown:
         raise RuntimeError("doctor 返回未知 auto_fix: " + ", ".join(unknown))
-    actions: List[str] = []
-    if "index" in fixes:
-        actions.append("index")
-    if fixes & {"links", "autolink"}:
-        actions.append("links")
-    return actions, "autolink" in fixes
+    allowed = {"index", "links"} if allowed is None else allowed
+    if unknown := allowed - {"index", "links"}:
+        raise ValueError("未知 repair action: " + ", ".join(sorted(unknown)))
+    if autolink and "autolink" in fixes:
+        fixes.add("links")
+    return [action for action in ("index", "links") if action in fixes & allowed]
 
 
 def _repair_blockers(
     kb: Path,
-    actions: List[str],
+    action: str,
     *,
     journal_path: str,
     report: DoctorReport,
@@ -136,17 +140,17 @@ def _repair_blockers(
     codes = {item.code for item in report.findings}
     if codes & GLOBAL_REPAIR_BLOCKERS:
         reasons.append("知识库布局、Git 隔离或 source Profile 存在严重错误")
-    if "links" in actions and codes & NODE_GRAPH_BLOCKERS:
+    if action == "links" and codes & NODE_GRAPH_BLOCKERS:
         reasons.append("节点图存在影响确定性修复的结构错误")
-    if "index" in actions and codes & INDEX_BLOCKERS:
+    if action == "index" and codes & INDEX_BLOCKERS:
         reasons.append("节点或 raw 存在影响 INDEX 重建的结构错误")
     staged = _staged_paths(kb)
     if staged:
         reasons.append("知识库已有 staged 变更")
     dirty = _dirty_paths(kb)
-    if "index" in actions and "INDEX.md" in dirty:
+    if action == "index" and "INDEX.md" in dirty:
         reasons.append("INDEX.md 正在被编辑")
-    if "links" in actions and any(
+    if action == "links" and any(
         path.startswith("knowledge/") and path.endswith(".md") for path in dirty
     ):
         reasons.append("knowledge 节点存在未提交编辑")
@@ -251,42 +255,48 @@ def _run_postflight_locked(
     now: datetime | None = None,
     allowed_actions: Set[str] | None = None,
     force_autolink: bool = False,
+    dry_run: bool = False,
 ) -> PostflightResult:
     skill_root = skill_root.resolve()
     kb = kb.resolve()
     now = now or datetime.now().astimezone()
     initial = scan(kb, skill_root)
-    actions, autolink = _actions(initial)
-    if allowed_actions is not None:
-        actions = [action for action in actions if action in allowed_actions]
+    actions = _actions(initial, allowed_actions, force_autolink)
+    selected_fixes = set(actions)
     if force_autolink and "links" in actions:
-        autolink = True
+        selected_fixes.add("autolink")
     repairable = {
         (item.code, item.path, item.auto_fix)
         for item in initial.findings
-        if item.auto_fix
+        if item.auto_fix in selected_fixes
     }
     reasons: List[str] = []
     repairs: List[Dict[str, Any]] = []
     commit = ""
     changed_files = 0
+    execution_failed = False
     final = initial
 
+    ready = []
     if actions:
         git_check = _git(kb, "rev-parse", "--is-inside-work-tree")
         if git_check.returncode != 0:
             reasons.append("知识库没有可用的本地 Git 回滚点")
         else:
             journal_path = f"journal/{now:%Y-%m}/{now:%Y-%m-%d}.md"
-            reasons.extend(
-                _repair_blockers(
-                    kb,
-                    actions,
-                    journal_path=journal_path,
-                    report=initial,
+            for action in actions:
+                blockers = _repair_blockers(
+                    kb, action, journal_path=journal_path, report=initial
                 )
+                reasons.extend(blockers)
+                if not blockers:
+                    ready.append(action)
+        if ready and dry_run:
+            repairs = apply_repairs(
+                kb, skill_root, ready, autolink=force_autolink, dry_run=True
             )
-        if not reasons:
+            execution_failed = any(not item["ok"] for item in repairs)
+        elif ready:
             before = _dirty_paths(kb)
             journal_path = f"journal/{now:%Y-%m}/{now:%Y-%m-%d}.md"
             possible_paths = [kb / "INDEX.md", kb / journal_path]
@@ -299,8 +309,8 @@ def _run_postflight_locked(
                 repairs = apply_repairs(
                     kb,
                     skill_root,
-                    actions,
-                    autolink=autolink,
+                    ready,
+                    autolink=force_autolink,
                 )
                 failed = [item["action"] for item in repairs if not item["ok"]]
                 if failed:
@@ -329,13 +339,14 @@ def _run_postflight_locked(
                         kb,
                         repaired_findings=len(repaired),
                         changed_files=len(allowed),
-                        actions=actions,
+                        actions=ready,
                         summary=final.summary(),
                         now=now,
                     )
                     commit = _commit_repairs(kb, [*allowed, journal])
                     changed_files = len(allowed)
             except (OSError, RuntimeError) as exc:
+                execution_failed = True
                 try:
                     _rollback(
                         kb,
@@ -357,9 +368,14 @@ def _run_postflight_locked(
     summary = final.summary()
     if summary["error"]:
         reasons.append(f"复扫仍有 {summary['error']} 项 error")
-    if summary["auto_fixable"]:
-        reasons.append(f"复扫仍有 {summary['auto_fixable']} 项 auto_fix")
-    repaired_findings = len(repairable) - summary["auto_fixable"]
+    remaining = {
+        (item.code, item.path, item.auto_fix)
+        for item in final.findings
+        if item.auto_fix in selected_fixes
+    }
+    if remaining and not dry_run:
+        reasons.append(f"复扫仍有 {len(remaining)} 项已选自动修复")
+    repaired_findings = len(repairable - remaining)
     if reasons:
         status = "decision"
     elif summary["warning"] or summary["info"]:
@@ -368,6 +384,7 @@ def _run_postflight_locked(
         status = "healthy"
     return PostflightResult(
         status=status,
+        execution_failed=execution_failed,
         repaired_findings=max(repaired_findings, 0),
         changed_files=changed_files,
         commit=commit,
@@ -384,8 +401,14 @@ def run_postflight(
     now: datetime | None = None,
     allowed_actions: Set[str] | None = None,
     force_autolink: bool = False,
+    dry_run: bool = False,
 ) -> PostflightResult:
     resolved_kb = kb.resolve()
+    if dry_run:
+        return _run_postflight_locked(
+            skill_root, resolved_kb, now=now, allowed_actions=allowed_actions,
+            force_autolink=force_autolink, dry_run=True,
+        )
     with kb_write_lock(resolved_kb):
         return _run_postflight_locked(
             skill_root,

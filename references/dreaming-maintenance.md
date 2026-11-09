@@ -1,73 +1,36 @@
 # Dreaming maintenance：doctor 维护
 
-只在 `run-due` 返回 `job=maintenance` 时加载。该 job 复用公开 doctor facade，不 import
-`lib/doctor.py` 或复制修复逻辑。
+只在 `run-due` 返回 `job=maintenance` 时加载。该 job 复用公开 `doctor scan/fix` facade，
+不 import Doctor 内部模块，也不另设修复白名单。
 
 ## 执行
 
-1. 运行 `bin/byteworker doctor scan --kb "<KB>"`，保存有限 summary 和 finding 元数据。
-2. 若存在 `auto_fixable`，运行
-   `bin/byteworker doctor fix --kb "<KB>" --only index,links`。该事务只执行 doctor 明确声明的
-   确定性白名单修复，自带共享写锁、Git 回滚、复扫、journal 和本地 commit；不要手工改文件。
-3. 再读取最终 scan/transaction。完全健康或只有无需用户处理的 info/低价值 warning 时，以
-   `success` 完成；coverage checkpoint 只写计数与 commit，不写业务内容。
-4. 完成前必须把本轮结构化结果写入 KB 外临时 JSON，并通过 `dreaming complete --result-input`
-   保存到 `state/dreaming/run-results/<run_id>.json`，供调试页复核。结构包含：
+1. 调用 `bin/byteworker doctor scan --kb "<KB>"`。退出码 2 表示扫描完成且有问题。
+2. 如有 `auto_fix` 为 `index` 或 `links` 的项，调用
+   `bin/byteworker doctor fix --kb "<KB>" --only index,links`，以它的复扫结果为准。
+   维护不传 `--autolink`。安全修复自带共享写锁、Git 回滚、复扫、journal 和本地 commit。
+   某个动作被其依赖阻断时，独立的安全动作仍可执行。
+3. 把最终回执的 `data.maintenance_issues` 完整复制到结果文档的 `issues`。必须使用最后一次完整扫描的列表；
+   空列表表示问题已清除。不要自行筛选、截断或把扫描失败当作空列表。
+   若 facade 返回私密输出 artifact，先按机器协议读取并核验其中的 JSON，再提取所需字段。
+4. 通过 `dreaming complete --run-status success --result-input "<临时运行结果 JSON>"` 完成租约。
+   `success` 表示本轮维护执行完成，允许仍有单条问题待处理。Doctor 退出 1、无法取得完整回执或
+   `transaction.execution_failed=true` 时，按技术失败完成并使用退避，不提交 `issues`。
+5. 完成回执的 `maintenance.new` 最多包含 10 个首次出现或内容变化的问题。只向当前宿主任务结果
+   汇总这些项和总数。未变化的项继续留在 `dreaming status` 的 `maintenance_issues`，后续扫描
+   会移除已消失的项。不要发送额外消息或重复提醒。
 
-```json
-{
-  "schema_version": "byteworker-dreaming-run-result/v1",
-  "job": "maintenance",
-  "period": "<lease.period>",
-  "summary": "本轮 doctor 扫描、自动修复和剩余问题的一句话结论",
-  "checks": [
-    {
-      "name": "doctor_errors",
-      "status": "pass",
-      "detail": "复扫后 0 个 error"
-    }
-  ],
-  "repairs": [
-    {
-      "path": "INDEX.md",
-      "code": "INDEX_STALE",
-      "action": "rebuild_index",
-      "detail": "重建索引，补回 3 个缺失节点并移除 1 个失效条目。"
-    }
-  ]
-}
-```
+临时结果文档位于 KB 外，使用 `byteworker-dreaming-run-result/v1`，含 lease 的 `job/period`、
+一句话 `summary`、`checks[]`、`repairs[]` 和本轮完整 `issues[]`。检查项记录安全修复是否被
+结构或 Git 工作树条件阻断。修复项只记录实际变更的 KB 相对路径、问题码、动作和结果。问题项
+仅含 Doctor 生成的 `id/code/path/severity`；描述变化产生新的 id。不得将节点正文、raw 内容、
+聊天消息、URL token、完整 diff 或 stdout/stderr 放入结果。
 
-`repairs[]` 逐条记录 doctor 事务实际修复了哪个 KB 相对路径、问题码、动作和简短结果；没有自动
-修复时写空数组。不得把节点正文、raw 内容、聊天消息、URL token、完整 diff 或 stdout/stderr 放入
-`summary/checks/repairs`。
-
-## 选择用户需要决策的信息
-
-以下内容视为重要，按 error、证据/真相源风险、自动化阻断、其它 warning 排序，最多展示 10 项：
-
-- 所有剩余 error，以及 transaction `status=decision` 的 reasons；
-- 可能导致证据链、raw、provenance、节点身份或报告引用失真的 warning；
-- 需要用户确认 Profile selector/capture policy、人员身份、悬空实体或冲突处置的 warning；
-- 会阻断后续 digest、报告、Dreaming coverage 或确定性修复的问题。
-
-只展示 `code/path/message/repair` 和计数，不粘贴节点正文、raw 或聊天内容。兼容性 info、已自动
-修复项和纯格式噪声不打扰用户。
-
-存在重要项时，通过当前宿主向用户给出一次有限决策摘要，然后：
-
-```bash
-bin/byteworker dreaming complete --kb "<KB>" --token "<lease.token>" \
-  --run-status partial --error-code DOCTOR_USER_DECISION_REQUIRED \
-  --coverage-checkpoint "doctor:error=<N>,warning=<N>,commit=<short-or-none>" \
-  --result-input "<临时运行结果 JSON>"
-```
-
-该错误进入 `waiting_for_user`，避免每个 tick 重复提醒。用户处理或明确忽略后，运行
-`dreaming retry-job --job maintenance`。通知失败时也不得把问题标为已送达；用稳定失败码完成。
+旧状态的 `DOCTOR_USER_DECISION_REQUIRED` 仅用于识别旧版整任务 `waiting_for_user`。升级后
+按既有计划继续扫描，逐项重建待处理列表。
 
 ## 禁止
 
-- 不得猜业务语义：不自动补业务字段、猜身份、删除悬空节点、创建/迁移 Profile 或扩大来源授权。
-- 不把 severity 当作 auto-fix 依据；只有 finding 的 `auto_fix` 和 doctor 事务可以决定修复。
+- 不得猜业务语义，不自动补业务字段、猜身份、删除悬空节点、创建或迁移 Profile、扩大来源授权。
+- 不以 severity 决定修复权限。只执行 Doctor 在选定范围内允许的动作。
 - 不 push，不绕过 KB dirty/staged blocker，不因 maintenance 失败阻塞其它 Dreaming job。

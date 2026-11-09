@@ -44,6 +44,8 @@
    `"checks":[{"name":"<检查项>","status":"pass|warning|fail|noop","detail":"<结果>"}],`
    `"repairs":[{"path":"<KB 相对路径>","code":"<问题码>","action":"<修复动作>","detail":"<修复结果>"}]}`。
    没有自动修复时 `repairs` 写空数组；不得写业务正文、完整 diff、URL token 或 stdout/stderr。
+   maintenance 成功回执必须按维护规则附最终 Doctor 扫描的完整 `issues`。仍有待办时也按成功
+   完成扫描；宿主只汇总完成回执的 `maintenance.new`。
 9. 若本轮成功完成 `job=process` 且 `period=catchup:*`，立即再调用一次：
    `bin/byteworker dreaming run-due --kb "<KB>" --owner "<TASK_ID>" --followup-after-run-id "<run_id>"`。
    只处理返回的 morning/daily/weekly；`disabled/idle/busy` 安静结束。本轮最多这一个 follow-up。
@@ -52,7 +54,7 @@
     `reports/<kind>/<period>.md` 归档快照，完成 lease，并按配置投递摘要；它是报告成功路径唯一
     的完成调用，之后禁止再调用通用 `dreaming complete`。不要再分开调用
     `report render`、`complete`、`enqueue-delivery` 和 `report deliver`。
-11. 任务结果必须回显 300-500 字 summary 和 HTML 绝对路径；宿主支持本地产物预览时可直接预览，
+11. 报告任务结果必须回显 300-500 字 summary 和 HTML 绝对路径；宿主支持本地产物预览时可直接预览，
     否则返回可点击文件链接。不得调用宿主私有 HTML API。飞书失败不删除本地产物，也不得冒充
     送达。
 12. 不循环领取，不创建飞书任务，不 push。除已配置的报告摘要和 maintenance 按规则

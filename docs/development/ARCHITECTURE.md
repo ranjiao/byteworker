@@ -459,9 +459,14 @@ foreground `process once`，持续处理进入显式 IM grant。新 KB 不创建
 或删除其内容。
 
 `maintenance` 同样只调用公开 `doctor scan/fix` facade。doctor 仍是修复白名单和 KB 写事务的
-唯一 owner；Dreaming 不复制 finding 分类或 repair 实现。该 job 只把 error、证据/身份风险和
-自动化阻断等有限元数据交给用户决策，使用 `DOCTOR_USER_DECISION_REQUIRED` 停在
-`waiting_for_user`，避免重复提醒；其失败不阻塞其它 job。
+唯一 owner；Dreaming 不复制 finding 分类或 repair 实现。Doctor 预演、执行共用动作选择和阻断检查，
+按动作隔离结构阻断，只有显式 `--autolink` 才能增加正文关系。维护完成时以完整扫描的稳定问题
+标识替换待办，回执只汇总新增、变化和消失的项。旧 `DOCTOR_USER_DECISION_REQUIRED` 的整任务
+`waiting_for_user` 在加载时解除。待办不影响下次扫描，技术失败按现有退避；其它 job 可继续运行。
+
+写入入口复用 Doctor 的 frontmatter 结构检查和报告引用校验。DigestTxn 在候选校验时拒绝新增
+重复字段和空正文 raw，节点更新与报告写入仅拦新增的受检缺陷。校验以当前事务候选及目标
+基线为范围，不因其它历史记录的异常阻断无关写入。
 
 ### 2.6 Agent 文档路由与语义收敛
 
@@ -1117,7 +1122,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `bin/rebuild_index.py` | 从真相源重建 INDEX | 是，可确定重建 |
 | `bin/index.py` | INDEX 预演/执行 facade；apply 复用 postflight 事务 | INDEX、journal、本地 commit |
 | `bin/repair_links.py` | links 修复底层执行器；Agent 通过 `doctor fix` 调用 | 仅由受保护事务调用 |
-| `lib/update_postflight.py` | 代码真实更新后编排 doctor auto-fix | 是，仅确定性 finding |
+| `lib/update_postflight.py` | Doctor 预演、执行和更新后修复共用动作白名单及按动作阻断 | 执行时只写获准的确定性修复 |
 | `lib/report_automation.py` | 自动报告一次性引导、local-only 配置、运行轨迹、缺口判定与跨报告租约 | 仅写 Git 排除的 `state/report_automation.json` |
 | `lib/settings.py` | 面向用户和 viewer 的统一配置 façade；汇总 `.kbconfig`、`sources/`、`context.md`、自动报告和 Dreaming 状态 | 不自建新 truth source；更新只委派给既有 writer |
 | `lib/lark_recipient.py` | 配置期把字母用户名通过 user 身份通讯录唯一解析为 open_id；open_id 直填兼容 | 否；失败或歧义时拒绝配置 |
@@ -1283,7 +1288,7 @@ Dreaming 另有九条边界：缺失状态必须等同关闭；未记录当前�
 自动运行；TRAE IDE/TraeCode 不得创建或 register Dreaming 任务，TraeWork 等支持的宿主没有
 真实任务与首次触发证据时也禁止 register；旧自动报告仍声明 enabled
 时拒绝接管 daily/weekly；maintenance 只能调用 doctor
-公开 facade 和 `auto_fix` 白名单，重要未决项必须等待用户；Dreaming 状态损坏、租约过期或 job 失败只影响
+公开 facade 和 `auto_fix` 白名单，重要未决项按问题保留；Dreaming 状态损坏、租约过期或 job 失败只影响
 Dreaming，不得阻塞、回滚或改变 digest/search/update 和旧自动报告。`partial/failed` 不覆盖
 job 的 `last_success`。v1→v2 迁移必须先写本地私密备份，再原子替换 state；未知 schema 或迁移
 失败保持 Dreaming fail closed，不能猜写或影响其它能力。运行日志只能保存白名单元数据和计数，
