@@ -87,7 +87,7 @@ EXPECTED_DIRS = (
     "reports/weekly",
     *(f"knowledge/{dir_name}" for dir_name, _, _ in NODE_TYPES),
 )
-TRUTH_FILES = ("context.md", "todo.md", "dashboard.md")
+TRUTH_FILES = ("context.md", "todo.md")
 SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 SCHEMA_CONTRACT_PATHS = (
     "docs/development/DESIGN.md",

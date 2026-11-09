@@ -1,6 +1,6 @@
 # byteworker · 非 digest 确定性写事务
 
-update、thinking、context、dashboard、日报/周报/IM 报告统一使用
+update、thinking、context、看板手动设置、日报/周报/IM 报告统一使用
 `byteworker-kb-mutation/v1`。业务 plan 与候选文件只能放系统临时目录或 KB，禁止进入 skill 仓库。
 
 最小 plan：
@@ -32,13 +32,15 @@ write mode：
 
 - `replace`：完整替换/新建目标；已有目标必须带当前 `base_sha256`，新建时为空。
 - `replace_section`：只替换已登记固定章节的 body，适合 context/dashboard 手动项。
-- `replace_preserving_sections`：用完整候选刷新报告/看板，但从旧文件保留
+- `replace_preserving_sections`：用完整候选更新报告，但从旧文件保留
   `preserve_sections`。
 
-允许目标仅为 `context.md`、`dashboard.md`、`knowledge/**/*.md`、`reports/**/*.md`。
-operation 与目标一一对应：`context` → `context.md`，`dashboard` → `dashboard.md`，
+允许目标仅为 `context.md`、`settings.md`、`knowledge/**/*.md`、`reports/**/*.md`。
+operation 与目标一一对应：`context` → `context.md`，`dashboard` → `settings.md`，
 `update` → `knowledge/**/*.md`，`report` → `reports/**/*.md`；write 未知字段一律拒绝。
 thinking 节点属于 knowledge update，因此 plan 使用 `operation: "update"`。
+看板设置的固定章节为「长期关注」与「看板提醒」。旧文件退役只走
+`kb-mutate migrate-dashboard`，该命令生成并验证仅限迁移的 `retire_dashboard_sha256`。
 raw/provenance/source/todo 不走本工具。knowledge write 必须按 `conflict-policy.md` 声明处置；
 非 `no_conflict` 必须带证据。
 

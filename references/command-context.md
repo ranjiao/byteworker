@@ -10,6 +10,11 @@
 bin/byteworker context view --kb "<KB>" --intent "<intent>"
 ```
 
+首次交互/引导用 `--intent preferences`，只读取身份与提醒偏好。所有 intent 附带
+`interaction_language`（身份表「交互语言」优先，兼容提醒偏好中的交互/回复/默认语言），
+原有章节范围不变；语言优先级与不切换信号见 `SKILL.md`「交互语言」。缺失返回空值，不推测、
+不因查询改写。
+
 用户明确增、改、删时：
 
 1. 读取 `context.md`，确认要修改的固定章节。拿不准章节就询问用户。

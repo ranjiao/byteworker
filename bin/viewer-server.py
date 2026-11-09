@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Local Byteworker viewer server with a narrow settings API.
+"""Local Byteworker viewer server with bounded settings and Todo APIs.
 
 The server binds to 127.0.0.1 only. KB content, logs and settings share
-optional session authentication; internal paths are always denied. Settings
-writes route through lib/settings.py.
+optional session authentication; internal paths are always denied. Writes
+route through the settings façade or the shared Todo transaction.
 """
 
 from __future__ import annotations
@@ -32,6 +32,10 @@ from settings import (  # noqa: E402
 from dreaming_debug import inspect_run  # noqa: E402
 from dreaming_run_log import list_runs  # noqa: E402
 from dreaming_state import DreamingError, parse_time  # noqa: E402
+from dashboard_settings import DashboardError  # noqa: E402
+from dashboard_view import dashboard_view  # noqa: E402
+from todo_service import archive_todo  # noqa: E402
+from todo_store import TodoTransactionError  # noqa: E402
 
 
 MAX_BODY_BYTES = 128 * 1024
@@ -41,6 +45,12 @@ class ViewerHandler(SimpleHTTPRequestHandler):
     kb: Path
     api_token: str
     auth_required: bool
+
+    def end_headers(self) -> None:
+        # Keep the boot page and its INDEX parser on the same revision.
+        if urlsplit(self.path).path in {"/app/index.html", "/app/index-parser.js"}:
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
 
     def _send_json(self, value: Any, *, status: HTTPStatus = HTTPStatus.OK) -> None:
         payload = json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -63,7 +73,7 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             {
                 "error": {
                     "code": "VIEWER_API_UNAUTHORIZED",
-                    "message": "知识库、日志和设置接口需要本次 viewer 会话 token。",
+                    "message": "请使用带有本次会话口令的 Viewer 地址重新打开。",
                 }
             },
             status=HTTPStatus.FORBIDDEN,
@@ -139,6 +149,46 @@ class ViewerHandler(SimpleHTTPRequestHandler):
                 status=HTTPStatus.BAD_REQUEST,
             )
 
+    def _handle_todo_status(self) -> None:
+        if not self._authorized():
+            self._reject_unauthorized()
+            return
+        host = self.headers.get("Host", "")
+        origin = self.headers.get("Origin")
+        if not re.fullmatch(r"(?:localhost|127\.0\.0\.1)(?::[0-9]+)?", host, re.IGNORECASE) or (
+            origin is not None and origin != f"http://{host}"
+        ):
+            self._send_json(
+                {"error": {"message": "请从本机 Viewer 页面更新待办。"}},
+                status=HTTPStatus.FORBIDDEN,
+            )
+            return
+        try:
+            if self.headers.get_content_type() != "application/json":
+                raise ValueError("待办操作需要 JSON 请求。")
+            payload = self._read_json_body()
+            if not isinstance(payload, dict) or set(payload) != {"id", "status"}:
+                raise ValueError("待办操作只接受编号和状态。")
+            todo_id, value = payload["id"], payload["status"]
+            if not isinstance(todo_id, str) or not re.fullmatch(r"T-[0-9]{8}-[0-9]{3}", todo_id):
+                raise ValueError("待办编号无效。")
+            if value not in ("done", "cancelled"):
+                raise ValueError("待办只能标记为完成或废弃。")
+        except ValueError as exc:
+            self._send_json({"error": {"message": str(exc)}}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            result = archive_todo(self.kb, todo_id, value)
+        except (ValueError, TodoTransactionError) as exc:
+            self._send_json({"error": {"message": str(exc)}}, status=HTTPStatus.CONFLICT)
+        except OSError:
+            self._send_json(
+                {"error": {"message": "无法读写待办文件。"}},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+        else:
+            self._send_json({"id": todo_id, "status": result["status"], "transaction": result["transaction"]})
+
     def _handle_dreaming_runs_get(self) -> None:
         if not self._authorized():
             self._reject_unauthorized()
@@ -197,6 +247,23 @@ class ViewerHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
+        if path == "/api/dashboard":
+            if not self._authorized():
+                self._reject_unauthorized()
+                return
+            try:
+                self._send_json(dashboard_view(self.kb))
+            except DashboardError as exc:
+                self._send_json(
+                    {"error": {"code": exc.code, "message": str(exc)}},
+                    status=HTTPStatus.CONFLICT,
+                )
+            except (OSError, ValueError):
+                self._send_json(
+                    {"error": {"code": "DASHBOARD_READ_FAILED", "message": "无法读取看板输入。"}},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+            return
         if path == "/api/settings":
             self._handle_api_get()
             return
@@ -231,7 +298,7 @@ class ViewerHandler(SimpleHTTPRequestHandler):
         if namespace == "kb" and not report_artifact:
             relative = target.relative_to(root)
             content_dirs = {"knowledge", "raw_data", "reports"}
-            content_files = {"INDEX.md", "context.md", "todo.md", "dashboard.md"}
+            content_files = {"INDEX.md", "context.md", "todo.md"}
             if not relative.parts or not (
                 relative.parts[0] in content_dirs
                 or (len(relative.parts) == 1 and relative.name in content_files)
@@ -258,7 +325,11 @@ class ViewerHandler(SimpleHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path.split("?", 1)[0] == "/api/settings":
+        path = urlsplit(self.path).path
+        if path == "/api/todo/status":
+            self._handle_todo_status()
+            return
+        if path == "/api/settings":
             self._handle_api_patch()
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")

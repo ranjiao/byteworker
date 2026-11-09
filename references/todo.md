@@ -11,6 +11,9 @@
 
 Todo id (`T-YYYYMMDD-NNN`) 仅供内部去重、来源关联和脚本操作。正常交互中不要要求用户输入 id。
 
+本地 Viewer 的「个人待办」支持展开未归档条目后选择「标记完成」或「废弃」。废弃前会确认，
+完成和废弃都保留归档记录。网页操作与 CLI 共用 Todo 写入事务。
+
 ## 每次 skill 运行的提醒检查
 
 统一 `bin/byteworker preflight` 已完成 Todo `check`，不要在每个 session 再单独运行。

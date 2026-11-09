@@ -14,9 +14,12 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 import kb_mutation  # noqa: E402
+from dashboard_settings import parse_legacy, parse_settings  # noqa: E402
+from test_dashboard import LEGACY  # noqa: E402
 from kb_mutation import (  # noqa: E402
     MutationError,
     execute_mutation,
+    migrate_dashboard,
     validate_mutation,
 )
 
@@ -262,6 +265,50 @@ class KbMutationTests(unittest.TestCase):
             validate_mutation(self.kb, mismatched, ROOT)
         self.assertEqual("KB_MUTATION_PLAN_INVALID", caught.exception.code)
         self.assertIn("未知字段", str(caught.exception))
+
+    def test_dashboard_migration_checks_manual_inputs_and_rolls_back_retirement(self):
+        legacy = self.kb / "dashboard.md"
+        settings = self.kb / "settings.md"
+        legacy.write_text(LEGACY, encoding="utf-8")
+        subprocess.run(["git", "add", "dashboard.md"], cwd=self.kb, check=True)
+        subprocess.run(["git", "commit", "-qm", "legacy"], cwd=self.kb, check=True)
+        dry_run = migrate_dashboard(self.kb, ROOT)
+        self.assertEqual(("valid", 2, 1), (dry_run["status"], dry_run["watches"], dry_run["reminders"]))
+        self.assertFalse(settings.exists())
+        self.assertEqual(LEGACY, legacy.read_text(encoding="utf-8"))
+
+        real_git = kb_mutation._git
+
+        def fail_commit(kb, args, *, check=True):
+            if args[:1] == ["commit"]:
+                raise MutationError("KB_MUTATION_GIT_ERROR", "forced commit failure")
+            return real_git(kb, args, check=check)
+
+        with mock.patch.object(kb_mutation, "_git", side_effect=fail_commit):
+            with self.assertRaises(MutationError):
+                migrate_dashboard(self.kb, ROOT, apply=True)
+        self.assertFalse(settings.exists())
+        self.assertEqual(LEGACY, legacy.read_text(encoding="utf-8"))
+        self.assertEqual("", real_git(self.kb, ["status", "--porcelain"]).stdout)
+
+        receipt = migrate_dashboard(self.kb, ROOT, apply=True)
+        self.assertEqual("committed", receipt["status"])
+        self.assertEqual("dashboard.md", receipt["retired"])
+        self.assertFalse(legacy.exists())
+        self.assertEqual(parse_legacy(LEGACY), parse_settings(settings.read_text(encoding="utf-8")))
+        self.assertEqual("noop", migrate_dashboard(self.kb, ROOT, apply=True)["status"])
+
+        candidate = self.work / "reminders.md"
+        candidate.write_text("- new reminder\n", encoding="utf-8")
+        edit = self.plan({
+            "path": "settings.md", "mode": "replace_section", "section": "看板提醒",
+            "content_path": str(candidate), "base_sha256": sha(settings.read_bytes()),
+        }, operation="dashboard")
+        self.assertEqual("committed", execute_mutation(self.kb, edit, ROOT)["status"])
+        updated = parse_settings(settings.read_text(encoding="utf-8"))
+        self.assertEqual(parse_legacy(LEGACY).watches, updated.watches)
+        self.assertEqual(("- new reminder",), updated.reminders)
+
 
     def test_commit_failure_restores_content_and_index(self):
         candidate = self.work / "candidate.md"

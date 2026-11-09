@@ -1,24 +1,51 @@
 # byteworker · dashboard
 
-> 仅在查看、刷新或维护工作看板时加载。保存 dashboard 视图或手动章节时才走
-> `kb-mutation.md`；刷新不得创建 KB 业务事实。
+## 查看
 
-`dashboard.md` 是实时视图：用户维护的“长期关注/需要关注”手动项是真相源，其余内容可重算。
+```bash
+bin/byteworker dashboard view --kb "<KB>"
+```
 
-刷新：
+直接展示回执的 `data.markdown`。该内容由 Python 和 Viewer 的 `GET /api/dashboard` 共用的
+只读生成器计算，包含长期关注及已保存的节点摘要、手动看板提醒、逾期/临期待办和当日日志。
+「需要关注」只显示手动提醒和 Todo 到期情况。今日进展只从当天既有 journal 渲染，并标为知识库操作记录。
+生成过程不访问外部来源，不写文件、journal 或 Git，也不得创建业务事实。节点摘要引用按
+`citations.md` 的规则展示已记录的出处和缺口。知识库当前没有可供看板查询的结构化未裁决冲突清单。
 
-1. 长期关注：从绑定节点拉最新 TL;DR/状态；自由文本原样保留。
-2. 需要关注：有限扫描非 reading 节点的 stale/90 天未验证状态、未裁决冲突，以及 Todo
-   逾期/临期数量和最多 3 个标题。
-3. 今日进展：从当天 journal 渲染，不独立保存历史。
-4. 更新最后刷新时间。派生事实按 `citations.md` 给出来源；手动项、Todo、context 单列为本地状态。
+## 管理手动项
 
-写入：
+```bash
+bin/byteworker dashboard inputs --kb "<KB>"
+```
 
-- 新增/删除长期关注或手动提醒，只修改对应固定章节。
-- 刷新完整看板时生成完整候选，并用 `replace_preserving_sections` 保留用户手动章节。
-- 今日进展只从当天既有 journal 渲染；不得为了刷新 Dashboard 反向创建 journal 或其它业务事实。
-  用户主动要求记录一项新进展时，先退出 Dashboard 刷新流程，按该内容对应的
-  update/thinking/report/digest 入口持久化；随后再刷新视图。
-- 通过 `kb-mutate validate/execute` 写入；收到 commit receipt 前不得宣称完成。
-- 带明确时间的一次性提醒走 Todo；长期/一次性无法判断时询问一次。
+`data.watches` 和 `data.reminders` 来自知识库根目录的 `settings.md`，由日报和周报共用。
+新增/删除长期关注或手动提醒时加载 `kb-mutation.md`。已有设置用 `operation: "dashboard"`
+和 `replace_section` 修改对应固定章节，`base_sha256` 使用读取回执中的值。表格行的
+「绑定节点」可留空，正文内的竖线写成 `\|`。长期关注尽量绑定已有知识节点。
+新库首次保存使用 `replace`、空 baseline 和以下格式。
+
+```markdown
+# 知识库设置
+
+## 长期关注
+
+| 关注项 | 绑定节点 | 关注什么 |
+| --- | --- | --- |
+
+## 看板提醒
+```
+
+收到 committed receipt 后才宣称写入完成。带明确时间的一次性提醒走 Todo。记录新进展先走
+对应的 update/thinking/report/digest 入口，之后即可重新查看看板。
+
+## 兼容迁移
+
+老库在迁移前，两个读入口只读解析旧 `dashboard.md` 的手动项。默认迁移命令仅校验，确认后加
+`--apply` 写入并退役旧快照。迁移在同一个本地 Git 事务内验证长期关注、绑定和备注及手动
+提醒，写入后复读确认，再删除旧文件。无法识别的旧内容、两个文件的手动项不一致或并发修改
+都会中止，需先核对原内容。旧快照留在知识库 Git 历史中。
+
+```bash
+bin/byteworker kb-mutate migrate-dashboard --kb "<KB>"
+bin/byteworker kb-mutate migrate-dashboard --kb "<KB>" --apply
+```

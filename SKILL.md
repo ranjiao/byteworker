@@ -43,10 +43,11 @@ bin/byteworker preflight --interactive
 - 只有 notice 或排障时才读 `references/session-preflight.md`。
 - Dreaming 是默认关闭的独立旁路；普通 preflight 不检查、不启用也不提示 Dreaming。
 
-首次无 `.kbconfig` 时，询问用户要上手引导还是常规建库。引导读 `TUTORIAL.md`；常规建库询问
-父目录，默认创建 `byteworker_kb`。按 `DESIGN.md` 初始化 8 类 knowledge 目录、sources、
-raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模板。KB 必须是无 remote
-的独立本地 Git 仓库。
+## 交互语言
+
+优先级：用户当前明确要求 → KB 持久偏好 → 会话已确认语言；都没有时按当前消息语言询问一次，
+不默认英语。已有库先跑 `context view --intent preferences` 取 `interaction_language`，只补缺、
+不重建。命令名、URL、原文不构成语言切换；持久语言经 context mutation 写身份表「交互语言」。
 
 ## Workflow 路由
 
@@ -56,13 +57,13 @@ raw_data、provenance、journal、reports、INDEX，并复制 context/todo 模�
 bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE>
 ```
 
-无来源的流程省略 source-type；条件触发时加 `--feature <FEATURE>`，失败才加 `--include-on-error`。
-加载返回的 static_rule_paths / worker_prompt_paths，已读文件不重复读；解释性链接不触发整包加载，明确条件规则仍须补读。
-隔离 worker 或动态输入接近上限时按 `references/workflow-budgets.md` 获取完整 token budget receipt；
-超预算执行固定 action，不静默截断证据。
+无来源省略 source-type；条件触发加 `--feature <FEATURE>`，失败才加 `--include-on-error`。
+已读文件不重复读；解释性链接不整包加载，明确条件规则仍须补读。
+隔离 worker 或动态输入接近上限时，按 `references/workflow-budgets.md` 取完整 budget receipt；
+超预算执行固定 action，不截断证据。
 
-公共 CLI envelope 见 `references/machine-protocol.md`。统一使用
-`bin/byteworker <tool> ...`；直接飞书 CLI 用 `bin/byteworker lark ...`，辅助脚本用
+公共 CLI envelope 见 `references/machine-protocol.md`。统一用
+`bin/byteworker <tool> ...`；飞书 CLI 用 `bin/byteworker lark ...`，辅助脚本用
 `bin/byteworker run ...`。Agent 不猜 Python、nvm、venv 或内部 CLI 路径。
 
 ### 按意图加载
@@ -72,8 +73,8 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
   `references/kb-mutation.md` + `references/write-rules.md`
 - brief：`references/command-brief.md` + `references/command-search.md` +
   `references/citations.md`
-- dashboard：`references/command-dashboard.md` + `references/kb-mutation.md` +
-  `references/citations.md`
+- dashboard：`references/command-dashboard.md` + `references/citations.md`。
+  查看调用 `dashboard view`，仅管理手动项时加载 `references/kb-mutation.md`。
 - context：`references/command-context.md` + `references/kb-mutation.md`
 - thinking：`references/thinking.md` + `references/kb-mutation.md`
 - todo：`references/todo.md`
@@ -153,7 +154,7 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 ## 写入
 
 - digest 只走 digest transaction。
-- update/context/dashboard/report 只走 `byteworker-kb-mutation/v1`；thinking 使用 `update` operation。
+- update/context/report 和 dashboard 手动设置写入只走 `byteworker-kb-mutation/v1`；thinking 使用 `update` operation。
 - Todo 只走 Todo 工具。
 - Agent 不直接执行 temp、INDEX、journal、git add/commit 或失败回滚。
 - mutation 候选与 plan 放系统临时目录或 KB，不得进入 skill 仓库。
@@ -163,9 +164,8 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 
 ## 知识库检索回答引用(每次必做)
 
-凡用户可见事实来自 KB，执行 `references/citations.md`：正文用 `[S<n>]` 绑定结论，末尾给出
-原始出处、收录时间与置信度，并列原文时间/覆盖和版本/raw_id。不得只列节点/raw/report 路径；
-缺失项明确披露。该规则覆盖 search、brief、dashboard、日报/周报及其回显。
+KB 回答按 `references/citations.md` 逐条标 `[S<n>]`，列原始出处、收录时间与置信度，
+并列原文时间/覆盖与版本/raw_id，披露缺口。节点日期仅作元数据，事实时效按原始证据判断。
 
 ## 报告、Todo 与 Doctor
 

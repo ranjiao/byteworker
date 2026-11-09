@@ -46,4 +46,8 @@ class Todo:
 
     @property
     def status(self) -> str:
-        return self.fields.get("status", "open")
+        return self.fields.get("status") or "open"
+
+    @property
+    def kind(self) -> str:
+        return self.fields.get("kind") or "task"

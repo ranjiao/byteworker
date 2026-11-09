@@ -11,6 +11,7 @@ CONTEXT_VIEW_SCHEMA = "byteworker-context-view/v1"
 SOFT_BUDGET = 12_000
 HARD_BUDGET = 24_000
 INTENT_SECTIONS = {
+    "preferences": ("我的身份", "交互与提醒偏好"),
     "todo": ("我的身份", "交互与提醒偏好"),
     "search": ("我的职责范围", "我的当前重点", "背景信息"),
     "digest": (
@@ -47,6 +48,27 @@ INTENT_SECTIONS = {
     ),
 }
 
+LANGUAGE_ALIASES = {
+    "": "",
+    "待补充": "",
+    "zh": "zh-CN",
+    "zh-cn": "zh-CN",
+    "zh-hans": "zh-CN",
+    "zh-hans-cn": "zh-CN",
+    "中文": "zh-CN",
+    "简体中文": "zh-CN",
+    "中文（简体）": "zh-CN",
+    "中文(简体)": "zh-CN",
+    "chinese": "zh-CN",
+    "simplified chinese": "zh-CN",
+    "en": "en",
+    "en-us": "en-US",
+    "en-gb": "en-GB",
+    "english": "en",
+    "英语": "en",
+    "英文": "en",
+}
+
 
 class ContextViewError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
@@ -62,6 +84,38 @@ def parse_context(text: str) -> dict[str, str]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         sections[heading] = text[match.end() : end].strip()
     return sections
+
+
+def parse_identity_language(identity: str) -> str:
+    """Read the stable interaction-language field from the identity table."""
+    match = re.search(
+        r"(?m)^\|\s*交互语言\s*\|\s*([^|]+?)\s*\|\s*$",
+        identity,
+    )
+    if not match:
+        return ""
+    raw = match.group(1).strip()
+    return LANGUAGE_ALIASES.get(raw.lower(), raw)
+
+
+def parse_preference_language(preferences: str) -> str:
+    """Read a legacy language preference without interpreting ordinary reminder settings."""
+    match = re.search(
+        r"(?m)^[-*]\s*(?:交互语言|回复语言|默认语言)\s*[:：]\s*(.+?)\s*$",
+        preferences,
+    )
+    if not match:
+        return ""
+    raw = match.group(1).strip()
+    return LANGUAGE_ALIASES.get(raw.lower(), raw)
+
+
+def parse_interaction_language(text: str) -> str:
+    sections = parse_context(text)
+    identity_language = parse_identity_language(sections.get("我的身份", ""))
+    if identity_language:
+        return identity_language
+    return parse_preference_language(sections.get("交互与提醒偏好", ""))
 
 
 def context_view(kb: Path, intent: str) -> dict[str, Any]:
@@ -104,6 +158,7 @@ def context_view(kb: Path, intent: str) -> dict[str, Any]:
         "schema_version": CONTEXT_VIEW_SCHEMA,
         "intent": normalized_intent,
         "sections": projection,
+        "interaction_language": parse_interaction_language(text),
         "character_count": character_count,
         "soft_budget": SOFT_BUDGET,
         "hard_budget": HARD_BUDGET,

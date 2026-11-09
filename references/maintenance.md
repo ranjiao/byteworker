@@ -8,7 +8,7 @@
 
 ## 数据不变量
 
-**数据不变量(docs/development/DESIGN.md §1.C)**:`raw_data/` + `knowledge/` 节点 + `reports/` + `dashboard.md` 的 📌/⚠️ 手动项 = **真相源**;`INDEX.md` 与 `dashboard.md` 的派生部分 = **派生物**,可随时丢弃并从真相源 100% 重建。派生物与真相源不一致时,**永远重建派生物,绝不反向改真相源**。
+**数据不变量(docs/development/DESIGN.md §1.C)**:`raw_data/` + `knowledge/` 节点 + `reports/` + `settings.md` 的长期关注和看板提醒 = **真相源**;`INDEX.md` 与 按需生成的看板 = **派生物**,可随时丢弃并从真相源 100% 重建。派生物与真相源不一致时,**永远重建派生物,绝不反向改真相源**。
 
 ## 重建 INDEX
 
@@ -20,12 +20,14 @@
 2. 脚本扫 `knowledge/` 下全部 8 类节点的 frontmatter，并在存在时读取 body 首行 TL;DR，
    按 docs/development/DESIGN.md §6 的分节格式重新生成整个 `INDEX.md`。
 3. 「定期摄取清单」优先由 `sources/` profiles 的 routine 派生；没有 profile 的旧来源才兼容
-   `raw_data/` 的 `routine`。同一 `source_uid` 有 profile 时，profile 的启用/禁用和 cadence
-   覆盖历史 raw。「群聊摄取进度」仍由 `feishu_chat` raw 的
+   `raw_data/` 的 `routine`。飞书文档按已记录的 UID 和文档链接归并为一行。
+   同一来源有 profile 时，profile 的启用/禁用和 cadence 覆盖历史 raw。
+   「群聊摄取进度」仍由 `feishu_chat` raw 的
    `source_chat_id` / `source_window` 派生。中断 raw(`digest_status: pending/failed`)不进入
    INDEX 表格,需要排障时直接扫 `raw_data/`。
 4. apply 入口使用共享 KB 写锁，统一完成 `INDEX.md`、journal 和精确本地 commit；receipt 返回
    commit hash。任一步失败恢复文件、Git index 和必要的 HEAD。`--dry-run` 不写 journal/commit。
+   旧 raw 若只重复了索引不读取的评论计数、评论状态或白板状态，索引仍可重建，doctor 继续报告错误。
 
 ## 校验 / 修复双向链接
 

@@ -174,12 +174,17 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "kb-mutate", "校验或提交非 digest 的 KB mutation", "knowledge",
         "facade", "agent", "public", "stable", "kb-write", "byteworker-cli/v1",
         "references/kb-mutation.md", entrypoint="kb-mutate.py",
-        operations=("validate", "execute"),
+        operations=("validate", "execute", "migrate-dashboard"),
     ),
     CommandSpec(
         "context", "读取按意图裁剪的工作上下文", "knowledge", "facade",
         "agent", "public", "stable", "none", "byteworker-cli/v1",
         "references/command-context.md", entrypoint="context.py", operations=("view",),
+    ),
+    CommandSpec(
+        "dashboard", "按需生成工作看板或读取手动设置", "knowledge", "facade",
+        "agent", "public", "stable", "none", "byteworker-cli/v1",
+        "references/command-dashboard.md", entrypoint="dashboard.py", operations=("view", "inputs"),
     ),
     CommandSpec(
         "semantic", "校验结构化语义决定", "knowledge", "facade", "agent",

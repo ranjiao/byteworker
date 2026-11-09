@@ -7,12 +7,24 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
+from dashboard_settings import (
+    DashboardError,
+    LEGACY_PATH,
+    REMINDER_HEADING,
+    SETTINGS_PATH,
+    WATCH_HEADING,
+    parse_legacy,
+    parse_settings,
+    safe_path,
+    settings_markdown,
+)
 from frontmatter import markdown_structure_issues, parse_frontmatter
 from kb_write_txn import (
     atomic_write,
@@ -56,6 +68,7 @@ PRESERVABLE_SECTIONS = {
     "长期关注",
     "需要关注",
 }
+DASHBOARD_SECTIONS = {WATCH_HEADING, REMINDER_HEADING}
 
 
 class MutationError(RuntimeError):
@@ -78,6 +91,7 @@ class MutationValidation:
     plan: Mapping[str, Any]
     writes: tuple[PreparedWrite, ...]
     rebuild_index: bool
+    retire_dashboard: Path | None = None
 
 
 def sha256_bytes(content: bytes) -> str:
@@ -169,14 +183,14 @@ def _target(kb: Path, value: Any) -> tuple[Path, str]:
             f"reports/im 是已移除 Inbox 的只读历史目录: {relative}",
         )
     allowed = (
-        relative in {"context.md", "dashboard.md"}
+        relative in {"context.md", SETTINGS_PATH}
         or (relative.startswith("knowledge/") and relative.endswith(".md"))
         or (relative.startswith("reports/") and relative.endswith(".md"))
     )
     if not allowed:
         raise MutationError(
             "KB_MUTATION_PATH_FORBIDDEN",
-            f"mutation 只允许 context/dashboard/knowledge/reports: {relative}",
+            f"mutation 只允许 context/settings/knowledge/reports: {relative}",
         )
     return resolved, relative
 
@@ -221,7 +235,7 @@ def _section_span(text: str, heading: str) -> tuple[int, int]:
 
 
 def _replace_section(target: str, heading: str, body: str) -> str:
-    if heading not in CONTEXT_SECTIONS | PRESERVABLE_SECTIONS:
+    if heading not in CONTEXT_SECTIONS | PRESERVABLE_SECTIONS | DASHBOARD_SECTIONS:
         raise MutationError(
             "KB_MUTATION_SECTION_FORBIDDEN",
             f"不允许修改未登记章节: {heading}",
@@ -235,8 +249,11 @@ def _replace_section(target: str, heading: str, body: str) -> str:
     heading_line = target[start : target.find("\n", start) + 1]
     if not heading_line:
         heading_line = f"## {heading}\n"
-    replacement = heading_line + body.strip() + "\n\n"
-    return target[:start] + replacement + target[end:].lstrip("\r\n")
+    replacement = heading_line
+    if body.strip():
+        replacement += body.strip() + "\n"
+    tail = target[end:]
+    return target[:start] + replacement + ("\n" + tail if tail else "")
 
 
 def _preserve_sections(
@@ -339,6 +356,15 @@ def _prepare_write(
             "KB_MUTATION_CONTEXT_TOO_LARGE",
             "context.md 不得超过 32 KiB；请先归档过期条目",
         )
+    if relative == SETTINGS_PATH:
+        if mode == "replace_preserving_sections" or (
+            mode == "replace_section" and str(raw.get("section", "")).strip() not in DASHBOARD_SECTIONS
+        ):
+            raise MutationError("KB_MUTATION_SECTION_FORBIDDEN", "看板设置仅支持修改长期关注或看板提醒章节")
+        try:
+            parse_settings(content.decode("utf-8"))
+        except DashboardError as exc:
+            raise MutationError(exc.code, str(exc)) from exc
     if relative.startswith("knowledge/"):
         text = content.decode("utf-8")
         previous = current.decode("utf-8") if current is not None else ""
@@ -381,6 +407,7 @@ def validate_mutation(
         "writes",
         "journal",
         "commit",
+        "retire_dashboard_sha256",
     }
     unknown = sorted(set(plan) - allowed_top)
     if unknown:
@@ -410,7 +437,7 @@ def validate_mutation(
         raise MutationError("KB_MUTATION_PLAN_INVALID", "writes 目标路径不得重复")
     target_matches_operation = {
         "context": lambda path: path == "context.md",
-        "dashboard": lambda path: path == "dashboard.md",
+        "dashboard": lambda path: path == SETTINGS_PATH,
         "report": lambda path: path.startswith("reports/"),
         "update": lambda path: path.startswith("knowledge/"),
     }[operation]
@@ -420,6 +447,31 @@ def validate_mutation(
             "KB_MUTATION_PLAN_INVALID",
             f"{operation} operation 不允许目标: " + ", ".join(mismatched),
         )
+    retire_dashboard = None
+    retire_hash = plan.get("retire_dashboard_sha256")
+    if retire_hash is not None and operation != "dashboard":
+        raise MutationError("KB_MUTATION_PLAN_INVALID", "只有 dashboard operation 可以迁移旧看板")
+    if operation == "dashboard":
+        try:
+            legacy = safe_path(kb, LEGACY_PATH)
+            if retire_hash is not None:
+                original_bytes = legacy.read_bytes() if legacy.is_file() else b""
+                if not original_bytes or retire_hash != sha256_bytes(original_bytes):
+                    raise MutationError("KB_MUTATION_BASE_MISMATCH", "旧看板在迁移分析后已变化")
+                original = parse_legacy(original_bytes.decode("utf-8"))
+                candidate = parse_settings(writes[0].content.decode("utf-8"))
+                current = writes[0].path
+                if original != candidate or (
+                    current.exists() and candidate != parse_settings(current.read_text(encoding="utf-8"))
+                ):
+                    raise MutationError("DASHBOARD_MIGRATION_MISMATCH", "迁移前后的长期关注或看板提醒不一致")
+                retire_dashboard = legacy
+            elif legacy.exists():
+                raise MutationError("DASHBOARD_MIGRATION_REQUIRED", "请先迁移旧看板，再修改看板设置")
+            elif writes[0].base_sha256 and writes[0].mode != "replace_section":
+                raise MutationError("KB_MUTATION_SECTION_FORBIDDEN", "已有看板设置必须按章节修改")
+        except DashboardError as exc:
+            raise MutationError(exc.code, str(exc)) from exc
     if any(path.startswith("knowledge/") for path in relatives):
         disposition = str(plan.get("conflict_disposition", "")).strip()
         if disposition not in CONFLICT_DISPOSITIONS:
@@ -461,6 +513,7 @@ def validate_mutation(
         plan=plan,
         writes=writes,
         rebuild_index=any(path.startswith("knowledge/") for path in relatives),
+        retire_dashboard=retire_dashboard,
     )
 
 
@@ -477,6 +530,7 @@ def validation_report(result: MutationValidation) -> dict[str, Any]:
             for item in result.writes
         ],
         "index_rebuild": result.rebuild_index,
+        **({"retire": LEGACY_PATH} if result.retire_dashboard else {}),
     }
 
 
@@ -555,6 +609,8 @@ def execute_mutation(
             / f"{now:%Y-%m-%d}.md"
         )
         target_paths = [item.path for item in result.writes]
+        if result.retire_dashboard:
+            target_paths.append(result.retire_dashboard)
         if result.rebuild_index:
             target_paths.append(kb / "INDEX.md")
         target_paths.append(journal_path)
@@ -566,12 +622,21 @@ def execute_mutation(
                 "mutation 目标已有未提交修改: " + ", ".join(overlap),
             )
         snapshots = snapshot_files(target_paths)
+        if result.retire_dashboard:
+            baseline = snapshots[result.retire_dashboard]
+            if baseline is None or sha256_bytes(baseline) != result.plan["retire_dashboard_sha256"]:
+                raise MutationError("KB_MUTATION_BASE_MISMATCH", "旧看板在迁移分析后已变化")
         git_index = snapshot_git_index(kb)
         head = _head(kb)
         staged_by_txn = False
         try:
             for item in result.writes:
                 atomic_write(item.path, item.content)
+            if result.retire_dashboard:
+                saved = result.writes[0].path.read_bytes()
+                if saved != result.writes[0].content:
+                    raise MutationError("DASHBOARD_MIGRATION_MISMATCH", "迁移后读取的设置与已校验候选不符")
+                result.retire_dashboard.unlink()
             if result.rebuild_index:
                 rebuilt = subprocess.run(
                     [
@@ -612,13 +677,13 @@ def execute_mutation(
                     "KB_MUTATION_DIFF_ERROR",
                     diff_check.stdout.strip() or diff_check.stderr.strip(),
                 )
-            _git(kb, ["add", "--", *relative_paths])
             staged_by_txn = True
+            _git(kb, ["add", "--", *relative_paths])
             staged_after = set(
-                _git(kb, ["diff", "--cached", "--name-only"]).stdout.splitlines()
+                _git(kb, ["diff", "--cached", "--name-only", "--no-renames"]).stdout.splitlines()
             )
             unexpected = staged_after - set(relative_paths)
-            if unexpected or not staged_after:
+            if unexpected or not staged_after or (result.retire_dashboard and LEGACY_PATH not in staged_after):
                 raise MutationError(
                     "KB_MUTATION_STAGE_MISMATCH",
                     "mutation 暂存路径越界或没有产生变更",
@@ -651,4 +716,47 @@ def execute_mutation(
         "journal": str(journal_path.relative_to(kb)),
         "index_rebuilt": result.rebuild_index,
         "commit": commit,
+        **({"retired": LEGACY_PATH} if result.retire_dashboard else {}),
     }
+
+
+def migrate_dashboard(kb: Path, skill_root: Path, *, apply: bool = False) -> dict[str, Any]:
+    """Validate or commit the lossless migration of manual items from the old view."""
+    kb = kb.expanduser().resolve()
+    try:
+        legacy = safe_path(kb, LEGACY_PATH)
+        settings = safe_path(kb, SETTINGS_PATH)
+        current = settings.read_bytes() if settings.is_file() else None
+        if not legacy.exists():
+            if current is not None:
+                parse_settings(current.decode("utf-8"))
+            return {"status": "noop", "reason": "旧看板不存在"}
+        original = legacy.read_bytes()
+        value = parse_legacy(original.decode("utf-8"))
+        candidate = current if current is not None else settings_markdown(value).encode("utf-8")
+    except (OSError, ValueError) as exc:
+        code = exc.code if isinstance(exc, DashboardError) else "DASHBOARD_MIGRATION_READ_FAILED"
+        raise MutationError(code, str(exc)) from exc
+
+    with tempfile.TemporaryDirectory(prefix="byteworker-dashboard-") as directory:
+        workspace = Path(directory)
+        candidate_path = workspace / SETTINGS_PATH
+        candidate_path.write_bytes(candidate)
+        plan_path = workspace / "plan.json"
+        plan_path.write_text(json.dumps({
+            "schema_version": MUTATION_SCHEMA,
+            "operation": "dashboard",
+            "retire_dashboard_sha256": sha256_bytes(original),
+            "writes": [{
+                "path": SETTINGS_PATH,
+                "mode": "replace",
+                "content_path": str(candidate_path),
+                "base_sha256": sha256_bytes(current) if current is not None else "",
+            }],
+            "journal": {"action": "dashboard settings migration", "summary": "迁移长期关注和看板提醒"},
+            "commit": {"message": "dashboard: migrate manual settings and retire snapshot"},
+        }), encoding="utf-8")
+        result = execute_mutation(kb, plan_path, skill_root) if apply else validation_report(
+            validate_mutation(kb, plan_path, skill_root)
+        )
+    return {**result, "watches": len(value.watches), "reminders": len(value.reminders)}

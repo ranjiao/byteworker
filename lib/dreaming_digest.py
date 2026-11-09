@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from frontmatter import parse_file
+from routine_identity import IdentityKey, RoutineDocumentAliases
 from source_profile_contract import SourceProfileError
 from source_profiles import list_profiles, profile_revision
 from sources.registry import create_default_registry
@@ -29,6 +30,7 @@ RESULT_SCHEMA = "byteworker-dreaming-digest-result/v1"
 BATCH_SCHEMA = "byteworker-dreaming-digest-batch/v1"
 SUCCESS_STATUSES = {"committed", "noop", "observed"}
 TRANSACTION_SUCCESS_STATUSES = {"committed", "noop"}
+ROUTINE_CADENCES = {"daily", "weekly", "monthly"}
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -77,6 +79,15 @@ def routine_inventory(kb: Path) -> list[dict[str, Any]]:
             "无法读取定期摄取来源。",
             details={"error_code": exc.code},
         ) from exc
+    raw_records = [
+        (path, parse_file(str(path))[0])
+        for path in sorted((kb / "raw_data").glob("*.md"))
+    ]
+    try:
+        aliases = RoutineDocumentAliases((fm for _, fm in raw_records), profiles)
+    except ValueError as exc:
+        raise DreamingError("DREAMING_ROUTINE_SOURCE_INVALID", str(exc)) from exc
+    document_profile_keys = {aliases.key(profile) for profile in profiles}
     result = []
     profile_uids = {str(profile["source_uid"]) for profile in profiles}
     for profile in profiles:
@@ -100,27 +111,46 @@ def routine_inventory(kb: Path) -> list[dict[str, Any]]:
                 "origin": "profile",
             }
         )
-    raw_records = []
     identity_uids: dict[tuple[str, str, str], list[tuple[datetime | None, str]]] = {}
-    for raw_path in sorted((kb / "raw_data").glob("*.md")):
-        frontmatter, _ = parse_file(str(raw_path))
-        raw_records.append((raw_path, frontmatter))
-        source_uid = str(frontmatter.get("source_uid", "")).strip()
+    document_uids: dict[IdentityKey, list[tuple[datetime | None, str]]] = {}
+    scheduled_document_uids: dict[IdentityKey, list[tuple[datetime | None, str]]] = {}
+    for _, frontmatter in raw_records:
+        source_uid = str(frontmatter.get("source_uid") or "").strip()
         if source_uid:
+            candidate = (parse_time(frontmatter.get("ingested")), source_uid)
             for identity_key in _legacy_identity_keys(frontmatter):
-                identity_uids.setdefault(identity_key, []).append(
-                    (parse_time(frontmatter.get("ingested")), source_uid)
-                )
+                identity_uids.setdefault(identity_key, []).append(candidate)
+            key = aliases.key(frontmatter)
+            if key is not None:
+                document_uids.setdefault(key, []).append(candidate)
+                if str(frontmatter.get("routine", "")).strip() in ROUTINE_CADENCES:
+                    scheduled_document_uids.setdefault(key, []).append(candidate)
+    resolved_document_uids = {
+        key: _recover_legacy_uid(scheduled_document_uids.get(key, candidates))
+        for key, candidates in document_uids.items()
+    }
+    merged_documents = {
+        key for key, candidates in document_uids.items()
+        if len({uid for _, uid in candidates}) > 1
+    }
 
     legacy: dict[tuple[str, str], dict[str, Any]] = {}
     supported_legacy_types = set(create_default_registry().source_types())
     for raw_path, frontmatter in raw_records:
         cadence = str(frontmatter.get("routine", "")).strip()
         source_type = str(frontmatter.get("source_type", "")).strip()
-        source_uid = str(frontmatter.get("source_uid", "")).strip()
-        if cadence not in {"daily", "weekly", "monthly"}:
+        source_uid = str(frontmatter.get("source_uid") or "").strip()
+        if cadence not in ROUTINE_CADENCES:
             continue
-        if source_type and not source_uid:
+        document_key = aliases.key(frontmatter)
+        if document_key is not None:
+            if document_key in document_profile_keys:
+                continue
+            chosen_uid = resolved_document_uids.get(document_key, "")
+            if chosen_uid and document_key in scheduled_document_uids and source_uid != chosen_uid:
+                continue
+            source_uid = chosen_uid
+        elif source_type and not source_uid:
             candidates = [
                 candidate
                 for identity_key in _legacy_identity_keys(frontmatter)
@@ -150,8 +180,10 @@ def routine_inventory(kb: Path) -> list[dict[str, Any]]:
             "source_uid": source_uid,
             "source_url": str(frontmatter.get("source_url", "")).strip(),
             "cadence": cadence,
-            "raw_path": relative_path,
         }
+        # A new archive of a merged document need not invalidate the plan.
+        if document_key not in merged_documents:
+            identity["raw_path"] = relative_path
         revision = "sha256:" + hashlib.sha256(
             json.dumps(
                 identity,

@@ -335,6 +335,7 @@ class DreamingDigestTests(unittest.TestCase):
             (kb / "raw_data" / "legacy.md").write_text(
                 "---\n"
                 "source_type: feishu_doc\n"
+                "source_uid:\n"
                 "source_url: https://example.test/wiki/wiki123\n"
                 "routine: weekly\n"
                 "---\n"

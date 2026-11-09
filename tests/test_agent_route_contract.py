@@ -147,6 +147,25 @@ class AgentRouteContractTests(unittest.TestCase):
                     limit,
                 )
 
+    def test_interaction_language_is_inline_in_skill_without_extra_reference(self):
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        tutorial = (ROOT / "TUTORIAL.md").read_text(encoding="utf-8")
+        self.assertFalse((ROOT / "references/interaction-language.md").exists())
+        self.assertNotIn(
+            "references/interaction-language.md",
+            self.manifest["common"]["preflight"],
+        )
+        self.assertIn("## 交互语言", skill)
+        for term in (
+            "context view --intent preferences",
+            "不默认英语",
+            "不构成语言切换",
+        ):
+            self.assertIn(term, skill)
+        self.assertIn("SKILL.md", tutorial)
+        self.assertIn("「交互语言」", tutorial)
+        self.assertIn("不重新初始化", tutorial)
+
     def test_moved_mutation_policies_remain_in_required_closures(self):
         for workflow in ("digest", "update"):
             with self.subTest(workflow=workflow):

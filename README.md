@@ -27,7 +27,7 @@
 收录时间,方便核对可信度和是否可能过期。知识库目录是它自己的本地 git 仓库,每步操作可回滚。
 
 **5. 看板是实时视图**
-工作看板每次查看都重新渲染(项目状态实时拉取、陈旧项实时扫描),永远不会过时。
+工作看板每次查看时从本地知识库生成，汇总长期关注、手动提醒、逾期和临期待办及当日日志。
 
 **6. 待办用自然语言**
 直接说“明天下午三点提醒我提交周报”“刚才那个做完了”。byteworker 把相对时间规范化后写入
@@ -69,14 +69,14 @@ Agent 每个交互 session 只调用一次 `bin/byteworker preflight --interacti
 
 ## 浏览知识库
 
-知识库节点是 markdown,直接读原始 md 格式不友好。byteworker 自带一个**内容只读**的 viewer:
+byteworker 自带一个本地 Viewer，可以浏览知识库、管理待办状态和修改受支持的设置。
 
 ```bash
 # 在 byteworker skill 目录下运行:
 bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 python3)
 ```
 
-它通过 `bin/viewer-server.py` 在 127.0.0.1 提供本地浏览：节点、原文和报告只读；设置页可保存访问保护、Dreaming 和来源 routine 配置。默认会话口令保护知识库文件、Dreaming 日志和设置 API，页面代码公开；`.git`、隐藏文件及内部配置路径始终拒绝访问。访问保护开关重启 viewer 后生效。设置先完整校验，再统一发布；保存失败保留待保存编辑，切页或关闭会等待保存成功。编辑知识内容仍走 byteworker skill。
+Viewer 通过 `bin/viewer-server.py` 在 127.0.0.1 提供服务。节点、原文和报告只读。展开个人待办可标记完成或废弃，结果保存在本地知识库。设置页可保存访问保护、Dreaming 和来源 routine 配置。默认会话口令保护知识库文件、Dreaming 日志、设置 API 和待办操作。`.git`、隐藏文件及内部配置路径始终拒绝访问。访问保护开关重启 Viewer 后生效。设置先完整校验，再统一发布，切页或关闭会等待保存结果。
 
 > ⚠️ `browse.sh` 需要在**本地、有浏览器、能跑本地服务**的环境运行。如果你通过云平台 / 沙箱里的托管 agent(如托管 Codex / OpenClaw)使用本 skill,沙箱通常起不了 web 服务、也没有浏览器 —— `browse.sh` 在那种环境用不了,这是预期的、不是故障;那种情况直接用对话查询(`/byteworker search`)即可。
 
@@ -130,7 +130,7 @@ AI 助手安装完成后会直接带你走 **上手引导**：指定一个持久
 
 - `sources/` —— 每个结构化来源自己的 selector/filter/routine profile · `knowledge/` —— 8 类节点笔记（含用户自然语言 `thinking`） · `raw_data/` —— 摄取的逐字原文 · `provenance/` —— 原始章节/评论/消息定位 · `journal/` —— 操作日志
 - `reports/` —— 日报 / 周报归档快照
-- `INDEX.md` —— 主索引 · `dashboard.md` —— 工作看板 · `context.md` —— 格式化用户上下文 · `todo.md` —— 本地个人待办
+- `INDEX.md` —— 主索引 · `settings.md` —— 长期关注和看板提醒 · `context.md` —— 格式化用户上下文 · `todo.md` —— 本地个人待办
 
 该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`docs/development/DESIGN.md`](docs/development/DESIGN.md)。
 风神按 dashboard sheet 注册：每个 sheet 在 `sources/` 中有独立参数，skill 仓库不保存任何

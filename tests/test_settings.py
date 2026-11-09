@@ -23,7 +23,12 @@ class SettingsFacadeTests(unittest.TestCase):
     def make_kb(self, root: Path) -> Path:
         kb = root / "kb"
         (kb / ".git" / "info").mkdir(parents=True)
-        (kb / "context.md").write_text("时区: Asia/Shanghai\n", encoding="utf-8")
+        (kb / "context.md").write_text(
+            "| 字段 | 内容 |\n|------|------|\n"
+            "| 时区 | Asia/Shanghai |\n"
+            "| 交互语言 | 简体中文 |\n",
+            encoding="utf-8",
+        )
         return kb
 
     def test_unrelated_large_files_and_symlinks_are_not_staged(self):
@@ -261,6 +266,7 @@ class SettingsFacadeTests(unittest.TestCase):
             self.assertTrue(view["viewer"]["access_token_required"])
             self.assertTrue(view["dreaming"]["available"])
             self.assertEqual("Asia/Shanghai", view["kb"]["context"]["timezone_hint"])
+            self.assertEqual("简体中文", view["kb"]["context"]["interaction_language_hint"])
             self.assertFalse(view["report_automation"]["editable_in_viewer"])
             self.assertEqual([], view["sources"])
 

@@ -26,6 +26,7 @@ _add_lib_path()
 
 from frontmatter import parse_file, extract_tldr, extract_title, source_window_end
 from constants import NODE_TYPES, SOURCE_TYPE_LABELS
+from routine_identity import RoutineDocumentAliases
 from source_profiles import list_profiles
 
 
@@ -63,6 +64,8 @@ def raw_source_key(fm):
         return source_uid
     if source_type == "feishu_chat":
         return fm.get("source_chat_id") or fm.get("source_chat_name") or fm.get("raw_id")
+    if source_type == "feishu_doc":
+        return fm.get("source_url") or fm.get("raw_id")
     return fm.get("source_url") or fm.get("source_title") or fm.get("raw_id")
 
 
@@ -129,13 +132,19 @@ def render_node_section(kb, dir_name, node_type, label):
 
 def render_raw_sections(kb):
     raw_paths = sorted(glob.glob(os.path.join(kb, "raw_data", "*.md")))
+    raw_records = [(path, parse_file(path)[0]) for path in raw_paths]
+    profiles = list_profiles(Path(kb))
+    aliases = RoutineDocumentAliases((fm for _, fm in raw_records), profiles)
+
+    def key_for(fm):
+        return aliases.key(fm) or (fm.get("source_type", ""), "legacy", raw_source_key(fm))
+
     routine = {}
     latest_by_source = {}
     chats = {}
     pending = failed = 0
 
-    for path in raw_paths:
-        fm, _ = parse_file(path)
+    for path, fm in raw_records:
         if not fm:
             continue
         status = fm.get("digest_status", "")
@@ -146,8 +155,8 @@ def render_raw_sections(kb):
         source_type = fm.get("source_type", "")
         last_seen = raw_last_seen(fm)
         targets = list_value(fm.get("digest_targets"))
-        source_key = raw_source_key(fm)
-        if source_key:
+        source_key = key_for(fm)
+        if source_key[2]:
             old = latest_by_source.get(source_key)
             if old is None or last_seen > old["last_seen"]:
                 latest_by_source[source_key] = {
@@ -176,7 +185,7 @@ def render_raw_sections(kb):
         cadence = fm.get("routine", "")
         if cadence:
             key = source_key
-            if not key:
+            if not key[2]:
                 continue
             old = routine.get(key)
             if old is None or last_seen > old["last_seen"]:
@@ -188,21 +197,21 @@ def render_raw_sections(kb):
                     "targets": targets,
                 }
 
-    profiles = list_profiles(Path(kb))
-    profile_uids = {profile["source_uid"] for profile in profiles}
+    profile_keys = {key_for(profile) for profile in profiles}
     # A profile is the operational truth for a structured source.  Its
     # presence suppresses legacy raw-frontmatter routine settings, including
     # when routine is explicitly disabled.
     routine = {
         key: item
         for key, item in routine.items()
-        if key not in profile_uids
+        if key not in profile_keys
     }
     for profile in profiles:
         if not profile["routine"]["enabled"]:
             continue
-        latest = latest_by_source.get(profile["source_uid"], {})
-        routine[profile["source_uid"]] = {
+        key = key_for(profile)
+        latest = latest_by_source.get(key, {})
+        routine[key] = {
             "source": profile["title"],
             "type": SOURCE_TYPE_LABELS.get(
                 profile["source_type"],

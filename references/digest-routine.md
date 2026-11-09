@@ -8,13 +8,12 @@
 - **纳入清单**:首次摄取这类来源后,**询问用户是否纳入「定期摄取」**。Meego、Base、群聊、
   飞书文档、风神等已有 `sources/` profile 的来源，把 enabled/cadence 写进该来源自己的
   profile；尚无 profile schema 的来源才兼容给 raw frontmatter 加 `routine: weekly`。INDEX 优先从
-  profiles 派生，同一 `source_uid` 有 profile 时，历史 raw 的 routine 不再生效。
-- **Dreaming 历史兼容**：后台快照遇到缺少 `source_uid` 的 routine raw，只从同库中
-  `source_type` 相同且 `source_url` 相同（群聊也可按相同 `source_chat_id`）的归档恢复显式 UID；
-  已有 UID 始终保留。候选 UID 一致时可直接恢复；存在多个 UID 时，所有候选必须有带时区的
-  ISO8601 `ingested`，按 UTC 时间取最新记录，且最新时间只能对应一个 UID。缺少时间、无效时间、
-  无匹配或最新 UID 有歧义时失败关闭，不按文件名或文件修改时间猜测，不改写历史 raw。
-  恢复后仍由 Profile 的启用/禁用与 cadence 优先。
+  profiles 派生。飞书文档的历史 UID 和文档链接若指向同一来源，INDEX 与 Dreaming 将其归并为一个条目。
+  按已存档的 UID 和链接归并，禁止按标题合并。唯一的 Profile 决定同一来源的启停和 cadence。
+- **Dreaming 历史兼容**：无 Profile 时，优先从明确设为定期的飞书文档历史记录选择执行 UID。
+  缺少显式 UID 时，可从同源归档恢复；群聊仍可按相同 `source_chat_id` 匹配。
+  候选 UID 一致时直接使用；存在多个 UID 时，所有候选必须有带时区的 ISO8601 `ingested`，
+  按 UTC 最新时间选择唯一 UID。证据不足时停止并报告。归并和 UID 选择均保留历史 raw 原样。
 - **运行**(触发:不带来源的 `digest` / 用户说"跑定期摄取""检查周报更新" / 操作前必读「到期提醒」后用户确认):
   - 开始时先告知用户本次会复查 INDEX「定期摄取清单」里的多少个来源;逐源处理时用短状态说明当前来源、是否在拉取 / 比对 / digest / 跳过。来源较多或单源处理超过约 30-60 秒时,按 `SKILL.md`「长流程状态输出」发 heartbeat,不要等全部来源处理完才第一次汇报。
   1. 读 INDEX「定期摄取清单」,逐源处理 ——

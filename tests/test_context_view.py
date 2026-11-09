@@ -75,6 +75,77 @@ class ContextViewTests(unittest.TestCase):
                 context_view(root, "inbox")
             self.assertEqual("CONTEXT_INTENT_INVALID", caught.exception.code)
 
+    def test_preferences_projection_reads_interaction_language_without_work_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            root.joinpath("context.md").write_text(
+                "# context\n"
+                "## 我的身份\n"
+                "| 字段 | 内容 |\n"
+                "|------|------|\n"
+                "| 姓名 | 冉蛟 |\n"
+                "| 时区 | Asia/Shanghai |\n"
+                "| 交互语言 | 简体中文 |\n\n"
+                "## 我的职责范围\nsecret scope\n"
+                "## 我的当前重点\nsecret focus\n"
+                "## 主管方向\n\n"
+                "## 当前约束\n\n"
+                "## 交互与提醒偏好\n- 未指定具体时间的提醒：09:00\n"
+                "## 背景信息\n",
+                encoding="utf-8",
+            )
+
+            result = context_view(root, "preferences")
+
+            self.assertEqual("zh-CN", result["interaction_language"])
+            self.assertEqual(
+                {"我的身份", "交互与提醒偏好"},
+                set(result["sections"]),
+            )
+            self.assertNotIn("secret scope", str(result["sections"]))
+            self.assertNotIn("secret focus", str(result["sections"]))
+
+    def test_legacy_preference_language_is_visible_to_every_intent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            root.joinpath("context.md").write_text(
+                "# context\n"
+                "## 我的身份\n| 字段 | 内容 |\n|------|------|\n| 姓名 | 冉蛟 |\n\n"
+                "## 我的职责范围\nscope\n"
+                "## 我的当前重点\nfocus\n"
+                "## 主管方向\n\n"
+                "## 当前约束\n\n"
+                "## 交互与提醒偏好\n- 交互语言：English\n- 未指定具体时间的提醒：09:00\n"
+                "## 背景信息\n",
+                encoding="utf-8",
+            )
+
+            result = context_view(root, "search")
+
+            self.assertEqual("en", result["interaction_language"])
+
+    def test_missing_or_pending_language_remains_empty_instead_of_guessing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.context(root)
+
+            self.assertEqual("", context_view(root, "todo")["interaction_language"])
+
+            root.joinpath("context.md").write_text(
+                "# context\n"
+                "## 我的身份\n| 字段 | 内容 |\n|------|------|\n"
+                "| 交互语言 | 待补充 |\n\n"
+                "## 我的职责范围\nscope\n"
+                "## 我的当前重点\nfocus\n"
+                "## 主管方向\n\n"
+                "## 当前约束\n\n"
+                "## 交互与提醒偏好\n"
+                "## 背景信息\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual("", context_view(root, "search")["interaction_language"])
+
 
 if __name__ == "__main__":
     unittest.main()

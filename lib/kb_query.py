@@ -758,7 +758,7 @@ def source_records(
     }
 
 
-def _evidence_rows(body: str) -> Dict[str, Dict[str, str]]:
+def evidence_rows(body: str) -> Dict[str, Dict[str, str]]:
     match = re.search(r"(?ms)^## 证据\s*$([\s\S]*)", body)
     if not match:
         return {}
@@ -805,7 +805,7 @@ def evidence(
         raise QueryError(f"找不到节点: {node_id}")
     path = kb / record["path"]
     frontmatter, body = parse_file(str(path))
-    rows = _evidence_rows(body)
+    rows = evidence_rows(body)
     wanted = list(dict.fromkeys(marker.strip() for marker in markers if marker.strip()))
     if not wanted:
         wanted = sorted(rows, key=lambda value: int(value[1:]))
