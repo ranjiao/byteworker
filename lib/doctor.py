@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import subprocess
 import sys
@@ -1240,7 +1239,3 @@ def render_text(report: DoctorReport) -> str:
             ]
         )
     return "\n".join(lines) + "\n"
-
-
-def render_json(report: DoctorReport) -> str:
-    return json.dumps(report.to_dict(), ensure_ascii=False, indent=2) + "\n"
