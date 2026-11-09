@@ -1,9 +1,12 @@
 # ===== 业务数据 —— 绝不进本仓库(逻辑/数据严格分离) =====
-# 三个 .md 用 / 锚定到仓库根 —— 否则裸模式会误伤 templates/context.md 等同名 skill 文件
+# 以 / 开头的规则只匹配仓库根目录，避免误伤 lib/sources/ 和 templates/context.md。
 knowledge/
 raw_data/
 journal/
 reports/
+/provenance/
+/sources/
+/state/
 /INDEX.md
 /dashboard.md
 /context.md
