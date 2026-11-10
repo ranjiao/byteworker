@@ -22,6 +22,8 @@
   `source capture --source-type feishu_chat --kb <KB> --source-uid <chat_id> --out <bundle.json>`。
   operation adapter 重放 Profile、显式传入 KB 高水位、包装 `pull-chat.sh`，并直接生成
   SourceBundle；不得从最近 raw 猜测 selector 或窗口策略。
+  完整分页且零消息时，保留抓取的窗口、计数和定位元数据。若 `digest-flow prepare` 返回
+  `receipt.status=empty_window`，直接结束该来源，不生成空节点计划或 raw。
 - **人员解析(必须)**:群聊 digest 前,对 transcript 运行
   `bin/byteworker run bin/resolve-users.sh --from-doc <transcript> --format json`。新建 / 更新 `person` 节点时
   必须使用解析出的 `feishu_id`，并按 `references/digest-core.md` 同步可见的企业邮箱、当前

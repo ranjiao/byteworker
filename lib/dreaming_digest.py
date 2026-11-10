@@ -10,9 +10,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from frontmatter import parse_file
+from operation_trace import DIGEST_RUN_ID
 from routine_identity import IdentityKey, RoutineDocumentAliases
 from source_profile_contract import SourceProfileError
 from source_profiles import list_profiles, profile_revision
+from sources import SourceBundleError, load_source_bundle
+from sources.adapters.text import empty_chat_window
 from sources.registry import create_default_registry
 from dreaming_state import (
     DreamingError,
@@ -28,7 +31,7 @@ from dreaming_state import (
 
 RESULT_SCHEMA = "byteworker-dreaming-digest-result/v1"
 BATCH_SCHEMA = "byteworker-dreaming-digest-batch/v1"
-SUCCESS_STATUSES = {"committed", "noop", "observed"}
+SUCCESS_STATUSES = {"committed", "noop", "observed", "empty_window"}
 TRANSACTION_SUCCESS_STATUSES = {"committed", "noop"}
 ROUTINE_CADENCES = {"daily", "weekly", "monthly"}
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -493,6 +496,56 @@ def _verify_wiki_receipt(
     }
 
 
+def _verify_empty_chat_receipt(
+    kb: Path,
+    source: Mapping[str, Any],
+    result: Mapping[str, Any],
+    *,
+    target_through: str,
+    acquired_at: str,
+    now: datetime,
+) -> dict[str, Any]:
+    invalid = "DREAMING_DIGEST_RESULT_INVALID"
+    receipt = result.get("receipt")
+    if not isinstance(receipt, Mapping) or receipt.get("status") != "empty_window":
+        raise DreamingError(invalid, "缺少群聊空窗口回执。")
+    run_id = receipt.get("digest_run_id")
+    if not isinstance(run_id, str) or not DIGEST_RUN_ID.fullmatch(run_id):
+        raise DreamingError(invalid, "群聊空窗口回执缺少有效摄取编号。")
+    bundle_path = kb.resolve() / "state" / "digest" / "flows" / run_id / "source-bundle.json"
+    if bundle_path.resolve() != bundle_path:
+        raise DreamingError(invalid, "群聊空窗口的 Bundle 路径无效。")
+    try:
+        bundle = load_source_bundle(bundle_path)
+        window = empty_chat_window(bundle)
+    except (OSError, SourceBundleError) as exc:
+        raise DreamingError(invalid, "无法核验群聊空窗口 Bundle。") from exc
+    metadata = bundle.provider_metadata
+    profile = metadata.get("source_profile")
+    if (
+        window is None
+        or source["source_type"] != "feishu_chat"
+        or bundle.identity.source_uid != source["source_uid"]
+        or metadata.get("capture_mode") != "since-last"
+        or not isinstance(profile, Mapping)
+        or profile.get("revision") != source["profile_revision"]
+    ):
+        raise DreamingError(invalid, "群聊空窗口与本轮来源或配置版本不符。")
+    start, end = window
+    target = parse_time(target_through)
+    acquired = parse_time(acquired_at)
+    if not target or not acquired or not (
+        start <= target <= end and acquired.replace(microsecond=0) <= end <= now
+    ):
+        raise DreamingError(invalid, "群聊空窗口未覆盖本轮目标时间，或不是本轮抓取。")
+    return {
+        "status": "empty_window",
+        "digest_run_id": run_id,
+        "window_start": utc_iso(start),
+        "window_end": utc_iso(end),
+    }
+
+
 def record_routine_digest_result(
     kb: Path,
     *,
@@ -522,11 +575,15 @@ def record_routine_digest_result(
                 "DREAMING_DIGEST_RESULT_INVALID",
                 "结果来源或 Profile revision 与批次快照不一致。",
             )
-        verified = (
-            _verify_wiki_receipt(kb, source, result)
-            if source["workflow"] == "wiki_scan_then_digest"
-            else _verify_transaction_receipt(kb, source, result)
-        )
+        if source["workflow"] == "wiki_scan_then_digest":
+            verified = _verify_wiki_receipt(kb, source, result)
+        elif result.get("status") == "empty_window":
+            verified = _verify_empty_chat_receipt(
+                kb, source, result, target_through=batch["target_through"],
+                acquired_at=lease["acquired_at"], now=current,
+            )
+        else:
+            verified = _verify_transaction_receipt(kb, source, result)
         if source["status"] in SUCCESS_STATUSES and source["receipt"] != verified:
             raise DreamingError(
                 "DREAMING_DIGEST_RESULT_CONFLICT",
@@ -563,7 +620,7 @@ def complete_routine_digest(
         if pending:
             raise DreamingError(
                 "DREAMING_DIGEST_INCOMPLETE",
-                "仍有定期来源未取得 committed/noop 回执。",
+                "仍有定期来源未取得已核验的完成回执。",
                 details={"pending_source_keys": pending},
             )
         current_inventory = {
@@ -601,7 +658,9 @@ def complete_routine_digest(
                 "result_status": source["status"],
                 "updated_at": utc_iso(current),
             }
-            if source["workflow"] == "ordinary_digest":
+            if source["status"] == "empty_window":
+                checkpoints[key]["digest_run_id"] = source["receipt"]["digest_run_id"]
+            elif source["workflow"] == "ordinary_digest":
                 checkpoints[key]["digest_key"] = source["receipt"]["digest_key"]
             else:
                 checkpoints[key]["tree_hash"] = source["receipt"]["tree_hash"]
@@ -627,6 +686,9 @@ def complete_routine_digest(
         ),
         "observed_count": sum(
             item["status"] == "observed" for item in batch["sources"].values()
+        ),
+        "empty_window_count": sum(
+            item["status"] == "empty_window" for item in batch["sources"].values()
         ),
     }
 

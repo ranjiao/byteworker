@@ -418,8 +418,9 @@ Dreaming 是新增的可选旁路控制面，默认关闭。用户明确确认�
 保持开机、唤醒、联网前，还必须先完成独立能力导览，讲清它与 digest 的差异、全部 job、授权、
 Finding/Action 生命周期、维护和退出边界，并配置确认完整运行计划。三项确认都记录后，宿主 local task 才可调用
 `dreaming run-due`。每次 process 都快照并重放所有已登记且启用的普通 routine digest 来源；
-来源仍走原有公开 capture、Agent 语义和 DigestTxn，Dreaming 只核验真实 `committed/noop`
-回执并推进 per-source checkpoint。Wiki 子树保留完整 scan + 变化展示的既有语义。初始启用不
+来源仍走原有公开 capture、Agent 语义和 DigestTxn，Dreaming 核验真实 `committed/noop`
+回执。群聊准备阶段验证完整零消息窗口后直接返回 `empty_window`，由 Dreaming 复验抓取、
+身份、配置版本和窗口覆盖后与其它完成回执一同推进 checkpoint。Wiki 子树保留完整 scan + 变化展示的既有语义。初始启用不
 接管上述自动报告；`daily/weekly` job 默认关闭。后续迁移必须先
 释放旧 scheduler owner，并由 `migration_epoch` 保证同一 period 只有一个 owner。
 
@@ -1226,7 +1227,7 @@ flowchart LR
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
 | `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；viewer 只可修改 Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；旧自动报告只读 |
 | `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt/source checkpoint；enabled 与 operational 分离；默认不接管报告 |
-| `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + Agent runner | 批次固定来源清单与 Profile revision；普通来源只接受可回查 raw 的 `committed/noop`，Wiki 只接受完整 scan；清单漂移或任一失败不推进 checkpoint |
+| `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + Agent runner | 批次固定来源清单与 Profile revision；接受可回查 raw 的 `committed/noop`、可复验的本轮群聊 `empty_window` 或 Wiki 完整 scan；清单漂移或任一失败不推进 checkpoint |
 | `byteworker-dreaming-run-event/v1` | `dreaming_run_log.py` | 稳定 run_id；事件/stage/metrics 白名单；无业务正文；独立日志锁、5 MiB 轮转与 1..365 天保留 |
 | Dreaming 跨阶段结构契约 | `dreaming_models.py` | schema 白名单、必填结构、枚举和 evidence ref 形状；不复刻业务语义 |
 | `byteworker-evidence-batch/v1` | `dreaming_collection.py` + `dreaming_batch.py` | principal/grant revision、窗口、coverage、message anchors、私密 spool refs |

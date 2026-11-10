@@ -37,6 +37,9 @@ bin/byteworker digest-flow prepare --kb "<KB>" --run-id "<RUN_ID>" \
 ```
 
 命令依次完成 Bundle、preflight、analysis packet、dependency/semantic planner，并自动记录确定性阶段。
+群聊 Bundle 若证明分页完整且零消息，准备阶段直接返回 `phase=noop` 和
+`receipt={status: empty_window, digest_run_id: …}`，`next_action=none`。不用分析或提交，
+可用 `digest-flow status` 取回回执。
 幂等命中直接终结为 noop；否则只消费返回的 `next_action`：`dependency_review` 或
 `semantic_analysis`。artifact 路径可用 `digest-flow status` 恢复，不重跑已完成抓取。
 需要向用户询问依赖范围或冲突时，按 `digest-inline.md` 先记录 `digest-run wait`；答复后

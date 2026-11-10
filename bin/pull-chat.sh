@@ -172,7 +172,12 @@ while :; do
     "$LARK_CLI_BIN" im +chat-messages-list --chat-id "$CHAT_ID" --start "$START" --end "$END" \
       --sort asc --page-size "$PAGE_SIZE" --page-token "$TOKEN" >"$TMP" 2>"$TMPERR" || true
   fi
-  if ! jq -e '.ok == true' "$TMP" >/dev/null 2>&1; then
+  if ! jq -e '
+    .ok == true
+    and (.data.messages | type == "array")
+    and (.data.has_more | type == "boolean")
+    and (if .data.has_more then (.data.page_token | type == "string" and length > 0) else true end)
+  ' "$TMP" >/dev/null 2>&1; then
     echo "错误:chat-messages-list 第 $PAGE 页失败:" >&2
     head -c 300 "$TMP" >&2; head -c 300 "$TMPERR" >&2; echo >&2; exit 1
   fi

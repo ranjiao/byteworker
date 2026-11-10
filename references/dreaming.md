@@ -185,7 +185,9 @@ bin/byteworker dreaming process digest-complete --kb "<KB>" --token "<lease.toke
 `digest-prepare` 快照所有已启用 Profile，以及普通 digest 仍兼容且未被 Profile 取代的历史 raw
 定期来源。runner 必须加载 workflow manifest 的 `features.routine_digest`，按每个来源原有
 capture、依赖、语义、冲突、候选、引用和 DigestTxn 规则处理；不得复制简化实现。
-普通来源只接受可回查已提交 raw 的 `committed/noop`，Wiki 子树按其原有语义接受完整 scan 的
+普通来源接受可回查已提交 raw 的 `committed/noop`。群聊准备命令返回 `empty_window` 时，
+按该状态登记回执，Dreaming 复验本轮抓取、来源身份、配置版本和目标时间覆盖，再继续后续来源。
+Wiki 子树按其原有语义接受完整 scan 的
 `observed`，变化页面仍需经过普通文档 digest。清单、Profile revision 或任一来源结果不完整时
 不推进 checkpoint，也不允许 process 成功。
 

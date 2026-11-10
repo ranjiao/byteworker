@@ -22,6 +22,7 @@ from digest_run_log import (
 from digest_txn import execute_plan, preflight_bundle
 from source_bundle_request import build_bundle_from_request
 from source_capture import write_capture
+from sources.adapters.text import empty_chat_window
 
 
 FLOW_SCHEMA = "byteworker-digest-flow/v1"
@@ -304,6 +305,24 @@ def prepare_flow(
             metrics={"component_count": len(bundle.components)},
         )
 
+        if empty_chat_window(bundle) is not None:
+            receipt = {"status": "empty_window", "digest_run_id": run_id}
+            finish_run(kb, run_id=run_id, status="noop")
+            with _flow_lock(kb):
+                state = _load_state(kb, run_id)
+                state["phase"] = "noop"
+                state["artifacts"] = {"bundle": str(bundle_path)}
+                state["receipt"] = receipt
+                state["next_action"] = "none"
+                _atomic_state(_state_path(kb, run_id), state)
+            return {
+                "schema_version": FLOW_SCHEMA,
+                "run_id": run_id,
+                "phase": "noop",
+                "receipt": receipt,
+                "next_action": "none",
+            }
+
         record_stage(kb, run_id=run_id, stage="preflight", status="started")
         flight = preflight_bundle(kb, bundle_path)
         record_stage(
@@ -475,6 +494,7 @@ def flow_status(kb: Path, *, run_id: str) -> dict[str, Any]:
         "phase": state["phase"],
         "work_dir": str(_flow_dir(kb, run_id)),
         "artifacts": state.get("artifacts", {}),
+        **({"receipt": state["receipt"]} if "receipt" in state else {}),
         "next_action": state.get("next_action", "none"),
         "run": show_run(kb, run_id=run_id)["summary"],
     }
