@@ -7,6 +7,8 @@ SourceBundle boundary and materialize the current digest-plan/v1 source shape.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -339,6 +341,37 @@ def feishu_chat_bundle_to_transaction_source(
         expected_source_type="feishu_chat",
         required_metadata=("source_window",),
     )
+
+
+def empty_chat_window(bundle: SourceBundle) -> tuple[datetime, datetime] | None:
+    """Recognize an empty window from complete, consistent chat capture artifacts."""
+    metadata = bundle.provider_metadata
+    if (
+        bundle.identity.source_type != "feishu_chat"
+        or bundle.coverage.status != "complete"
+        or type(metadata.get("message_count")) is not int
+        or metadata["message_count"] != 0
+        or type(metadata.get("page_count")) is not int
+        or metadata["page_count"] < 1
+        or metadata.get("locator_schema") != LOCATOR_SCHEMA
+        or metadata.get("anchor_count") != 0
+        or bundle.anchors
+        or len(bundle.components) != 1
+    ):
+        return None
+    transcript = Path(bundle.components[0].path)
+    if not transcript.is_file() or transcript.stat().st_size != 0:
+        return None
+    window = metadata.get("source_window")
+    if not isinstance(window, str):
+        return None
+    try:
+        start, end = (datetime.fromisoformat(value.strip().replace("Z", "+00:00")) for value in window.split(".."))
+    except ValueError:
+        return None
+    if start.tzinfo is None or end.tzinfo is None or start >= end:
+        return None
+    return start, end
 
 
 def build_feishu_minutes_bundle(

@@ -223,7 +223,7 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
   规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
 - 后台 process 每轮先快照并重放全部已登记且启用的 routine 来源，包括 Profile 和普通 digest
   仍兼容的历史 raw 来源（UID 恢复见 `references/digest-routine.md`）；逐源执行原有来源规则、语义分析和 DigestTxn，只有真实
-  `committed/noop` 才算完成。Wiki 子树沿用原有完整扫描与变化展示语义。全部来源完成后才推进
+  `committed/noop` 或工具核验的群聊 `empty_window` 才算完成。Wiki 子树沿用原有完整扫描与变化展示语义。全部来源完成后才推进
   来源覆盖 checkpoint；任一来源失败则 process 失败且报告保持阻塞。
 - 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。

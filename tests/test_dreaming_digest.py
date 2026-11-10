@@ -18,6 +18,7 @@ from dreaming_digest import (  # noqa: E402
     record_routine_digest_result,
     routine_inventory,
 )
+from digest_flow import flow_status, prepare_flow, start_flow  # noqa: E402
 from dreaming_reports import report_dependency  # noqa: E402
 from dreaming_scheduler import complete_run, enable, run_due  # noqa: E402
 from dreaming_state import DreamingError  # noqa: E402
@@ -233,6 +234,72 @@ class DreamingDigestTests(unittest.TestCase):
                 period="2026-08-04",
             )
             self.assertEqual("covered", dependency["status"])
+
+    def test_verified_empty_chat_window_completes_without_a_transaction(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            enabled_at = datetime(2026, 8, 3, 23, tzinfo=timezone.utc)
+            acquired = enabled_at + timedelta(hours=4)
+            kb = self.make_kb(root, enabled_at)
+            chat_profile = feishu_chat_profile()
+            self.save_profile(kb, chat_profile)
+            lease = run_due(kb, owner="host", now=acquired)["lease"]
+            token = lease["token"]
+            batch = prepare_routine_digest(kb, token=token, now=acquired)
+            source = batch["sources"][0]
+            flow = start_flow(kb, source_type="feishu_chat", source_ref=source["source_uid"])
+            work_dir = Path(flow["work_dir"])
+            transcript = work_dir / "transcript.txt"
+            transcript.touch()
+            end = acquired + timedelta(seconds=30)
+            window = f"{enabled_at.isoformat()} .. {end.isoformat()}"
+            request = work_dir / "bundle-request.json"
+            request.write_text(json.dumps({
+                "source_uid": source["source_uid"],
+                "title": chat_profile["title"],
+                "source_window": window,
+                "transcript": {"path": str(transcript)},
+                "locator_artifact": {
+                    "schema_version": "byteworker-source-locators/v1",
+                    "source_type": "feishu_chat",
+                    "source_chat_id": source["source_uid"],
+                    "source_window": window,
+                    "anchors": [],
+                },
+                "provider_metadata": {
+                    "capture_mode": "since-last",
+                    "message_count": 0,
+                    "page_count": 1,
+                    "source_profile": {"revision": source["profile_revision"]},
+                },
+            }), encoding="utf-8")
+            prepared = prepare_flow(kb, run_id=flow["run_id"], bundle_request=request)
+            self.assertEqual(("noop", "none"), (prepared["phase"], prepared["next_action"]))
+            receipt = prepared["receipt"]
+            self.assertEqual("empty_window", receipt["status"])
+            recovered = flow_status(kb, run_id=flow["run_id"])
+            self.assertEqual(receipt, recovered["receipt"])
+            self.assertEqual(["classify", "bundle"], [stage["stage"] for stage in recovered["run"]["stages"]])
+
+            result_path = root / "result.json"
+            result_path.write_text(json.dumps({
+                **source, "schema_version": RESULT_SCHEMA,
+                "status": "empty_window", "receipt": receipt,
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(DreamingError, "不是本轮抓取"):
+                record_routine_digest_result(kb, token=token, input_path=result_path, now=acquired)
+            transcript.write_text("nonempty", encoding="utf-8")
+            recorded_at = end + timedelta(seconds=1)
+            with self.assertRaisesRegex(DreamingError, "配置版本不符"):
+                record_routine_digest_result(kb, token=token, input_path=result_path, now=recorded_at)
+            transcript.write_text("", encoding="utf-8")
+            recorded = record_routine_digest_result(kb, token=token, input_path=result_path, now=recorded_at)
+            self.assertEqual("empty_window", recorded["status"])
+            completed = complete_routine_digest(kb, token=token, now=recorded_at)
+            self.assertEqual(1, completed["empty_window_count"])
+            complete_run(kb, token=token, run_status="success", now=recorded_at)
+            self.assertEqual("covered", report_dependency(kb, kind="morning", period="2026-08-04")["status"])
+            self.assertEqual([], list((kb / "raw_data").iterdir()))
 
     def test_inventory_change_prevents_checkpoint_advance(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
