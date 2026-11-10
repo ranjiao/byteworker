@@ -1225,7 +1225,7 @@ flowchart LR
 | `byteworker-digest-parallel-result/v1` / `byteworker-digest-reduce-packet/v1` | Agent workers + `digest_parallel.py` | 完整 shard coverage 和边界校验；单一 reducer 处理语义重复、跨分片关系和用户闸门 |
 | `byteworker-conflict-query/v1` / `byteworker-conflict-candidates/v1` | Agent + `kb_query.py` | 最多 32 条短 query；同源精确定位；单次节点扫描；工具只召回不裁决 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
-| `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；viewer 只可修改 Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；旧自动报告只读 |
+| `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；Viewer 可修改访问保护、Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；API 保留旧自动报告的只读兼容字段 |
 | `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt/source checkpoint；enabled 与 operational 分离；默认不接管报告 |
 | `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + Agent runner | 批次固定来源清单与 Profile revision；接受可回查 raw 的 `committed/noop`、可复验的本轮群聊 `empty_window` 或 Wiki 完整 scan；清单漂移或任一失败不推进 checkpoint |
 | `byteworker-dreaming-run-event/v1` | `dreaming_run_log.py` | 稳定 run_id；事件/stage/metrics 白名单；无业务正文；独立日志锁、5 MiB 轮转与 1..365 天保留 |
