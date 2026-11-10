@@ -20,7 +20,7 @@ from dreaming_delivery_lark import deliver_lark_bot_summary  # noqa: E402
 from dreaming_diagnostics import diagnose, observed_run_due  # noqa: E402
 from dreaming_reports import enqueue_delivery  # noqa: E402
 from dreaming_run_log import append_run_event  # noqa: E402
-from dreaming_scheduler import enable, heartbeat_run  # noqa: E402
+from dreaming_scheduler import complete_run, enable, heartbeat_run  # noqa: E402
 from dreaming_state import DreamingError, atomic_write_json, state_path  # noqa: E402
 from support_feedback import generate  # noqa: E402
 
@@ -129,10 +129,16 @@ class SupportDiagnosticsTests(unittest.TestCase):
         lease = result["lease"]
         digest_run_id = "DG-20261109T010101Z-abcdef12"
         heartbeat_run(self.kb, token=lease["token"], stage="collection", digest_run_id=digest_run_id)
-        report = diagnose(self.kb, tick_id=tick_id)
+        failure = "DIGEST_FLOW_COMMIT_FAILED"
+        complete_run(self.kb, token=lease["token"], run_status="failed", error_code=failure)
+        report = diagnose(self.kb)
+        self.assertEqual(tick_id, report["tick"]["run_id"])
         self.assertEqual(lease["run_id"], report["run"]["run_id"])
-        self.assertEqual(digest_run_id, report["run"]["events"][-1]["digest_run_id"])
-        _, contents = self.export(tick_id)
+        self.assertEqual("failed", report["run"]["status"])
+        self.assertEqual(digest_run_id, report["run"]["events"][-2]["digest_run_id"])
+        self.assertEqual(failure, report["run"]["events"][-1]["code"])
+        summary, contents = self.export(tick_id)
+        self.assertEqual(failure, summary["reason_code"])
         self.assertNotIn("private-task", contents)
         self.assertNotIn(lease["token"], contents)
 

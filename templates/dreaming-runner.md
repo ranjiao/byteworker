@@ -5,7 +5,11 @@
 1. 首个命令调用 `bin/byteworker dreaming tick --kb "<KB>" --owner "<TASK_ID>"`，保存 `tick_id`。
    该入口先记唤醒，再执行一次 `preflight --unattended` 和 `run-due`。无人值守不展示能力 Tip，
    不调用 `discover recommend`。不要重复启动检查或领取。
-2. `preflight_failed/scheduler_failed` 时结束，只留本地诊断编号和失败阶段。
+2. 领取到任务或启动失败时，取得编号后就在宿主任务的用户可见输出中回显。最终结果首行保留
+   状态、唤醒编号 `DT-…`、已取得的运行编号 `DR-…`。失败、部分完成或待投递时附上已记录的阶段和固定原因码。
+   例如 `后台分析失败 · DT-… · DR-… · DIGEST_FLOW_COMMIT_FAILED`。只有最终输出的宿主也遵循此格式。
+   `preflight_failed/scheduler_failed` 回显已取得的 `DT-…` 和失败阶段后结束。若未取得编号，写明编号未生成。
+   这行仅含技术信息，不拼接知识库正文、路径、凭据或原始命令输出，也不为此另发通知。
 3. `disabled/idle/busy` 时安静结束。
 4. `leased` 后从 `references/workflow-routes.json` 解析 `dreaming` 并读取 required 闭包。
 5. `leased` 时只执行返回的一个 `job/period`，遵守 Dreaming reference 对该 job 的要求；

@@ -386,13 +386,16 @@ async function loadDiagnosis() {
     const jobs = Object.entries(data.jobs || {}).map(([name, job]) =>
       `<li>${esc(name)} · ${esc(diagLabel(job.status))}${job.next_due_at ? ` · 下次 ${esc(displayTime(job.next_due_at))}` : ""}</li>`).join("");
     const run = data.run;
+    const runCode = ["failed", "partial"].includes(run?.status)
+      ? run.attempt?.code || run.events?.at(-1)?.code : "";
     const runLine = run
-      ? `<p>关联任务 ${esc(run.job || "")} · ${esc(diagLabel(run.status))} · ${esc(run.run_id)}${run.delivery ? ` · 投递 ${esc(diagLabel(run.delivery))}` : ""}${run.delivery_code ? ` · ${esc(run.delivery_code)}` : ""}</p>`
+      ? `<p>关联任务 ${esc(run.job || "")} · ${esc(diagLabel(run.status))} · ${esc(run.run_id)}${runCode ? ` · ${esc(runCode)}` : ""}${run.delivery ? ` · 投递 ${esc(diagLabel(run.delivery))}` : ""}${run.delivery_code ? ` · ${esc(run.delivery_code)}` : ""}</p>`
       : "";
     el("diagnosis").innerHTML = [
       ...(data.diagnostic_gaps || []).map(gap => `<p>${esc(diagLabel(gap))}</p>`),
-      events ? `<ul>${events}</ul>` : "",
+      state.tickId ? `<p>唤醒编号 <code>${esc(state.tickId)}</code></p>` : "",
       runLine,
+      events ? `<ul>${events}</ul>` : "",
       data.active_lease ? `<p>最近任务心跳 ${esc(displayTime(data.active_lease.last_heartbeat_at))} · ${esc(diagLabel(data.active_lease.status))} · ${esc(data.active_lease.stage || "")}</p>` : "",
       jobs ? `<details><summary>当前任务与下次运行时间</summary><ul>${jobs}</ul></details>` : "",
     ].join("");
