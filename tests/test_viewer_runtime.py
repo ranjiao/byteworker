@@ -216,13 +216,10 @@ class ViewerRuntimeTests(unittest.TestCase):
                 context.window.open = () => undefined;
                 context.window.addEventListener = () => undefined;
                 context.window.setTimeout = setTimeout;
-                context.window.markdownit = () => ({{
-                  render(value) {{ return String(value || ''); }},
-                  renderInline(value) {{ return String(value || ''); }},
-                }});
                 vm.createContext(context);
 
                 (async () => {{
+                  vm.runInContext(fs.readFileSync({json.dumps(str(ROOT / 'viewer/vendor/markdown-it.min.js'))}, 'utf8'), context);
                   vm.runInContext(fs.readFileSync({json.dumps(str(ROOT / 'viewer/index-parser.js'))}, 'utf8'), context);
                   vm.runInContext(source, context, {{ filename: 'viewer/index.html' }});
                   await vm.runInContext('__viewerBoot()', context);
