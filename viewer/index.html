@@ -574,6 +574,12 @@ button.history-entry:not([aria-current]):hover { background: var(--bg-hover); bo
 }
 .prose blockquote p { margin: 0.3em 0; }
 .prose blockquote strong:first-child { color: var(--accent); }
+.template-hint {
+  margin: 0.7em 0; padding: 8px 12px;
+  border-inline-start: 2px solid var(--line-strong); border-radius: 4px;
+  background: var(--bg-quote); color: var(--ink-3);
+  font-size: 13px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere;
+}
 .prose table {
   border-collapse: collapse; font-size: 13px; margin: 0.8em 0;
   display: block; overflow-x: auto; max-width: 100%;
@@ -1592,6 +1598,32 @@ const TIMEZONE_OPTIONS = [
 ];
 
 const md = window.markdownit({ html: false, linkify: true, typographer: false });
+// Recognize whole comment blocks without enabling HTML or touching code tokens.
+md.block.ruler.before('html_block', 'template_hint', (parser, start, end, silent) => {
+  const opening = parser.bMarks[start] + parser.tShift[start];
+  if (parser.sCount[start] - parser.blkIndent >= 4 || !parser.src.startsWith('<!--', opening)) return false;
+  for (let line = start; line < end; line++) {
+    if (parser.sCount[line] < parser.blkIndent && !parser.isEmpty(line)) return false;
+    const from = line === start ? opening + 4 : parser.bMarks[line];
+    const tail = parser.src.slice(from, parser.eMarks[line]);
+    const close = tail.indexOf('-->');
+    if (close < 0) continue;
+    if (tail.slice(close + 3).trim()) return false;
+    if (silent) return true;
+    parser.line = line + 1;
+    const token = parser.push('template_hint', '', 0);
+    token.map = [start, parser.line];
+    const source = parser.getLines(start, parser.line, parser.blkIndent, false).trim();
+    token.content = source.slice(4, -3).trim();
+    return true;
+  }
+  return false;
+}, { alt: ['paragraph', 'reference', 'blockquote'] });
+function templateHintHTML(content) {
+  if (!content) return '';
+  return `<aside class="template-hint">${esc(content)}</aside>\n`;
+}
+md.renderer.rules.template_hint = (tokens, i) => templateHintHTML(tokens[i].content);
 const API_TOKEN = (() => {
   const search = String(window.location && window.location.search || '');
   const match = search.match(/[?&]api_token=([^&]+)/);
@@ -2533,7 +2565,7 @@ function linkifyReferences(root) {
   const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
   const textNodes = [];
   for (let node; (node = walk.nextNode());) {
-    if (node.parentElement.closest('a, code, pre, script, style, [data-reference-target]')) continue;
+    if (node.parentElement.closest('a, code, pre, script, style, .template-hint, [data-reference-target]')) continue;
     REFERENCE_MARKER_RE.lastIndex = 0;
     if (REFERENCE_MARKER_RE.test(node.nodeValue)) textNodes.push(node);
   }
@@ -2579,7 +2611,7 @@ function linkifyIds(root) {
   const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
   const todo = [];
   for (let n; (n = walk.nextNode());) {
-    if (n.parentElement.closest('a, code, pre')) continue;
+    if (n.parentElement.closest('a, code, pre, .template-hint')) continue;
     if (ID_RE.test(n.nodeValue)) { ID_RE.lastIndex = 0; todo.push(n); }
   }
   for (const node of todo) {
@@ -3749,17 +3781,30 @@ function detectSectionKind(title) {
   return 'default';
 }
 
-function sxSections(body) {
-  const lines = String(body || '').split('\n');
+function sxSections(body, blocks) {
+  const lines = body.split(/\r\n?|\n/);
   const sections = [];
+  const leadingHints = [];
   let cur = null;
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const block = blocks.get(i);
+    if (block) {
+      if (block.type === 'template_hint') {
+        (cur?.hints || leadingHints).push(block.content);
+      } else if (cur) {
+        for (let j = i; j < block.map[1]; j++) cur.lines.push(lines[j]);
+        if (block.content.includes('<!--')) cur.hasCodeExample = true;
+      }
+      i = block.map[1] - 1;
+      continue;
+    }
+    const line = lines[i];
     const h = line.match(/^##\s+(.+)$/);
-    if (h) { if (cur) sections.push(cur); cur = { title: h[1].trim(), lines: [] }; continue; }
+    if (h) { if (cur) sections.push(cur); cur = { title: h[1].trim(), lines: [], hints: [] }; continue; }
     if (cur) cur.lines.push(line);
   }
   if (cur) sections.push(cur);
-  return sections;
+  return { sections, leadingHints };
 }
 
 // bullets, with 2-space continuation lines folded in
@@ -3787,13 +3832,16 @@ function sxOrdered(lines) {
 }
 
 function sxShell(kind, iconName, title, inner) {
+  return { kind, iconName, title, inner };
+}
+function sxSectionHTML({ kind, iconName, title, inner }, hints) {
   return `<section class="sx sx-${kind}" id="s-${sxSlug(title)}" data-outline="${esc(title)}">
     <header class="sx-h"><span class="sx-h-icon">${icon(iconName, 13)}</span><h2 class="sx-h-title">${esc(title)}</h2></header>
-    <div class="sx-body">${inner}</div>
+    <div class="sx-body">${hints.map(templateHintHTML).join('')}${inner}</div>
   </section>`;
 }
 function sxProse(lines) {
-  const txt = stripWiki(lines.join('\n').trim());
+  const txt = stripWiki(lines.join('\n').trimEnd());
   if (!txt) return '<div class="sx-muted">(此节为空)</div>';
   return '<div class="sx-prose prose">' + md.render(txt) + '</div>';
 }
@@ -4164,12 +4212,25 @@ function renderSection(title, lines) {
 }
 
 function renderStructured(body) {
+  const blocks = new Map();
+  if (body.includes('<!--')) {
+    for (const token of md.parse(body, {})) {
+      if (token.level === 0 && ['template_hint', 'fence', 'code_block'].includes(token.type)) {
+        blocks.set(token.map[0], token);
+      }
+    }
+  }
   const previousRefs = sxEvidenceRefs;
   sxEvidenceRefs = sxParseEvidenceRefs(body);
   try {
-    const secs = sxSections(body);
-    if (!secs.length) return '<div class="prose">' + md.render(stripWiki(body || '')) + '</div>';
-    return '<div class="sx-doc">' + secs.map(s => renderSection(s.title, s.lines)).join('') + '</div>';
+    const { sections, leadingHints } = sxSections(body, blocks);
+    if (!sections.length) return '<div class="prose">' + md.render(stripWiki(body)) + '</div>';
+    return '<div class="sx-doc">' + leadingHints.map(templateHintHTML).join('') + sections.map(s => {
+      const section = s.hasCodeExample || (s.hints.length && !s.lines.some(line => line.trim()))
+        ? sxShell(detectSectionKind(s.title), 'bullet', s.title, s.hasCodeExample ? sxProse(s.lines) : '')
+        : renderSection(s.title, s.lines);
+      return sxSectionHTML(section, s.hints);
+    }).join('') + '</div>';
   } finally {
     sxEvidenceRefs = previousRefs;
   }

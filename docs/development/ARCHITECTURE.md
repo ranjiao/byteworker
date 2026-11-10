@@ -1611,6 +1611,8 @@ COMMIT_EDITMSG，不复制 .git 历史、其它 refs 或配置。knowledge/raw_d
 ## Viewer 解析与中文候选召回边界
 
 Viewer 的 INDEX 解析职责由 `viewer/index-parser.js` 承担，主页面负责状态和渲染。
+Viewer 将独立的 Markdown 注释块渲染为纯文本注释，不添加固定标题。结构化节点将节内注释与正文条目分开渲染。
+此规则仅作用于阅读区显示，Markdown 源文件与普通 HTML 禁用策略保持不变，代码示例中的注释仍按代码显示。
 人员行的摘要、状态和核实日期来自末尾三列，兼容旧索引中的可选通讯录列。
 解析诊断统计待解析行时跳过 INDEX 生成的「定期摄取清单」和「群聊摄取进度」两张辅助表。
 启动链接每次使用新的 launch 参数；Viewer 入口与 INDEX 解析器响应要求缓存重新验证。
