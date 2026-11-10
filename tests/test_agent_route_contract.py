@@ -241,7 +241,8 @@ class AgentRouteContractTests(unittest.TestCase):
         ):
             self.assertIn(term, onboarding)
         for term in (
-            "后台信息助手",
+            "帮我配置 Dreaming",
+            "Dreaming：已开启 / 已关闭",
             "结构化提问或选项控件",
             "从第一个未完成",
             "只想修改一项",

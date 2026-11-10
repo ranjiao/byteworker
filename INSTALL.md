@@ -1,47 +1,21 @@
-# 安装 byteworker skill
+# 安装 Byteworker
 
-> 这是给 **AI 助手**的安装说明。把本文件的 URL 交给你的 AI 编码助手,让它照做即可。
-> 人工安装见末尾「人工安装」。
+可以把本页链接交给 AI 助手，让它安装 Byteworker 或修复旧安装。自己操作请看「人工安装」。
 
-byteworker 是一个 agent skill —— 一个含 `SKILL.md` 的目录。安装 = 把这个目录放到
-**宿主 agent 能发现 skill 的位置**,装好依赖并完成首次引导。本文件让 agent 一步步完成,并且
-**能修复之前没装好的残留**(可重复运行,幂等)。
+## 给 AI 助手的安装步骤
 
----
-
-## 给 AI 助手:请按以下步骤执行
-
-### 0. 基本信息
-
-- 仓库:`https://github.com/ranjiao/byteworker` · git URL:`https://github.com/ranjiao/byteworker.git`
-- 安装前必须让用户明确选择安装范围:
-  - **全局安装**:把仓库 `git clone` 到一个用户指定的真实目录(默认建议 `~/byteworker`),
-    再自动检测并软链接到本机已安装且支持的 agent 工具全局 skills 目录。适合本机多个工具
-    共用同一份 byteworker。
-  - **局部安装**:把仓库 `git clone` 直接放进当前运行环境的 skills 目录。只保证当前工具可见,
-    本机其它 agent 工具不会自动拥有这个 skill。
-- 不要用没有 `.git` / `origin` remote 的手工拷贝目录来安装；自动更新需要合法 git clone。
+仓库地址是 `https://github.com/ranjiao/byteworker`，克隆地址是 `https://github.com/ranjiao/byteworker.git`。
+用 Git 克隆安装，并保留 `.git` 和有效的 `origin`，供自动更新使用。
 
 ### 1. 选择安装范围并判定 skills 目录
 
-先用自然语言询问用户:
+先让用户明确选择安装范围。用户确认前，禁止克隆、删除残留或创建软链接。
 
-> 你要全局安装还是局部安装？
-> - 全局安装：clone 到一个固定目录（默认 `~/byteworker`），自动检测本机已安装且支持的
->   TraeWork / TraeCode、Codex、Claude Code、OpenClaw 等环境，并软链接到检测到的各工具
->   skills 目录。
-> - 局部安装：直接安装到当前运行环境的 skills 目录；本机其它工具不会看到这个 skill。
-
-用户选择前不得开始 clone、删除残留或创建软链接。
-
-根据用户选择继续：
-
-- **局部安装**：你最清楚自己运行在什么 agent 里。据此确定 `SKILLS_DIR`，并设置
+- **全局安装**适合本机多个工具共用。请用户选一个实际存放仓库的目录，默认 `~/byteworker`。将它设为
+  `SOURCE_DIR` 和 `TARGET`。检测本机工具并展示结果。安装成功后，将各工具的 `$SKILLS_DIR/byteworker`
+  链接到 `TARGET`。用户可以补充未检测到的目录。
+- **局部安装**只给当前工具使用。按下表选当前工具的 `SKILLS_DIR`，再设置
   `TARGET="$SKILLS_DIR/byteworker"`。
-- **全局安装**：询问源目录 `SOURCE_DIR`，默认 `~/byteworker`；设置
-  `TARGET="$SOURCE_DIR"`。然后自动检测本机已有且支持的 agent 环境，按下表确定每个检测到
-  工具的 `SKILLS_DIR`，安装成功后把 `TARGET` 软链接为对应的 `$SKILLS_DIR/byteworker`。
-  检测结果要先展示给用户；不需要用户逐个选择，除非用户要补充未检测到的工具。
 
 全局安装的检测规则：
 
@@ -63,9 +37,9 @@ byteworker 是一个 agent skill —— 一个含 `SKILL.md` 的目录。安装 
 对每个要使用的 `SKILLS_DIR` 执行 `mkdir -p "$SKILLS_DIR"`。全局安装时还要确认
 `SOURCE_DIR` 的父目录存在；不存在则先创建父目录。
 
-### 2. 先修复历史残留(若有)
+### 2. 检查旧安装
 
-安装前检查 `TARGET` 现状,把之前没装好的残留处理掉 —— 这一步保证可重复运行:
+安装前检查 `TARGET`，按实际情况处理。
 
 - **局部安装且 `TARGET` 是符号链接**(旧式 symlink 安装)→ `rm "$TARGET"` 删掉链接本身
   (不动它指向的真实目录)。继续。
@@ -87,12 +61,11 @@ byteworker 是一个 agent skill —— 一个含 `SKILL.md` 的目录。安装 
   - 若是非符号链接目录且是合法 byteworker 克隆 → 这是另一份真实安装，先问用户是否改为共用
     `TARGET`；用户同意后再迁移或删除，不能静默覆盖。
   - 若是非符号链接目录且不是合法克隆 → 按半成品残留处理，先保住 `.kbconfig` 再清理。
-- 顺带看旧式残留 `~/byteworker`:是合法克隆可作为全局安装默认来源;是半成品则清掉,避免混淆。
+- 检查旧式安装路径 `~/byteworker`。合法克隆可作为全局安装的默认来源。不完整的目录按上面的残留规则清理。
 
-### 3. 取得 byteworker
+### 3. 克隆或复用仓库
 
-若 `TARGET` 在第 2 步已确认是合法 byteworker clone，并且已经完成 `pull --ff-only`，本步不要再
-`git clone`；直接使用现有 `TARGET` 继续。只有 `TARGET` 不存在或刚刚清理了半成品残留时才执行：
+第 2 步找到合法克隆时直接复用。只有 `TARGET` 不存在或不完整的旧目录已清理时才克隆。
 
 ```bash
 git clone https://github.com/ranjiao/byteworker.git "$TARGET"
@@ -105,13 +78,10 @@ mkdir -p "$SKILLS_DIR"
 ln -sfn "$TARGET" "$SKILLS_DIR/byteworker"
 ```
 
-局部安装时，不创建其它 agent 工具的软链接，并明确告诉用户：本机其它工具不会自动拥有
-byteworker skill。
+局部安装只配置当前工具。告诉用户其他工具需要单独安装或链接。
 
-- 没有 `git` → 先装(macOS:`brew install git`;Debian/Ubuntu:`sudo apt install git`)。
-- `git clone` 报网络错误 → 你大概在**无外网的沙箱**里(见末尾「沙箱 / 云环境」)。
-  把情况如实告诉用户。**绝不**用「`git init` + 手工拼文件」来绕过 —— 那样的仓库没有
-  `origin` remote,自动更新只能持续报错和重试。
+- 缺少 `git` 时先安装。macOS 用 `brew install git`，Debian/Ubuntu 用 `sudo apt install git`。
+- 克隆遇到网络错误时，说明实际错误，并按「沙箱与云环境」排查。保留 Git 克隆的安装方式，自动更新依赖有效的 `origin`。
 - 若第 2 步保存过 `.kbconfig`,现在放回 `TARGET/.kbconfig`。
 
 ### 4. 检查依赖
@@ -120,19 +90,18 @@ byteworker skill。
 "$TARGET/bin/check-deps.sh"
 ```
 
-按退出码处理:
-- **Tier 1**(`git` / `jq` / `bash` / `python3 >= 3.10`)缺失 → 帮用户装上(macOS `brew`,Linux `apt`)。
-- **Tier 2**(可启动的 Node、`lark-cli`、`meegle`)缺失 → 使用对应内部来源才需要,可稍后补。
+先补齐必需依赖 `git`、`jq`、`bash` 和 `python3 >= 3.10`。macOS 可用 `brew`，Linux 可用 `apt`。
+
+- Node、`lark-cli`、`meegle` 可以等到使用对应来源时再装。
   按[飞书 CLI 官方安装指南](https://open.feishu.cn/document/no_class/mcp-archive/feishu-cli-installation-guide.md)
   装 `lark-cli` 与 `lark-doc / minutes / vc / im / calendar / contact / base` 等 skill。
   摄取 Meego 保存视图时另装 `meegle` 与 `meegle` skill。登录和最小授权放到下一步,
   不要在用户未选择前自动打开 OAuth。
   风神读取由 byteworker 自带的标准库只读客户端完成，不需要安装额外 CLI；凭据配置放到下一步。
 
-`check-deps.sh` 和运行期 `bin/byteworker preflight` 共用同一个 resolver：会验证真实 Python
-版本和 `zoneinfo`，并从当前 PATH、`~/.local/bin`、Volta、Homebrew 与已安装 NVM 版本中寻找
-可启动的 Node / lark-cli / meegle。不要把某个 session 当前的 `command -v` 结果当作唯一安装
-位置。
+`check-deps.sh` 和 `bin/byteworker preflight` 用同一套依赖检查。它会核对 Python 版本和
+`zoneinfo`，并从 PATH、`~/.local/bin`、Volta、Homebrew 和已安装的 NVM 版本中查找可用的
+Node、`lark-cli` 和 `meegle`。当前会话的 `command -v` 只反映当前 PATH。
 
 安装或首次启动有阻塞时，使用 `bin/byteworker preflight --interactive` 查看诊断编号。
 用 `bin/byteworker doctor feedback --run-id "<编号>"` 生成邮件草稿。反馈只含技术状态。
@@ -140,7 +109,7 @@ Python 未启动时，先查看宿主的本地错误或任务历史。
 
 ### 5. 询问可选来源授权
 
-依赖安装和“用户授权”是两件事。Meego / Base 需要对应 CLI；风神直接运行原生客户端的只读检查:
+先运行只读检查，查看 Meego、多维表格和风神的授权状态。
 
 ```bash
 "$TARGET/bin/byteworker" source auth-status --source-type meego
@@ -148,8 +117,7 @@ Python 未启动时，先查看宿主的本地错误或任务历史。
 "$TARGET/bin/byteworker" source auth-status --source-type aeolus
 ```
 
-`status=success` 只表示检查命令正常完成；必须看 `data.ready`。若所选来源都已
-`ready=true`,无需重复授权。只要有一个未就绪,安装助手必须先问:
+命令返回 `status=success` 后，看 `data.ready` 判断授权是否就绪。只要有一个所选来源未就绪，就先询问用户。
 
 > 是否现在启用 Meego / 多维表格 / 风神定期摄取？它们需要用户授权。可以选择任意来源，
 > 或“稍后再说”；跳过不影响 byteworker 其它能力。
@@ -199,14 +167,13 @@ Python 未启动时，先查看宿主的本地错误或任务历史。
   `source auth-status --source-type aeolus`，以 `data.ready=true` 为准。定时任务只检查和使用
   已注入凭据，不自动登录。
 
-授权就绪仍不代表能读取每个具体资源。Base 的 `91403`、Meego 空间或风神看板
-Permission Denied 属于资源共享权限,应让所有者给当前用户开权限；不要重复登录或自动改用 bot。
+Base 返回 `91403`，或 Meego 空间、风神看板返回 Permission Denied 时，请资源所有者给当前用户开读取权限。
+不要重复登录或自动改用 bot。
 
 ### 6. 验证并收尾
 
 - 确认 `"$TARGET/SKILL.md"` 存在。
-- **不要把知识库设置推迟到“第一次使用”**。安装助手现在就读取 `"$TARGET/TUTORIAL.md"`，
-  按其中首次引导完成：
+- 安装时读取 `"$TARGET/TUTORIAL.md"`，完成首次设置。
   1. 设置并初始化持久、私密的知识库数据目录，写入 `"$TARGET/.kbconfig"`。
   2. 填写 `context.md` 的用户姓名 / 别名 / feishu_id / 时区 / 交互语言、职责范围、团队边界。
      交互语言必须用当前对话语言向用户确认；命令、URL 或资料原文不能作为默认语言依据。
@@ -224,9 +191,8 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
   展示问题前先调用 `report-automation decision --value prompted`，保证这次提示即使未获回答也
   不会在之后每轮重复出现。
 
-  > 是否现在创建自动日报和周报？默认在本地知识库运行：工作日 20:30 先检查并 digest 所有
-  > 已登记的定期来源，再生成当天日报；周一 09:30 同样先 digest，再生成上一完整 ISO 周周报。
-  > 你可以修改日期、时间和通知偏好，也可以选择稍后。
+  > 要现在设置自动日报和周报吗？默认工作日 20:30 生成当天日报，周一 09:30 生成上一完整 ISO 周的周报。
+  > 两种报告都在本地运行，先更新所有已登记的定期来源，再生成报告。日期、时间和通知可以改，也可以稍后再设置。
 
 - 用户拒绝或稍后时，把 `prompted` 分别更新为 `declined` / `deferred`；不创建任务，也不在
   之后每次打扰。
@@ -253,16 +219,15 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
     访问，先检查 KB 是否已加入项目工作目录；不要用 `sudo`、`chmod` 或复制 KB 绕过 Sandbox。
   - **TraeCode / TRAE IDE**：只能安装并手动调用 byteworker skill；没有可用的本地定时任务
     运行机制。安装助手必须提醒用户：不能在 TraeCode 自动创建日报 / 周报更新任务，也不能运行
-    Dreaming 后台信息助手。若用户需要这些自动运行能力，请改用 TraeWork 桌面端打开同一
+    Dreaming。若用户需要这些自动运行能力，请改用 TraeWork 桌面端打开同一
     知识库目录后继续设置。
   - **其它宿主**：没有经核实的原生定时能力时，只展示 prompt 和缺口；不要擅自改用系统
     cron / launchd。
 - 若用户选择“稍后再说”,明确告诉他:第一次摄取 Meego / Base / 风神时 skill 会再次给出同样的
   登录或最小 scope 授权引导；以后说“设置自动报告”可重新进入定时任务配置。
-- **提醒用户**:知识库数据目录要选一个**持久、私密**的路径,别放进会被回收的
-  沙箱临时目录(原因见下)。
-- 最后告诉用户安装和首次设置已完成；列出真实创建的任务、绝对执行时间、运行环境和首次验证
-  结果。未创建或验证失败必须明确说明，不能只说“已配置”。
+- 提醒用户选择持久、私密的知识库目录。沙箱临时目录可能被回收。
+- 说明安装和首次设置结果。列出已创建的任务、绝对执行时间、运行环境和首次验证结果。
+  任务未创建或验证失败时说明实际状态。
 
 ---
 
@@ -294,7 +259,7 @@ Permission Denied 属于资源共享权限,应让所有者给当前用户开权�
   发现 `SKILL.md`，不会授予 TraeWork Sandbox 读写 KB 的权限。
 - **TraeCode / TRAE IDE**没有可用的本地定时任务运行机制。安装完成后必须明确提醒用户：
   byteworker 可以手动使用，但无法在 TraeCode 自动创建日报 / 周报更新任务，也无法运行
-  Dreaming 后台信息助手；需要自动运行时请切换到 TraeWork 桌面端。
+  Dreaming。需要自动运行时请切换到 TraeWork 桌面端。
 
 ---
 
@@ -359,21 +324,12 @@ OpenClaw 或新开 session**,并确认每个 agent 都能列出 / 调用 bytewor
 
 ---
 
-## 沙箱 / 云环境注意事项
+## 沙箱与云环境
 
-越来越多平台在托管沙箱 / 云虚拟机里跑 agent(如 Codex 托管环境、OpenClaw 的 Docker / SSH 沙箱)。
-这类环境有几个坑,安装前要心里有数:
-
-1. **默认无外网**。沙箱常默认禁止出网 —— `git clone`、`npm install`(装 lark-cli)都会失败。
-   解决:在有外网的环境安装;或为沙箱开放出网;或预置好 skill 目录。
-   不要用没有 remote 的本地仓库来凑数 —— 自动更新会持续报告失败并按短周期退避重试。
-2. **文件系统可能是临时的**。沙箱重建后写入会丢失。
-   - skill 本身丢了可重装,问题不大。
-   - **知识库数据目录绝不能放临时盘** —— 它是你的真实知识资产。务必选一个跨会话
-     持久、且私密的路径(沙箱里通常是显式挂载的持久卷)。
-3. **`bin/browse.sh`(知识库可视化浏览)用不了**。它要起本地 web 服务 + 开浏览器;
-   沙箱通常起不了服务、也没有浏览器 / 显示。云平台 / 沙箱 agent 用户:`browse.sh`
-   不适用是**预期的**、不是故障 —— 浏览知识库直接用对话查询(`/byteworker search`)。
+- `git clone` 或 `npm install` 失败时，先确认沙箱能否访问外网。可在有网络的环境完成安装，
+  为沙箱开放网络，或预置有有效 remote 的克隆。
+- 知识库要放在跨会话保留且私密的目录，例如显式挂载的持久卷。沙箱重建可能清除临时目录中的资料。
+- `bin/browse.sh` 需要能启动本地服务并打开浏览器。云端会话可以用 `/byteworker search` 或直接提问。
 
 ---
 
@@ -440,22 +396,15 @@ git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
 "$SKILLS_DIR/byteworker/bin/byteworker" source auth-status --source-type aeolus
 ```
 
-若 `data.ready=false`,按上面第 5 步的相应流程授权；不打算摄取该来源可直接跳过。
+若 `data.ready=false`，按第 5 步给需要的来源授权。暂时不用的来源可以跳过。
 
-完成上述命令后仍需按“验证并收尾”运行首次引导和自动报告设置。之后 skill 在成功检查后
-7 天内静默跳过重复检查(`bin/update-check.sh`)；失败会按短周期指数
-退避重试，不再把失败时间当作成功时间。代码确实更新后会自动运行 doctor，修复确定性低成本
-兼容问题并创建知识库本地回滚提交；doctor 未完成会记录 pending 并单独重试。无法自动处理的
-严重错误会请求用户决策，warning/info 只给简短摘要。固定版本环境可设置
-`BYTEWORKER_NO_AUTO_UPDATE=1` 显式停用。
+按第 6 步完成首次引导和自动报告设置。更新检查成功后，七天内会跳过重复检查。失败时按短周期指数退避重试。
+代码更新后会运行 doctor，执行支持的兼容修复，并留下本地回滚记录。doctor 未完成时记录 pending，单独重试。
+严重问题交给用户决定，warning/info 只显示简短摘要。固定版本环境可用 `BYTEWORKER_NO_AUTO_UPDATE=1` 停用自动更新。
 
-## 全局安装细节:多个 agent 共用一份代码
+## 全局安装细节
 
-只想维护一份代码、供多个 agent 使用:**任选一个位置作为"源"clone 一次**,其它 agent
-的 skills 目录用 symlink 指过去。源放哪都可以(独立目录如 `~/byteworker`、或你最常用的
-那个 agent 的 skills 目录都行)—— 关键是只 `git clone` 一次,其余都是 symlink。
-
-示例:以独立目录 `~/byteworker` 作源,自动检测并链接到本机已有的已支持 agent 环境:
+本机多个工具可以共用一份克隆。下面的命令将 `~/byteworker` 作为源，为检测到的工具创建链接。
 
 ```bash
 # 1. clone 一次到固定位置(源)
@@ -474,9 +423,7 @@ for SKILLS_DIR in "${LINK_DIRS[@]}"; do
 done
 ```
 
-也可以把源就放在某个 agent 的 skills 目录(例如已经 clone 在 `~/.claude/skills/byteworker`),
-再把其它已检测到的 agent skills 目录用 symlink 指过去 —— 方向不重要,
-**只要全机只有一份真实 clone**即可:
+如果 Claude Code 下已有一份克隆，也可以将其他工具链接到这份目录。
 
 ```bash
 ln -sfn ~/.claude/skills/byteworker "${CODEX_HOME:-$HOME/.codex}/skills/byteworker"
@@ -484,11 +431,5 @@ ln -sfn ~/.claude/skills/byteworker ~/.openclaw/skills/byteworker
 ln -sfn ~/.claude/skills/byteworker ~/.trae-cn/skills/byteworker
 ```
 
-**注意**:
-- 符号链接只在 agent 的**全局 / 托管** skills 目录可靠(`~/.claude/skills`、
-  `${CODEX_HOME:-$HOME/.codex}/skills`、`~/.openclaw/skills`、`~/.trae-cn/skills`)。
-  OpenClaw 的 **workspace 级** skills 目录会拒绝指向目录之外的符号链接 —— 那里请直接
-  `git clone`,不要 symlink。
-- 共用一份后,**自动更新只在源那份生效**(`bin/update-check.sh` 在源目录执行 fetch +
-  fast-forward merge，symlink 那几家直接看到更新)。所以源目录要是合法 clone(有 `.git` 与
-  `origin` remote)。
+符号链接适用于工具的全局或托管 skills 目录。OpenClaw 的 workspace 级 skills 目录拒绝指向外部的链接，
+需要直接克隆。自动更新会在源目录执行 fetch 和 fast-forward merge，因此源目录必须保留 `.git` 和 `origin`。

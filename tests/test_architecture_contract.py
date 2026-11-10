@@ -266,7 +266,7 @@ class ArchitectureContractTests(unittest.TestCase):
             "能力导览",
             "`references/dreaming-setup-guide.md`",
             "宿主结构化选项",
-            "后台信息助手、自动检查、待关注事项",
+            "用户界面保留 Dreaming 名称",
             "不能成为用户理解或完成配置的前置条件",
             "不得因修改单项设置而清空其它已授权项",
             "process（全部普通 routine digest + 可选 IM 分析）/ morning / maintenance / recovery",

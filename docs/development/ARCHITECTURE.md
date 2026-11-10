@@ -1,18 +1,12 @@
 # byteworker 架构总览
 
-> 本文件是 byteworker 的**系统流程与代码边界约束**，面向人类维护者和 coding agent。
-> 它回答两个问题：信息怎样从外部来源进入知识库并再次被查询；代码模块应该怎样协作而不失控。
->
-> - 行为入口与 Agent 工作流以 [`SKILL.md`](../../SKILL.md) 为准。
-> - 持久化 schema、目录和数据不变量以 [`DESIGN.md`](DESIGN.md) 为准。
-> - 系统流程、模块职责和依赖方向以本文件为准。
-> - 代码与测试是“当前真实实现”的验证。若它们与本文件不一致，必须在同一变更中修正代码或文档，
->   不得带着已知漂移继续开发。
+系统流程、模块职责和依赖方向以本页为准。Agent 的行为和工作流见 [`SKILL.md`](../../SKILL.md)，
+持久化 schema、目录和数据不变量见 [`DESIGN.md`](DESIGN.md)。
+用代码和测试核对实际行为。发现与规范不一致时，在同一变更中修正代码或文档。
 
 ## 0. 一眼看懂
 
-byteworker 不是传统后端服务，也没有数据库。它由 Agent、确定性 Python 工具和独立的本地
-Markdown 知识库共同组成：
+Byteworker 由 Agent、确定性命令和独立的本地 Markdown 知识库组成。宿主接收用户请求或触发定时任务，工具负责读取和写入。
 
 ```mermaid
 flowchart LR
@@ -43,11 +37,9 @@ flowchart LR
     class K private
 ```
 
-核心分工：
-
 | 层 | 负责 | 不负责 |
 |---|---|---|
-| Agent 语义层 | 理解内容、按唯一 policy 产出带 reason/evidence 的语义决定、生成完整候选、为库内节点生成可消歧标题、解释结果 | 不手算 hash，不自行发明冲突/晋升阈值，不绕过事务直接写 KB，不改写 raw 原始标题 |
+| Agent 语义层 | 按 policy 理解内容并给出带 reason/evidence 的决定，生成完整候选，为库内节点生成可消歧标题，解释结果 | 不手算 hash，不自定冲突或晋升阈值，不绕过事务写入，不改写 raw 原始标题 |
 | Python / Shell 工具层 | 授权检查、抓取、规范化、hash、幂等、schema 校验、原子写入、回滚、查询、修复 | 不理解业务语义，不决定“这是什么项目/决策” |
 | 私有知识库 | 保存原文、出处、知识节点、用户状态、报告和本地回滚历史 | 不进入本 skill 仓库，不配置 remote |
 
@@ -87,8 +79,6 @@ flowchart TB
     classDef danger fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
 ```
 
-硬边界：
-
 - skill 仓库只保存通用逻辑、文档、测试和无业务内容模板。
 - capture、bundle、plan、候选节点可能含机密，必须放系统临时目录或知识库目录。
 - 知识库目录是独立本地 Git 仓库，禁止配置 remote，禁止 push。
@@ -122,10 +112,9 @@ flowchart LR
     C --> Q
 ```
 
-`plans/` 只描述当前未完成工作，`evidence/` 只保存带日期的测量与审查，`archive/` 只用于历史追踪；
-它们都不能覆盖 `ARCHITECTURE.md`、`DESIGN.md`、`SKILL.md` 或 `references/` 的当前契约。
-所有开发 Markdown 必须登记在 `catalog.json`，目录和生命周期规则以
-[`governance/documentation.md`](governance/documentation.md) 为准。
+`plans/` 记录待办，`evidence/` 保存带日期的测量和审查，`archive/` 用于追溯历史。
+当前契约仍以本页、`DESIGN.md`、`SKILL.md` 和 `references/` 为准。
+开发文档都要登记到 `catalog.json`。目录和生命周期规则见 [`governance/documentation.md`](governance/documentation.md)。
 
 ## 2. 整个 skill 的信息处理流程
 
@@ -171,22 +160,22 @@ flowchart TD
 其它分支和 detached HEAD 输出错误并退出 `1`，`--force` 不绕过检查。脚本不切换或修复分支；
 bootstrap 仍将错误转为 preflight notice。显式停用自动更新时不检查分支。
 
-`bin/byteworker` 是不会预加载仓库 Python 模块的稳定 shell bootstrap。它将首次解析成功的
-Python 绝对路径持久化为本机缓存；缓存没有 TTL，每次只做
-最小可执行与版本检查，路径被删除、失去执行权限或解释器不再兼容时才重新扫描。库层同样持久化
-已解析的核心命令与来源 runtime，不因时间、PATH 或虚拟环境变化主动刷新；显式 override、
-`deps --refresh`、`runtime-reset` 仍可要求重建。`lib/runtime_deps.py` 从显式 override、当前
-PATH、常见本地目录和 NVM installations 中解析可执行文件，实际执行仍由 `bin/byteworker`
-注入同一组环境。preflight 的更新检查在 shell 中先完成，之后 `exec` 当前工作树的 launcher，
-因此不会在一次调用中混用更新前后模块。`lib/session_preflight.py` 只合并 KB 定位、依赖、
-自动报告设置和低频能力建议资格检查，并接收 shell 传入的有限更新 notice。能力建议采用 fail-safe
-默认：只有真人对话显式使用 `preflight --interactive` 才计算和返回；无参数或 `--unattended` 均
-禁止，已有旧定时任务也因此不会误触发。建议只读取本地有界计数和状态，不访问外部来源；存在
-blocking 或没有到期建议时保持静默；报告升级或更新 notice 不抑制候选。它不读取
-`context.md` 正文：
-语义任务在路由后通过 `context view --intent` 读取固定章节投影，help/纯维护任务不承担这部分
-context。
-公共阶段的目的不是“加载所有数据”，而是以稳定协议建立安全边界。
+`bin/byteworker` 在 shell 中完成更新检查，再用 `exec` 启动当前工作树的 launcher。此时才加载
+仓库的 Python 模块，一次调用只用同一个代码版本。
+
+首次找到可用 Python 后，入口将绝对路径存入本机缓存。缓存没有 TTL，每次只检查路径、执行权限和版本。
+路径被删除、失去执行权限或解释器不再兼容时才重新扫描。
+库层也缓存已解析的核心命令和来源 runtime，不随时间、PATH 或虚拟环境变化自动刷新。
+显式 override、`deps --refresh` 和 `runtime-reset` 可以重建缓存。`lib/runtime_deps.py` 从显式
+override、PATH、常见本地目录和已安装的 NVM 版本中查找可执行文件，由 `bin/byteworker` 注入同一组环境。
+
+`lib/session_preflight.py` 汇总知识库路径、依赖、自动报告设置和功能建议资格，并接收 shell 传入的更新
+notice。只有交互会话显式使用 `preflight --interactive` 才计算并返回功能建议。省略参数或使用
+`--unattended` 时都跳过这一步，旧定时任务也适用。建议只读取本地有界计数和状态。遇到 blocking 或没有
+到期建议时保持静默，报告升级或更新 notice 不抑制候选。
+
+语义任务在路由后用 `context view --intent` 读取 `context.md` 的固定章节。预检、help 和纯维护任务
+无需读取正文。
 
 个人待办已从命令、意图路由和 Viewer 退役。已有 `todo.md` 留在原知识库目录，
 启动检查、Doctor、看板和报告都不再依赖它。会议行动项仍随 event 保存。历史 Dreaming
@@ -316,7 +305,7 @@ flowchart LR
 
 ### 2.3 结构化来源的更新流程
 
-Meego、Base、风神等大视图不把每一行变成知识节点：
+Meego、Base 和风神的大视图先保存完整快照。Agent 只复核变化的记录，再判断哪些需要写入知识节点。
 
 ```mermaid
 flowchart TD
@@ -351,7 +340,7 @@ Meego 空间主页不是可持久化来源。operation adapter 只执行 `url de
 
 ### 2.4 查询与引用流程
 
-查询不是让 Agent 盲扫整个知识库，而是先确定性召回，再回到原始证据：
+查询工具先返回有限候选和对应的原始证据。Agent 用这些结果组织答案。
 
 ```mermaid
 flowchart LR
@@ -437,8 +426,8 @@ Finding/Action 生命周期、维护和退出边界，并配置确认完整运�
 配置入口属于 Agent 交互层，不新增另一套状态或配置 writer。自然语言中的“自动分析、定时摘要、
 紧急提醒、调整频率/范围、继续设置”路由到 `references/dreaming-setup-guide.md`；Agent 先读取
 公开 `dreaming status`，使用宿主结构化选项逐步收集选择，按依赖复验后再调用既有
-`configure/grant/enable/harness` facade。用户界面只展示“后台信息助手、自动检查、待关注事项、
-定时摘要、紧急提醒、本地定时任务”等产品语言；内部字段和原始 status JSON 只用于确定性映射和
+`configure/grant/enable/harness` facade。用户界面保留 Dreaming 名称，使用「自动检查」「待关注事项」
+「定时摘要」「紧急提醒」「本地定时任务」等说法。内部字段和原始 status JSON 只用于确定性映射和
 显式排障，不能成为用户理解或完成配置的前置条件。
 
 飞书摘要收件人同样遵守配置层与运行层分离：用户可输入日常字母用户名，`lark_recipient.py`
@@ -585,7 +574,7 @@ flowchart TD
     class INDEX,DASH derived
 ```
 
-真相源损坏时不能靠 INDEX 反推修复；INDEX 不一致时从真相源重建；工作看板每次从本地输入生成。
+INDEX 出错时从真相源重建。禁止用 INDEX 反推并修写真相源。工作看板每次用本地数据生成。
 
 ### 3.2 八类知识节点
 
@@ -1432,7 +1421,7 @@ Profile，不能为了矩阵好看而保存不可执行配置。
 - 真相源、派生物、知识库目录或写入事务发生变化；
 - 新增一种来源、新命令或新的持久化流程。
 
-仅修改文案、CSS、单个模板展示且不影响上述边界时，可以不改架构图，但仍需确认本文件未失真。
+文案、CSS 或单个模板的展示有改动时，先核对是否影响上述边界。边界不变时，架构图可以沿用。
 
 ### 8.2 Definition of Done
 

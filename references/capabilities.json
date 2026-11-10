@@ -67,9 +67,9 @@
     },
     {
       "id": "dreaming",
-      "title": "主动发现重要变化",
+      "title": "用 Dreaming 跟进重要变化",
       "outcome": "在明确授权的范围内周期性分析信息、保存待关注事项并按配置生成摘要或提醒。",
-      "example": "我想持续关注这些来源的重要变化",
+      "example": "帮我配置 Dreaming",
       "setup": "默认关闭；启用前必须完整确认隐私、成本、来源、频率、保存和通知设置。",
       "proactive_policy": "explicit_only"
     }

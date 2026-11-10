@@ -1,144 +1,82 @@
-# byteworker
+# Byteworker
 
-把你日常的飞书文档、会议、群聊、Meego、多维表格视图和风神看板,消化成一个**可对话查询的个人工作知识库**。
+Byteworker 把飞书里的工作资料整理成一个可以用聊天来查的个人知识库。把文档、妙记或群聊交给它，下次想知道「这个项目上次定了什么」，直接问就行。回答会附上出处，方便你回去核对。
 
-面向飞书重度用户(软件工程师、算法研发、PMO、运营等)—— 信息散落在文档和群里、事后再也找不回?byteworker 把它们结构化沉淀下来,需要时一句话问出来。
-
-## 设计理念
-
-**1. 实体图,不是文件堆**
-知识库是一张实体图,8 类节点:
-
-- 实体(持续更新):`person` 人员 · `project` 项目 · `area` 主题领域 · `org` 组织
-- 记录(产生即定型):`event` 事件 · `decision` 决策 · `reading` 外部读物
-- 思考(持续更新):`thinking` 用户自己的自然语言认知、假设与推演
-
-节点之间用 `links` 互链。一个项目会在多个会议、文档里被反复讨论 —— 它们全部汇聚到同一个 `project` 节点上持续生长,而不是散落各处。查「关于张三我都知道什么」= 他的 `person` 节点 + 所有链回他的事件/决策/项目。不用会漂移的「标签分类」,实体本身就是组织方式。
-
-**2. 逻辑与数据严格分离**
-**本仓库只含 agent 逻辑**(`SKILL.md` + `docs/development/DESIGN.md` + `templates/` + `bin/`),不含任何业务数据。你的知识库内容存在**另一个你指定的目录**,绝不进本仓库、绝不上传 —— 因为它通常含机密工作内容。本仓库可公开,你的知识库私有,两者物理隔离。
-
-**3. 消化,不只是存档**
-摄取时 agent 会真正「消化」原始信息:抽取决策与结论、分析各参与方的立场与动机、持续更新项目的目标/进展/风险。立场分析严格基于发言证据,区分【观察】与【推断】,证据不足就说证据有限 —— 不做无依据的猜测。
-
-**4. 可溯源、可回滚**
-原始输入逐字保留,每个节点都带 `sources` 指回原文。凡答案使用知识库事实,正文会用
-`[S1]` 绑定到论文式引用,列出具体原始文档 / 妙记录屏 / 群聊窗口、原文时间与 byteworker
-收录时间,方便核对可信度和是否可能过期。知识库目录是它自己的本地 git 仓库,每步操作可回滚。
-
-**5. 看板是实时视图**
-工作看板每次查看时从本地知识库生成，汇总长期关注、手动提醒及当日日志。
-
-**6. 报告由宿主自动调度**
-日报 / 周报不要求用户每天记命令。首次安装会引导你用 Codex、Claude 或 TraeWork 的原生本地
-定时任务自动运行；每次自动日报和周报都先检查并 digest 已登记的定期来源，再生成带出处的
-报告快照。独立补偿任务会按 Byteworker 的 last-success 状态检查离线或休眠造成的缺口；
-需要修复历史报告时仍可用自然语言要求补跑。
-
-**7. 新 session 只有一次静默 preflight**
-Agent 每个交互 session 只调用一次 `bin/byteworker preflight --interactive`：自动更新、知识库定位、自动报告
-设置与 Python/Node/lark-cli/meegle runtime 一次检查完。健康时完全没有输出；只有确实需要处理
-时才返回有限 notice。后续命令统一通过 `bin/byteworker` 启动，不依赖 Agent 猜 NVM 或 Python
-路径。定时任务使用 `preflight --unattended`，不会触发能力 Tip。
-
-## 用法
-
-安装后,用子命令或直接自然语言:
-
-| 子命令 | 作用 |
-|--------|------|
-| `/byteworker digest <飞书URL/会议/群/Meego或Base视图/风神看板/外部文章/本地md>` | **摄取** —— 把资料消化入库 |
-| `/byteworker search <问题>` | **查询** —— 问知识库,带原始出处、收录时间与置信度 |
-| `/byteworker update <节点/新进展>` | **更新** —— 某条知识有新进展 |
-| `/byteworker brief` | **会前简报** —— 读飞书日历,为每个会议拉相关上下文 |
-| `/byteworker dashboard` | **工作看板** —— 长期关注 / 需关注 / 今日进展 |
-| 自动日报 / 周报 | **宿主本地定时任务** —— 每次先跑定期摄取,再生成报告；安装时引导设置 |
-| `/byteworker context <增删改>` | **全局上下文** —— 对话式维护你的工作上下文(个人工作倾向、需要告诉模型的零散信息等) |
-| 自然语言:“byteworker 还能帮我做什么?” | **能力发现** —— 根据当前知识库展示可用能力和下一步，不要求先学命令 |
-| 自然语言:“反馈刚才的摄取问题” | **Digest 反馈** —— 生成邮件草稿，由你自行发送；也可按需导出本地诊断包 |
-| `/byteworker help` | **帮助** |
-
-也支持自然语言,如「把这个文档存进知识库」「我们关于 X 定过什么」「后天提醒我跟进评测」。
-成功完成任务后，byteworker 可能低频补充一条与当前场景有关的能力建议；同一能力最多提示两次，
-可以说“以后再说”“别再提示这个”或“关闭功能建议”。推荐只读取本地里程碑，不会为了提示访问
-外部来源或发起授权；默认关闭的后台信息助手也不会作为通用 Tip 推荐。
-
-## 浏览知识库
-
-byteworker 自带一个本地 Viewer，可以浏览知识库和修改受支持的设置。
-
-```bash
-# 在 byteworker skill 目录下运行:
-bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 python3)
-```
-
-Viewer 通过 `bin/viewer-server.py` 在 127.0.0.1 提供服务。节点、原文和报告只读。设置页可保存访问保护、Dreaming 和来源 routine 配置。默认会话口令保护知识库文件、Dreaming 日志、设置 API。`.git`、隐藏文件及内部配置路径始终拒绝访问。访问保护开关重启 Viewer 后生效。设置先完整校验，再统一发布，切页或关闭会等待保存结果。
-
-> ⚠️ `browse.sh` 需要在**本地、有浏览器、能跑本地服务**的环境运行。如果你通过云平台 / 沙箱里的托管 agent(如托管 Codex / OpenClaw)使用本 skill,沙箱通常起不了 web 服务、也没有浏览器 —— `browse.sh` 在那种环境用不了,这是预期的、不是故障;那种情况直接用对话查询(`/byteworker search`)即可。
-
-## 前置依赖
-
-| 层 | 依赖 | 说明 |
-|----|------|------|
-| **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.10` | Python 用于确定性维护索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
-| **内部数据源** | `lark-cli` + `meegle` + 对应 skills + 用户授权 | 文档 / Base 使用 `lark-cli`;Meego 使用独立的 `meegle` OAuth；风神由 byteworker 原生只读客户端访问，只需单独注入用户态或服务态凭据。安装助手会询问现在启用哪些来源,跳过后也会在首次使用时引导|
-
-装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)，运行期使用同一套 resolver 自动
-发现 NVM、`~/.local/bin`、venv 和常见系统路径。依赖就绪不等于授权就绪；
-可用 `bin/byteworker source auth-status --source-type meego`、
-`--source-type feishu_base` 或 `--source-type aeolus` 做无副作用检查。
+如果你想定期了解工作消息里的重要变化，可以用 [Dreaming](#dreaming)。
 
 ## 安装
 
-### 方式一:让 AI 助手安装(推荐)
-
-把下面这句发给你的 AI 编码助手(Codex / Claude Code / OpenClaw / 其它):
+把下面这句话发给你的 AI 助手，例如 Codex、Claude Code、TraeWork 或 OpenClaw。
 
 ```
-按 https://raw.githubusercontent.com/ranjiao/byteworker/master/INSTALL.md 的说明,在我的环境里安装 byteworker skill;若发现之前没装好的残留,一并修复。
+按 https://raw.githubusercontent.com/ranjiao/byteworker/master/INSTALL.md 的说明安装 Byteworker。如果之前装过但没装好，请一并修复。
 ```
 
-它会取来 [`INSTALL.md`](INSTALL.md) 照做 —— 自动判定宿主 agent、把 skill 装到对的位置、修复历史残留、检查依赖。
+安装时，助手会带你选一个与安装目录分开的私密知识库目录、完成首次设置，并询问是否开启自动报告。手动安装需要 `git`、`jq`、`bash` 和 `python3 >= 3.10`。依赖和授权步骤见[安装指南](INSTALL.md)。
 
-### 方式二:手动安装
+## 快速上手
 
-```bash
-# 按你实际用的 agent 改 SKILLS_DIR ——
-#   Claude Code: ~/.claude/skills    Codex: ${CODEX_HOME:-$HOME/.codex}/skills    OpenClaw: ~/.openclaw/skills
-SKILLS_DIR=~/.claude/skills
-git clone https://github.com/ranjiao/byteworker.git "$SKILLS_DIR/byteworker"
-"$SKILLS_DIR/byteworker/bin/check-deps.sh"      # 自查依赖,按提示补齐
-# 可选:无副作用检查来源授权；ready=false 时按 INSTALL.md 第 5 步选择是否授权
-"$SKILLS_DIR/byteworker/bin/byteworker" source auth-status --source-type feishu_base
-# 风神（凭据配置见 INSTALL.md）
-"$SKILLS_DIR/byteworker/bin/byteworker" source auth-status --source-type aeolus
+下面的例句和 `/byteworker` 命令都发在 AI 助手的聊天框里。命令和自然语言任选一种。
+
+### 跑一遍上手引导（tutorial）
+
+对助手说「跑一下 Byteworker 上手引导」，再发一份你最近用过的飞书文档或妙记。助手会帮你找到或创建知识库、确认缺少的个人设置，再带你存一份资料、问一个问题。已有知识库时也可以重跑，助手会复用原来的目录和设置。手头没有资料时，可以先跳过演示。
+
+### 存资料（digest）
+
+发一条飞书文档链接，说「把这份评审纪要存进 Byteworker 知识库」，或用下面的命令，把占位内容换成你的链接。
+
+```text
+/byteworker digest <飞书文档链接>
 ```
 
-把 skill **直接 clone 进 agent 的 skills 目录**(而非 clone 到别处再 symlink)—— 这样最稳,且自动更新依赖的 `git` remote 一步到位。沙箱 / 云环境、多 agent 共用、残留修复等细节见 [`INSTALL.md`](INSTALL.md)。
+存好后，助手会告诉你整理出了哪些项目、决定或事件。以后把同一项目的群聊和后续纪要也存进来，相关进展会补到同一份项目笔记里。还可以存妙记、Meego 保存视图、飞书多维表格视图、风神看板、网页和本地 Markdown。飞书等内部资料需要相应的读取权限。
 
-AI 助手安装完成后会直接带你走 **上手引导**：指定一个持久、私密的知识库数据目录（默认名
-`byteworker_kb`），填写个人信息、职责和关注重点，并询问是否创建自动日报 / 周报。本地
-定时任务创建后会立即 Run now 验证；摄取和查询演示可跳过。之后每周静默自动从 GitHub 更新。
+### 查资料（search）
 
-## 知识库数据目录
+存完后，直接问「刚存进去的评审纪要定了什么？还有哪些事项没定？」也可以输入：
 
-你的实际知识库数据存在上面指定的独立目录(**不在本仓库**):
+```text
+/byteworker search 刚存进去的评审纪要定了什么？
+```
 
-- `sources/` —— 每个结构化来源自己的 selector/filter/routine profile · `knowledge/` —— 8 类节点笔记（含用户自然语言 `thinking`） · `raw_data/` —— 摄取的逐字原文 · `provenance/` —— 原始章节/评论/消息定位 · `journal/` —— 操作日志
-- `reports/` —— 日报 / 周报归档快照
-- `INDEX.md` —— 主索引 · `settings.md` —— 长期关注和看板提醒 · `context.md` —— 格式化用户上下文
+回答会附原始出处、原文时间和收录时间，方便你核对内容和时效。存过几份同项目的资料后，可以接着问「这个项目现在做到哪了？哪些决定还有效？」
 
-该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`docs/development/DESIGN.md`](docs/development/DESIGN.md)。
-风神按 dashboard sheet 注册：每个 sheet 在 `sources/` 中有独立参数，skill 仓库不保存任何
-用户 dashboard、report 或 filter 配置。
+### 修改我的工作上下文（context）
 
-## 文档
+工作上下文记录你的职责、关注重点和偏好，方便 Byteworker 在整理资料或写报告时留意与你相关的内容。先问「看看我现在的工作上下文」，再明确说要改哪一项。比如：
 
-- [`docs/development/README.md`](docs/development/README.md) —— 开发者与 coding agent 文档导航
-- [`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md) —— 信息处理流程、代码分层、模块边界与演进约束
-- [`bin/README.md`](bin/README.md) —— 确定性命令的用途、参数、示例与写入边界
-- [`INSTALL.md`](INSTALL.md) —— 安装与残留修复说明(可直接交给 AI 助手执行)
-- [`TUTORIAL.md`](TUTORIAL.md) —— 首次使用的上手引导剧本
-- [`SKILL.md`](SKILL.md) —— skill 行为定义
-- [`docs/development/DESIGN.md`](docs/development/DESIGN.md) —— 存储结构与字段设计
-- [`docs/development/plans/backlog.md`](docs/development/plans/backlog.md) —— 有明确启动条件的延后事项
+```text
+/byteworker context 把我的工作重点改成退款流程和客服反馈，其他设置保留。
+```
+
+修改后，助手会回显更新的部分，方便你核对。
+
+## 日常用法
+
+| 你想做什么 | 可以直接这样说 | 子命令 |
+| --- | --- | --- |
+| 更新项目进展 | 「更新这个项目。评审已通过，下一步是小范围试点。」 | `update` |
+| 开会前补背景 | 「看看我今天的会议，帮我找出相关进展和上次的结论。」 | `brief` |
+| 跟进手头的事 | 「把这个项目设为长期关注，打开我的工作看板。」 | `dashboard` |
+| 留下自己的想法 | 「把刚才关于这个方案的判断和假设记下来。」 | `thinking` |
+| 定期回顾进展 | 「帮我设置自动日报和周报。」 | 直接说即可 |
+
+自动日报和周报按天或按周回顾进展，生成前会先更新已登记的定期来源。Dreaming 可以独立运行，按你选的频率检查变化，供你在两次报告之间跟进。
+
+想在浏览器里翻看笔记、原文和报告，可以在本地安装目录运行 `bin/browse.sh`。想查看更多用法，可以问「Byteworker 还能帮我做什么？」或输入 `/byteworker help`。
+
+## Dreaming
+
+消息爆炸又没有精力反复检查信息更新的时候，可以使用 Dreaming功能：
+- **定期检查** ：对于指定关注的群聊、重复会议、文档、meego定期后台检查和消化新增的信息
+- **自动处理**： 处理的信息会更新进知识库，还可以设置晨间摘要，还可以为发现的紧急事项开启提醒。
+
+**先试一次**，对助手说「分析今天的飞书聊天，帮我找出需要跟进的变化」。这只运行一次，Dreaming 保持原来的后台设置。
+
+**想定期运行**，说「帮我配置 Dreaming」。Dreaming 默认关闭。设置时选好检查频率、消息范围和想收到的结果。自动运行需要接通本地定时任务，电脑也需要开机、唤醒并联网。需要调整时，直接说「让 Dreaming 只看我选的群聊」或「暂停 Dreaming」。
+
+## 相关文档
+
+- [安装与排障](INSTALL.md) · [上手引导](TUTORIAL.md)
+- [开发文档](docs/development/README.md) · [`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md) · [`bin/README.md`](bin/README.md)

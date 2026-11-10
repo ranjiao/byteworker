@@ -1,16 +1,18 @@
 # byteworker 知识库 — 存储结构与字段设计
 
-> 本文档锁定「存什么、存成什么格式、字段怎么设计」。SKILL.md 与 templates/ 按此实现。
-> 来源:CEO 评审 2026-05-20(SCOPE EXPANSION 模式);2026-05-20 改为实体图模型。
+知识库目录、持久化格式和字段以本文为准。`SKILL.md` 与 `templates/` 遵循这些约定。
+实体图模型源自 2026-05-20 的 CEO 评审（SCOPE EXPANSION）。
 
 ---
 
 ## 0. 核心模型:实体图
 
-知识库是一张**实体图**。不再用会漂移的「topic 分类」,而用 **8 类实体/记录/思考节点**,
-知识持续累积到节点上,节点之间互相链接。
+知识库用 8 类节点组织资料。关于同一对象的知识会补到对应节点，相关节点用链接连接。主题按资料需要创建。
 
-**实体(持续更新的活节点):**
+### 实体
+
+实体节点随新资料持续更新。
+
 | 类型 | id 前缀 | 节点上累积什么 |
 |------|---------|----------------|
 | 人员 `person` | `person-` | 角色、负责什么、协作历史、偏好、关键交互 |
@@ -18,7 +20,8 @@
 | 主题领域 `area` | `area-` | 常青参考知识、规范、how-to、踩坑 |
 | 组织 `org` | `org-` | 团队/供应商的职责、成员、对接方式、协作历史 |
 
-**记录(产生即定型的节点):**
+### 记录和思考
+
 | 类型 | id 前缀 | 内容 |
 |------|---------|------|
 | 事件 `event` | `event-` | 一次会议/评审/发布的 digest 快照,定型;链接到人/项目/组织 |
@@ -26,10 +29,10 @@
 | 读物 / 资料卡 `reading` | `reading-` | 外部 blog/论文/wiki,以及内部路线思考/方法论/调研/技术白皮书的 digest:核心观点 + 方法框架 + 可借鉴点 |
 | 思考 `thinking` | `thinking-` | 用户自己的认知、直觉、假设、推演和方案草稿；按稳定主题持续更新，以自然语言承载语义 |
 
-**图的边:** event 链接它涉及的 person/project/org;decision 链接相关 project/event 与决策人;
-project 链接成员 person、所属 area、所属 org;reading 作为资料入口链接它支撑或影响的 project/area/decision/event；
-thinking 链接它讨论的 person/project/area/org/decision/reading。
-查询「关于某人我都知道什么」= 对应 person 节点 + 所有链回该人的 event/decision/project。
+event 链接涉及的 person、project 和 org。decision 链接相关 project、event 和决策人。
+project 链接成员、所属 area 和 org。reading 链接它支撑或影响的 project、area、decision 和 event。
+thinking 链接它讨论的 person、project、area、org、decision 和 reading。
+例如查一个人时，可以从 person 节点找到链接回该人的事件、决策和项目。
 
 ---
 
@@ -107,7 +110,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 
 配置目前分布在不同 truth source：`.kbconfig` 只定位知识库；`context.md` 保存用户可读的长期偏好；
 `sources/*.json` 保存各来源的可重放 profile 和 routine；`state/report_automation.json` 保存旧自动报告
-本机状态；`state/dreaming/state.json` 保存后台信息助手的权限、频率、日志与摘要投递配置；viewer 的
+本机状态；`state/dreaming/state.json` 保存 Dreaming 的权限、频率、日志与摘要投递配置；viewer 的
 主题/密度/阅读宽度仅保存在浏览器 `localStorage`。`byteworker-settings/v1` 是这些配置的聚合视图，
 不是新的持久化文件。设置页写入时必须调用既有 writer：Dreaming 走 `dreaming_scheduler` /
 `dreaming_grants`，来源 routine 走 `source_profiles.save_profile`；旧自动报告在 viewer 中只读展示，
@@ -115,17 +118,18 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 
 ### C. 真相源 vs 派生 —— 数据不变量
 
-知识库数据按「丢了能不能恢复」分两层,这是一条**硬不变量**:
+知识库区分必须保留的原始状态和可以重建的派生内容。
 
-**真相源(truth source —— 丢失不可恢复,必须保护):**
+**必须保留的原始状态**
+
 - `sources/` —— 可重放数据源下一次如何抓取的唯一 operational truth。一个风神
   dashboard sheet 是一个独立来源，和一份飞书文档处于同等粒度；不同 sheet、report 选择、
   filter 口径和 cadence 不得共享隐式全局参数。
-- `raw_data/` —— 正文不可变、逐字;一切知识的根。frontmatter 中 `digest_status`、`digest_targets`、`routine` 等运维元数据可由 skill 更新,但不得改写原文正文。
-- `provenance/` —— 与 raw 内容 hash 绑定的来源定位证据。精确 block/comment/message locator
-  可能无法仅从 raw 正文恢复,因此与 raw 一起保护;修订必须保留 `derived_from.content_hash`。
-- `knowledge/` 节点 —— 可变消化产物,承载真正的知识价值;节点出错可回对应 `raw_data`
-  重新消化(LLM digest,非确定性),但 `raw_data` 本身丢了就无源可回。
+- `raw_data/` 逐字保存原文。skill 可以更新 frontmatter 中的 `digest_status`、`digest_targets`、
+  `routine` 等运维元数据，禁止改写原文正文。
+- `provenance/` 保存与 raw 内容 hash 绑定的出处。单凭 raw 正文可能无法恢复精确的 block、comment
+  或 message locator，所以要与 raw 一起保护。修订时必须保留 `derived_from.content_hash`。
+- `knowledge/` 节点可以更新。节点出错时可以用对应的 `raw_data` 重新摄取，模型生成的结果可能不同。
 - `reports/` —— 日报 / 周报 / 晨报是用户可手改的归档快照;同周期可重新生成,但需保留手动备注。
   历史 `reports/im/` 同样是真相源，但 I7 后只读兼容，不得由 skill 新建、改写或删除。
 - `settings.md` 的长期关注和看板提醒 —— 用户状态,只此一处保存。
@@ -494,7 +498,9 @@ state/dreaming/
 `digest-batches/<run_id>.json` 使用 `byteworker-dreaming-digest-batch/v1`，保存 process 开始时
 全部启用 Profile 和未被 Profile 取代的兼容历史 raw 来源快照、配置 revision、目标覆盖时间及
 有限下游 receipt。普通来源只接受能回查 `digest_status=digested` raw 的 DigestTxn
-`committed/noop`；Wiki 子树只接受 coverage complete 且 tree hash 可复验的 scan `observed`。
+`committed/noop`。群聊还接受 `empty_window`，来源结果引用确定性准备回执的 `digest_run_id`，
+据此核验私有 Bundle 并记录 UTC 窗口起止。空窗口 checkpoint 保存 `digest_run_id`，不需要
+`digest_key` 或 raw。Wiki 子树只接受 coverage complete 且 tree hash 可复验的 scan `observed`。
 完成前重新枚举来源；清单或 revision 漂移、任一来源失败时都不得更新 `source_checkpoints`。
 
 - `process prepare` 采集并提交 `collected` manifest，只向机器输出 batch id、相对 manifest path、
@@ -1106,29 +1112,26 @@ links:                                        # 图的边,双向维护(写 A→B
 
 ### 4.3 一次摄取的产出(digest 扇出)
 
-一次摄取(raw)按下面的**形状**扇出成多个节点 —— 这是实体图的生长方式:
-1. **必产 1 个记录节点**:会议 / 群聊窗口 → `event`;外部读物、内部路线思考 / 方法论 / 调研 / 技术白皮书 → `reading`。
-2. **抽取 N 个 `decision`**:输入中每个明确决策抽成独立节点。外部读物默认不走此步;内部资料型 `reading` 若包含明确生效的选择 / 原则 / 边界,可以抽 `decision`。
-3. **创建或更新实体节点**:输入实质涉及的 person/project/org/area —— 不存在则建,已存在则
-   走**实体消解**更新(建前在 INDEX 比对;`person` 优先按 `feishu_id`,见 §4.1)。
-4. **全部互链** `links`(双向),并登记进 raw 的 `digest_targets`。
+1. 生成一个记录节点。会议和群聊窗口用 `event`，外部读物、内部路线思考、方法论、调研和技术白皮书用 `reading`。
+2. 每个明确决策抽成独立的 `decision`。外部读物默认跳过。内部资料有明确生效的选择、原则或边界时，可以抽取。
+3. 为资料实质涉及的 person、project、org 和 area 创建或更新节点。先用 INDEX 比对是否已有对应节点。
+   `person` 优先按 `feishu_id` 匹配，见 §4.1。
+4. 用 `links` 双向连接这些节点，并把它们登记进 raw 的 `digest_targets`。
 
 > Meego / Base / 风神保存视图的“必产 1 个记录节点”是代表整个视图/看板口径的同源 `reading`,不是每条记录/报表各产
 > 一个节点。首次快照的数百条 baseline 记录也不自动变成数百个 `project` / `event`；后续按
 > §3.1 的差异和 `references/semantic-policy.md` reason/evidence 门槛选择性更新实体图。
 
-> 扇出的**行为细则**是 digest 流程、不在本文件:各 `source_type` 的差异、群聊强过滤与增量
-> 语义、会议簇合并、实体消解的同名陷阱、立场与思路视角的沉淀 —— 见 `SKILL.md`「digest」
-> 与 `references/digest-*.md`。本节只锁定扇出的形状。
+> 各来源的处理、群聊过滤和增量、会议簇合并、同名消歧、立场与思路记录，见 `SKILL.md`「Digest」
+> 与 `references/digest-*.md`。
 
 ### 4.4 什么该进知识库
 
-**该存:** 决策与理由、项目/事项状态、常青参考知识、会议结论与待办、协作关系、外部读物与内部资料的观点 / 方法框架 / 可借鉴点。
-**不该存:** 一周后即失效且无留存价值的琐碎、纯寒暄。
-边界不清则 agent 高亮问用户,不静默丢弃也不硬塞。
+保存决策和理由、项目状态、长期有用的参考资料、会议结论与待办、协作关系，以及资料中的观点和方法。
+跳过纯寒暄和一周后失效且无留存价值的琐事。边界不清时，明确列出疑问，请用户决定。
 
-**重度定量表格**(大型数据表 / 明细表):不强行复刻进 md 节点 —— 节点存
-**结论 / 趋势 / 口径**,明细留在原文档 / 原表格,用「关联文档与会议」或 `sources` 链接回去。
+大型数据表或明细表的节点只存结论、趋势和统计口径。明细保留在原文档或原表格，用「关联文档与会议」
+或 `sources` 链接回去。
 
 ### 4.5 参与方立场分析(书写准则见 references)
 
