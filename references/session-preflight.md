@@ -16,8 +16,7 @@ preflight 合并：
 
 - 解析 Python >=3.10 + `zoneinfo`、git/jq/bash，以及已配置/本次要求的 Node、lark-cli、meegle；
 - 静默执行自动更新及真实更新后的 post-update doctor；
-- 定位 `.kbconfig` 与知识库目录，验证 `context.md` / `todo.md`；
-- 检查到期/临期 Todo；
+- 定位 `.kbconfig` 与知识库目录，验证 `context.md`；
 - 检查自动报告 onboarding、prompt upgrade 和低频能力发现状态。
 
 已登记来源从知识库 `sources/*.json` 自动推导。`--require` 只用于即将访问但尚未登记的来源。
@@ -30,8 +29,6 @@ preflight 合并：
 - notice：stdout 只有一行 `byteworker-session-preflight/v1` JSON。默认回执只含
   `schema_version/status/ready/kb/notices`，避免健康 runtime 细节进入 context。
 - blocking：`ready=false` 且进程非零；只阻止依赖该缺口的业务，不扩大修复范围。
-- `TODO_REMINDERS`：最多返回 3 项的 id/title/category/time；展示后用机器协议调用
-  `todo ... mark-reminded`。
 - `REPORT_AUTOMATION_ONBOARDING` / `REPORT_AUTOMATION_PROMPT_UPGRADE`：先完成当前请求，再按
   `references/report-scheduling.md` 询问；preflight 已负责一次性状态限频。
 - `CAPABILITY_SUGGESTION`：先完成当前请求；成功后按

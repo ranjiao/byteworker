@@ -26,11 +26,6 @@ dashboard  工作看板 —— 看当下该关注什么
   /byteworker dashboard / 长期关注X / 看板提醒Y
   → 长期关注项(自动拉最新状态)+ 需关注事项 + 今日进展
 
-todo       待办提醒 —— 直接说自然语言,不用记命令或编号
-  "明天下午三点提醒我提交周报" / "后天关注评测结果"
-  "刚才那个做完了" / "把评测结果那个延期到下周六" / "我还有什么没做?"
-  → 自动解析相对时间 → 写 todo.md → 每次使用 byteworker 时检查到期 / 临期事项
-
 自动报告   日报 / 周报 —— 安装时引导创建宿主原生本地定时任务,不用每天记命令
   默认工作日 20:30 自动日报;周一 09:30 自动生成上一完整 ISO 周周报(均可修改)
   → 每次先检查并 digest 全部已登记的定期来源 → 生成 reports/daily/ 或 reports/weekly/
@@ -85,6 +80,6 @@ help       用法说明
 
 存储:知识库数据目录(用户指定,独立于本 skill,不进 git)——
       knowledge/(节点)· raw_data/(原始输入)· provenance/(精确出处)· journal/(日志)· reports/(日报/周报/晨报)
-      · INDEX.md · settings.md（长期关注、看板提醒） · context.md(全局上下文)· todo.md(确认后的个人待办)
+      · INDEX.md · settings.md（长期关注、看板提醒） · context.md(全局上下文)
 文档:DESIGN.md(存储 schema)· docs/development/plans/backlog.md(延后功能)
-安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git;Todo 仅本地,不创建飞书任务
+安全:数据含机密内容,绝不外传、绝不进 skill 仓库的 git

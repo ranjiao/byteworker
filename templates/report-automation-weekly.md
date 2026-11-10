@@ -5,7 +5,7 @@
 workflow。context 只用 `context view --intent report`，不得依赖其它 session 已加载的文档。
 
 启动前只运行一次 `bin/byteworker preflight --unattended`；无输出则继续，blocking 则安全失败并记录错误，
-不要再分别检查更新、依赖、Todo 或自动报告设置。
+不要再分别检查更新、依赖或自动报告设置。
 
 1. 按 `context.md` 时区确定上一完整 ISO 周 `YYYY-Www`，先运行
    `report-automation check --kind weekly --period <该周>`。`complete/disabled/busy` 安全退出；

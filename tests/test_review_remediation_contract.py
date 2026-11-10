@@ -36,15 +36,17 @@ class ReviewRemediationContractTests(unittest.TestCase):
                 self.assertIn("作者未知", text)
                 self.assertIn("不得默认归给知识库主人", text)
 
-    def test_daily_and_weekly_templates_have_todo_sections(self):
+    def test_report_templates_exclude_personal_todos(self):
         for relative_path in (
             "templates/report-daily.md",
             "templates/report-weekly.md",
+            "templates/report-morning.md",
         ):
             with self.subTest(path=relative_path):
                 template = self.read(relative_path)
-                self.assertIn("## 你的 Todo", template)
-                self.assertIn("不伪造 [S]", template)
+                self.assertNotIn("## 你的 Todo", template)
+                self.assertNotIn("todo.md", template)
+        self.assertIn("## 待办事项", self.read("templates/node-event.md"))
 
 
 if __name__ == "__main__":

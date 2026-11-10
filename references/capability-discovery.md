@@ -40,7 +40,7 @@ search/digest 等不分别记成功。`recommend` 是 complete 的兼容 CLI 名
 
 ## preflight 低频提示
 
-`CAPABILITY_SUGGESTION` 在没有 blocking 且本地里程碑满足时出现，可与待办或报告升级 notice
+`CAPABILITY_SUGGESTION` 在没有 blocking 且本地里程碑满足时出现，可与报告升级 notice
 共存。它只是候选；完成当前业务请求后必须用 complete 重新选择，不直接展示旧候选或写 shown。
 
 ## 不推荐原因诊断

@@ -109,7 +109,7 @@ receipt/plan 同时给出 `inline` 与 `parallel_estimate` 的 estimated total t
   `reason_code`；不得读取依赖正文。merge 后 coordinator 统一去重并最多询问用户一次。
 - semantic record：返回稳定 `record_id`、`record_type`、`dedupe_key`、至少一个属于 shard 的
   `source_refs[{component,path}]` 和 `payload`。类型只允许 fact/entity/decision/stakeholder_position/
-  evidence/conflict_query/todo_candidate/warning。worker 不生成节点文件、不做跨 shard 覆盖判断。
+  evidence/conflict_query/warning。worker 不生成节点文件、不做跨 shard 覆盖判断。
 - conflict record：逐 query 返回 `query_id`、`disposition=no_conflict|revision|supersede|
   independent_conflict|uncertain` 和只来自本 shard 的 `candidate_ids`。worker 不能输出
   `user_confirmed`，独立来源冲突必须交回 coordinator。

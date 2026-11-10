@@ -220,7 +220,7 @@ class DigestParallelTests(unittest.TestCase):
             merge_parallel_results(Path(receipt["plan_path"]), results[:1], output)
         self.assertEqual("DIGEST_PARALLEL_RESULT_INCOMPLETE", caught.exception.code)
 
-    def test_semantic_merge_flags_duplicate_keys_for_reducer(self):
+    def test_semantic_merge_flags_duplicate_keys_and_ignores_legacy_todos(self):
         self.write_packet(semantic_items=600, semantic_text_size=1000)
         receipt = plan_parallel_work(self.packet, self.work, stage="semantic")
         plan = self.load_plan(receipt)
@@ -246,7 +246,16 @@ class DigestParallelTests(unittest.TestCase):
                                     {"component": section["name"], "path": item["path"]}
                                 ],
                                 "payload": {"summary": "private"},
-                            }
+                            },
+                            {
+                                "record_id": f"todo-{shard['shard_index']}",
+                                "record_type": "todo_candidate",
+                                "dedupe_key": "legacy-todo",
+                                "source_refs": [
+                                    {"component": section["name"], "path": item["path"]}
+                                ],
+                                "payload": {"summary": "legacy personal task"},
+                            },
                         ],
                     }
                 ),
@@ -256,6 +265,10 @@ class DigestParallelTests(unittest.TestCase):
         output = self.root / "semantic-reduce.json"
         merged = merge_parallel_results(Path(receipt["plan_path"]), results, output)
         self.assertEqual(1, merged["duplicate_dedupe_key_count"])
+        packet = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(["same-fact"], packet["duplicate_dedupe_keys"])
+        self.assertEqual(len(plan["shards"]), len(packet["records"]))
+        self.assertTrue(all(item["record_type"] == "fact" for item in packet["records"]))
 
     def test_conflict_merge_covers_queries_and_rejects_foreign_candidates(self):
         conflict = self.root / "conflicts.json"

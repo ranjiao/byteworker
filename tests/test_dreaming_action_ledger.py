@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import json
 import subprocess
 import sys
 import tempfile
@@ -260,6 +261,42 @@ class DreamingActionLedgerTests(unittest.TestCase):
                 now=now + timedelta(seconds=2),
             )
             self.assertEqual("committed", result["status"])
+
+    def test_legacy_todo_cannot_resume_execution_but_can_reconcile_a_commit(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb, lease, now = self.lease(Path(temporary))
+            plan = self.plan(lease)
+            plan_actions(kb, plan=plan, lease_token=lease["token"], now=now)
+            claim = claim_action(kb, action_id="A-1", lease_token=lease["token"], confirmed=False, now=now)
+            path = kb / "state" / "dreaming" / "actions" / "A-1.json"
+            record = json.loads(path.read_text(encoding="utf-8"))
+            record["kind"] = "todo_candidate"
+            path.write_text(json.dumps(record), encoding="utf-8")
+
+            for operation, kwargs in (
+                (claim_action, {"lease_token": lease["token"], "confirmed": True}),
+                (validate_claim, {"claim_token": claim["token"]}),
+            ):
+                with self.subTest(operation=operation.__name__), self.assertRaises(DreamingError) as caught:
+                    operation(kb, action_id="A-1", now=now, **kwargs)
+                self.assertEqual("DREAMING_ACTION_KIND_RETIRED", caught.exception.code)
+
+            subprocess.run(["git", "init", "-q", str(kb)], check=True)
+            todo = kb / "todo.md"
+            todo.write_text("# Legacy state\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(kb), "add", "todo.md"], check=True)
+            subprocess.run(
+                ["git", "-C", str(kb), "-c", "user.name=test", "-c", "user.email=test@example.com",
+                 "commit", "-qm", "legacy todo"],
+                check=True,
+            )
+            commit = subprocess.check_output(["git", "-C", str(kb), "rev-parse", "HEAD"], text=True).strip()
+            result = reconcile_action(
+                kb, action_id="A-1", now=now,
+                receipt={"status": "committed", "idempotency_key": claim["dedupe_key"], "commit": commit},
+            )
+            self.assertEqual("committed", result["status"])
+            self.assertEqual("# Legacy state\n", todo.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

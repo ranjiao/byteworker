@@ -1,7 +1,7 @@
 # byteworker · 写入规范
 
 > 由 `SKILL.md` 路由到这里。凡要写 `raw_data/`、`knowledge/`、`reports/`、`settings.md`、
-> `INDEX.md`、`journal/`、`context.md` 或 `todo.md`,动手前必须遵守本文件。
+> `INDEX.md`、`journal/`、`context.md`,动手前必须遵守本文件。
 
 ## 通用规则
 
@@ -10,9 +10,9 @@
   复检，独立 `validate` 仅用于失败诊断。禁止为单篇业务资料在 skill 仓库写硬编码
   落库脚本;禁止绕过事务工具手算 digest hash、手拼 raw 或声称未收到 receipt 的写入已完成。
   `update`、context、dashboard、报告/IM 等非标准 digest 统一按 `references/kb-mutation.md`
-  生成 plan 并调用 `kb-mutate validate/execute`；Todo 只走 Todo 工具。
+  生成 plan 并调用 `kb-mutate validate/execute`。
 - 节点文件按 `templates/node-<type>.md` 骨架;生成时**删除** `<!-- 指引 -->` 注释。
-- **原子写入**:由 digest/mutation/Todo 工具执行临时文件、校验、替换与失败回滚。Agent 不直接
+- **原子写入**:由 digest/mutation 工具执行临时文件、校验、替换与失败回滚。Agent 不直接
   修改 KB 目标文件。
 - **双向 links**:写 A→B 链接,必同时在 B 的 `links` 写回 A。
 - **sources / links 去重**:更新已有节点时,`sources` 与 `links` 必须去重保序;同一个
@@ -25,7 +25,6 @@
 - **INDEX / journal / 回滚点**:所有持久写工具在共享 KB 写锁内按需重建 INDEX、追加 journal、
   精确暂存实际路径并创建本地 commit；已有 staged 变更或目标路径脏时 fail closed。Agent 不运行
   `git add` / `git commit`，不手工补写 journal。
-- **Todo 写入**:`todo.md` 由 `bin/todo.py` 原子维护，Agent 通过统一机器协议调用;用户确认前的 digest 候选不得写入。新增 / 完成 / 延期 / 取消 / 真正发出提醒后,只暂存 `todo.md` 与本次 journal 路径创建本地回滚点。todo id 是内部键,用户侧按自然语言标题和当前对话消解。
 - **命名 / 字段**:严格按 docs/development/DESIGN.md §2(命名)与 §4.1(字段)。
 - **库内标题消歧**:raw / SourceBundle 的 `source_title` 保留来源原题；`knowledge` 节点的
   `title` 和正文 H1 是库内浏览与检索标题。若原题缺少具体限定语(如“个人工作总结”“复盘”
@@ -108,7 +107,7 @@
 
 ## 时间格式
 
-严格按 docs/development/DESIGN.md §2.1。写入任何 raw frontmatter、knowledge 节点、INDEX、journal、dashboard、reports、todo 前,先把可结构化时间规范化:
+严格按 docs/development/DESIGN.md §2.1。写入任何 raw frontmatter、knowledge 节点、INDEX、journal、dashboard 或 reports 前,先把可结构化时间规范化:
 
 - 日期写 `YYYY-MM-DD`。
 - 人读时间写 `YYYY-MM-DD HH:MM`。

@@ -6,7 +6,7 @@
 bin/byteworker discover complete --kb "<KB>" --interactive --after <capability>
 ```
 
-capability 使用 digest/search/update/brief/dashboard/todo/context/thinking/routine/reports/viewer；
+capability 使用 digest/search/update/brief/dashboard/context/thinking/routine/reports/viewer；
 报告用 reports，来源登记用 routine。子任务和 worker 不重复调用。失败、等待裁决、无人值守、
 help/discover/doctor/dreaming 跳过；无人值守不传 interactive，CLI 默认也不推荐、不写发现状态。
 

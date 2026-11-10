@@ -5,7 +5,7 @@ Dreaming 是 Byteworker 的主动后台运行机制。它通过宿主本地定�
 
 ## 启用闸门
 
-Dreaming 默认关闭。普通 preflight、digest、search、update、brief、dashboard、todo 和
+Dreaming 默认关闭。普通 preflight、digest、search、update、brief、dashboard 和
 旧自动报告都不读取 Dreaming 状态。
 
 Dreaming local state 使用 `byteworker-dreaming/v2`。已有 v1 state 第一次被 Dreaming 读取时，
@@ -202,19 +202,19 @@ coverage，不返回消息正文。monitored 读取已登记的 chat Profile；a
 拿到 collected batch 后，读取 `references/dreaming-analysis.md` 生成 FindingBundle，再调用
 `process commit`。持久化与恢复规则见 `references/dreaming-consolidation.md`。
 
-IM 分支只生成/整合 Finding；它不自动创建 Todo、订阅新来源或写报告。已登记 routine 来源的
+IM 分支只生成/整合 Finding；它不自动订阅新来源或写报告。已登记 routine 来源的
 知识入库不是 Finding action，而是 process 对普通 digest 的原样重放。
 
-Finding 需要进入报告、Todo、来源确认或知识候选时，必须读取
+Finding 需要进入报告、来源确认或知识候选时，必须读取
 `references/dreaming-actions.md`，通过 Action Policy + Ledger 执行。不得从 Finding 直接调用
-KB mutation、Todo 或 DigestTxn。
+KB mutation 或 DigestTxn。
 
 用户显式单次处理、Finding review/explain/feedback 和 shadow 评估见
 `references/dreaming-review.md`。这些前台能力不等于启用 Dreaming 后台。
 
 ### `morning`
 
-按 `references/dreaming-reports.md` 读取 committed Finding、Todo 和已有 KB，生成
+按 `references/dreaming-reports.md` 读取 committed Finding 和已有 KB，生成
 `reports/morning/<YYYY-MM-DD>.md`。事实必须遵守 citations；没有完整 coverage 时明确标 partial。
 
 ### `daily` / `weekly`

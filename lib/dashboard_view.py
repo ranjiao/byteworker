@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from context_view import load_context_timezone
 from dashboard_settings import DashboardError, LEGACY_PATH, load_dashboard_settings, safe_path
 from frontmatter import extract_tldr, parse_file
 from kb_query import evidence_rows
 from provenance import list_value, source_title_from_frontmatter, source_url_from_frontmatter
-from todo_store import load_todos
-from todo_time import load_preferences, local_now, parse_iso
 
 
 PROGRESS_LIMIT = 30
@@ -94,35 +93,15 @@ def _watch_summary(kb: Path, meta: dict, body: str, citations: list[str]) -> str
     return result + "".join(labels)
 
 
-def _todo_alerts(kb: Path, now: datetime, hours: int) -> list[str]:
-    _, todos = load_todos(safe_path(kb, "todo.md"))
-    overdue, soon = [], []
-    for todo in todos:
-        if todo.status not in {"open", "waiting"}:
-            continue
-        due = parse_iso(todo.fields.get("due_at", ""), now.tzinfo)
-        if due is None:
-            continue
-        if due < now:
-            overdue.append((due, todo.title))
-        elif due <= now + timedelta(hours=hours):
-            soon.append((due, todo.title))
-    result = []
-    remaining = 3
-    for label, items in (("逾期", overdue), ("临期", soon)):
-        if items:
-            titles = "、".join(_text(title) for _, title in sorted(items)[:remaining])
-            result.append(f"- Todo {label} {len(items)} 项" + (f" · {titles}" if titles else ""))
-            remaining = max(0, remaining - len(items))
-    return result
-
-
 def dashboard_view(kb: Path, *, at: str | None = None) -> dict:
     kb = kb.resolve()
     settings, source, _ = load_dashboard_settings(kb)
-    safe_path(kb, "context.md")
-    prefs = load_preferences(kb)
-    now = local_now(at, prefs)
+    timezone = load_context_timezone(safe_path(kb, "context.md"))
+    if at:
+        parsed = datetime.fromisoformat(at.replace(" ", "T"))
+        now = parsed.astimezone(timezone) if parsed.tzinfo else parsed.replace(tzinfo=timezone)
+    else:
+        now = datetime.now(timezone)
     today = now.date()
     nodes = {}
     watched = {item.node_id for item in settings.watches if item.node_id}
@@ -141,7 +120,7 @@ def dashboard_view(kb: Path, *, at: str | None = None) -> dict:
     citations: list[str] = []
     lines = [
         "# 工作看板", "",
-        f"> 生成于 {now:%Y-%m-%d %H:%M}（{prefs.timezone}）", "",
+        f"> 生成于 {now:%Y-%m-%d %H:%M}（{timezone.key}）", "",
         "## 📌 长期关注", "",
     ]
     if settings.watches:
@@ -159,8 +138,6 @@ def dashboard_view(kb: Path, *, at: str | None = None) -> dict:
         lines += ["", "> 手动项来自旧看板，等待迁移到 settings.md。"]
     lines += ["", "## ⚠️ 需要关注", "", "### 看板提醒", ""]
     lines += list(settings.reminders) or ["暂无手动提醒。"]
-    lines += ["", "### 待办", ""]
-    lines += _todo_alerts(kb, now, prefs.due_soon_hours) or ["暂无逾期或临期待办。"]
     journal = safe_path(kb, f"journal/{today:%Y-%m}/{today.isoformat()}.md")
     operations = []
     if journal.is_file():

@@ -30,7 +30,6 @@ SECTION_ORDER = (
     ("changes", "夜间重要变化"),
     ("risks", "风险 / 阻塞"),
     ("confirmations", "待确认"),
-    ("todos", "你的 Todo"),
 )
 SEVERITIES = {"info", "attention", "high"}
 MAX_INPUT_BYTES = 2 * 1024 * 1024
@@ -68,7 +67,6 @@ SECTION_META = {
     "changes": ("夜间重要变化", "Change", "lv-info"),
     "risks": ("风险 / 阻塞", "Risk", "lv-high"),
     "confirmations": ("待确认", "Confirm", "lv-attn"),
-    "todos": ("你的 Todo", "Todo", "lv-info"),
 }
 
 
@@ -392,7 +390,6 @@ def _render_html(document: Mapping[str, Any]) -> str:
             "confirmations",
             document["sections"]["confirmations"],
         ),
-        "TODOS": _render_html_rows("todos", document["sections"]["todos"]),
         "SOURCES": sources,
         "SOURCES_HTML": sources,
         "MANUAL_NOTES": esc(document["manual_notes"] or "暂无"),
@@ -503,7 +500,7 @@ def _render_html_highlights(document: Mapping[str, Any]) -> str:
 
 def _render_html_section_cards(document: Mapping[str, Any]) -> str:
     sections = []
-    for key in ("changes", "risks", "confirmations", "todos"):
+    for key in SECTION_META:
         items = document["sections"][key]
         heading, code, default_level = SECTION_META[key]
         rows = _render_html_rows(key, items)

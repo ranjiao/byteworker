@@ -541,7 +541,7 @@ def _validate_semantic_records(shard: Mapping[str, Any], records: Sequence[Mappi
         "stakeholder_position",
         "evidence",
         "conflict_query",
-        "todo_candidate",
+        "todo_candidate",  # Accepted for in-flight shards, then dropped on merge.
         "warning",
     }
     allowed_refs = set()
@@ -662,6 +662,8 @@ def merge_parallel_results(
             "conflict": _validate_conflict_records,
         }[stage](shard, records)
         for record in records:
+            if stage == "semantic" and record.get("record_type") == "todo_candidate":
+                continue
             value = {**record, "origin_shard_id": shard_id}
             merged_records.append(value)
             dedupe_key = str(record.get("dedupe_key", ""))
