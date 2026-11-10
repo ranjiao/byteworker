@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 CONTEXT_VIEW_SCHEMA = "byteworker-context-view/v1"
@@ -12,7 +13,6 @@ SOFT_BUDGET = 12_000
 HARD_BUDGET = 24_000
 INTENT_SECTIONS = {
     "preferences": ("我的身份", "交互与提醒偏好"),
-    "todo": ("我的身份", "交互与提醒偏好"),
     "search": ("我的职责范围", "我的当前重点", "背景信息"),
     "digest": (
         "我的身份",
@@ -84,6 +84,20 @@ def parse_context(text: str) -> dict[str, str]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         sections[heading] = text[match.end() : end].strip()
     return sections
+
+
+def load_context_timezone(path: Path) -> ZoneInfo:
+    if path.exists():
+        match = re.search(
+            r"(?m)^\|\s*时区\s*\|\s*([^|]+?)\s*\|\s*$",
+            path.read_text(encoding="utf-8"),
+        )
+        if match:
+            try:
+                return ZoneInfo(match.group(1).strip())
+            except (ValueError, ZoneInfoNotFoundError):
+                pass
+    return ZoneInfo("Asia/Shanghai")
 
 
 def parse_identity_language(identity: str) -> str:

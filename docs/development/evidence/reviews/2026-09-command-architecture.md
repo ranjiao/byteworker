@@ -276,7 +276,7 @@ digest internal txn|capture|parallel ... 仅 Agent workflow / 维护者
 
 **证据**
 
-- [`todo.py`](../../../../bin/todo.py) 755 行，包含时间自然语言解析、Markdown store 解析/渲染、事务和命令分发，而不仅是 argparse/I/O；
+- 当时的 `bin/todo.py` 有 755 行，包含时间自然语言解析、Markdown store 解析/渲染、事务和命令分发，而不仅是 argparse/I/O；
 - [`dreaming.py`](../../../../bin/dreaming.py) 802 行，定义 20 个顶层 operation 和多组嵌套 operation，parser 与 handler 形成大型手写路由；
 - [`source.py`](../../../../bin/source.py) 511 行，`inspect/capture` 共享一组 provider 参数，main 还负责 artifact 写入、Bundle 转换和 receipt shaping；
 - 架构文档要求 `bin/source.py` 保持薄，但新增 provider 当前仍可能要求扩展这一共享参数面。

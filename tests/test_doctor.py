@@ -49,7 +49,7 @@ class DoctorTests(unittest.TestCase):
             (self.kb / directory).mkdir()
         for directory in ("daily", "morning", "weekly", "im"):
             (self.kb / "reports" / directory).mkdir(parents=True)
-        for name in ("context.md", "todo.md", "dashboard.md"):
+        for name in ("context.md", "dashboard.md"):
             (self.kb / name).write_text(f"# {name}\n", encoding="utf-8")
         self.git("init")
         self.git("config", "user.email", "doctor@example.test")

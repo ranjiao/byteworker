@@ -131,4 +131,4 @@ job ID。
 - 不扫描 `state/wiki/` 或 digest job；
 - 不创建 `state/`；
 - 不加载本文件或任务队列细则；
-- 普通文档、查询、Todo、routine 的既有路径不导入 Wiki 模块。
+- 普通文档、查询、routine 的既有路径不导入 Wiki 模块。

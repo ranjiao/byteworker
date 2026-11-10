@@ -26,18 +26,10 @@ class ContextViewTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_todo_projection_excludes_unneeded_work_context(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            self.context(root)
-
-            result = context_view(root, "todo")
-
-            self.assertEqual(
-                {"我的身份", "交互与提醒偏好"},
-                set(result["sections"]),
-            )
-            self.assertNotIn("focus", str(result))
+    def test_removed_todo_intent_is_rejected(self):
+        with self.assertRaises(ContextViewError) as caught:
+            context_view(Path("/tmp"), "todo")
+        self.assertEqual("CONTEXT_INTENT_INVALID", caught.exception.code)
 
     def test_hard_budget_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -129,7 +121,7 @@ class ContextViewTests(unittest.TestCase):
             root = Path(temporary)
             self.context(root)
 
-            self.assertEqual("", context_view(root, "todo")["interaction_language"])
+            self.assertEqual("", context_view(root, "preferences")["interaction_language"])
 
             root.joinpath("context.md").write_text(
                 "# context\n"

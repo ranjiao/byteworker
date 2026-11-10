@@ -27,20 +27,16 @@
 收录时间,方便核对可信度和是否可能过期。知识库目录是它自己的本地 git 仓库,每步操作可回滚。
 
 **5. 看板是实时视图**
-工作看板每次查看时从本地知识库生成，汇总长期关注、手动提醒、逾期和临期待办及当日日志。
+工作看板每次查看时从本地知识库生成，汇总长期关注、手动提醒及当日日志。
 
-**6. 待办用自然语言**
-直接说“明天下午三点提醒我提交周报”“刚才那个做完了”。byteworker 把相对时间规范化后写入
-本地 `todo.md`,每次被调用时检查到期 / 临期事项；内部编号只做关联,不要求用户输入。
-
-**7. 报告由宿主自动调度**
+**6. 报告由宿主自动调度**
 日报 / 周报不要求用户每天记命令。首次安装会引导你用 Codex、Claude 或 TraeWork 的原生本地
 定时任务自动运行；每次自动日报和周报都先检查并 digest 已登记的定期来源，再生成带出处的
 报告快照。独立补偿任务会按 Byteworker 的 last-success 状态检查离线或休眠造成的缺口；
 需要修复历史报告时仍可用自然语言要求补跑。
 
-**8. 新 session 只有一次静默 preflight**
-Agent 每个交互 session 只调用一次 `bin/byteworker preflight --interactive`：自动更新、知识库定位、Todo、自动报告
+**7. 新 session 只有一次静默 preflight**
+Agent 每个交互 session 只调用一次 `bin/byteworker preflight --interactive`：自动更新、知识库定位、自动报告
 设置与 Python/Node/lark-cli/meegle runtime 一次检查完。健康时完全没有输出；只有确实需要处理
 时才返回有限 notice。后续命令统一通过 `bin/byteworker` 启动，不依赖 Agent 猜 NVM 或 Python
 路径。定时任务使用 `preflight --unattended`，不会触发能力 Tip。
@@ -56,7 +52,6 @@ Agent 每个交互 session 只调用一次 `bin/byteworker preflight --interacti
 | `/byteworker update <节点/新进展>` | **更新** —— 某条知识有新进展 |
 | `/byteworker brief` | **会前简报** —— 读飞书日历,为每个会议拉相关上下文 |
 | `/byteworker dashboard` | **工作看板** —— 长期关注 / 需关注 / 今日进展 |
-| 自然语言:“明天下午三点提醒我 X” | **待办提醒** —— 增加 / 完成 / 延期 / 取消 / 查看个人待办 |
 | 自动日报 / 周报 | **宿主本地定时任务** —— 每次先跑定期摄取,再生成报告；安装时引导设置 |
 | `/byteworker context <增删改>` | **全局上下文** —— 对话式维护你的工作上下文(个人工作倾向、需要告诉模型的零散信息等) |
 | 自然语言:“byteworker 还能帮我做什么?” | **能力发现** —— 根据当前知识库展示可用能力和下一步，不要求先学命令 |
@@ -69,14 +64,14 @@ Agent 每个交互 session 只调用一次 `bin/byteworker preflight --interacti
 
 ## 浏览知识库
 
-byteworker 自带一个本地 Viewer，可以浏览知识库、管理待办状态和修改受支持的设置。
+byteworker 自带一个本地 Viewer，可以浏览知识库和修改受支持的设置。
 
 ```bash
 # 在 byteworker skill 目录下运行:
 bin/browse.sh        # 起本地 viewer + 打开浏览器,Ctrl-C 停止(需 python3)
 ```
 
-Viewer 通过 `bin/viewer-server.py` 在 127.0.0.1 提供服务。节点、原文和报告只读。展开个人待办可标记完成或废弃，结果保存在本地知识库。设置页可保存访问保护、Dreaming 和来源 routine 配置。默认会话口令保护知识库文件、Dreaming 日志、设置 API 和待办操作。`.git`、隐藏文件及内部配置路径始终拒绝访问。访问保护开关重启 Viewer 后生效。设置先完整校验，再统一发布，切页或关闭会等待保存结果。
+Viewer 通过 `bin/viewer-server.py` 在 127.0.0.1 提供服务。节点、原文和报告只读。设置页可保存访问保护、Dreaming 和来源 routine 配置。默认会话口令保护知识库文件、Dreaming 日志、设置 API。`.git`、隐藏文件及内部配置路径始终拒绝访问。访问保护开关重启 Viewer 后生效。设置先完整校验，再统一发布，切页或关闭会等待保存结果。
 
 > ⚠️ `browse.sh` 需要在**本地、有浏览器、能跑本地服务**的环境运行。如果你通过云平台 / 沙箱里的托管 agent(如托管 Codex / OpenClaw)使用本 skill,沙箱通常起不了 web 服务、也没有浏览器 —— `browse.sh` 在那种环境用不了,这是预期的、不是故障;那种情况直接用对话查询(`/byteworker search`)即可。
 
@@ -84,7 +79,7 @@ Viewer 通过 `bin/viewer-server.py` 在 127.0.0.1 提供服务。节点、原�
 
 | 层 | 依赖 | 说明 |
 |----|------|------|
-| **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.10` | Python 用于确定性维护 Todo / 索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
+| **byteworker 自身** | `git`、`jq`、`bash`、`python3 >= 3.10` | Python 用于确定性维护索引 / 链接;macOS:`brew install git jq python`;Linux:`apt install git jq python3` |
 | **内部数据源** | `lark-cli` + `meegle` + 对应 skills + 用户授权 | 文档 / Base 使用 `lark-cli`;Meego 使用独立的 `meegle` OAuth；风神由 byteworker 原生只读客户端访问，只需单独注入用户态或服务态凭据。安装助手会询问现在启用哪些来源,跳过后也会在首次使用时引导|
 
 装好后运行 `bin/check-deps.sh` 可一键自查环境(逐项报 ✓/✗)，运行期使用同一套 resolver 自动
@@ -130,7 +125,7 @@ AI 助手安装完成后会直接带你走 **上手引导**：指定一个持久
 
 - `sources/` —— 每个结构化来源自己的 selector/filter/routine profile · `knowledge/` —— 8 类节点笔记（含用户自然语言 `thinking`） · `raw_data/` —— 摄取的逐字原文 · `provenance/` —— 原始章节/评论/消息定位 · `journal/` —— 操作日志
 - `reports/` —— 日报 / 周报归档快照
-- `INDEX.md` —— 主索引 · `settings.md` —— 长期关注和看板提醒 · `context.md` —— 格式化用户上下文 · `todo.md` —— 本地个人待办
+- `INDEX.md` —— 主索引 · `settings.md` —— 长期关注和看板提醒 · `context.md` —— 格式化用户上下文
 
 该目录含机密内容,仅本地、绝不外传;若在沙箱 / 云环境运行,务必选一个**跨会话持久**的路径,别放会被回收的临时盘。结构与字段设计见 [`docs/development/DESIGN.md`](docs/development/DESIGN.md)。
 风神按 dashboard sheet 注册：每个 sheet 在 `sources/` 中有独立参数，skill 仓库不保存任何

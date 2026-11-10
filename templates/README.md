@@ -5,7 +5,7 @@ byteworker 用到的骨架。`node-*.md` 是 8 类知识节点的骨架；来源
 节点笔记；`source-bundle-v2.json` + `digest-plan-v2.json` 是新增单来源的 adapter 交接契约 /
 事务 manifest；`digest-batch-plan-v2.json` 是新增多来源原子事务模板；`digest-plan-v1.json`
 和 `digest-batch-plan-v1.json` 只用于兼容历史调用；
-`context.md` / `todo.md` 是数据目录顶层用户状态文件的骨架;`report-*.md` 是报告输出骨架。
+`context.md` 是数据目录顶层用户状态文件的骨架;`report-*.md` 是报告输出骨架。
 
 ## 节点模板
 
@@ -48,11 +48,6 @@ anchors。使用时复制到**系统临时目录**并填写 Bundle 路径、raw 
 evidence 映射、journal 摘要和 commit message，再按
 `references/digest-transaction.md` 调用 `bin/digest-txn.py`。填过业务内容的 plan 和候选节点
 不得留在 templates 或 skill 仓库。
-
-## todo.md 模板
-
-`todo.md` 是已确认用户行动的唯一状态源。首次使用 Todo 时整份复制模板，之后由
-`bin/todo.py` 原子维护。用户日常只需说自然语言；模板中的 todo id 仅供内部关联和审计。
 
 ## report 模板
 
