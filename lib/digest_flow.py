@@ -19,9 +19,10 @@ from digest_run_log import (
     show_run,
     start_run,
 )
-from digest_txn import execute_plan, preflight_bundle
+from digest_txn import DigestTxnRollbackError, execute_plan, preflight_bundle
 from source_bundle_request import build_bundle_from_request
 from source_capture import write_capture
+from sources import load_source_bundle
 from sources.adapters.text import empty_chat_window
 
 
@@ -31,6 +32,7 @@ FLOW_PHASES = {
     "classified",
     "captured",
     "capture_failed",
+    "checked",
     "prepared",
     "prepare_failed",
     "commit_failed",
@@ -273,13 +275,16 @@ def prepare_flow(
     kb: Path,
     *,
     run_id: str,
-    bundle_request: Path,
+    bundle_request: Path | None = None,
+    bundle_input: Path | None = None,
+    check_only: bool = False,
     skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> dict[str, Any]:
-    request = _inside_flow(kb, run_id, bundle_request)
+    if (bundle_request is None) == (bundle_input is None):
+        raise DigestFlowError("DIGEST_FLOW_INPUT_INVALID", "必须提供一个 bundle 或 bundle request。")
+    request = _inside_flow(kb, run_id, bundle_request or bundle_input)
     work_dir = _flow_dir(kb, run_id)
     bundle_path = work_dir / "source-bundle.json"
-    packet_path = work_dir / "analysis-packet.json"
     with _flow_lock(kb):
         state = _load_state(kb, run_id)
     if state["phase"] in {"committed", "noop"}:
@@ -292,9 +297,12 @@ def prepare_flow(
             status="started",
             detail_code="DIGEST_FLOW_BUNDLE_STARTED",
         )
-        bundle = build_bundle_from_request(
-            str(state["source_type"]), request, skill_root=skill_root
+        bundle = (
+            load_source_bundle(request) if bundle_input is not None
+            else build_bundle_from_request(str(state["source_type"]), request, skill_root=skill_root)
         )
+        if bundle.identity.source_type != state["source_type"]:
+            raise DigestFlowError("DIGEST_FLOW_INPUT_INVALID", "Bundle 来源类型与 run 不一致。")
         write_capture(bundle_path, bundle.to_dict(), skill_root=skill_root)
         record_stage(
             kb,
@@ -334,23 +342,80 @@ def prepare_flow(
             metrics={"component_count": len(bundle.components)},
         )
         if flight["state"] == "noop":
+            receipt = {
+                "status": "noop", "digest_key": flight["digest_key"],
+                "raw_path": flight["existing"]["path"], "digest_run_id": run_id,
+            }
             finish_run(kb, run_id=run_id, status="noop")
             with _flow_lock(kb):
                 state = _load_state(kb, run_id)
                 state["phase"] = "noop"
                 state["artifacts"] = {"bundle": str(bundle_path)}
+                state["receipt"] = receipt
+                state["preflight_state"] = "noop"
+                state["next_action"] = "none"
                 _atomic_state(_state_path(kb, run_id), state)
             return {
                 "schema_version": FLOW_SCHEMA,
                 "run_id": run_id,
                 "phase": "noop",
                 "preflight_state": "noop",
+                "receipt": receipt,
                 "next_action": "none",
             }
 
+        with _flow_lock(kb):
+            state = _load_state(kb, run_id)
+            state.update(
+                phase="checked", artifacts={"bundle": str(bundle_path)},
+                preflight_state=flight["state"], next_action="analysis_prepare",
+            )
+            _atomic_state(_state_path(kb, run_id), state)
+    except Exception as exc:
+        _prepare_failure(kb, run_id, exc, ("preflight", "bundle"))
+
+    if check_only:
+        return {
+            "schema_version": FLOW_SCHEMA, "run_id": run_id, "phase": "checked",
+            "preflight_state": flight["state"], "next_action": "analysis_prepare",
+        }
+    return analyze_flow(kb, run_id=run_id, skill_root=skill_root)
+
+
+def _prepare_failure(kb: Path, run_id: str, exc: Exception, stages: tuple[str, ...]) -> None:
+    for stage in stages:
+        name = "ANALYSIS" if stage == "analysis_prepare" else stage.upper()
+        _record_failure(kb, run_id, stage, f"DIGEST_FLOW_{name}_FAILED")
+    with _flow_lock(kb):
+        state = _load_state(kb, run_id)
+        state["phase"] = "prepare_failed"
+        _atomic_state(_state_path(kb, run_id), state)
+    code = str(getattr(exc, "code", "DIGEST_FLOW_PREPARE_FAILED"))
+    raise DigestFlowError(code, str(exc)) from exc
+
+
+def analyze_flow(
+    kb: Path, *, run_id: str, skill_root: Path = DEFAULT_SKILL_ROOT,
+) -> dict[str, Any]:
+    work_dir = _flow_dir(kb, run_id)
+    bundle_path = work_dir / "source-bundle.json"
+    packet_path = work_dir / "analysis-packet.json"
+    with _flow_lock(kb):
+        state = _load_state(kb, run_id)
+    if state["phase"] == "prepared":
+        return flow_status(kb, run_id=run_id)
+    if state["phase"] != "checked":
+        raise DigestFlowError("DIGEST_FLOW_STATE_INVALID", "只有已检查且有变化的来源可以准备分析。")
+    try:
         record_stage(kb, run_id=run_id, stage="analysis_prepare", status="started")
         analysis = prepare_analysis_packet(
             bundle_path, packet_path, skill_root=skill_root
+        )
+        dependency_plan = plan_parallel_work(
+            packet_path, work_dir / "dependency", stage="dependency", skill_root=skill_root
+        )
+        semantic_plan = plan_parallel_work(
+            packet_path, work_dir / "semantic", stage="semantic", skill_root=skill_root
         )
         record_stage(
             kb,
@@ -364,25 +429,8 @@ def prepare_flow(
                 "output_count": 1,
             },
         )
-        dependency_plan = plan_parallel_work(
-            packet_path, work_dir / "dependency", stage="dependency", skill_root=skill_root
-        )
-        semantic_plan = plan_parallel_work(
-            packet_path, work_dir / "semantic", stage="semantic", skill_root=skill_root
-        )
     except Exception as exc:
-        for stage, code in (
-            ("analysis_prepare", "DIGEST_FLOW_ANALYSIS_FAILED"),
-            ("preflight", "DIGEST_FLOW_PREFLIGHT_FAILED"),
-            ("bundle", "DIGEST_FLOW_BUNDLE_FAILED"),
-        ):
-            _record_failure(kb, run_id, stage, code)
-        with _flow_lock(kb):
-            state = _load_state(kb, run_id)
-            state["phase"] = "prepare_failed"
-            _atomic_state(_state_path(kb, run_id), state)
-        code = str(getattr(exc, "code", "DIGEST_FLOW_PREPARE_FAILED"))
-        raise DigestFlowError(code, str(exc)) from exc
+        _prepare_failure(kb, run_id, exc, ("analysis_prepare",))
 
     next_action = (
         "dependency_review"
@@ -399,14 +447,13 @@ def prepare_flow(
         state = _load_state(kb, run_id)
         state["phase"] = "prepared"
         state["artifacts"] = artifacts
-        state["preflight_state"] = flight["state"]
         state["next_action"] = next_action
         _atomic_state(_state_path(kb, run_id), state)
     return {
         "schema_version": FLOW_SCHEMA,
         "run_id": run_id,
         "phase": "prepared",
-        "preflight_state": flight["state"],
+        "preflight_state": state["preflight_state"],
         "analysis": analysis,
         "dependency_plan": dependency_plan,
         "semantic_plan": semantic_plan,
@@ -442,12 +489,13 @@ def commit_flow(
                 "DIGEST_FLOW_RECEIPT_INVALID", "transaction 未返回 committed/noop。"
             )
     except Exception as exc:
-        _record_failure(kb, run_id, "transaction", "DIGEST_FLOW_TRANSACTION_FAILED")
+        code = str(getattr(exc, "code", "DIGEST_FLOW_COMMIT_FAILED"))
+        detail = code if isinstance(exc, DigestTxnRollbackError) else "DIGEST_FLOW_TRANSACTION_FAILED"
+        _record_failure(kb, run_id, "transaction", detail)
         with _flow_lock(kb):
             state = _load_state(kb, run_id)
             state["phase"] = "commit_failed"
             _atomic_state(_state_path(kb, run_id), state)
-        code = str(getattr(exc, "code", "DIGEST_FLOW_COMMIT_FAILED"))
         raise DigestFlowError(code, str(exc)) from exc
 
     try:
@@ -494,6 +542,7 @@ def flow_status(kb: Path, *, run_id: str) -> dict[str, Any]:
         "phase": state["phase"],
         "work_dir": str(_flow_dir(kb, run_id)),
         "artifacts": state.get("artifacts", {}),
+        **({"preflight_state": state["preflight_state"]} if "preflight_state" in state else {}),
         **({"receipt": state["receipt"]} if "receipt" in state else {}),
         "next_action": state.get("next_action", "none"),
         "run": show_run(kb, run_id=run_id)["summary"],

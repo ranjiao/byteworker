@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,11 +22,14 @@ from dreaming_digest import (  # noqa: E402
     routine_inventory,
 )
 from digest_flow import flow_status, prepare_flow, start_flow  # noqa: E402
+from digest_run_log import record_usage  # noqa: E402
+from dreaming_digest_scan import _invoke, scan_routine_digest  # noqa: E402
 from dreaming_reports import report_dependency  # noqa: E402
 from dreaming_run_log import show_run  # noqa: E402
 from dreaming_run_result import RESULT_SCHEMA as RUN_RESULT_SCHEMA  # noqa: E402
 from dreaming_scheduler import complete_run, enable, run_due  # noqa: E402
-from dreaming_state import DreamingError  # noqa: E402
+from dreaming_state import DreamingError, load_state_unlocked, save_state_unlocked  # noqa: E402
+from source_bundle_request import build_bundle_from_request  # noqa: E402
 from source_profiles import profile_relative_path  # noqa: E402
 try:
     from tests.test_source_profiles import (  # noqa: E402
@@ -303,6 +308,90 @@ class DreamingDigestTests(unittest.TestCase):
             complete_run(kb, token=token, run_status="success", now=recorded_at)
             self.assertEqual("covered", report_dependency(kb, kind="morning", period="2026-08-04")["status"])
             self.assertEqual([], list((kb / "raw_data").iterdir()))
+
+    def test_batch_scan_is_concurrent_and_partial_coverage_excludes_failed_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            acquired = datetime.now(timezone.utc)
+            kb = self.make_kb(Path(temporary), acquired - timedelta(hours=4))
+            chat = feishu_chat_profile()
+            for profile in (chat, self.profile(), feishu_doc_profile()):
+                self.save_profile(kb, profile)
+            lease = run_due(kb, owner="host", now=acquired)["lease"]
+            token = lease["token"]
+            by_type = {row["source_type"]: row for row in prepare_routine_digest(kb, token=token)["sources"]}
+            captures = threading.Barrier(2, timeout=8)
+
+            def fake_capture(root, *arguments):
+                if arguments[:2] != ("source", "capture"):
+                    return _invoke(root, *arguments)
+                captures.wait()
+                kind = arguments[arguments.index("--source-type") + 1]
+                if kind == "meego":
+                    raise DreamingError("SOURCE_RATE_LIMITED", "synthetic throttle")
+                out = Path(arguments[arguments.index("--out") + 1])
+                transcript = out.with_name("chat.txt")
+                transcript.touch()
+                window = f"{(acquired - timedelta(minutes=5)).isoformat()} .. {datetime.now(timezone.utc).isoformat()}"
+                request = out.with_name("request.json")
+                request.write_text(json.dumps({
+                    "source_uid": chat["source_uid"], "title": chat["title"], "source_window": window,
+                    "transcript": {"path": str(transcript)},
+                    "locator_artifact": {
+                        "schema_version": "byteworker-source-locators/v1", "source_type": kind,
+                        "source_chat_id": chat["source_uid"], "source_window": window, "anchors": [],
+                    },
+                    "provider_metadata": {
+                        "capture_mode": "since-last", "message_count": 0, "page_count": 1,
+                        "source_profile": {"revision": by_type[kind]["profile_revision"]},
+                    },
+                }), encoding="utf-8")
+                bundle = build_bundle_from_request(kind, request, skill_root=ROOT)
+                out.write_text(json.dumps(bundle.to_dict()), encoding="utf-8")
+                return {}
+
+            with patch("dreaming_digest_scan._invoke", side_effect=fake_capture):
+                scanned = scan_routine_digest(kb, token=token, skill_root=ROOT, max_workers=2)
+            sources = {row["source_type"]: row for row in scanned["sources"]}
+            self.assertEqual("empty_window", sources["feishu_chat"]["status"])
+            self.assertEqual("failed", sources["meego"]["status"])
+            self.assertEqual("pending", sources["feishu_doc"]["status"])
+            child = sources["feishu_chat"]["work"]["digest_run_id"]
+            flow = flow_status(kb, run_id=child)
+            self.assertNotIn("analysis_packet", flow["artifacts"])
+            usage = record_usage(
+                kb, run_id=child, stage="classify", worker_role="coordinator", usage_source="measured",
+                call_id="synthetic-call", call_duration_ms=300, call_gap_ms=120,
+                usage={"input_tokens": 50, "output_tokens": 12},
+            )
+            self.assertEqual({"duration_ms": 300, "gap_ms": 120}, usage["call_timing_ms"])
+            record_usage(
+                kb, run_id=child, stage="classify", worker_role="coordinator", usage_source="measured",
+                call_id="synthetic-timing-only", call_duration_ms=200, usage={},
+            )
+            result = complete_routine_digest(kb, token=token, allow_partial=True)
+            self.assertEqual(("partial", 2), (result["status"], result["incomplete_count"]))
+            state = load_state_unlocked(kb, datetime.now(timezone.utc))
+            self.assertEqual({sources["feishu_chat"]["source_key"]}, set(state["source_checkpoints"]))
+            with self.assertRaisesRegex(DreamingError, "完成全部"):
+                complete_run(kb, token=token, run_status="success")
+            complete_run(kb, token=token, run_status="partial", error_code="DREAMING_DIGEST_INCOMPLETE")
+            performance = show_run(kb, run_id=lease["run_id"])["summary"]["accounting"]["performance"]
+            self.assertEqual(2, performance["stage_totals"]["capture"]["count"])
+            self.assertEqual(62, performance["usage"]["measured"]["total_tokens"])
+            self.assertEqual(1, performance["usage"]["measured"]["model_calls"])
+            self.assertEqual({"count": 2, "total_ms": 500}, performance["call_timing"]["duration_ms"])
+            self.assertEqual({"count": 1, "total_ms": 120}, performance["call_timing"]["gap_ms"])
+            current = datetime.now(timezone.utc)
+            state = load_state_unlocked(kb, current)
+            state["active_lease"] = {
+                **lease, "run_id": "DR-" + "e" * 32, "token": "catchup-test",
+                "dependency": {"end": scanned["target_through"]},
+            }
+            save_state_unlocked(kb, state)
+            catchup = prepare_routine_digest(kb, token="catchup-test", now=current)
+            self.assertEqual(
+                ["feishu_chat"], [row["source_type"] for row in catchup["sources"] if row["status"] == "covered"],
+            )
 
     def test_failed_run_keeps_private_summary_and_counts_only_recorded_writes(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

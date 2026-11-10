@@ -397,7 +397,7 @@ class DreamingSchedulerTests(unittest.TestCase):
                 datetime.fromisoformat(process_state["next_attempt_at"]),
             )
 
-    def test_human_blocking_failure_waits_for_user(self):
+    def test_rollback_failure_waits_for_repair(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))
             enabled_at = datetime(2026, 8, 3, 1, 0, tzinfo=timezone.utc)
@@ -411,11 +411,11 @@ class DreamingSchedulerTests(unittest.TestCase):
                 kb,
                 token=process["lease"]["token"],
                 run_status="failed",
-                error_code="SOURCE_AUTH_REQUIRED",
+                error_code="DIGEST_TXN_ROLLBACK_FAILED",
                 now=enabled_at + timedelta(hours=2, minutes=1),
             )
             value = status(kb)["jobs"]["process"]
-            self.assertEqual("SOURCE_AUTH_REQUIRED", value["waiting_for_user"])
+            self.assertEqual("DIGEST_TXN_ROLLBACK_FAILED", value["waiting_for_user"])
             self.assertIsNone(value["next_attempt_at"])
             receipt = retry_job(
                 kb,
@@ -425,21 +425,39 @@ class DreamingSchedulerTests(unittest.TestCase):
             self.assertEqual("retry_enabled", receipt["status"])
             self.assertIsNone(status(kb)["jobs"]["process"]["waiting_for_user"])
 
-    def test_budget_review_releases_lease_and_stops_automatic_process_retry(self):
+    def test_routine_gaps_release_lease_and_retry_without_input(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))
             enabled_at = datetime(2026, 8, 3, 1, 0, tzinfo=timezone.utc)
-            self.enable_at(kb, enabled_at)
+            value = self.enable_at(kb, enabled_at)
+            for name, job in value["jobs"].items():
+                job["enabled"] = name == "process"
+            atomic_write_json(state_path(kb), value)
             now = enabled_at + timedelta(hours=2)
-            lease = run_due(kb, owner="host", now=now)["lease"]
-            reason = "DREAMING_BUDGET_REVIEW_REQUIRED"
-            complete_run(kb, token=lease["token"], run_status="failed", error_code=reason, now=now)
-            state = status(kb, now=now)
-            self.assertIsNone(state["active_lease"])
-            self.assertEqual(reason, state["jobs"]["process"]["waiting_for_user"])
-            observed = {}
-            run_due(kb, owner="host", now=now + timedelta(minutes=10), observation=observed)
-            self.assertEqual("waiting_for_user", observed["jobs"]["process"])
+            for reason in ("DREAMING_BUDGET_REVIEW_REQUIRED", "SOURCE_AUTH_REQUIRED", "DREAMING_DIGEST_INCOMPLETE"):
+                with self.subTest(reason=reason):
+                    lease = run_due(kb, owner="host", now=now)["lease"]
+                    complete_run(kb, token=lease["token"], run_status="partial", error_code=reason, now=now)
+                    state = status(kb, now=now)
+                    self.assertIsNone(state["active_lease"])
+                    process = state["jobs"]["process"]
+                    self.assertIsNone(process["waiting_for_user"])
+                    now += timedelta(minutes=5)
+                    self.assertEqual(now, datetime.fromisoformat(process["next_attempt_at"]))
+            self.assertEqual("process", run_due(kb, owner="host", now=now)["job"])
+
+    def test_legacy_routine_wait_no_longer_blocks_scheduled_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            enabled_at = datetime(2026, 8, 3, 1, 0, tzinfo=timezone.utc)
+            value = self.enable_at(kb, enabled_at)
+            value["jobs"]["process"]["waiting_for_user"] = "SOURCE_REVIEW_REQUIRED"
+            atomic_write_json(state_path(kb), value)
+            before = state_path(kb).read_bytes()
+            now = enabled_at + timedelta(hours=2)
+            self.assertIsNone(status(kb, now=now)["jobs"]["process"]["waiting_for_user"])
+            self.assertEqual(before, state_path(kb).read_bytes())
+            self.assertEqual("process", run_due(kb, owner="host", now=now)["job"])
 
     def test_blocked_job_is_not_selected(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

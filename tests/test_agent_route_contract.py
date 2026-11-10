@@ -95,7 +95,7 @@ class AgentRouteContractTests(unittest.TestCase):
         self.assertIn("references/digest-inline.md", route["required"])
         self.assertIn("references/digest-comments.md", route["source_type"]["feishu_doc"])
         self.assertIn("references/digest-reading.md", route["features"]["internal_reading"])
-        self.assertIn("references/digest-inline.md", self.workflows["dreaming"]["features"]["routine_digest"])
+        self.assertNotIn("references/digest-inline.md", self.workflows["dreaming"]["features"]["routine_digest"])
 
     def test_digest_feedback_has_a_separate_on_demand_route(self):
         reference = "references/digest-feedback.md"
@@ -202,19 +202,10 @@ class AgentRouteContractTests(unittest.TestCase):
             ["references/dreaming-maintenance.md"],
             features["maintenance"],
         )
-        routine_digest = set(features["routine_digest"])
-        for required in (
-            "references/digest-core.md",
-            "references/digest-transaction.md",
-            "references/digest-routine.md",
-            "references/digest-doc.md",
-            "references/digest-chat.md",
-            "references/digest-meego.md",
-            "references/digest-base.md",
-            "references/digest-aeolus.md",
-            "references/digest-wiki-space.md",
-        ):
-            self.assertIn(required, routine_digest)
+        self.assertEqual(["references/dreaming-routine.md"], features["routine_digest"])
+        routine = (ROOT / features["routine_digest"][0]).read_text(encoding="utf-8")
+        self.assertLess(routine.index("digest-scan"), routine.index("resolve --workflow digest --source-type"))
+        self.assertIn("digest-complete --allow-partial", routine)
         self.assertEqual(
             ["references/dreaming-harness-trae.md"],
             features["harness_trae"],

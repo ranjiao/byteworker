@@ -157,6 +157,9 @@ bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 `complete --result-input` 提供，报告采用已生成的摘要。系统从租约、来源回执和可回查的 Git 提交
 补齐计数。未完成或无法核验的来源单列，不能把未知变更当作零。日志终态关联
 `state/dreaming/run-results/<run_id>.json`，正文仅用于本机查询和宿主本轮结果。
+process 的摘要同时保存 `accounting.performance`，来自本轮租约内已关联的 Digest 事件。
+逐阶段耗时为子运行累加；并发可能超过整轮墙钟。子运行内无已结束阶段的时间和子运行之外的墙钟
+单列，不能推断为模型耗时。宿主实际调用耗时、间隔和 token 仅在上报后汇总，估算与实测分开。
 
 本地 viewer 启用访问保护时，日志 API 与知识库文件、设置 API 均需本次会话口令；使用启动输出或设置页中的带口令链接打开调试页。
 本地 viewer 提供专用调试页，路径固定为 `/app/dreaming-debug.html`；启动 `bin/browse.sh` 后访问：
@@ -178,36 +181,19 @@ bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 
 ### `process`
 
-每次后台 process 先处理普通定期摄取来源：
+每次后台 process 先加载 `features.routine_digest` 中的 [定期摄取细则](dreaming-routine.md)。
+`process digest-scan` 快照全部启用的 Profile 和兼容历史来源，并发检查可自动抓取的来源。
+空窗口和未变化由确定性回执直接登记；对其余来源先完成检查，再按变化来源加载 Digest 规则。
+失败或待裁决的来源单独保留进度，其它独立来源继续。完整扫描仍须核验分页、配置版本和窗口。
 
-```bash
-bin/byteworker dreaming process digest-prepare --kb "<KB>" --token "<lease.token>"
-# 按返回清单逐源执行完整普通 digest，并逐个提交结果
-bin/byteworker dreaming process digest-record --kb "<KB>" \
-  --token "<lease.token>" --input "<digest-result.json>"
-bin/byteworker dreaming process digest-complete --kb "<KB>" --token "<lease.token>"
-```
+`process digest-complete --allow-partial` 收尾时按来源推进已核验覆盖，缺口保持未覆盖。
+整轮只有全部来源完成后才成功。普通缺口写入结果，后续按调度自动检查。预算超限、依赖范围、
+独立冲突和单源权限按定期摄取细则处理；用户可另外发起交互处理。旧来源复核摘要保留供本机查询，
+技术诊断和反馈只投影固定原因码。
 
-`digest-prepare` 快照所有已启用 Profile，以及普通 digest 仍兼容且未被 Profile 取代的历史 raw
-定期来源。runner 必须加载 workflow manifest 的 `features.routine_digest`，按每个来源原有
-capture、依赖、语义、冲突、候选、引用和 DigestTxn 规则处理；不得复制简化实现。
-普通来源接受可回查已提交 raw 的 `committed/noop`。群聊准备命令返回 `empty_window` 时，
-按该状态登记回执，Dreaming 复验本轮抓取、来源身份、配置版本和目标时间覆盖，再继续后续来源。
-Wiki 子树按其原有语义接受完整 scan 的
-`observed`，变化页面仍需经过普通文档 digest。清单、Profile revision 或任一来源结果不完整时
-不推进 checkpoint，也不允许 process 成功。
-
-遇到预算超限先按 `references/workflow-budgets.md` 复核，不以超限本身结束任务。
-确需决定时，宿主结果显示待确认和可选下一步，后台释放租约并暂停该任务的自动重试。
-用户同意后，可以在交互会话使用保留的私有输入和现有普通 digest 恢复流程完成本次分析。
-完成或按用户要求调整范围后，再用 `dreaming retry-job --job process` 解除等待。
-
-依赖范围或内容冲突确实需要用户裁决时，用 `SOURCE_REVIEW_REQUIRED` 结束本轮 process 并暂停自动重试。
-完成回执必须含私有 `summary.review`，包括具体问题、要用户决定的事项和带后果的操作选项。
-宿主和本地调试页显示该字段，用户可在宿主任务会话回复选项编号或说明处理范围。用户报告看不懂
-待复核结果时，通过最近一次运行找到私有摘要，按证据解释问题。历史回执缺少具体问题时，先核查
-关联 Digest 已完成的阶段和保留的产物，再判断是否需要用户决定。用户答复后按普通 Digest 恢复
-流程复用仍有效的私有材料，再解除等待。诊断和反馈仅投影固定原因码。
+任务级授权缺失、状态损坏或写入回滚失败时，结束相关任务并说明具体修复条件。需要人工解除的
+严重阻塞才进入 `waiting_for_user`；修复完成后可用 `dreaming retry-job` 恢复该 job。
+旧版来源或预算等普通等待在读取时自动解除。
 
 IM grant 默认关闭：
 

@@ -16,6 +16,7 @@ if str(LIB) not in sys.path:
 
 from digest_flow import (  # noqa: E402
     DigestFlowError,
+    analyze_flow,
     capture_flow,
     commit_flow,
     flow_status,
@@ -39,14 +40,17 @@ def parser() -> argparse.ArgumentParser:
     start.add_argument("--kb", default=configured_kb())
     start.add_argument("--source-type", required=True, choices=sorted(SOURCE_TYPES - {"unknown"}))
     start.add_argument("--source-ref", default="")
-    for name in ("capture", "prepare", "commit", "status"):
+    for name in ("capture", "prepare", "analyze", "commit", "status"):
         command = sub.add_parser(name)
         command.add_argument("--kb", default=configured_kb())
         command.add_argument("--run-id", required=True)
         if name == "capture":
             command.add_argument("--request", required=True, type=Path)
         elif name == "prepare":
-            command.add_argument("--bundle-request", required=True, type=Path)
+            source = command.add_mutually_exclusive_group(required=True)
+            source.add_argument("--bundle-request", type=Path)
+            source.add_argument("--bundle", type=Path)
+            command.add_argument("--check-only", action="store_true")
         elif name == "commit":
             command.add_argument("--plan", required=True, type=Path)
     return result
@@ -64,7 +68,12 @@ def main() -> int:
         elif args.command == "capture":
             result = capture_flow(kb, run_id=args.run_id, request_path=args.request)
         elif args.command == "prepare":
-            result = prepare_flow(kb, run_id=args.run_id, bundle_request=args.bundle_request)
+            result = prepare_flow(
+                kb, run_id=args.run_id, bundle_request=args.bundle_request,
+                bundle_input=args.bundle, check_only=args.check_only,
+            )
+        elif args.command == "analyze":
+            result = analyze_flow(kb, run_id=args.run_id)
         elif args.command == "commit":
             result = commit_flow(kb, run_id=args.run_id, plan_path=args.plan)
         else:

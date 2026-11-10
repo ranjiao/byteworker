@@ -16,6 +16,7 @@ if str(LIB) not in sys.path:
 
 from digest_parallel import (  # noqa: E402
     DigestParallelError,
+    checkpoint_parallel_results,
     merge_parallel_results,
     plan_parallel_work,
 )
@@ -33,6 +34,10 @@ def parser() -> argparse.ArgumentParser:
     merge.add_argument("--plan", required=True, type=Path)
     merge.add_argument("--result", required=True, action="append", type=Path)
     merge.add_argument("--out", required=True, type=Path)
+    checkpoint = sub.add_parser("checkpoint")
+    checkpoint.add_argument("--kb", required=True, type=Path)
+    checkpoint.add_argument("--plan", required=True, type=Path)
+    checkpoint.add_argument("--result", type=Path)
     return result
 
 
@@ -46,8 +51,10 @@ def main() -> int:
                 stage=args.stage,
                 max_workers=args.max_workers,
             )
-        else:
+        elif args.command == "merge":
             value = merge_parallel_results(args.plan, args.result, args.out)
+        else:
+            value = checkpoint_parallel_results(args.kb, args.plan, result_path=args.result)
     except DigestParallelError as exc:
         json.dump({"error": exc.as_dict()}, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")

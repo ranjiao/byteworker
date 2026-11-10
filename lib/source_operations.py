@@ -448,6 +448,10 @@ def source_operation_manifest() -> dict[str, Any]:
                 source_type: list(source_operation_runtime(source_type, operation))
                 for source_type in operation_source_types(operation)
             },
+            **({"direct_bundle_source_types": [
+                source_type for source_type in operation_source_types(operation)
+                if getattr(_ADAPTERS[source_type], "capture_produces_bundle", False)
+            ]} if operation == "capture" else {}),
         }
         for operation in ("auth-status", "inspect", "capture", "register")
     }

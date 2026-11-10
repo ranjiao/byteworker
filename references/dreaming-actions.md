@@ -46,6 +46,7 @@ commit 和 key，不复制业务正文。
 
 需要确认的 action 没有 `--confirmed` 时 fail closed。grant revision、lease token 或 epoch 变化后，
 旧 claim 不得执行新下游写入。
+无人值守时将这类动作保留为待办，继续其它工作。确认由交互流程处理。
 
 ## 失败与恢复
 

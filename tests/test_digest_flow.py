@@ -15,6 +15,7 @@ if str(LIB) not in sys.path:
 
 from digest_flow import (  # noqa: E402
     DigestFlowError,
+    analyze_flow,
     capture_flow,
     commit_flow,
     flow_status,
@@ -110,6 +111,21 @@ class DigestFlowTests(unittest.TestCase):
         final = flow_status(self.kb, run_id=run_id)
         self.assertEqual("committed", final["run"]["status"])
         self.assertEqual("transaction", final["run"]["stages"][-1]["stage"])
+
+    def test_check_only_defers_analysis_until_requested(self):
+        flow = self.start()
+        run_id = flow["run_id"]
+        folder = Path(flow["work_dir"])
+        checked = prepare_flow(
+            self.kb, run_id=run_id, bundle_request=self.bundle_request(folder), check_only=True,
+        )
+        self.assertEqual("checked", checked["phase"])
+        self.assertFalse((folder / "analysis-packet.json").exists())
+        self.assertEqual("prepared", analyze_flow(self.kb, run_id=run_id)["phase"])
+        self.assertEqual("prepared", analyze_flow(self.kb, run_id=run_id)["phase"])
+        self.assertEqual(1, sum(
+            event["stage"] == "analysis_prepare" for event in flow_status(self.kb, run_id=run_id)["run"]["stages"]
+        ))
 
     def test_capture_wraps_stage_and_can_run_multiple_waves(self):
         started = self.start()

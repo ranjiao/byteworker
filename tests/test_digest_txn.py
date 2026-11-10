@@ -4,6 +4,7 @@ import sys
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,7 @@ if str(LIB) not in sys.path:
 from digest_txn import (  # noqa: E402
     compute_payload,
     DigestTxnError,
+    DigestTxnRollbackError,
     execute_batch_plan,
     execute_plan,
     preflight,
@@ -1156,6 +1158,17 @@ links: []
         )
         self.assertEqual("", run_git(self.kb, "diff", "--cached", "--name-only"))
         self.assertEqual("", run_git(self.kb, "status", "--short"))
+
+    def test_failed_restore_is_reported_as_a_distinct_severe_error(self):
+        body, comments = self.write_source()
+        raw_id = "raw-2026-07-27-test-plan"
+        plan = self.write_plan(
+            self.source_manifest(body, comments), raw_id, "2026-07-27-test-plan", self.reading_text([raw_id]),
+        )
+        with patch("digest_txn._restore_files", side_effect=OSError("synthetic restore failure")):
+            with self.assertRaises(DigestTxnRollbackError) as raised:
+                execute_plan(self.kb, plan, self.root / "missing-skill")
+        self.assertEqual("DIGEST_TXN_ROLLBACK_FAILED", raised.exception.code)
 
     def test_rejects_target_path_escape(self):
         body, comments = self.write_source()

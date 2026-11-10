@@ -465,7 +465,11 @@ function duration(events, recordedMs) {
   const start = new Date(events[0].timestamp).getTime();
   const end = new Date(events[events.length - 1].timestamp).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end)) return "—";
-  const seconds = Math.max(0, Math.round((recordedMs ?? end - start) / 1000));
+  return formatDuration(recordedMs ?? end - start);
+}
+
+function formatDuration(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
@@ -684,7 +688,7 @@ function renderRunSummary(document) {
   };
   const sourceStatuses = {
     committed: "已提交", noop: "无变化", empty_window: "空窗口",
-    observed: "已扫描", pending: "未登记完成",
+    observed: "已扫描", covered: "已有覆盖", pending: "未登记完成", failed: "检查失败", blocked: "待处理",
   };
   const formatOperations = changes => Object.entries(changes || {}).filter(([key]) => operationLabels[key])
     .map(([key, count]) => `${operationLabels[key]} ${count}`).join(" · ");
@@ -693,6 +697,7 @@ function renderRunSummary(document) {
     const changes = formatOperations(source.kb_operations);
     return `<li><strong>${esc(source.label || `${source.source_type} ${index + 1}`)}</strong>
       · ${esc(sourceStatuses[source.status] || source.status)}${changes ? ` · ${esc(changes)}` : ""}
+      ${source.error_code ? ` · <code>${esc(source.error_code)}</code>` : ""}
       ${note ? `<div>${esc(note)}</div>` : ""}</li>`;
   }).concat(
     (accounting.im_sources || []).map(source =>
@@ -705,22 +710,49 @@ function renderRunSummary(document) {
     .filter(([key]) => key in metrics).map(([key, label]) => `${label} ${metrics[key]}`).join(" · ");
   const review = document.review;
   const reviewDetail = review ? `
-    <h3>等待来源复核</h3>
+    <h3>来源复核记录</h3>
     <p>${esc(review.problem)}</p>
     <p><strong>${esc(review.question)}</strong></p>
-    <ol>${review.options.map(option => `<li><strong>${esc(option.action)}</strong> · ${esc(option.effect)}</li>`).join("")}</ol>
-    <p>在宿主任务会话回复选项编号，或说明希望处理的范围。</p>`
+    <ol>${review.options.map(option => `<li><strong>${esc(option.action)}</strong> · ${esc(option.effect)}</li>`).join("")}</ol>`
     : accounting.error_code === "SOURCE_REVIEW_REQUIRED" ? "<p>这次运行没有记录具体的复核问题。</p>" : "";
   return `<section class="result-section">
     <div class="section-title">本轮摘要</div>
     <div class="report-summary">${esc(document.summary)}</div>
     ${reviewDetail}
+    ${renderRunPerformance(accounting.performance)}
     ${counts ? `<p>${esc(counts)}</p>` : ""}
     ${operations ? `<p>已核验的知识库变更 · ${esc(formatOperations(operations))}</p>` : ""}
     ${accounting.unaccounted_sources ? `<p>${esc(accounting.unaccounted_sources)} 个来源的变更未核算</p>` : ""}
     ${accounting.reported_repairs != null ? `<p>维护回执记录 ${esc(accounting.reported_repairs)} 项修复</p>` : ""}
     ${sources.length ? `<details open><summary>各来源处理情况</summary><ul>${sources.join("")}</ul></details>` : ""}
   </section>`;
+}
+
+function renderRunPerformance(performance) {
+  if (!performance) return "";
+  if (performance.status === "unavailable") return "<p>本轮阶段计量不可用。</p>";
+  const stageLabels = {
+    classify: "来源分类", capture: "采集", bundle: "打包", preflight: "变化检查",
+    analysis_prepare: "准备分析", dependency_review: "依赖复核", semantic_analysis: "语义分析",
+    reduce: "归并", conflict_review: "冲突复核", candidate_generation: "生成候选",
+    transaction_validate: "事务校验", transaction: "提交", finalize: "收尾",
+  };
+  const stages = Object.entries(performance.stage_totals || {}).map(([stage, value]) =>
+    `<li>${esc(stageLabels[stage] || stage)} · ${esc(formatDuration(value.work_ms))} · ${esc(value.count)} 次</li>`
+  );
+  const usage = performance.usage?.measured;
+  const callGap = performance.call_timing?.gap_ms;
+  const callDuration = performance.call_timing?.duration_ms;
+  const between = (performance.sources || []).reduce((total, source) => total + source.between_stage_ms, 0);
+  return `<details><summary>阶段耗时和模型用量</summary>
+    <p>阶段耗时按子运行累加，并发时可能超过整轮墙钟。</p>
+    <ul>${stages.join("")}</ul>
+    <p>子运行外墙钟 ${esc(formatDuration(performance.outside_digest_ms))} · 子运行内未归入阶段的累计时间 ${esc(formatDuration(between))}</p>
+    ${performance.unobserved_digest_runs ? `<p>${esc(performance.unobserved_digest_runs)} 个关联运行缺少日志</p>` : ""}
+    <p>${usage ? `实测 ${esc(usage.model_calls)} 次调用 · 输入 ${esc(usage.input_tokens)} · 输出 ${esc(usage.output_tokens)} token` : "宿主未上报实际 token 用量"}</p>
+    ${callDuration ? `<p>宿主上报调用耗时 ${esc(formatDuration(callDuration.total_ms))} · ${esc(callDuration.count)} 次</p>` : ""}
+    ${callGap ? `<p>宿主上报调用间隔 ${esc(formatDuration(callGap.total_ms))} · ${esc(callGap.count)} 次</p>` : ""}
+  </details>`;
 }
 
 function renderDetail(openIds = new Set()) {

@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from source_capture import CommandRunner, DEFAULT_MAX_ITEMS, SourceCaptureError
+from source_capture import CommandRunner, DEFAULT_MAX_ITEMS, SourceCaptureError, is_rate_limit_error
 from source_profiles import (
     load_profile,
     profile_relative_path,
@@ -214,6 +214,7 @@ def _summary(stdout: str) -> dict[str, str]:
 
 
 class FeishuChatOperations:
+    capture_produces_bundle = True
     source_type = "feishu_chat"
     operation_arguments = {
         "auth-status": (
@@ -290,6 +291,8 @@ class FeishuChatOperations:
             ) from exc
         if completed.returncode != 0:
             shutil.rmtree(artifact_root, ignore_errors=True)
+            if is_rate_limit_error(completed.stderr):
+                raise SourceCaptureError("SOURCE_RATE_LIMITED", "群聊抓取触发限流。")
             raise SourceCaptureError(
                 "SOURCE_CHAT_CAPTURE_FAILED",
                 "pull-chat.sh 未完成完整群聊窗口抓取",

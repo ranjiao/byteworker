@@ -18,3 +18,5 @@
 - `revision`、`supersede`、`user_confirmed` 必须在 mutation/digest plan 中带可定位
   `conflict_evidence`；事务 validator 拒绝未声明的覆盖。
 - 用户暂不裁决时，当前来源仍可保存为独立 raw；受冲突影响的知识节点不更新。
+- Dreaming 无人值守时把独立冲突按暂缓裁决处理，并继续其它来源。保留现有事实和私有证据，
+  按 [定期摄取](dreaming-routine.md) 记录受影响的覆盖缺口。

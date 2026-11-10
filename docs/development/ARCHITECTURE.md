@@ -418,9 +418,12 @@ Dreaming 是新增的可选旁路控制面，默认关闭。用户明确确认�
 保持开机、唤醒、联网前，还必须先完成独立能力导览，讲清它与 digest 的差异、全部 job、授权、
 Finding/Action 生命周期、维护和退出边界，并配置确认完整运行计划。三项确认都记录后，宿主 local task 才可调用
 `dreaming run-due`。每次 process 都快照并重放所有已登记且启用的普通 routine digest 来源；
-来源仍走原有公开 capture、Agent 语义和 DigestTxn，Dreaming 核验真实 `committed/noop`
-回执。群聊准备阶段验证完整零消息窗口后直接返回 `empty_window`，由 Dreaming 复验抓取、
-身份、配置版本和窗口覆盖后与其它完成回执一同推进 checkpoint。Wiki 子树保留完整 scan + 变化展示的既有语义。初始启用不
+来源仍走原有公开 capture、Agent 语义和 DigestTxn。定期检查先使用 adapter manifest 找到可自动
+抓取的 Profile，并发复查最多 3 路，限流后串行。其余来源先用各自的采集规则检查变化。
+Digest 检查阶段复用 Bundle 和事务预检，直接返回 `committed/noop` 可回查的未变化证据或完整
+群聊 `empty_window`，有变化时才生成分析包。Wiki 子树保留完整 scan + 变化展示的既有语义。
+来源进度和下游 run 关联写入批次。单源失败后继续其它独立来源，部分收尾只更新有完成证据的
+source checkpoint，报告仍等待全部相关来源覆盖。全量完成才允许 process 成功。初始启用不
 接管上述自动报告；`daily/weekly` job 默认关闭。后续迁移必须先
 释放旧 scheduler owner，并由 `migration_epoch` 保证同一 period 只有一个 owner。
 
@@ -458,10 +461,11 @@ Dreaming 只通过 `bin/byteworker` 公开入口调用 source、query、mutation
 这些模块的内部实现。Dreaming 禁用、状态损坏或 job 失败均不得改变 digest/search/update 等
 既有命令和未迁移的旧自动报告行为。
 
-普通 Digest 的人工裁决规则由原工作流负责。确需用户裁决时，runner 以 `SOURCE_REVIEW_REQUIRED`
-完成 process。完成入口先校验私有 `review` 的阶段、问题、待决定事项和带影响的操作选项，再保存
-结果并释放租约，将该 job 置为 `waiting_for_user`，由显式重试解除。技术失败继续退避。
-宿主本轮结果与本地 Viewer 使用同一私有复核数据，诊断和反馈只投影固定原因码。
+普通 Digest 的授权与裁决规则由原工作流负责。无人值守时 runner 在现有授权内选择可验证的路径，
+把仍受阻的来源和动作登记为缺口或待办，并继续其它独立工作。普通来源、预算和冲突问题释放租约
+并按调度自动重试。仅任务级授权或数据安全严重错误能阻断相关 job。DigestTxn 回滚失败向
+flow 与 Dreaming 传播固定错误码，防止被当成可重复写入的普通故障。
+旧 `SOURCE_REVIEW_REQUIRED` 结果的私有复核结构仍可读取，诊断和反馈只投影固定原因码。
 
 I7 后独立 Inbox 不再是 workflow：旧 scanner、writer、模板、context intent 和 route manifest
 条目均已删除。`bin/inbox.py` 只是一个 major 版本的无副作用 tombstone，只输出
@@ -488,8 +492,8 @@ Agent 通过 `workflow-budget resolve` 获取 `byteworker-workflow-route/v1`，�
 上下文。resolve 复用 `lib/workflow_budget.py.resolve_route`，只展开路径，不读规则正文、不计 token、
 resolver 本身不访问 KB、runtime 或 provider；公开调用仍经过既有 launcher/runtime 缓存与 facade。
 inspect 继续基于同一 resolver 计完整预算，并返回超限分项和可确认的最小预算增量。
-确认只覆盖同一规则和输入，受宿主可用容量限制。Dreaming 需用户决定时释放租约并等待，
-由宿主结果给出选项，不自动提高限额或重试该任务。
+确认只覆盖同一规则和输入，受宿主可用容量限制。Dreaming 无人值守用既定预算、角色投影、分片
+和复用处理超限；仍超限时记录单源缺口并继续。
 
 普通 digest 的必读执行层是 `digest-core.md`、`digest-flow.md` 和 `digest-inline.md`，同时完整
 加载 machine-protocol、digest-dependencies、provenance、write-rules、conflict-policy、semantic-policy
@@ -501,8 +505,10 @@ preflight_state=resume_failed 必须核查历史 pending/failed raw 并人工恢
 解释性链接不等于额外必读，不允许普通来源沿链接重新加载整个旧闭包。
 flow prepare 已产生 packet 和 dependency/semantic plan，Agent 直接消费，不能重复预处理或规划；
 conflict planner 仍对新召回结果执行一次。语义 owner、coverage、inline/parallel 阈值及成功判定不变。
-大型 worker 和 Wiki resume 保留完整执行手册；Dreaming routine 的闭包同时包含 inline，独立入口
-不能借压缩遗漏普通 digest 行为。
+大型 worker 和 Wiki resume 保留完整执行手册。Dreaming routine 只预读变化检查与分派规则；
+变化来源再解析其普通 digest 闭包，保留原有权限、依赖、冲突与事务行为。
+独立语义任务共用最多 4 个隔离 worker，按宿主和预算降并发；针对当前 KB 的冲突和写入串行。
+分片回执复用同一校验器，即时保存。跨轮只复用内容指纹、分片和 worker 规则完全匹配的来源内语义结果。
 Dreaming 的授权、宿主与运行细则只在 dreaming feature 中加载；area/org/person 治理统一由
 `write-rules.md` 承载，并同时属于 digest 与 update 的 required 闭包，不复制进常驻路由器。
 子 Agent、无人值守报告和 Wiki resume 都必须从 manifest 递归展开闭包，不依赖上一 session
@@ -1164,7 +1170,8 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_consolidation.py` | Finding event history、当前投影、跨 batch revision、重建和 grant purge | 私密 Finding state |
 | `lib/dreaming_process.py` | analysis receipt、可选 consolidation、batch commit/cursor 的幂等编排 | 仅通过 analysis/consolidation/batch owner |
 | `lib/routine_identity.py` | 为 INDEX 与 Dreaming 归并飞书文档的历史 UID 和文档链接，确认每个归并来源的 Profile 唯一 | 否 |
-| `lib/dreaming_digest.py` | 快照归并后的定期来源；恢复历史 UID、核验普通 digest 或 Wiki scan 的真实回执，完整后推进 per-source checkpoint | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
+| `lib/dreaming_digest.py` | 快照定期来源、关联子运行、记录成功或阻塞，收尾时按真实回执单调推进各来源覆盖 | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
+| `lib/dreaming_digest_scan.py` | 通过公开 source 与 Digest facade 有界并发复查已登记来源，直接登记空窗口和无变化，隔离单源失败 | 通过既有 flow、run log 和批次 owner 写入 |
 | `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
 | `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
 | `lib/dreaming_reports.py` | morning/daily/weekly 窗口、coverage dependency、私密 packet、owner readiness 与 delivery outbox | 私密 report packet、dependency、outbox |
@@ -1234,7 +1241,7 @@ flowchart LR
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
 | `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；Viewer 可修改访问保护、Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；API 保留旧自动报告的只读兼容字段 |
 | `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt/source checkpoint；enabled 与 operational 分离；默认不接管报告 |
-| `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + Agent runner | 批次固定来源清单与 Profile revision；接受可回查 raw 的 `committed/noop`、可复验的本轮群聊 `empty_window` 或 Wiki 完整 scan；清单漂移或任一失败不推进 checkpoint |
+| `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + Agent runner | 批次固定来源清单与 Profile revision，记录子运行、成功回执或失败码。清单漂移拒绝更新；部分完成只推进成功来源 |
 | `byteworker-dreaming-run-event/v1` | `dreaming_run_log.py` | 稳定 run_id；事件/stage/metrics 白名单；无业务正文；独立日志锁、5 MiB 轮转与 1..365 天保留 |
 | `byteworker-dreaming-run-result/v1` | Agent / 报告完成入口 + `dreaming_run_result.py` | 私有语义摘要和可选来源说明。耗时按租约核算，来源状态与库变更按下游回执核验，未知单列。诊断反馈不读取此正文 |
 | Dreaming 跨阶段结构契约 | `dreaming_models.py` | schema 白名单、必填结构、枚举和 evidence ref 形状；不复刻业务语义 |
@@ -1318,6 +1325,8 @@ Dreaming 的宿主唤醒与任务运行分别使用 `DT-…` 和 `DR-…`。调�
 保留可重试语义。Viewer 诊断 GET 与本机同源 POST 遵守会话口令；导出不调用业务调试 API。
 宿主 runner 在实际执行或启动失败时将已知编号放在可见任务结果首行。诊断默认从最近唤醒开始，
 沿调度记录关联具体运行，保留白名单内的固定失败码。诊断编号和固定原因码可显示在 Viewer 调试页。
+本地 process 摘要汇总租约窗口内关联 Digest 的阶段耗时、阶段外间隔和宿主上报调用耗时、间隔与
+用量，按实测或估算分组。并发子运行墙钟按区间并集核算；阶段耗时仍为累计工作量。反馈出口不加载这些数据。
 
 自动报告另有四条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
 digest 事务失败时不得继续生成“看似完整”的报告；报告周期 Calendar 枚举必须使用 user 身份且

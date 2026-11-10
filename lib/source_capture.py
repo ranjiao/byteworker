@@ -206,8 +206,18 @@ def _bounded(value: str, limit: int = 2048) -> str:
     return normalized if len(normalized) <= limit else normalized[: limit - 1] + "…"
 
 
+def is_rate_limit_error(message: str) -> bool:
+    lower = message.lower()
+    return (
+        any(marker in lower for marker in ("rate limit", "rate_limit", "too many requests", "throttl"))
+        or re.search(r'(?:http(?: error)?|status(?:_code)?"?|code"?)\s*[:=]?\s*"?429\b', lower) is not None
+    )
+
+
 def _classify_cli_error(message: str) -> tuple[str, str]:
     lower = message.lower()
+    if is_rate_limit_error(message):
+        return ("SOURCE_RATE_LIMITED", "来源触发限流，降低并发后重试。")
     if "91403" in lower or "permission denied" in lower or "forbidden" in lower:
         return (
             "SOURCE_PERMISSION_DENIED",

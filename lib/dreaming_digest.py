@@ -11,12 +11,13 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from frontmatter import parse_file
+from dreaming_run_log import MACHINE_CODE
 from operation_trace import DIGEST_RUN_ID
 from routine_identity import IdentityKey, RoutineDocumentAliases
 from source_profile_contract import SourceProfileError
 from source_profiles import list_profiles, profile_revision
 from sources import SourceBundleError, load_source_bundle
-from sources.adapters.text import empty_chat_window
+from sources.adapters.text import chat_window, empty_chat_window
 from sources.registry import create_default_registry
 from dreaming_state import (
     DreamingError,
@@ -32,7 +33,7 @@ from dreaming_state import (
 
 RESULT_SCHEMA = "byteworker-dreaming-digest-result/v1"
 BATCH_SCHEMA = "byteworker-dreaming-digest-batch/v1"
-SUCCESS_STATUSES = {"committed", "noop", "observed", "empty_window"}
+SUCCESS_STATUSES = {"committed", "noop", "observed", "empty_window", "covered"}
 TRANSACTION_SUCCESS_STATUSES = {"committed", "noop"}
 ROUTINE_CADENCES = {"daily", "weekly", "monthly"}
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -264,6 +265,17 @@ def _load_batch(kb: Path, run_id: str) -> dict[str, Any]:
     return value
 
 
+def _covers(checkpoint: object, source: Mapping[str, Any], target: str) -> bool:
+    if not isinstance(checkpoint, Mapping):
+        return False
+    through = parse_time(checkpoint.get("through"))
+    boundary = parse_time(target)
+    return (
+        checkpoint.get("profile_revision") == source["profile_revision"]
+        and through is not None and boundary is not None and through >= boundary
+    )
+
+
 def prepare_routine_digest(
     kb: Path,
     *,
@@ -271,7 +283,6 @@ def prepare_routine_digest(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
-    inventory = routine_inventory(kb)
     with state_lock(kb):
         state = load_state_unlocked(kb, current)
         lease = _live_process_lease(state, token=token, now=current)
@@ -289,6 +300,8 @@ def prepare_routine_digest(
         if path.is_file():
             batch = _load_batch(kb, run_id)
         else:
+            inventory = routine_inventory(kb)
+            checkpoints = state.get("source_checkpoints", {})
             batch = {
                 "schema_version": BATCH_SCHEMA,
                 "run_id": run_id,
@@ -299,7 +312,9 @@ def prepare_routine_digest(
                 "sources": {
                     item["source_key"]: {
                         **item,
-                        "status": "pending",
+                        "status": "covered" if _covers(
+                            checkpoints.get(item["source_key"], {}), item, target_through,
+                        ) else "pending",
                         "receipt": {},
                         "error_code": "",
                     }
@@ -319,6 +334,7 @@ def prepare_routine_digest(
                     "cadence", "workflow", "origin", "status",
                 )},
                 "label": item.get("label", ""),
+                **{key: item[key] for key in ("work", "raw_path", "error_code") if item.get(key)},
             }
             for item in batch["sources"].values()
         ],
@@ -425,7 +441,7 @@ def routine_run_accounting(kb: Path, run_id: str) -> dict[str, Any]:
             continue
         status = source.get("status", "unknown")
         receipt = source.get("receipt")
-        changes = dict.fromkeys(totals, 0) if status in {"noop", "empty_window"} else None
+        changes = dict.fromkeys(totals, 0) if status in {"noop", "empty_window", "covered"} else None
         if status == "committed" and isinstance(receipt, Mapping):
             changes = _commit_changes(kb, receipt)
         if changes is None:
@@ -437,6 +453,7 @@ def routine_run_accounting(kb: Path, run_id: str) -> dict[str, Any]:
         sources.append({
             "source_key": key, "source_type": source.get("source_type", ""),
             "label": source.get("label", ""), "status": status, "kb_operations": changes,
+            **({"error_code": source["error_code"]} if source.get("error_code") else {}),
         })
     return {
         "routine_batch_recorded": True,
@@ -450,6 +467,10 @@ def _verify_transaction_receipt(
     kb: Path,
     source: Mapping[str, Any],
     result: Mapping[str, Any],
+    *,
+    target_through: str,
+    acquired_at: str,
+    now: datetime,
 ) -> dict[str, Any]:
     status = str(result.get("status", ""))
     if status not in TRANSACTION_SUCCESS_STATUSES:
@@ -505,6 +526,8 @@ def _verify_transaction_receipt(
         )
     if status == "committed":
         _verify_git_commit(kb, str(receipt.get("commit", "")))
+    if source["source_type"] == "feishu_chat":
+        _verify_chat_coverage(chat_window(frontmatter.get("source_window")), target_through, acquired_at, now)
     return {
         "status": status,
         "digest_key": digest_key,
@@ -568,6 +591,17 @@ def _verify_wiki_receipt(
     }
 
 
+def _verify_chat_coverage(window, target_through: str, acquired_at: str, now: datetime) -> None:
+    target = parse_time(target_through)
+    acquired = parse_time(acquired_at)
+    if (
+        window is None or target is None or acquired is None
+        or not window[0] <= target <= window[1]
+        or not acquired.replace(microsecond=0) <= window[1] <= now
+    ):
+        raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "群聊窗口未覆盖本轮目标时间，或不是本轮抓取。")
+
+
 def _verify_empty_chat_receipt(
     kb: Path,
     source: Mapping[str, Any],
@@ -604,12 +638,7 @@ def _verify_empty_chat_receipt(
     ):
         raise DreamingError(invalid, "群聊空窗口与本轮来源或配置版本不符。")
     start, end = window
-    target = parse_time(target_through)
-    acquired = parse_time(acquired_at)
-    if not target or not acquired or not (
-        start <= target <= end and acquired.replace(microsecond=0) <= end <= now
-    ):
-        raise DreamingError(invalid, "群聊空窗口未覆盖本轮目标时间，或不是本轮抓取。")
+    _verify_chat_coverage(window, target_through, acquired_at, now)
     return {
         "status": "empty_window",
         "digest_run_id": run_id,
@@ -625,15 +654,41 @@ def record_routine_digest_result(
     input_path: Path,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    return record_routine_digest(kb, token=token, result=_load_result(input_path), now=now)
+
+
+def link_routine_digest(kb: Path, *, token: str, source_key: str, digest_run_id: str) -> dict[str, Any]:
+    if not DIGEST_RUN_ID.fullmatch(digest_run_id):
+        raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "Digest 运行编号无效。")
+    current = _now()
+    with state_lock(kb):
+        lease = _live_process_lease(load_state_unlocked(kb, current), token=token, now=current)
+        batch = _load_batch(kb, str(lease["run_id"]))
+        source = batch["sources"].get(source_key)
+        if batch["status"] != "running" or not source or source["status"] != "pending":
+            raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "来源不属于当前待处理批次。")
+        work = {"digest_run_id": digest_run_id}
+        if source.get("work", work) != work:
+            raise DreamingError("DREAMING_DIGEST_RESULT_CONFLICT", "该来源已有进行中的 Digest。")
+        source["work"] = work
+        atomic_write_json(_batch_path(kb, str(lease["run_id"])), batch)
+    from dreaming_scheduler import heartbeat_run
+
+    heartbeat_run(kb, token=token, stage="collection", digest_run_id=digest_run_id)
+    return work
+
+
+def record_routine_digest(
+    kb: Path, *, token: str, result: Mapping[str, Any], now: datetime | None = None,
+) -> dict[str, Any]:
     current = now or _now()
-    result = _load_result(input_path)
     source_key = str(result.get("source_key", ""))
     with state_lock(kb):
         state = load_state_unlocked(kb, current)
         lease = _live_process_lease(state, token=token, now=current)
         batch = _load_batch(kb, str(lease["run_id"]))
         source = batch["sources"].get(source_key)
-        if not isinstance(source, dict):
+        if not isinstance(source, dict) or batch["status"] != "running":
             raise DreamingError(
                 "DREAMING_DIGEST_RESULT_INVALID",
                 "结果来源不属于当前定期摄取批次。",
@@ -647,7 +702,14 @@ def record_routine_digest_result(
                 "DREAMING_DIGEST_RESULT_INVALID",
                 "结果来源或 Profile revision 与批次快照不一致。",
             )
-        if source["workflow"] == "wiki_scan_then_digest":
+        status = result.get("status")
+        error_code = ""
+        if status in ("failed", "blocked"):
+            error_code = str(result.get("error_code", ""))
+            if not MACHINE_CODE.fullmatch(error_code):
+                raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "来源失败必须提供固定错误码。")
+            verified = {"status": status}
+        elif source["workflow"] == "wiki_scan_then_digest":
             verified = _verify_wiki_receipt(kb, source, result)
         elif result.get("status") == "empty_window":
             verified = _verify_empty_chat_receipt(
@@ -655,7 +717,10 @@ def record_routine_digest_result(
                 acquired_at=lease["acquired_at"], now=current,
             )
         else:
-            verified = _verify_transaction_receipt(kb, source, result)
+            verified = _verify_transaction_receipt(
+                kb, source, result, target_through=batch["target_through"],
+                acquired_at=lease["acquired_at"], now=current,
+            )
         if source["status"] in SUCCESS_STATUSES and source["receipt"] != verified:
             raise DreamingError(
                 "DREAMING_DIGEST_RESULT_CONFLICT",
@@ -663,6 +728,7 @@ def record_routine_digest_result(
             )
         source["status"] = verified["status"]
         source["receipt"] = verified
+        source["error_code"] = error_code
         source["finished_at"] = utc_iso(current)
         atomic_write_json(_batch_path(kb, str(lease["run_id"])), batch)
     return {
@@ -676,6 +742,7 @@ def complete_routine_digest(
     kb: Path,
     *,
     token: str,
+    allow_partial: bool = False,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
@@ -684,12 +751,18 @@ def complete_routine_digest(
         lease = _live_process_lease(state, token=token, now=current)
         run_id = str(lease["run_id"])
         batch = _load_batch(kb, run_id)
+        checkpoints = state.setdefault("source_checkpoints", {})
+        for source in batch["sources"].values():
+            if source.get("status") == "covered" and not _covers(
+                checkpoints.get(source["source_key"]), source, batch["target_through"],
+            ):
+                source["status"] = "pending"
         pending = [
             item["source_key"]
             for item in batch["sources"].values()
             if item.get("status") not in SUCCESS_STATUSES
         ]
-        if pending:
+        if pending and not allow_partial:
             raise DreamingError(
                 "DREAMING_DIGEST_INCOMPLETE",
                 "仍有定期来源未取得已核验的完成回执。",
@@ -719,8 +792,11 @@ def complete_routine_digest(
                 "DREAMING_DIGEST_INVENTORY_CHANGED",
                 "定期来源清单在本轮运行中发生变化，拒绝推进覆盖检查点。",
             )
-        checkpoints = state.setdefault("source_checkpoints", {})
         for key, source in batch["sources"].items():
+            if source["status"] == "covered" or source["status"] not in SUCCESS_STATUSES:
+                continue
+            if _covers(checkpoints.get(key, {}), source, batch["target_through"]):
+                continue
             checkpoints[key] = {
                 "source_type": source["source_type"],
                 "source_uid": source["source_uid"],
@@ -736,20 +812,26 @@ def complete_routine_digest(
                 checkpoints[key]["digest_key"] = source["receipt"]["digest_key"]
             else:
                 checkpoints[key]["tree_hash"] = source["receipt"]["tree_hash"]
-        batch["status"] = "completed"
+        batch["status"] = "partial" if pending else "completed"
         batch["completed_at"] = utc_iso(current)
-        atomic_write_json(_batch_path(kb, run_id), batch)
         state["updated_at"] = utc_iso(current)
         save_state_unlocked(kb, state)
+        atomic_write_json(_batch_path(kb, run_id), batch)
     from dreaming_reports import refresh_report_dependencies
 
     refresh_report_dependencies(kb, now=current)
     return {
         "schema_version": BATCH_SCHEMA,
         "run_id": run_id,
-        "status": "completed",
+        "status": batch["status"],
         "target_through": batch["target_through"],
         "source_count": len(batch["sources"]),
+        "incomplete_count": len(pending),
+        "incomplete_sources": [
+            {"source_key": key, "status": batch["sources"][key]["status"],
+             "error_code": batch["sources"][key].get("error_code", "")}
+            for key in pending
+        ],
         "committed_count": sum(
             item["status"] == "committed" for item in batch["sources"].values()
         ),
@@ -762,6 +844,7 @@ def complete_routine_digest(
         "empty_window_count": sum(
             item["status"] == "empty_window" for item in batch["sources"].values()
         ),
+        "covered_count": sum(item["status"] == "covered" for item in batch["sources"].values()),
     }
 
 
