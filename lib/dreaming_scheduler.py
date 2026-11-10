@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import uuid
+from collections import Counter
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -17,7 +18,7 @@ from dreaming_run_log import (
     append_run_event,
     logging_config,
 )
-from dreaming_run_result import save_run_result, validate_maintenance_issues
+from dreaming_run_result import RESULT_SCHEMA, read_run_result, save_run_result, validate_maintenance_issues
 
 from dreaming_state import (
     STATE_SCHEMA,
@@ -35,12 +36,15 @@ from dreaming_state import (
 
 JOBS = ("process", "morning", "daily", "weekly", "maintenance", "recovery")
 RUN_STATUSES = {"success", "partial", "failed"}
+SOURCE_REVIEW_REQUIRED = "SOURCE_REVIEW_REQUIRED"
 HUMAN_BLOCKING_ERRORS = {
     "SOURCE_AUTH_REQUIRED",
     "SOURCE_PERMISSION_DENIED",
     "SOURCE_PROFILE_INVALID",
+    SOURCE_REVIEW_REQUIRED,
     "DREAMING_ROUTINE_SOURCE_INVALID",
     "DREAMING_ROUTINE_SOURCE_UNSUPPORTED",
+    "DREAMING_BUDGET_REVIEW_REQUIRED",
     "DREAMING_GRANT_REQUIRED",
 }
 BACKOFF_MINUTES = 5
@@ -1716,6 +1720,7 @@ def complete_run(
     gap_count: int | None = None,
     batch_id: str = "",
     result_document: Mapping[str, Any] | None = None,
+    report_sources: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if run_status not in RUN_STATUSES:
@@ -1723,7 +1728,8 @@ def complete_run(
             "DREAMING_RUN_STATUS_INVALID",
             "run_status 必须是 success、partial 或 failed。",
         )
-    if run_status != "success" and not error_code.strip():
+    error_code = error_code.strip()
+    if run_status != "success" and not error_code:
         raise DreamingError(
             "DREAMING_RUN_RESULT_INVALID",
             "partial/failed 回执必须提供稳定错误码。",
@@ -1753,6 +1759,14 @@ def complete_run(
                 "DREAMING_LEASE_MISMATCH",
                 "Dreaming lease epoch 已过期。",
             )
+        has_review = "review" in (result_document or {})
+        if error_code == SOURCE_REVIEW_REQUIRED:
+            if job_name != "process" or run_status == "success" or not has_review:
+                raise DreamingError(
+                    "DREAMING_RUN_RESULT_INVALID", "待复核的 process 必须提供包含问题和选项的 review。"
+                )
+        elif has_review:
+            raise DreamingError("DREAMING_RUN_RESULT_INVALID", "review 只接受待复核的 process 结果。")
         maintenance_delta = {}
         if result_document is not None and "issues" in result_document:
             if job_name != "maintenance" or run_status != "success":
@@ -1815,17 +1829,47 @@ def complete_run(
                 )
         artifact = _validate_artifact(job_name, artifact_path)
         run_id = _lease_run_id(lease)
-        result_path = (
-            save_run_result(
-                kb,
-                document=result_document,
-                job=job_name,
-                period=str(lease.get("period", "")),
-                run_id=run_id,
-                now=current,
+        period = str(lease.get("period", ""))
+        started_at = _parse_time(lease.get("acquired_at"))
+        metrics = {
+            key: count for key, count in (
+                ("item_count", item_count), ("finding_count", finding_count), ("gap_count", gap_count),
+            ) if count is not None
+        }
+        if started_at is not None:
+            metrics["duration_ms"] = max(0, int((current - started_at).total_seconds() * 1000))
+        accounting = {"status": run_status, "error_code": error_code, "metrics": metrics}
+        if job_name == "process":
+            from dreaming_digest import routine_run_accounting
+            from dreaming_action_ledger import count_run_kb_actions
+
+            accounting.update(routine_run_accounting(kb, run_id))
+            action_count = count_run_kb_actions(
+                kb, value["actions"], lease_token=token, started_at=started_at,
             )
-            if result_document is not None
-            else ""
+            if action_count:
+                accounting.setdefault("kb_operations", {})["durable_actions"] = action_count
+        if normalized_batch_id:
+            by_chat = Counter(
+                item["chat_id"] for item in manifest_value.get("items", [])
+                if isinstance(item, Mapping) and isinstance(item.get("chat_id"), str)
+            )
+            accounting["im_sources"] = [
+                {"label": f"会话 {index}", "item_count": count}
+                for index, count in enumerate(by_chat.values(), start=1)
+            ]
+        if report_sources is not None:
+            accounting["report_sources"] = report_sources
+            accounting["kb_operations"] = {"reports_written": 1}
+        if result_document is not None and isinstance(result_document.get("repairs"), list):
+            accounting["reported_repairs"] = len(result_document["repairs"])
+        document = result_document if result_document is not None else {
+            "schema_version": RESULT_SCHEMA, "job": job_name, "period": period,
+            "summary": "本轮未记录主要信息摘要。",
+        }
+        result_path = save_run_result(
+            kb, document=document, job=job_name, period=period, run_id=run_id,
+            now=current, accounting=accounting,
         )
         run = {
             "run_id": run_id,
@@ -1837,7 +1881,7 @@ def complete_run(
             "finished_at": _iso(current),
             "artifact_path": artifact,
             "coverage_checkpoint": coverage_checkpoint.strip(),
-            "error_code": error_code.strip(),
+            "error_code": error_code,
             "batch_id": normalized_batch_id,
             "result_path": result_path,
         }
@@ -1870,20 +1914,6 @@ def complete_run(
         value["active_lease"] = None
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
-        started_at = _parse_time(lease.get("acquired_at"))
-        metrics: dict[str, int] = {}
-        if started_at is not None:
-            metrics["duration_ms"] = max(
-                0,
-                int((current - started_at).total_seconds() * 1000),
-            )
-        for key, count in (
-            ("item_count", item_count),
-            ("finding_count", finding_count),
-            ("gap_count", gap_count),
-        ):
-            if count is not None:
-                metrics[key] = count
         log_settings = _log_settings(value)
         append_run_event(
             kb,
@@ -1898,9 +1928,10 @@ def complete_run(
             error_code=error_code,
             artifact_path=artifact,
             batch_id=normalized_batch_id,
+            result_path=result_path,
             metrics=metrics,
             retention_days=log_settings["retention_days"],
             max_file_bytes=log_settings["max_file_bytes"],
             now=current,
         )
-    return run
+    return {**run, "summary": read_run_result(kb, run_id)}

@@ -34,6 +34,8 @@ def parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect", parents=[common], help="measure complete token budgets")
     inspect.add_argument("--context", type=Path)
     inspect.add_argument("--source-packet", type=Path)
+    inspect.add_argument("--approved-review-id", default="", help="仅在用户明确确认本次预算例外后使用")
+    inspect.add_argument("--host-input-limit", type=int, help="核实后的宿主可用输入 token 数")
     return result
 
 
@@ -56,6 +58,8 @@ def main() -> int:
                 **route_args,
                 context_path=args.context,
                 source_packet_path=args.source_packet,
+                approved_review_id=args.approved_review_id,
+                host_input_limit=args.host_input_limit,
             )
     except WorkflowBudgetError as exc:
         json.dump({"error": exc.as_dict()}, sys.stdout, ensure_ascii=False)

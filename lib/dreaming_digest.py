@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -105,6 +106,7 @@ def routine_inventory(kb: Path) -> list[dict[str, Any]]:
                 "source_type": source_type,
                 "source_uid": source_uid,
                 "profile_revision": profile_revision(profile),
+                "label": str(profile.get("title", ""))[:200],
                 "cadence": routine["cadence"],
                 "workflow": (
                     "wiki_scan_then_digest"
@@ -201,6 +203,7 @@ def routine_inventory(kb: Path) -> list[dict[str, Any]]:
             "source_type": source_type,
             "source_uid": source_uid,
             "profile_revision": revision,
+            "label": str(frontmatter.get("source_title", ""))[:200],
             "cadence": cadence,
             "workflow": "ordinary_digest",
             "origin": "legacy_raw",
@@ -311,17 +314,11 @@ def prepare_routine_digest(
         "target_through": batch["target_through"],
         "sources": [
             {
-                key: item[key]
-                for key in (
-                    "source_key",
-                    "source_type",
-                    "source_uid",
-                    "profile_revision",
-                    "cadence",
-                    "workflow",
-                    "origin",
-                    "status",
-                )
+                **{key: item[key] for key in (
+                    "source_key", "source_type", "source_uid", "profile_revision",
+                    "cadence", "workflow", "origin", "status",
+                )},
+                "label": item.get("label", ""),
             }
             for item in batch["sources"].values()
         ],
@@ -372,6 +369,81 @@ def _verify_git_commit(kb: Path, commit: str) -> None:
             "DREAMING_DIGEST_RESULT_INVALID",
             "digest receipt 引用的 commit 不存在。",
         )
+
+
+def _commit_changes(kb: Path, receipt: Mapping[str, Any]) -> dict[str, int] | None:
+    commit = str(receipt.get("commit", ""))
+    if not re.fullmatch(r"(?:[a-f0-9]{40}|[a-f0-9]{64})", commit):
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "diff-tree", "--root", "--no-renames", "--no-commit-id", "-r", "-z",
+             "--name-status", commit, "--"],
+            cwd=kb, capture_output=True, check=True,
+        )
+        fields = result.stdout.decode("utf-8", errors="replace").split("\0")
+        changes = list(zip(fields[::2], fields[1::2]))
+        matched_raw = False
+        for _, path in changes:
+            if not path.startswith("raw_data/") or not path.endswith(".md"):
+                continue
+            raw = kb / path
+            if raw.resolve().parent != (kb / "raw_data").resolve() or not raw.is_file():
+                continue
+            frontmatter, _ = parse_file(str(raw))
+            if (frontmatter.get("raw_id") == receipt.get("raw_id")
+                    and frontmatter.get("digest_key") == receipt.get("digest_key")):
+                matched_raw = True
+                break
+    except (OSError, UnicodeError, subprocess.CalledProcessError):
+        return None
+    if not matched_raw:
+        return None
+    nodes = [status for status, path in changes if path.startswith("knowledge/") and path.endswith(".md")]
+    return {
+        "digest_commits": 1,
+        "files_changed": len(changes),
+        "nodes_created": nodes.count("A"),
+        "nodes_updated": nodes.count("M"),
+        "nodes_deleted": nodes.count("D"),
+    }
+
+
+def routine_run_accounting(kb: Path, run_id: str) -> dict[str, Any]:
+    """Summarize recorded receipts without claiming writes from unfinished sources."""
+    try:
+        batch = _load_batch(kb, run_id)
+    except DreamingError:
+        return {"routine_batch_recorded": False}
+    totals = dict.fromkeys(("digest_commits", "files_changed", "nodes_created", "nodes_updated", "nodes_deleted"), 0)
+    seen_commits = set()
+    sources = []
+    unaccounted = 0
+    for key, source in batch["sources"].items():
+        if not isinstance(source, Mapping):
+            unaccounted += 1
+            continue
+        status = source.get("status", "unknown")
+        receipt = source.get("receipt")
+        changes = dict.fromkeys(totals, 0) if status in {"noop", "empty_window"} else None
+        if status == "committed" and isinstance(receipt, Mapping):
+            changes = _commit_changes(kb, receipt)
+        if changes is None:
+            unaccounted += 1
+        elif status == "committed" and receipt["commit"] not in seen_commits:
+            seen_commits.add(receipt["commit"])
+            for name, count in changes.items():
+                totals[name] += count
+        sources.append({
+            "source_key": key, "source_type": source.get("source_type", ""),
+            "label": source.get("label", ""), "status": status, "kb_operations": changes,
+        })
+    return {
+        "routine_batch_recorded": True,
+        "routine_sources": sources,
+        "unaccounted_sources": unaccounted,
+        "kb_operations": totals,
+    }
 
 
 def _verify_transaction_receipt(

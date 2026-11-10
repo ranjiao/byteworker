@@ -327,6 +327,10 @@ class DreamingReportTests(unittest.TestCase):
 
             self.assertEqual("completed", completed["status"])
             self.assertEqual("skipped", completed["delivery"]["status"])
+            self.assertEqual(completed["rendered"]["summary"], completed["run"]["summary"]["summary"])
+            accounting = completed["run"]["summary"]["accounting"]
+            self.assertEqual({"reports_written": 1}, accounting["kb_operations"])
+            self.assertTrue(accounting["report_sources"])
             self.assertEqual(
                 "reports/morning/2026-08-04.md",
                 completed["run"]["artifact_path"],

@@ -293,14 +293,12 @@ provider 坐标/样式噪声，也不判断依赖重要性、事实含义或冲�
 任一失败则整体 coverage failed。顺序 page token/offset 不因该协议变成可并发。
 
 `byteworker-digest-parallel-plan/v1` 保存 stage、输入 hash、inline/parallel 决定、稳定 reason code、
-最多 4 个 shard 路径及 item/weight 计数，并同时给出两种模式的 estimated total tokens、wall time、
-估算方法、阶段 token budget 和 remaining。dependency 少于 32 项、semantic 少于 200 项、conflict
-少于 16 项固定 inline；其余还必须满足来源 token floor、至少 30 秒且 25% 墙钟收益、worker/reducer
-packet 预算和阶段总 token 预算。只有固定 reason
-`PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM` 才 fan-out，planner 而非 Agent 决定。
+私密 shard 路径及 item/weight 计数。可选提速并行保持原有项数、墙钟和总预算门槛。
+超限时 `budget_required=true`，可生成超过 4 个分片，同时最多执行 4 个。回执包含分片累计
+输入估算。语义条目切分保留原 path 与 `text_range`，延后使用的 anchor 索引留在原私有包。
 
-final reducer 不再继承完整 digest 闭包，只加载 `digest-final-reducer.md` 与 semantic/provenance/
-conflict/write/transaction 必要规则；它只消费已验证完整 coverage 的 reduce packet，不重读原文。
+final reducer 加载 `digest-final-reducer.md` 与 semantic/provenance/conflict/write/transaction
+必要规则，消费已验证完整 coverage 的 reduce packet。整包超限时回执返回 `reduction_batches`。
 `byteworker-digest-parallel-shard/v1` 只含本 shard 的候选或语义文本，以及必要的 identity/outline/
 anchor/source-match 投影。
 
@@ -451,7 +449,7 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
 - 目录 `0700`、文件与独立日志锁 `0600`；单文件 5 MiB 轮转。
 - `logging.retention_days` 可配置 1..365，默认 30；append 时确定性清理过期日文件。
 - 事件只允许 leased/heartbeat/renewed/completed/lease_expired，stage 和 metrics 使用固定白名单。
-- 允许保存 run/job/period/owner/epoch、时间、status、error code、KB 相对 artifact path，以及
+- 允许保存 run/job/period/owner/epoch、时间、status、error code、KB 相对 artifact path、终态摘要路径，以及
   process 完成时的 EvidenceBatch id、duration/item/finding/gap/progress 非负计数。
 - 禁止保存 IM/Finding 正文、人员或群名、URL、凭据、完整 argv、stdout/stderr；日志不是知识证据。
 
@@ -462,9 +460,15 @@ Dreaming 运行正文、checkpoint 和后续 findings 均位于 `state/dreaming/
 本地 Dreaming 调试页通过只读聚合层把 run id 关联到 EvidenceBatch、FindingBundle、report
 artifacts 和 evidence spool；正文只在用户主动打开本机调试页时按需读取，不复制进 run log。
 历史 run 没有显式 batch id 时允许按 run 时间窗口保守关联，并必须在界面标明推断关系。
-maintenance/recovery 使用 `byteworker-dreaming-run-result/v1` 保存本轮 summary、有限
+任务终态使用 `byteworker-dreaming-run-result/v1` 保存本轮 summary、可选来源说明、有限
 `pass/warning/fail/noop` 检查项和 `repairs[]` 修复明细到
-`state/dreaming/run-results/<run_id>.json`；修复明细只含 KB 相对路径、问题码、动作和摘要。
+`state/dreaming/run-results/<run_id>.json`。新增可选 `accounting`，含租约耗时、来源结果、
+已核验的提交和文件/节点变更、持久化动作回执数、IM 会话消息数或报告条目引用分布。未核验的来源单列，
+维护修复数来自结果回执。终态事件只保存相对路径，`runs show` 和 Viewer 关联同一份私有摘要。
+新完成的 `SOURCE_REVIEW_REQUIRED` process 结果必填 `review`。字段包括阶段 `stage`
+（`dependency_review` 或 `conflict_review`）、具体问题 `problem`、待决定事项 `question` 和
+2 至 5 项 `options[{action,effect}]`。旧回执可继续读取。
+技术诊断和反馈投影不加载该正文。修复明细只含 KB 相对路径、问题码、动作和摘要。
 历史任务没有该文档时调试页必须明确提示证据不足，不能从成功状态推断结果正确。
 
 `lib/dreaming_models.py` 定义并结构校验以下瞬时契约，不负责语义正确性，也不自行持久化：

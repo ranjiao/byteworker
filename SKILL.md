@@ -58,7 +58,7 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
 无来源时省略 source-type。触发条件规则时加 `--feature <FEATURE>`，失败才加 `--include-on-error`。
 已读文件无需重读。只补读明确触发的条件规则，避免沿解释性链接整包加载。
 隔离 worker 或动态输入接近上限时，按 `references/workflow-budgets.md` 取完整 budget receipt。
-超预算时执行规定的 action，保留完整证据。
+超预算先按回执检查重复输入和分片。确需放宽时按预算细则合并询问，不自行提高上限。
 
 用 `bin/byteworker <tool> ...` 调用命令。飞书 CLI 用 `bin/byteworker lark ...`，辅助脚本用
 `bin/byteworker run ...`。由入口解析 Python、nvm、venv 和内部 CLI 路径。公共 CLI 响应格式见
@@ -212,8 +212,8 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
 - 每次 lease 都有稳定 `run_id`。runner 在采集、分析、整合、动作、报告、维护和恢复等长阶段
   调用 `dreaming heartbeat`，最终 `complete`；用户可用 `dreaming runs list/show/tail` 查询
   `0600` 结构化运行日志。日志只含阶段、耗时、计数、error code 和 artifact path，不含 IM 正文。
-- 实际执行或启动失败的宿主任务结果首行带已知诊断编号。用户反馈运行异常时，先按
-  `references/dreaming.md` 读取最近唤醒和运行记录，按时间确认，不要求用户先提供编号。
+- 宿主首行回显诊断编号，完成时返回回执摘要。待复核时说明需决定的问题。异常按
+  `references/dreaming.md` 查最近唤醒和运行，不要求用户提供编号。
 - 启用默认不接管现有日报/周报；接管需要单独确认旧 scheduler owner 已释放。
 - Dreaming local state 使用 `byteworker-dreaming/v2`；读取已有 v1 时由确定性状态层先写本地私密
   备份再迁移。迁移失败保持 Dreaming 关闭，不得阻塞其它命令或让 Agent 手改 state JSON。

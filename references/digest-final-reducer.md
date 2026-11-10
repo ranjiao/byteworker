@@ -1,8 +1,11 @@
 # byteworker · Digest final reducer
 
 只在 `digest-parallel merge` 已验证完整 shard coverage 后加载。reducer 只读 reduce packet、同一 run 的
-conflict receipt、SourceBundle identity/anchors 和已有节点的定点快照；不重读完整 component、不扫描全库、
+conflict receipt、SourceBundle identity、按需回查的 anchors 和已有节点的定点快照；不重读完整 component、不扫描全库、
 不启动 worker、不询问用户，也不直接写 KB。
+
+merge 返回 `reduction_batches` 时，先逐批整理，保留来源引用、去重键和未解决冲突。对紧凑的合并结果
+再次核算预算后统一裁决。整份私有 reduce packet 用于核对，勿把它和各批一并读入模型。
 
 1. 按 `dedupe_key`、source refs 和同源节点合并重复 record，保留每条 evidence anchor；不把语义相似
    自动当作同一事实。

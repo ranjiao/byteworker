@@ -60,6 +60,31 @@ def _write_action(kb: Path, value: Mapping[str, Any]) -> None:
     atomic_write_json(_action_path(kb, str(value["action_id"])), value)
 
 
+def count_run_kb_actions(
+    kb: Path, actions: Mapping[str, Any], *, lease_token: str, started_at: datetime | None,
+) -> int:
+    """Count durable actions with verified receipts for this lease only."""
+    count = 0
+    for action_id, index in actions.items():
+        if not isinstance(index, Mapping) or index.get("status") != "committed":
+            continue
+        updated_at = parse_time(index.get("updated_at"))
+        if started_at is not None and updated_at is not None and updated_at < started_at:
+            continue
+        try:
+            action = _read_action(kb, action_id)
+        except DreamingError:
+            continue
+        downstream = action.get("downstream")
+        if (
+            action.get("run_id") == lease_token and action.get("status") == "committed"
+            and isinstance(downstream, Mapping) and downstream.get("status") == "committed"
+            and downstream.get("commit")
+        ):
+            count += 1
+    return count
+
+
 def _require_supported_kind(action: Mapping[str, Any]) -> None:
     if action.get("kind") == RETIRED_TODO_KIND:
         raise DreamingError("DREAMING_ACTION_KIND_RETIRED", "个人待办功能已移除。")

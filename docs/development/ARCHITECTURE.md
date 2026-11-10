@@ -458,6 +458,11 @@ Dreaming 只通过 `bin/byteworker` 公开入口调用 source、query、mutation
 这些模块的内部实现。Dreaming 禁用、状态损坏或 job 失败均不得改变 digest/search/update 等
 既有命令和未迁移的旧自动报告行为。
 
+普通 Digest 的人工裁决规则由原工作流负责。确需用户裁决时，runner 以 `SOURCE_REVIEW_REQUIRED`
+完成 process。完成入口先校验私有 `review` 的阶段、问题、待决定事项和带影响的操作选项，再保存
+结果并释放租约，将该 job 置为 `waiting_for_user`，由显式重试解除。技术失败继续退避。
+宿主本轮结果与本地 Viewer 使用同一私有复核数据，诊断和反馈只投影固定原因码。
+
 I7 后独立 Inbox 不再是 workflow：旧 scanner、writer、模板、context intent 和 route manifest
 条目均已删除。`bin/inbox.py` 只是一个 major 版本的无副作用 tombstone，只输出
 `INBOX_REMOVED`，不得读取 IM、Dreaming state 或 KB。明确的单次 IM 分析进入 Dreaming
@@ -482,7 +487,9 @@ workflow 闭包：每个入口声明 `required/on_error`，digest 再按 `source
 Agent 通过 `workflow-budget resolve` 获取 `byteworker-workflow-route/v1`，不把全部路由/预算读入
 上下文。resolve 复用 `lib/workflow_budget.py.resolve_route`，只展开路径，不读规则正文、不计 token、
 resolver 本身不访问 KB、runtime 或 provider；公开调用仍经过既有 launcher/runtime 缓存与 facade。
-inspect 继续基于同一 resolver 计完整预算。两者不维护平行名单。
+inspect 继续基于同一 resolver 计完整预算，并返回超限分项和可确认的最小预算增量。
+确认只覆盖同一规则和输入，受宿主可用容量限制。Dreaming 需用户决定时释放租约并等待，
+由宿主结果给出选项，不自动提高限额或重试该任务。
 
 普通 digest 的必读执行层是 `digest-core.md`、`digest-flow.md` 和 `digest-inline.md`，同时完整
 加载 machine-protocol、digest-dependencies、provenance、write-rules、conflict-policy、semantic-policy
@@ -841,7 +848,7 @@ flowchart TB
 | `bin/digest-run.py` | 单输入 start/stage/wait/resume/heartbeat/usage/complete/list/show；固定 6 小时 stale 窗口 | 时间线、active duration、waiting/stale 状态、最慢阶段与 token 汇总 |
 | `bin/digest-analysis.py` | SourceBundle components 单次读取、结构去噪、依赖候选/语义文本/参与者/anchor 索引整理；不做语义判断 | 系统临时 `byteworker-digest-analysis-packet/v1` 和无正文 receipt |
 | `bin/digest-capture.py` | 执行最多 4 个显式、独立、只读的 lark/comments capture job；provider 命令构造留在该 adapter，不进入事务 core | `byteworker-digest-capture-receipt/v1` 和显式 `0600` artifact |
-| `bin/digest-parallel.py` | 联合估算 inline/parallel token、worker 成本与墙钟收益，最多 4 路平衡 shards；校验完整覆盖并归并，不做语义裁决 | 带两种估算、选择 reason、预算余量的 plan / shard / result / reduce packet |
+| `bin/digest-parallel.py` | 按阶段投影估算 token 与墙钟，超限时生成逐片核算的有界分片，最多 4 路并发。校验完整覆盖并归并，超限归并结果可分批 | 带选择 reason、预算余量与可执行分批路径的 plan / shard / result / reduce packet |
 | `bin/source.py` + `lib/source_cli_service.py` + `lib/source_operation_contract.py` | 入口只组合 parser、服务和错误编码；服务处理通用结果持久化，provider 参数由 operation adapter 声明并生成 | request/operation 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
@@ -1143,12 +1150,12 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_state.py` | `byteworker-dreaming/v2` 安全路径、`0700/0600`、共享 state lock、原子 JSON 与 v1→v2 迁移 | 仅写 Git 排除的 `state/dreaming/` |
 | `lib/dreaming_models.py` | EvidenceBatch、batch、FindingBundle、ActionPlan、ActionClaim 的结构校验 | 否 |
 | `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、interval/daily/every-N-days、next due、harness truth、fairness、退避、lease/heartbeat、process catch-up 后受限报告 follow-up、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
-| `lib/dreaming_run_log.py` | 每个 run 的 leased/heartbeat/renewed/completed/expired 事件、白名单 metrics、按日/大小轮转、保留期清理与 list/show/tail | `state/dreaming/run-logs/*.jsonl`，仅 `0600` 元数据 |
+| `lib/dreaming_run_log.py` | 每个 run 的 leased/heartbeat/renewed/completed/expired 事件、白名单 metrics、终态关联私有摘要、轮转与查询 | `state/dreaming/run-logs/*.jsonl`，仅 `0600` 元数据 |
 | `lib/dreaming_diagnostics.py` | `tick` 先记宿主唤醒，再运行无人值守 preflight 和当前版本的调度器；`diagnose` 只读关联唤醒、实际调度决定、租约、run 日志和投递 | 唤醒记录使用共用技术存储；诊断读取不迁移、不领取、不重试 |
 | `lib/operation_trace.py` | 本机技术回执，字段与取值白名单、独立锁、有界保留 | 用户私有状态目录；与 KB 写锁和 Git 事务分离 |
 | `lib/support_feedback.py` | 从一个 BW、DT 或 DR 编号重建白名单摘要；不使用本地业务调试详情 | 草稿或本地 ZIP，复用 Digest 的呈现层 |
 | `lib/dreaming_debug.py` | 本地调试页按 run 关联 batch/report 产物，校验 Finding/evidence 一致性并按需投影原文片段 | 只读 `state/dreaming/`，不复制正文到日志 |
-| `lib/dreaming_run_result.py` | 校验 maintenance/recovery 的结构化结果摘要、检查项与修复明细 | `state/dreaming/run-results/<run_id>.json` 私密审计产物 |
+| `lib/dreaming_run_result.py` | 校验每轮结构化摘要、来源说明、检查项与修复明细 | `state/dreaming/run-results/<run_id>.json`，终态日志按 run id 关联，完成回执与本地查询共用 |
 | `lib/dreaming_grants.py` | IM off/monitored/all_visible、persist_finding revision 与降级清理 | grant state、撤销范围内 spool/batch |
 | `lib/dreaming_collectors/feishu_im.py` | user identity 的 queryless discovery 和逐 chat 分页；provider response 规范化 | 否 |
 | `lib/dreaming_collection.py` | 时间窗口、Profile 选择、message revision 去重、coverage 与时间切片 gap | collected batch |
@@ -1211,7 +1218,7 @@ flowchart LR
 | `byteworker-context-view/v1` | `context_view.py` | 固定 intent/章节、显式字符预算，不静默截断 |
 | `byteworker-workflow-routes/v2` | `SKILL.md` + `workflow_budget.py` + route contract tests | 独立入口闭包可递归展开；静态规则/worker prompt/context/source/总输入/输出预算分离；超限 action 固定 |
 | `byteworker-workflow-route/v1` | `workflow-budget resolve` + `resolve_route` | 只返回所选闭包和 prompt 路径；与 inspect 同一 resolver；无 KB/runtime/provider 副作用 |
-| `byteworker-workflow-budget-receipt/v1` | `workflow_budget.py` | tokenizer 或版本化保守估算显式；完整条件闭包计数；动态内容不回显、不静默截断 |
+| `byteworker-workflow-budget-receipt/v1` | `workflow_budget.py` | 显式计量方法与超限分项；可选确认绑定规则和动态输入；动态内容不回显、不静默截断 |
 | `byteworker-digest-feedback/v1` | `digest_feedback.py` | 单次运行；草稿只返回邮件字段；ZIP 回执返回文件清单和摘要；不会把原始日志作为附件 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
@@ -1221,7 +1228,7 @@ flowchart LR
 | `byteworker-digest-flow/v1` | `digest_flow.py` + SourceBundle/analysis/planner/transaction | 私有 phase/artifact checkpoint；确定性阶段自动打点；失败可恢复；只返回固定 next action，不承担语义 |
 | `byteworker-digest-analysis-packet/v1` | `digest_analysis.py` | 私有临时产物；一次读取 Bundle；去除结构噪声但保留 component/path/anchor；不得进入 skill/运行日志 |
 | `byteworker-digest-capture-plan/v1` / `byteworker-digest-capture-receipt/v1` | `digest_capture.py` | 最多 4 个 allowlisted 只读 provider job；输出原子写入；任一失败则 coverage failed |
-| `byteworker-digest-parallel-plan/v1` / `byteworker-digest-parallel-shard/v1` | `digest_parallel.py` | inline/parallel token 与墙钟估算、固定选择 reason/预算余量、最多 4 shards、输入 hash 和私密路径 |
+| `byteworker-digest-parallel-plan/v1` / `byteworker-digest-parallel-shard/v1` | `digest_parallel.py` | 按阶段计量、最多 4 路并发。超限时核验实际分片大小，原始证据保留供定点回查 |
 | `byteworker-digest-parallel-result/v1` / `byteworker-digest-reduce-packet/v1` | Agent workers + `digest_parallel.py` | 完整 shard coverage 和边界校验；单一 reducer 处理语义重复、跨分片关系和用户闸门 |
 | `byteworker-conflict-query/v1` / `byteworker-conflict-candidates/v1` | Agent + `kb_query.py` | 最多 32 条短 query；同源精确定位；单次节点扫描；工具只召回不裁决 |
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
@@ -1229,6 +1236,7 @@ flowchart LR
 | `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt/source checkpoint；enabled 与 operational 分离；默认不接管报告 |
 | `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + Agent runner | 批次固定来源清单与 Profile revision；接受可回查 raw 的 `committed/noop`、可复验的本轮群聊 `empty_window` 或 Wiki 完整 scan；清单漂移或任一失败不推进 checkpoint |
 | `byteworker-dreaming-run-event/v1` | `dreaming_run_log.py` | 稳定 run_id；事件/stage/metrics 白名单；无业务正文；独立日志锁、5 MiB 轮转与 1..365 天保留 |
+| `byteworker-dreaming-run-result/v1` | Agent / 报告完成入口 + `dreaming_run_result.py` | 私有语义摘要和可选来源说明。耗时按租约核算，来源状态与库变更按下游回执核验，未知单列。诊断反馈不读取此正文 |
 | Dreaming 跨阶段结构契约 | `dreaming_models.py` | schema 白名单、必填结构、枚举和 evidence ref 形状；不复刻业务语义 |
 | `byteworker-evidence-batch/v1` | `dreaming_collection.py` + `dreaming_batch.py` | principal/grant revision、窗口、coverage、message anchors、私密 spool refs |
 | `byteworker-dreaming-batch/v1` | `dreaming_batch.py` | collected→analyzed→consolidated→committed/aborted；commit marker 先于 cursor |

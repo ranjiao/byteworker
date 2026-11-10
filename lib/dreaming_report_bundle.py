@@ -700,6 +700,11 @@ def render_report_bundle(
     }
     manifest_path = directory / "manifest.json"
     atomic_write_json(manifest_path, manifest)
+    reference_counts = dict.fromkeys((source["id"] for source in normalized["sources"]), 0)
+    for items in normalized["sections"].values():
+        for item in items:
+            for ref in set(item["source_refs"]):
+                reference_counts[ref] += 1
     return {
         "status": "rendered",
         "kind": normalized["kind"],
@@ -707,6 +712,10 @@ def render_report_bundle(
         "manifest_path": str(manifest_path.relative_to(kb.resolve())),
         "report_path": str(archive_path.relative_to(kb.resolve())),
         "summary": normalized["message_summary"],
+        "source_distribution": [
+            {"label": source["title"], "source_type": source["type"], "reference_count": reference_counts[source["id"]]}
+            for source in normalized["sources"]
+        ],
         "html_path": str(html_path),
         "markdown_path": str(markdown_path),
     }

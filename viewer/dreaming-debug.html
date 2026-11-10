@@ -460,12 +460,12 @@ function statusClass(status) {
   return ["success", "failed", "partial", "running"].includes(status) ? status : "";
 }
 
-function duration(events) {
+function duration(events, recordedMs) {
   if (!events?.length) return "—";
   const start = new Date(events[0].timestamp).getTime();
   const end = new Date(events[events.length - 1].timestamp).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end)) return "—";
-  const seconds = Math.max(0, Math.round((end - start) / 1000));
+  const seconds = Math.max(0, Math.round((recordedMs ?? end - start) / 1000));
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
@@ -636,7 +636,7 @@ function renderResult(result) {
     return `<section class="result-section">
       <div class="section-title">报告结果</div>
       ${result.available
-        ? `<div class="report-summary">${esc(result.summary || "摘要为空")}</div>
+        ? `${state.detail.summary?.accounting ? "" : `<div class="report-summary">${esc(result.summary || "摘要为空")}</div>`}
            ${result.html_url ? `<a class="artifact-link" href="${esc(result.html_url + '?api_token=' + encodeURIComponent(new URLSearchParams(location.search).get('api_token') || ''))}" target="_blank">打开完整 HTML 报告 ↗</a>` : ""}
            <details class="json-details"><summary>查看结构化 report.json</summary><pre>${esc(JSON.stringify(result.document, null, 2))}</pre></details>`
         : '<div class="notice">没有找到本轮报告产物。</div>'}
@@ -645,7 +645,7 @@ function renderResult(result) {
   if (result.kind === "diagnostic") {
     return `<section class="result-section">
       <div class="section-title">${esc(result.job)} 检查结果</div>
-      <div class="report-summary">${esc(result.summary || "没有结果摘要")}</div>
+      ${state.detail.summary?.accounting ? "" : `<div class="report-summary">${esc(result.summary || "没有结果摘要")}</div>`}
       <div class="section-title" style="margin-top:14px">检查项</div>
       ${renderChecks(result.checks)}
       <div class="section-title" style="margin-top:14px">自动修复明细</div>
@@ -673,6 +673,56 @@ function restoreFindingState(openIds) {
   });
 }
 
+function renderRunSummary(document) {
+  const accounting = document?.accounting;
+  if (!accounting) return "";
+  const operations = accounting.kb_operations;
+  const operationLabels = {
+    digest_commits: "摄取提交", files_changed: "文件变更", nodes_created: "新增节点",
+    nodes_updated: "更新节点", nodes_deleted: "删除节点", reports_written: "归档报告",
+    durable_actions: "已提交的持久化动作",
+  };
+  const sourceStatuses = {
+    committed: "已提交", noop: "无变化", empty_window: "空窗口",
+    observed: "已扫描", pending: "未登记完成",
+  };
+  const formatOperations = changes => Object.entries(changes || {}).filter(([key]) => operationLabels[key])
+    .map(([key, count]) => `${operationLabels[key]} ${count}`).join(" · ");
+  const sources = (accounting.routine_sources || []).map((source, index) => {
+    const note = document.source_notes?.[source.source_key];
+    const changes = formatOperations(source.kb_operations);
+    return `<li><strong>${esc(source.label || `${source.source_type} ${index + 1}`)}</strong>
+      · ${esc(sourceStatuses[source.status] || source.status)}${changes ? ` · ${esc(changes)}` : ""}
+      ${note ? `<div>${esc(note)}</div>` : ""}</li>`;
+  }).concat(
+    (accounting.im_sources || []).map(source =>
+      `<li>${esc(source.label)} · ${esc(source.item_count)} 条消息</li>`),
+    (accounting.report_sources || []).map(source =>
+      `<li>${esc(source.label)} · ${esc(source.reference_count)} 条报告引用</li>`),
+  );
+  const metrics = accounting.metrics || {};
+  const counts = [["item_count", "输入"], ["finding_count", "发现"], ["gap_count", "缺口"]]
+    .filter(([key]) => key in metrics).map(([key, label]) => `${label} ${metrics[key]}`).join(" · ");
+  const review = document.review;
+  const reviewDetail = review ? `
+    <h3>等待来源复核</h3>
+    <p>${esc(review.problem)}</p>
+    <p><strong>${esc(review.question)}</strong></p>
+    <ol>${review.options.map(option => `<li><strong>${esc(option.action)}</strong> · ${esc(option.effect)}</li>`).join("")}</ol>
+    <p>在宿主任务会话回复选项编号，或说明希望处理的范围。</p>`
+    : accounting.error_code === "SOURCE_REVIEW_REQUIRED" ? "<p>这次运行没有记录具体的复核问题。</p>" : "";
+  return `<section class="result-section">
+    <div class="section-title">本轮摘要</div>
+    <div class="report-summary">${esc(document.summary)}</div>
+    ${reviewDetail}
+    ${counts ? `<p>${esc(counts)}</p>` : ""}
+    ${operations ? `<p>已核验的知识库变更 · ${esc(formatOperations(operations))}</p>` : ""}
+    ${accounting.unaccounted_sources ? `<p>${esc(accounting.unaccounted_sources)} 个来源的变更未核算</p>` : ""}
+    ${accounting.reported_repairs != null ? `<p>维护回执记录 ${esc(accounting.reported_repairs)} 项修复</p>` : ""}
+    ${sources.length ? `<details open><summary>各来源处理情况</summary><ul>${sources.join("")}</ul></details>` : ""}
+  </section>`;
+}
+
 function renderDetail(openIds = new Set()) {
   const events = state.detail?.events || [];
   el("event-count").textContent = events.length ? `${events.length} 个事件` : "";
@@ -693,9 +743,10 @@ function renderDetail(openIds = new Set()) {
     ${run?.delivery ? `<div class="job-note">投递 ${esc(diagLabel(run.delivery))}${run.delivery_code ? ` · ${esc(run.delivery_code)}` : ""}</div>` : ""}
     <div class="facts">
       <div class="fact"><div class="fact-label">周期</div><div class="fact-value">${esc(first.period || "—")}</div></div>
-      <div class="fact"><div class="fact-label">总耗时</div><div class="fact-value">${esc(duration(events))}</div></div>
+      <div class="fact"><div class="fact-label">总耗时</div><div class="fact-value">${esc(duration(events, state.detail.summary?.accounting?.metrics?.duration_ms))}</div></div>
       <div class="fact"><div class="fact-label">Owner</div><div class="fact-value">${esc(first.owner || "—")}</div></div>
     </div>
+    ${renderRunSummary(state.detail.summary)}
     <div class="timeline">
       ${events.map(event => `
         <div class="event">

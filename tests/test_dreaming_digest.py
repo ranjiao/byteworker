@@ -1,4 +1,5 @@
 import json
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
@@ -20,6 +21,8 @@ from dreaming_digest import (  # noqa: E402
 )
 from digest_flow import flow_status, prepare_flow, start_flow  # noqa: E402
 from dreaming_reports import report_dependency  # noqa: E402
+from dreaming_run_log import show_run  # noqa: E402
+from dreaming_run_result import RESULT_SCHEMA as RUN_RESULT_SCHEMA  # noqa: E402
 from dreaming_scheduler import complete_run, enable, run_due  # noqa: E402
 from dreaming_state import DreamingError  # noqa: E402
 from source_profiles import profile_relative_path  # noqa: E402
@@ -300,6 +303,71 @@ class DreamingDigestTests(unittest.TestCase):
             complete_run(kb, token=token, run_status="success", now=recorded_at)
             self.assertEqual("covered", report_dependency(kb, kind="morning", period="2026-08-04")["status"])
             self.assertEqual([], list((kb / "raw_data").iterdir()))
+
+    def test_failed_run_keeps_private_summary_and_counts_only_recorded_writes(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            root = Path(temporary)
+            enabled_at = datetime(2026, 8, 3, 23, tzinfo=timezone.utc)
+            acquired = enabled_at + timedelta(hours=4)
+            finished = acquired + timedelta(minutes=3)
+            kb = self.make_kb(root, enabled_at)
+            self.save_profile(kb, self.profile())
+            self.save_profile(kb, feishu_chat_profile())
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=Test", "-c", "user.email=test@example.test", *args],
+                    cwd=kb, text=True,
+                ).strip()
+
+            git("init", "-q")
+            (kb / "knowledge").mkdir()
+            existing = kb / "knowledge" / "reading-existing.md"
+            existing.write_text("Before\n")
+            git("add", "knowledge")
+            git("commit", "-qm", "initial")
+            lease = run_due(kb, owner="host", now=acquired)["lease"]
+            batch = prepare_routine_digest(kb, token=lease["token"], now=acquired)
+            source = next(item for item in batch["sources"] if item["source_type"] == "meego")
+
+            digest_key = "meego:meego:safety:view-42:-:abc123"
+            self.write_noop_raw(kb, digest_key)
+            existing.write_text("After\n")
+            (kb / "knowledge" / "reading-new.md").write_text("New\n")
+            git("add", "knowledge", "raw_data")
+            git("commit", "-qm", "digest")
+            result_path = root / "source-result.json"
+            result_path.write_text(json.dumps({
+                **source, "schema_version": RESULT_SCHEMA, "status": "committed",
+                "receipt": {
+                    "status": "committed", "raw_path": "raw_data/meego.md",
+                    "digest_key": digest_key, "commit": git("rev-parse", "HEAD"),
+                },
+            }))
+            record_routine_digest_result(kb, token=lease["token"], input_path=result_path, now=finished)
+
+            summary = "仅完成一个来源，另一个来源未登记完成。"
+            completed = complete_run(
+                kb, token=lease["token"], run_status="failed", error_code="SOURCE_AUTH_REQUIRED", now=finished,
+                result_document={
+                    "schema_version": RUN_RESULT_SCHEMA, "job": "process", "period": lease["period"],
+                    "summary": summary, "source_notes": [{"source_key": source["source_key"], "summary": "一增一改"}],
+                },
+            )
+            logged = show_run(kb, run_id=lease["run_id"])
+            self.assertEqual(completed["summary"], logged["summary"])
+            self.assertEqual(summary, logged["summary"]["summary"])
+            accounting = logged["summary"]["accounting"]
+            self.assertEqual(180_000, accounting["metrics"]["duration_ms"])
+            self.assertEqual(1, accounting["unaccounted_sources"])
+            self.assertEqual(
+                {"digest_commits": 1, "files_changed": 3, "nodes_created": 1, "nodes_updated": 1, "nodes_deleted": 0},
+                accounting["kb_operations"],
+            )
+            self.assertEqual({"committed", "pending"}, {row["status"] for row in accounting["routine_sources"]})
+            self.assertEqual(completed["result_path"], logged["events"][-1]["result_path"])
+            self.assertNotIn(summary, json.dumps(logged["events"], ensure_ascii=False))
+            self.assertNotIn("summary", show_run(kb, run_id=lease["run_id"], include_summary=False))
 
     def test_inventory_change_prevents_checkpoint_advance(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

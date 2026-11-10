@@ -21,6 +21,7 @@ REDUCE_PACKET_SCHEMA = "byteworker-digest-reduce-packet/v1"
 ANALYSIS_PACKET_SCHEMA = "byteworker-digest-analysis-packet/v1"
 CONFLICT_CANDIDATES_SCHEMA = "byteworker-conflict-candidates/v1"
 MAX_WORKERS = 4
+MAX_BUDGET_SHARDS = 128
 MIN_PARALLEL_ITEMS = {"dependency": 32, "semantic": 200, "conflict": 16}
 SOURCE_TOKEN_FLOOR = {"dependency": 12_000, "semantic": 64_000, "conflict": 24_000}
 TARGET_SHARD_TOKENS = {"dependency": 16_000, "semantic": 64_000, "conflict": 24_000}
@@ -262,11 +263,11 @@ def _plan_mode(
     *,
     stage: str,
     value: Mapping[str, Any],
+    source_text: str,
     item_count: int,
     max_workers: int,
     skill_root: Path,
 ) -> dict[str, Any]:
-    source_text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     source_estimate = estimate_tokens(source_text)
     source_tokens = int(source_estimate["tokens"])
     output_tokens = item_count * OUTPUT_TOKENS_PER_ITEM[stage]
@@ -284,7 +285,7 @@ def _plan_mode(
         features.append("whiteboard")
     if source_tokens >= SOURCE_TOKEN_FLOOR[stage]:
         features.append("large_input")
-    inline_rules, _ = _route_tokens(
+    inline_rules, inline_source_budget = _route_tokens(
         "digest",
         skill_root=skill_root,
         source_type=source_type,
@@ -356,6 +357,9 @@ def _plan_mode(
         "estimator_method": source_estimate["method"],
         "estimator_exact": source_estimate["exact"],
         "source_tokens": source_tokens,
+        "inline_source_budget": inline_source_budget,
+        "worker_source_budget": worker_source_budget,
+        "worker_rule_tokens": worker_rules,
         "inline": {
             "estimated_total_tokens": inline_total,
             "estimated_wall_time_ms": inline_wall,
@@ -394,7 +398,92 @@ def _semantic_shard(bucket: Sequence[dict[str, Any]], shared: Mapping[str, Any])
         "participant_ids": sorted(participant_ids),
         "sections": list(grouped.values()),
         "anchors": anchors,
+        **({"anchors_deferred": True} if shared.get("anchors_deferred") else {}),
     }
+
+
+def _shard_payload(stage: str, bucket: Sequence[dict[str, Any]], shared: Mapping[str, Any]) -> dict[str, Any]:
+    if stage == "semantic":
+        return _semantic_shard(bucket, shared)
+    identity_key = "identity" if stage == "dependency" else "source_match"
+    return {identity_key: shared.get(identity_key, {}), "items": [item["value"] for item in bucket]}
+
+
+def _json_text(value: Mapping[str, Any]) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+
+def _shard_document(
+    stage: str, bucket: Sequence[dict[str, Any]], shared: Mapping[str, Any],
+    input_hash: str, index: int, count: int,
+) -> dict[str, Any]:
+    return {
+        "schema_version": PARALLEL_SHARD_SCHEMA,
+        "stage": stage,
+        "input_hash": input_hash,
+        "shard_id": f"{stage}-{index:03d}",
+        "shard_index": index,
+        "shard_count": count,
+        **_shard_payload(stage, bucket, shared),
+    }
+
+
+def _split_text_item(item: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    value = item["value"]
+    text = value["text"]
+    if len(text) < 2:
+        return None
+    middle = len(text) // 2
+    split_at = text.rfind("\n", middle // 2, middle + 1) + 1
+    if split_at == 0:
+        split_at = max(text.rfind(marker, middle // 2, middle + 1) for marker in ("。", "！", "？", " ")) + 1
+    if split_at == 0 or split_at >= len(text):
+        split_at = middle
+    start = value.get("text_range", {}).get("start", 0)
+    return (
+        {**item, "_weight": split_at, "value": {
+            **value, "text": text[:split_at], "text_range": {"start": start, "end": start + split_at},
+        }},
+        {**item, "_weight": len(text) - split_at, "value": {
+            **value, "text": text[split_at:], "text_range": {"start": start + split_at, "end": start + len(text)},
+        }},
+    )
+
+
+def _budget_buckets(stage, items, shared, input_hash, limit):
+    # Bisection keeps the source order and checks the serialized model input,
+    # including repeated shard metadata, rather than trusting an average size.
+    pending = [items]
+    result = []
+
+    def size(bucket):
+        sample = _shard_document(stage, bucket, shared, input_hash, MAX_BUDGET_SHARDS, MAX_BUDGET_SHARDS)
+        return estimate_tokens(_json_text(sample))["tokens"]
+
+    while pending:
+        bucket = pending.pop()
+        count = size(bucket)
+        if count <= limit:
+            if result and size(result[-1] + bucket) <= limit:
+                result[-1] = result[-1] + bucket
+            else:
+                result.append(bucket)
+            continue
+        parts = None
+        if len(bucket) > 1:
+            middle = len(bucket) // 2
+            parts = (bucket[:middle], bucket[middle:])
+        elif bucket and stage == "semantic":
+            split = _split_text_item(bucket[0])
+            if split:
+                parts = ([split[0]], [split[1]])
+        if not parts or len(result) + len(pending) + 2 > MAX_BUDGET_SHARDS:
+            raise DigestParallelError(
+                "DIGEST_SOURCE_SHARDING_UNAVAILABLE", "在当前预算内无法生成完整的有界分片。",
+                details={"stage": stage, "input_tokens": count, "source_packet_limit": limit},
+            )
+        pending.extend(reversed(parts))
+    return result
 
 
 def plan_parallel_work(
@@ -424,41 +513,41 @@ def plan_parallel_work(
         "conflict": _conflict_work,
     }[stage](value, input_bytes)
     item_count = len(work["items"])
+    input_hash = _canonical_hash(value)
+    shared = work["shared"]
+    inline_document = _shard_document(stage, work["items"], shared, input_hash, 1, 1)
     decision = _plan_mode(
         stage=stage,
         value=value,
+        source_text=_json_text(inline_document),
         item_count=item_count,
         max_workers=max_workers,
         skill_root=skill_root,
     )
-    shard_count = int(decision["workers"])
-    buckets = _balanced(work["items"], shard_count) if item_count else [[]]
-    input_hash = _canonical_hash(value)
+    budget_required = decision["source_tokens"] > decision["inline_source_budget"]
+    buckets = _balanced(work["items"], decision["workers"]) if item_count else [[]]
+    if decision["use_parallel"] and not budget_required:
+        budget_required = any(
+            estimate_tokens(_json_text(_shard_document(stage, bucket, shared, input_hash, index, len(buckets))))["tokens"]
+            > decision["worker_source_budget"]
+            for index, bucket in enumerate(buckets, start=1)
+        )
+    if budget_required:
+        if stage == "semantic":
+            shared = {**shared, "anchors": [], "anchors_deferred": True}
+        buckets = _budget_buckets(stage, work["items"], shared, input_hash, decision["worker_source_budget"])
+    shard_count = len(buckets)
     shard_entries = []
     for index, bucket in enumerate(buckets, start=1):
         shard_id = f"{stage}-{index:03d}"
         shard_path = out_dir / f"{shard_id}.json"
-        if stage == "semantic":
-            payload = _semantic_shard(bucket, work["shared"])
-        elif stage == "dependency":
-            payload = {
-                "identity": work["shared"].get("identity", {}),
-                "items": [item["value"] for item in bucket],
-            }
-        else:
-            payload = {
-                "source_match": work["shared"].get("source_match", {}),
-                "items": [item["value"] for item in bucket],
-            }
-        shard = {
-            "schema_version": PARALLEL_SHARD_SCHEMA,
-            "stage": stage,
-            "input_hash": input_hash,
-            "shard_id": shard_id,
-            "shard_index": index,
-            "shard_count": shard_count,
-            **payload,
-        }
+        shard = _shard_document(stage, bucket, shared, input_hash, index, shard_count)
+        shard_tokens = estimate_tokens(_json_text(shard))["tokens"] if budget_required else None
+        if shard_tokens is not None and shard_tokens > decision["worker_source_budget"]:
+            raise DigestParallelError(
+                "DIGEST_SOURCE_SHARDING_UNAVAILABLE", "分片序列化后超过 worker 输入上限。",
+                details={"stage": stage, "input_tokens": shard_tokens, "source_packet_limit": decision["worker_source_budget"]},
+            )
         _atomic_json(shard_path, shard)
         shard_entries.append(
             {
@@ -466,21 +555,29 @@ def plan_parallel_work(
                 "path": str(shard_path),
                 "item_count": len(bucket),
                 "weight": sum(int(item["_weight"]) for item in bucket),
+                **({"estimated_source_tokens": shard_tokens} if shard_tokens is not None else {}),
             }
         )
     plan_path = out_dir / f"{stage}-plan.json"
+    selection_reason = "INPUT_REQUIRES_BUDGET_SHARDS" if budget_required else decision["selection_reason_code"]
+    estimates = {
+        key: value for key, value in decision.items()
+        if key not in {"use_parallel", "workers", "selection_reason_code"}
+    }
+    if budget_required:
+        estimates["budget_shards_total_input_tokens"] = sum(
+            entry["estimated_source_tokens"] + decision["worker_rule_tokens"]
+            for entry in shard_entries
+        )
     plan = {
         "schema_version": PARALLEL_PLAN_SCHEMA,
         "stage": stage,
         "input_hash": input_hash,
-        "mode": "parallel" if shard_count > 1 else "inline",
-        "reason_codes": [decision["selection_reason_code"]],
-        "selection_reason_code": decision["selection_reason_code"],
-        "estimates": {
-            key: value
-            for key, value in decision.items()
-            if key not in {"use_parallel", "workers", "selection_reason_code"}
-        },
+        "mode": "parallel" if shard_count > 1 or budget_required else "inline",
+        "reason_codes": list(dict.fromkeys((selection_reason, decision["selection_reason_code"]))),
+        "selection_reason_code": selection_reason,
+        "budget_required": budget_required,
+        "estimates": estimates,
         "max_workers": max_workers,
         "shard_count": shard_count,
         "work_item_count": item_count,
@@ -494,6 +591,8 @@ def plan_parallel_work(
         "mode": plan["mode"],
         "reason_codes": plan["reason_codes"],
         "selection_reason_code": plan["selection_reason_code"],
+        "budget_required": budget_required,
+        "max_workers": max_workers,
         "estimates": plan["estimates"],
         "plan_path": str(plan_path),
         "shard_count": shard_count,
@@ -601,6 +700,47 @@ def _validate_conflict_records(shard: Mapping[str, Any], records: Sequence[Mappi
             )
 
 
+def _reducer_batches(packet: dict[str, Any], output: Path, *, skill_root: Path) -> list[dict[str, Any]]:
+    _, limit = _route_tokens("digest_final_reducer", skill_root=skill_root)
+    if estimate_tokens(_json_text(packet))["tokens"] <= limit:
+        return []
+
+    duplicates = set(packet["duplicate_dedupe_keys"])
+    pending = [packet["records"]]
+    batches = []
+    while pending:
+        records = pending.pop()
+        keys = {str(record.get("dedupe_key", "")) for record in records} & duplicates
+        batch = {
+            **packet,
+            "records": records,
+            "duplicate_dedupe_keys": sorted(keys),
+            "stats": {
+                "shard_count": len({record["origin_shard_id"] for record in records}),
+                "record_count": len(records),
+                "duplicate_dedupe_key_count": len(keys),
+            },
+        }
+        tokens = estimate_tokens(_json_text(batch))["tokens"]
+        if tokens <= limit:
+            batches.append((batch, tokens))
+            continue
+        if len(records) < 2 or len(batches) + len(pending) + 2 > MAX_BUDGET_SHARDS:
+            raise DigestParallelError(
+                "DIGEST_SOURCE_SHARDING_UNAVAILABLE", "归并结果无法在当前预算内完整分批。",
+                details={"stage": "reduce", "input_tokens": tokens, "source_packet_limit": limit},
+            )
+        middle = len(records) // 2
+        pending.extend((records[middle:], records[:middle]))
+
+    receipts = []
+    for index, (batch, tokens) in enumerate(batches, start=1):
+        path = output.with_name(f"{output.name}.batch-{index:03d}.json")
+        _atomic_json(path, batch)
+        receipts.append({"path": str(path), "record_count": len(batch["records"]), "estimated_source_tokens": tokens})
+    return receipts
+
+
 def merge_parallel_results(
     plan_path: Path,
     result_paths: Iterable[Path],
@@ -684,10 +824,12 @@ def merge_parallel_results(
             "duplicate_dedupe_key_count": len(duplicates),
         },
     }
+    batches = _reducer_batches(packet, output, skill_root=skill_root)
     _atomic_json(output, packet)
     return {
         "schema_version": REDUCE_PACKET_SCHEMA,
         "stage": stage,
         "output_path": str(output),
+        **({"reduction_batches": batches} if batches else {}),
         **packet["stats"],
     }
