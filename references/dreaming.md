@@ -111,6 +111,8 @@ bin/byteworker dreaming run-due \
 上述领取命令。直接调用 `run-due` 仍兼容，但独立调用不会补造宿主唤醒记录。
 
 `disabled/idle/busy` 安静退出；`leased` 只执行返回的 `job/period` 并保存 `lease.token`。
+实际执行或启动失败时，宿主可见结果的首行包含状态和已取得的 `DT-…` / `DR-…`。
+失败、部分完成或待投递时附已记录的阶段和固定原因码，便于直接从结果继续排查。
 唯一例外：完成 `process catchup:*` 后，可用 `--followup-after-run-id <run_id>`
 再领一次报告。除此之外一轮最多一个 job，不自行算 period 或清空队列。失败 job 遵守 `next_attempt_at`。
 
@@ -157,6 +159,8 @@ bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 结构化结果。
 
 用户问“为什么后台没跑”时先执行 `bin/byteworker dreaming diagnose --kb "<KB>"`。
+无需用户提供编号。默认查看最近一次唤醒，用 `recent_wakes` 的时间对照宿主显示的失败；
+如果最新唤醒与目标时间不符，用对应 `tick_id` 查询，或用 `dreaming runs list` 找已领取的任务。
 可用 `--job morning` 看该任务最近尝试，或用 `--tick-id` / `--run-id` 查看一次选定的唤醒或运行。
 先解释实际调度决定，再说明当前状态、下次到期、最后心跳、终态和报告投递证据。
 没有唤醒记录只表示 Byteworker 未观察到启动，进一步查宿主本地任务历史。
