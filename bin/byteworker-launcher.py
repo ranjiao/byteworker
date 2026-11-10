@@ -281,6 +281,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return _exec(rest, runtime_environment(result))
 
+    diagnostic_only = (
+        command == "dreaming" and rest and rest[0] in {"tick", "diagnose"}
+        or command == "doctor" and rest and rest[0] in {"feedback", "bundle", "trace-start", "trace-finish", "trace-list"}
+    )
+    if diagnostic_only:
+        return _exec(
+            [os.environ.get("BYTEWORKER_PYTHON_BIN", sys.executable),
+             str(ROOT / "bin" / "byteworker-cli.py"), *effective_values],
+            dict(os.environ),
+        )
+
     required_sources = required_sources_for(dispatch_values)
     result, _cache = cached_check_runtime(
         ROOT,
@@ -288,6 +299,14 @@ def main(argv: list[str] | None = None) -> int:
         include_optional=False,
     )
     if not result["ready"]:
+        trace_id = os.environ.get("BYTEWORKER_TRACE_ID")
+        if trace_id:
+            import operation_trace as trace
+
+            try:
+                trace.record(trace_id, "preflight", "failed", code="RUNTIME_DEPENDENCY_INVALID")
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
         print(render_dependency_report(result), file=sys.stderr)
         return 1
     return _exec(

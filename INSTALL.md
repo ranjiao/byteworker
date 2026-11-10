@@ -134,6 +134,10 @@ byteworker skill。
 可启动的 Node / lark-cli / meegle。不要把某个 session 当前的 `command -v` 结果当作唯一安装
 位置。
 
+安装或首次启动有阻塞时，使用 `bin/byteworker preflight --interactive` 查看诊断编号。
+用 `bin/byteworker doctor feedback --run-id "<编号>"` 生成邮件草稿。反馈只含技术状态。
+Python 未启动时，先查看宿主的本地错误或任务历史。
+
 ### 5. 询问可选来源授权
 
 依赖安装和“用户授权”是两件事。Meego / Base 需要对应 CLI；风神直接运行原生客户端的只读检查:

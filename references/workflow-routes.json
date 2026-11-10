@@ -255,6 +255,12 @@
         "references/machine-protocol.md",
         "references/doctor.md"
       ]
+    },
+    "digest_feedback": {
+      "required": [
+        "references/machine-protocol.md",
+        "references/digest-feedback.md"
+      ]
     }
   },
   "budgets": {
@@ -412,6 +418,15 @@
       "overflow_action": "split_evidence_batch"
     },
     "doctor": {
+      "static_rules_tokens": 17000,
+      "worker_prompt_tokens": 0,
+      "dynamic_context_tokens": 0,
+      "source_packet_tokens": 0,
+      "total_input_tokens": 17000,
+      "output_tokens": 4000,
+      "overflow_action": "reject_with_budget_receipt"
+    },
+    "digest_feedback": {
       "static_rules_tokens": 17000,
       "worker_prompt_tokens": 0,
       "dynamic_context_tokens": 0,

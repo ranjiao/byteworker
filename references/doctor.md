@@ -63,6 +63,8 @@ error/warning；`2` 扫描完成但仍有问题；`1` 参数、目录或执行�
 格式，不单独导致非零。人工排障仍可直接运行 `python3 bin/doctor.py ...` 查看原始输出。
 `summary.auto_fixable` 统计默认安全动作，`summary.autolink_opt_in` 单列需要显式授权的正文补链。
 
+Digest 反馈与诊断包见 [Digest 反馈](digest-feedback.md)。
+
 ## 检查范围
 
 - 目录、不可派生真相源文件、本地 Git/remote、事务临时残留；

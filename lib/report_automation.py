@@ -442,6 +442,7 @@ def acquire_lease(
     period: str,
     owner: str,
     lease_seconds: int,
+    trace_id: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if kind not in KINDS or not period.strip() or not owner.strip():
@@ -480,6 +481,8 @@ def acquire_lease(
             "acquired_at": _iso(current),
             "expires_at": _iso(current + timedelta(seconds=lease_seconds)),
         }
+        if trace_id:
+            lease["trace_id"] = trace_id
         kind_state = value.get(kind)
         if not isinstance(kind_state, dict):
             kind_state = {
@@ -498,6 +501,8 @@ def acquire_lease(
             "started_at": _iso(current),
             "lease_expires_at": lease["expires_at"],
         }
+        if trace_id:
+            kind_state["last_attempt"]["trace_id"] = trace_id
         value["active_lease"] = lease
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
@@ -558,6 +563,8 @@ def complete_run(
             }
             value[kind] = kind_state
         run["started_at"] = lease.get("acquired_at", "")
+        if lease.get("trace_id"):
+            run["trace_id"] = lease["trace_id"]
         kind_state["last_attempt"] = run
         kind_state["last_run"] = run
         if run_status == "success":

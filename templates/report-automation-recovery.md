@@ -4,6 +4,10 @@
 先解析 `references/workflow-routes.json` 的 `report` required，并对命中的 routine 来源展开
 `digest` workflow。context 只用 `context view --intent report`。
 
+启动前调用 `bin/byteworker doctor trace-start --kind report --kb "<KB>"`，保存本次尝试的 `run_id`。
+给本次 preflight、report-automation 和 kb-mutate 调用传入环境变量 `BYTEWORKER_TRACE_ID`，
+值为该编号。诊断记录失败时照常执行，按真实业务回执判断成功。无人值守只保留本地记录。
+
 启动前只运行一次 `bin/byteworker preflight --unattended`；无输出则继续，blocking 则安全退出，不要再分别
 检查更新、依赖或自动报告设置。
 

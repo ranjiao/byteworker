@@ -684,6 +684,17 @@ def load_state_unlocked(kb: Path, now: datetime) -> dict[str, Any]:
     return migrated
 
 
+def read_state_for_diagnostics(kb: Path, now: datetime) -> dict[str, Any]:
+    """Read an atomic state snapshot without locks, migration or other writes."""
+    path = state_path(kb)
+    if not path.exists():
+        return empty_state(now)
+    value = _read_json(path)
+    if value.get("schema_version") == LEGACY_STATE_SCHEMA:
+        value = _migrate_v1(value, now)
+    return _validate_v2(value)
+
+
 def save_state_unlocked(kb: Path, value: Mapping[str, Any]) -> None:
     if value.get("schema_version") != STATE_SCHEMA:
         raise DreamingError(

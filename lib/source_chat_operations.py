@@ -44,6 +44,31 @@ def _external_auth_status_unsupported(exc: SourceCaptureError) -> bool:
     )
 
 
+def _unknown_auth_command(exc: SourceCaptureError) -> bool:
+    message = str(exc).lower()
+    return exc.code == "SOURCE_CLI_ERROR" and 'unknown command "auth"' in message
+
+
+def _auth_status_from_contact(runner: CommandRunner) -> dict[str, Any]:
+    response = runner.run(["contact", "+get-user", "--as", "user"], provider="飞书").raw
+    data = response.get("data") if isinstance(response, dict) else None
+    user = data.get("user") if isinstance(data, dict) else None
+    if not (
+        isinstance(response, dict)
+        and response.get("ok") is True
+        and response.get("identity") == "user"
+        and isinstance(user, dict)
+        and isinstance(user.get("open_id"), str)
+        and user["open_id"].startswith("ou_")
+    ):
+        raise SourceCaptureError(
+            "SOURCE_AUTH_REQUIRED",
+            "无法通过当前用户只读请求确认飞书身份。",
+            hint="请修复宿主提供的 user 凭据；不切换 bot。",
+        )
+    return _ready_status(verified=True, method="contact-self")
+
+
 def _ready_status(*, verified: bool, method: str) -> dict[str, Any]:
     return {
         "schema_version": "byteworker-source-auth/v1",
@@ -109,6 +134,8 @@ def _auth_status(runner: CommandRunner) -> dict[str, Any]:
             provider="飞书",
         ).data
     except SourceCaptureError as exc:
+        if _unknown_auth_command(exc):
+            return _auth_status_from_contact(runner)
         if _external_auth_status_unsupported(exc):
             return _auth_status_from_whoami(runner)
         raise

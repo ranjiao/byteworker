@@ -107,6 +107,9 @@ bin/byteworker dreaming run-due \
   --lease-seconds 7200
 ```
 
+宿主使用 runner 模板中的 `dreaming tick`，它在启动检查前留下唤醒编号 `DT-…`，再执行
+上述领取命令。直接调用 `run-due` 仍兼容，但独立调用不会补造宿主唤醒记录。
+
 `disabled/idle/busy` 安静退出；`leased` 只执行返回的 `job/period` 并保存 `lease.token`。
 唯一例外：完成 `process catchup:*` 后，可用 `--followup-after-run-id <run_id>`
 再领一次报告。除此之外一轮最多一个 job，不自行算 period 或清空队列。失败 job 遵守 `next_attempt_at`。
@@ -152,6 +155,14 @@ bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 `http://localhost:<端口>/app/dreaming-debug.html`。该页面不挂到主页面导航，供 Agent 和维护者直接
 通过 URL 查看 run list、阶段事件、process Finding/evidence、报告产物和 maintenance/recovery
 结构化结果。
+
+用户问“为什么后台没跑”时先执行 `bin/byteworker dreaming diagnose --kb "<KB>"`。
+可用 `--job morning` 看该任务最近尝试，或用 `--tick-id` / `--run-id` 查看一次选定的唤醒或运行。
+先解释实际调度决定，再说明当前状态、下次到期、最后心跳、终态和报告投递证据。
+没有唤醒记录只表示 Byteworker 未观察到启动，进一步查宿主本地任务历史。
+有状态但缺日志时照实显示缺口。该命令只读，禁止为诊断执行 `retry-job` 或重新领取。
+用户明确要反馈时，使用相同编号和 [反馈流程](digest-feedback.md)。Viewer 可直接预览草稿或下载
+仅含技术元数据的 ZIP；本地证据与报告不打包。
 
 ## Job 执行
 

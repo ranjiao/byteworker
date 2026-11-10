@@ -235,6 +235,8 @@ cancelled。等待只接受固定 reason code，waiting 区间不计 active dura
 事件派生活跃耗时和最慢阶段，不另存可漂移索引。usage 固定记录 stage、worker role、
 `measured|estimated` 与 input/cached/output/reasoning 非负计数；call id 仅保存 SHA-256 并在同一 run
 幂等。终态后可以补报 usage，但不能改变 lifecycle 终态或 duration；reasoning 是 output 的细分。
+新运行的 started 事件在可读取 skill Git HEAD 时记录 `skill_revision`，旧事件缺失此字段仍可读。
+标准 flow 的 transaction 完成事件以固定原因码区分 committed 与 noop，旧完成事件仍可读。
 
 目录权限 `0700`，日志与独立锁 `0600`，单文件 5 MiB 轮转，append 时清理 30 天前日志。只允许
 source type、source ref SHA-256、固定 action/stage/status/detail code/worker role/usage source、时间
@@ -242,6 +244,20 @@ source type、source ref SHA-256、固定 action/stage/status/detail code/worker
 `worker_count/shard_count`，但仍只由 coordinator 写一对外层事件。禁止业务正文、
 标题、人员/群名、URL、凭据、完整 argv、stdout/stderr 或自由文本错误。该状态不是知识证据，不参与
 raw/provenance/节点/INDEX/journal/Git transaction，也不能覆盖 transaction receipt 的成功语义。
+
+Digest 反馈不新增 KB 文件。邮件使用宿主环境的 `BYTEWORKER_FEEDBACK_EMAIL` 覆盖默认收件地址。
+按需导出的 `byteworker-digest-feedback/v1` ZIP 是私有系统临时文件，包含 `summary.json` 与
+`timeline.jsonl`。两者从所选 run 重新投影，仅含运行编号、版本、环境类型、阶段、状态、时间、耗时、
+固定原因码和缺口，排除来源类型、标识及哈希、业务计数、用量、知识库或对话内容。
+
+普通操作与宿主唤醒的技术记录位于 `${XDG_STATE_HOME:-~/.local/state}/byteworker/diagnostics/`，
+独立于知识库。每个 `BW-<uuid>` 或 `DT-<uuid>` 使用 `0600` JSON，由独立锁串行原子替换，
+最多保留 4096 条、30 天，每条最多 200 个事件。知识库目录的 scope 哈希仅用于本机隔离。
+技术事件只允许时间、阶段、状态、固定错误码、耗时、固定任务名和运行编号。scope 不导出。
+导出 `byteworker-support-feedback/v1` 沿用两份 ZIP 条目，亦可接受 Dreaming `DR-<uuid>`。
+Dreaming heartbeat 可选 `digest_run_id` 显式关联子运行，outbox 可选 `last_error_code`、
+`last_attempt_at` 区分待投递与已失败待重试，旧自动报告租约/回执可选 `trace_id`。
+所有字段均向后兼容，诊断读取旧状态不做持久化迁移。
 
 `state/digest/flows/<run_id>/state.json` 使用 `byteworker-digest-flow/v1`，只保存 source type、source
 ref hash、固定 phase、capture 次数和私有 artifact 路径。phase 为 classified/captured、可恢复的
@@ -483,6 +499,10 @@ state/dreaming/
 
 - `process prepare` 采集并提交 `collected` manifest，只向机器输出 batch id、相对 manifest path、
   数量和 coverage，不输出消息正文。
+- 当前飞书 CLI 明确不提供 `auth` 命令时，群聊 operation 和 Dreaming IM collector 以
+  `contact +get-user --as user` 校验当前用户身份；必须成功且具有 `identity=user` 和用户 open_id，
+  不把身份校验成功当成消息 scope 或资源权限通过。保留旧 `auth status` / 外部 `whoami` 分支，
+  非命令缺失的认证、权限、网络错误保持 fail closed，不切换 bot。
 - monitored lane 从已登记 `feishu_chat` Profile 获取 chat_id，并用逐 chat 分页形成
   complete/partial coverage；all_visible 使用 queryless search，永远是 best_effort。
 - message 去重键为 `message_id + update_time/create_time`；spool 文件保存规范消息 JSON，权限

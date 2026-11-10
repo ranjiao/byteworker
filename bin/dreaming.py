@@ -44,7 +44,10 @@ def _validate_kb(value: Path) -> Path:
 
 
 def _run(args: argparse.Namespace) -> object:
-    return args._handler(args, _validate_kb(args.kb), ROOT)
+    kb = args.kb.expanduser().resolve() if args.operation in {"tick", "diagnose"} else _validate_kb(args.kb)
+    if kb.is_relative_to(ROOT):
+        raise DreamingError("DREAMING_KB_INVALID", "Dreaming 状态不得写入 byteworker skill 仓库。")
+    return args._handler(args, kb, ROOT)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,9 +57,12 @@ def main(argv: list[str] | None = None) -> int:
         json.dump(value, sys.stdout, ensure_ascii=False, sort_keys=True, indent=2 if args.pretty else None)
         sys.stdout.write("\n")
         return 0
-    except DreamingError as exc:
+    except (DreamingError, OSError, ValueError) as exc:
+        error = exc.as_dict() if isinstance(exc, DreamingError) else {
+            "code": "DREAMING_DIAGNOSTICS_ERROR", "message": "无法读取或写入本地诊断。",
+        }
         json.dump(
-            {"error": exc.as_dict()},
+            {"error": error},
             sys.stdout,
             ensure_ascii=False,
             sort_keys=True,

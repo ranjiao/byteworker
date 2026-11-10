@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -185,6 +186,44 @@ class DreamingImCollectorTests(unittest.TestCase):
                 self.assertEqual("SOURCE_AUTH_REQUIRED", caught.exception.code)
                 self.assertIn("宿主", caught.exception.hint)
 
+    def test_unknown_auth_command_uses_verified_contact_self(self):
+        for payload, succeeds in (
+            ({"ok": True, "identity": "user", "data": {"user": {"open_id": "ou_me"}}}, True),
+            ({"ok": True, "identity": "bot", "data": {"user": {"open_id": "ou_me"}}}, False),
+            ({"ok": True, "identity": "user", "data": {"user": {}}}, False),
+            ({"ok": False, "identity": "user", "data": {"user": {"open_id": "ou_me"}}}, False),
+        ):
+            calls = []
+
+            def command(args):
+                calls.append(args)
+                if args[:2] == ["auth", "status"]:
+                    raise DreamingError(
+                        "DREAMING_IM_CAPTURE_FAILED", "invalid CLI JSON",
+                        details={"error": {"message": 'Error: unknown command "auth" for "lark-cli"'}},
+                    )
+                self.assertEqual(["contact", "+get-user", "--as", "user"], args)
+                return payload
+
+            with self.subTest(payload=payload):
+                if succeeds:
+                    self.assertEqual("user:ou_me", FeishuImCollector(command=command).principal())
+                else:
+                    with self.assertRaises(DreamingError) as caught:
+                        FeishuImCollector(command=command).principal()
+                    self.assertEqual("SOURCE_AUTH_REQUIRED", caught.exception.code)
+                self.assertEqual(2, len(calls))
+
+    def test_plain_unknown_auth_error_is_preserved_for_adapter(self):
+        completed = subprocess.CompletedProcess(
+            args=["lark-cli"], returncode=1, stdout="",
+            stderr='Error: unknown command "auth" for "lark-cli"',
+        )
+        with mock.patch("dreaming_collectors.feishu_im.subprocess.run", return_value=completed):
+            with self.assertRaises(DreamingError) as caught:
+                _default_command(60)(["auth", "status", "--verify", "--json"])
+        self.assertIn('unknown command "auth"', caught.exception.details["error"]["message"])
+
     def test_real_lark_auth_status_shape_without_ok_is_accepted(self):
         payload = {
             "identities": {
@@ -232,7 +271,7 @@ class DreamingImCollectorTests(unittest.TestCase):
             result = _default_command(60)(["whoami", "--as", "user"])
         self.assertEqual(payload, result)
         self.assertEqual(
-            ["lark-cli", "whoami", "--as", "user"],
+            [os.environ.get("BYTEWORKER_LARK_CLI_BIN", "lark-cli"), "whoami", "--as", "user"],
             run.call_args.args[0],
         )
 

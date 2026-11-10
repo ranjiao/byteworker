@@ -8,6 +8,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ DIRECTORY_MODE = 0o700
 FILE_MODE = 0o600
 RUN_ID_RE = re.compile(r"^DG-\d{8}T\d{6}Z-[0-9a-f]{8}$")
 MACHINE_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+SKILL_REVISION_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 CALL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 SOURCE_TYPES = {
@@ -128,6 +130,24 @@ def _parse_time(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+
+
+def skill_revision(root: Path = Path(__file__).resolve().parents[1]) -> str | None:
+    git_dir = root / ".git"
+    if git_dir.is_symlink() or not git_dir.exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "HEAD"],
+            env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    revision = result.stdout.strip().decode("ascii", errors="replace")
+    return revision if result.returncode == 0 and SKILL_REVISION_RE.fullmatch(revision) else None
 
 
 def _state_root(kb: Path) -> Path:
@@ -275,15 +295,26 @@ def _log_files(root: Path) -> list[Path]:
     return sorted(result)
 
 
-def _read_events_from_root(root: Path) -> list[dict[str, Any]]:
+def _read_events_from_root(
+    root: Path, *, run_id: str | None = None, diagnostics: set[str] | None = None
+) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     for path in _log_files(root):
-        content = path.read_text(encoding="utf-8")
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            if diagnostics is None:
+                raise
+            diagnostics.add("LOG_FILE_UNREADABLE")
+            continue
         lines = content.splitlines()
         for index, line in enumerate(lines):
             try:
                 value = json.loads(line)
             except json.JSONDecodeError as exc:
+                if diagnostics is not None:
+                    diagnostics.add("LOG_RECORD_INVALID")
+                    continue
                 if index == len(lines) - 1 and not content.endswith("\n"):
                     continue
                 raise DigestRunError(
@@ -294,11 +325,15 @@ def _read_events_from_root(root: Path) -> list[dict[str, Any]]:
                 not isinstance(value, dict)
                 or value.get("schema_version") != RUN_EVENT_SCHEMA
             ):
+                if diagnostics is not None:
+                    diagnostics.add("LOG_RECORD_INVALID")
+                    continue
                 raise DigestRunError(
                     "DIGEST_RUN_LOG_INVALID",
                     f"Digest run log schema is invalid: {path.name}",
                 )
-            events.append(value)
+            if run_id is None or value.get("run_id") == run_id:
+                events.append(value)
     events.sort(key=lambda item: str(item.get("timestamp", "")))
     return events
 
@@ -308,6 +343,23 @@ def _read_events(kb: Path) -> list[dict[str, Any]]:
     if not root.exists():
         return []
     return _read_events_from_root(root)
+
+
+def diagnostic_events(
+    kb: Path, *, run_id: str
+) -> tuple[list[dict[str, Any]], set[str]]:
+    _validate_run_id(run_id)
+    root = _log_root(kb)
+    if any(path.is_symlink() for path in (root, root.parent, root.parents[1])):
+        return [], {"LOG_PATH_INVALID"}
+    gaps: set[str] = set()
+    try:
+        events = _read_events_from_root(root, run_id=run_id, diagnostics=gaps)
+    except (DigestRunError, OSError):
+        return [], {"LOG_UNAVAILABLE"}
+    if not events:
+        gaps.add("RUN_LOG_NOT_FOUND")
+    return events, gaps
 
 
 def _prune(root: Path, *, now: datetime) -> None:
@@ -525,6 +577,9 @@ def start_run(
         "duration_ms": 0,
         "metrics": {},
     }
+    revision = skill_revision()
+    if revision is not None:
+        event["skill_revision"] = revision
     with _log_lock(kb) as root:
         events = _read_events_from_root(root)
         if _run_events(events, value_id):

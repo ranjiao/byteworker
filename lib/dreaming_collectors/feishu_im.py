@@ -39,6 +39,13 @@ def _default_command(timeout: int) -> Command:
             raise DreamingError(
                 "DREAMING_IM_CAPTURE_FAILED",
                 "lark-cli 未返回合法 JSON。",
+                details=(
+                    {"error": {"message": 'unknown command "auth"'}}
+                    if args[:2] == ["auth", "status"]
+                    and completed.returncode != 0
+                    and 'unknown command "auth"' in stream.lower()
+                    else {}
+                ),
             ) from exc
         auth_status = (
             args[:2] == ["auth", "status"]
@@ -177,6 +184,27 @@ class FeishuImCollector:
             response = self.command(["auth", "status", "--verify", "--json"])
         except DreamingError as exc:
             error = exc.details.get("error")
+            if (
+                isinstance(error, Mapping)
+                and exc.code == "DREAMING_IM_CAPTURE_FAILED"
+                and 'unknown command "auth"' in str(error.get("message", "")).lower()
+            ):
+                response = self.command(["contact", "+get-user", "--as", "user"])
+                data = response.get("data") if isinstance(response, Mapping) else None
+                user = data.get("user") if isinstance(data, Mapping) else None
+                open_id = user.get("open_id") if isinstance(user, Mapping) else None
+                if (
+                    response.get("ok") is True
+                    and response.get("identity") == "user"
+                    and isinstance(open_id, str)
+                    and open_id.startswith("ou_")
+                ):
+                    return f"user:{open_id}"
+                raise DreamingError(
+                    "SOURCE_AUTH_REQUIRED",
+                    "无法通过当前用户只读请求确认飞书身份。",
+                    hint="请修复宿主提供的 user 凭据；不切换 bot。",
+                ) from exc
             if not isinstance(error, Mapping) or not _external_auth_status_unsupported(error):
                 raise
             response = self.command(["whoami", "--as", "user"])

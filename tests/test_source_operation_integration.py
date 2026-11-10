@@ -537,6 +537,32 @@ class SourceOperationMatrixTests(unittest.TestCase):
                     FeishuChatOperations._validate_capture_args(args)
                 self.assertEqual("SOURCE_ARGUMENT_INVALID", caught.exception.code)
 
+    def test_chat_unknown_auth_command_checks_contact_self(self):
+        for payload, succeeds in (
+            ({"ok": True, "identity": "user", "data": {"user": {"open_id": "ou_me"}}}, True),
+            ({"ok": True, "identity": "bot", "data": {"user": {"open_id": "ou_me"}}}, False),
+            ({"ok": True, "identity": "user", "data": {"user": {}}}, False),
+        ):
+            runner = mock.Mock()
+            runner.run_status.side_effect = SourceCaptureError(
+                "SOURCE_CLI_ERROR", 'Error: unknown command "auth" for "lark-cli"',
+            )
+            runner.run.return_value = SimpleNamespace(raw=payload)
+            with self.subTest(payload=payload):
+                if succeeds:
+                    status = chat_auth_status(runner)
+                    self.assertTrue(status["ready"])
+                    self.assertIsNone(status["authorized"])
+                    self.assertEqual("capture-time", status["scope_verification"])
+                    self.assertEqual("contact-self", status["verification_method"])
+                else:
+                    with self.assertRaises(SourceCaptureError) as caught:
+                        chat_auth_status(runner)
+                    self.assertEqual("SOURCE_AUTH_REQUIRED", caught.exception.code)
+                runner.run.assert_called_once_with(
+                    ["contact", "+get-user", "--as", "user"], provider="飞书",
+                )
+
     def test_chat_command_replays_explicit_and_incremental_windows(self):
         explicit = chat_profile(since_last=False)
         args = operation_args(
