@@ -44,10 +44,11 @@ STAGE_ACTIONS = {
     "capture": "fetch complete source artifacts",
     "bundle": "normalize SourceBundle components and anchors",
     "preflight": "compute payload identity and idempotency state",
-    "analysis_prepare": "build one compact semantic analysis packet",
+    "analysis_prepare": "build the compact analysis packet and shard plans",
     "dependency_review": "review important dependency boundaries",
     "conflict_review": "compare candidates with existing knowledge",
     "semantic_analysis": "extract facts, entities, decisions, and evidence",
+    "reduce": "merge shard outputs and check complete evidence coverage",
     "candidate_generation": "render node candidates and the digest plan",
     "transaction_validate": "validate plan, baselines, links, and provenance",
     "transaction": "write raw, provenance, nodes, index, journal, and commit",
@@ -76,6 +77,7 @@ USAGE_FIELDS = {
     "output_tokens",
     "reasoning_tokens",
 }
+REQUIRED_USAGE_FIELDS = {"input_tokens", "output_tokens"}
 METRIC_FIELDS = {
     "item_count",
     "component_count",
@@ -245,7 +247,7 @@ def _validate_metrics(metrics: Mapping[str, Any] | None) -> dict[str, int]:
 
 def _validate_usage(usage: Mapping[str, Any]) -> dict[str, int]:
     unknown = sorted(set(usage) - USAGE_FIELDS)
-    missing = sorted(USAGE_FIELDS - set(usage))
+    missing = sorted(REQUIRED_USAGE_FIELDS - set(usage))
     if unknown or missing:
         details = []
         if missing:
@@ -257,15 +259,14 @@ def _validate_usage(usage: Mapping[str, Any]) -> dict[str, int]:
             "Usage fields are invalid: " + "; ".join(details),
         )
     result: dict[str, int] = {}
-    for key in sorted(USAGE_FIELDS):
-        value = usage[key]
+    for key, value in usage.items():
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise DigestRunError(
                 "DIGEST_RUN_USAGE_INVALID",
                 f"Usage field {key} must be a non-negative integer.",
             )
         result[key] = value
-    if result["cached_input_tokens"] > result["input_tokens"]:
+    if result.get("cached_input_tokens", 0) > result["input_tokens"]:
         raise DigestRunError(
             "DIGEST_RUN_USAGE_INVALID",
             "cached_input_tokens cannot exceed input_tokens.",
@@ -916,6 +917,8 @@ def record_usage(
     usage_source: str,
     call_id: str,
     usage: Mapping[str, Any],
+    call_duration_ms: int | None = None,
+    call_gap_ms: int | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Append one privacy-safe model usage receipt to a digest run."""
@@ -927,7 +930,12 @@ def record_usage(
         raise DigestRunError("DIGEST_RUN_USAGE_INVALID", "Unknown worker role.")
     if usage_source not in USAGE_SOURCES:
         raise DigestRunError("DIGEST_RUN_USAGE_INVALID", "Unknown usage source.")
-    token_values = _validate_usage(usage)
+    timing = {key: value for key, value in (
+        ("duration_ms", call_duration_ms), ("gap_ms", call_gap_ms),
+    ) if value is not None}
+    if any(type(value) is not int or value < 0 for value in timing.values()):
+        raise DigestRunError("DIGEST_RUN_USAGE_INVALID", "调用耗时与间隔必须是非负整数。")
+    token_values = _validate_usage(usage) if usage or not timing else {}
     call_hash = _call_id_hash(call_id)
     current = now or _utc_now()
     with _log_lock(kb) as root:
@@ -959,6 +967,7 @@ def record_usage(
             "usage_source": usage_source,
             "call_id_hash": call_hash,
             "usage": token_values,
+            **({"call_timing_ms": timing} if timing else {}),
         }
         log_path = _append(root, event, now=current)
     return {**event, "deduplicated": False, "log_path": log_path}
@@ -973,7 +982,7 @@ def _usage_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
         if event.get("event") != "usage_recorded":
             continue
         usage = event.get("usage")
-        if not isinstance(usage, Mapping):
+        if not isinstance(usage, Mapping) or not REQUIRED_USAGE_FIELDS.issubset(usage):
             continue
         stage = str(event.get("stage", ""))
         stage_summary = by_stage.setdefault(
@@ -1004,6 +1013,83 @@ def _usage_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
         **totals,
         "total_tokens": total_tokens,
         "by_stage": {stage: by_stage[stage] for stage in sorted(by_stage)},
+    }
+
+
+def _union_ms(intervals: list[tuple[datetime, datetime]]) -> int:
+    total = timedelta(0)
+    previous = None
+    for start, end in sorted(intervals):
+        left = max(previous, start) if previous is not None else start
+        if end > left:
+            total += end - left
+        previous = max(previous, end) if previous is not None else end
+    return round(total.total_seconds() * 1000)
+
+
+def linked_performance(
+    kb: Path, *, run_ids: set[str], started_at: datetime, finished_at: datetime,
+) -> dict[str, Any]:
+    """Account only for child work observed inside the parent lease."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in _read_events(kb) if run_ids else []:
+        if event.get("run_id") not in run_ids:
+            continue
+        at = _parse_time(event.get("timestamp"))
+        if at is not None and started_at <= at <= finished_at:
+            grouped.setdefault(event["run_id"], []).append(event)
+    stage_totals: dict[str, dict[str, int]] = {}
+    child_intervals = []
+    usage_by_call = {}
+    source_timings = []
+    for run_id, events in grouped.items():
+        for event in events:
+            if event.get("event") == "usage_recorded":
+                call = event["call_id_hash"]
+                if call not in usage_by_call or event["usage_source"] == "measured":
+                    usage_by_call[call] = event
+        lifecycle = _lifecycle_events(events)
+        if not lifecycle:
+            continue
+        start = _parse_time(lifecycle[0]["timestamp"])
+        end = _parse_time(lifecycle[-1]["timestamp"])
+        child_intervals.append((start, end))
+        intervals = []
+        stages = []
+        for event in lifecycle:
+            stage = event.get("stage")
+            if event.get("event") not in ("stage_completed", "stage_failed") or stage not in STAGE_ACTIONS:
+                continue
+            duration = event.get("duration_ms", 0)
+            at = _parse_time(event["timestamp"])
+            intervals.append((max(start, at - timedelta(milliseconds=duration)), at))
+            stages.append({"stage": stage, "duration_ms": duration, "status": event["status"]})
+            totals = stage_totals.setdefault(stage, {"count": 0, "work_ms": 0})
+            totals["count"] += 1
+            totals["work_ms"] += duration
+        active_ms = _active_duration_ms(events, now=end)
+        source_timings.append({
+            "digest_run_id": run_id, "status": _summary(events, now=end)["status"],
+            "active_ms": active_ms, "between_stage_ms": max(0, active_ms - _union_ms(intervals)),
+            "stages": stages,
+        })
+    usage = list(usage_by_call.values())
+    totals = {}
+    for kind in sorted(USAGE_SOURCES):
+        reported = [event for event in usage if event.get("usage_source") == kind and event.get("usage")]
+        if reported:
+            totals[kind] = _usage_summary(reported)
+    call_timing = {}
+    for key in ("duration_ms", "gap_ms"):
+        values = [event["call_timing_ms"][key] for event in usage if key in event.get("call_timing_ms", {})]
+        if values:
+            call_timing[key] = {"count": len(values), "total_ms": sum(values)}
+    elapsed_ms = round((finished_at - started_at).total_seconds() * 1000)
+    return {
+        "stage_totals": stage_totals, "sources": source_timings,
+        "unobserved_digest_runs": len(run_ids - grouped.keys()),
+        "outside_digest_ms": max(0, elapsed_ms - _union_ms(child_intervals)),
+        "usage": totals, "call_timing": call_timing,
     }
 
 
@@ -1059,6 +1145,7 @@ def _summary(events: list[dict[str, Any]], *, now: datetime) -> dict[str, Any]:
         "stale_after_seconds": round(DEFAULT_STALE_AFTER.total_seconds()),
         "duration_ms": duration_ms,
         "stage_count": len(stages),
+        "open_stages": _open_stages(lifecycle_events),
         "slowest_stage": slowest,
         "stages": stages,
         "usage": _usage_summary(events),

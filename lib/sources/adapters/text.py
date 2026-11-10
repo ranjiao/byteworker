@@ -362,7 +362,10 @@ def empty_chat_window(bundle: SourceBundle) -> tuple[datetime, datetime] | None:
     transcript = Path(bundle.components[0].path)
     if not transcript.is_file() or transcript.stat().st_size != 0:
         return None
-    window = metadata.get("source_window")
+    return chat_window(metadata.get("source_window"))
+
+
+def chat_window(window: object) -> tuple[datetime, datetime] | None:
     if not isinstance(window, str):
         return None
     try:

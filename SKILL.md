@@ -85,7 +85,7 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
   `references/dreaming-onboarding.md`，maintenance job 加
   `references/dreaming-maintenance.md`；当前环境或目标宿主是 TRAE 时加
   `references/dreaming-harness-trae.md`；process job 还必须从 manifest 加载
-  `features.routine_digest` 的完整普通 digest 闭包
+  `features.routine_digest` 先检查变化，再按来源解析普通 digest
 - doctor：`references/doctor.md`
 - 反馈或排查后台运行 → digest_feedback：`references/digest-feedback.md`
 - search/brief/update/thinking/context/dashboard/report 的运行记录见 `references/operation-trace.md`。
@@ -212,7 +212,7 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
 - 每次 lease 都有稳定 `run_id`。runner 在采集、分析、整合、动作、报告、维护和恢复等长阶段
   调用 `dreaming heartbeat`，最终 `complete`；用户可用 `dreaming runs list/show/tail` 查询
   `0600` 结构化运行日志。日志只含阶段、耗时、计数、error code 和 artifact path，不含 IM 正文。
-- 宿主首行回显诊断编号，完成时返回回执摘要。待复核时说明需决定的问题。异常按
+- 宿主回显诊断编号和摘要。后台先自动处理，普通缺口不等待答复。异常按
   `references/dreaming.md` 查最近唤醒和运行，不要求用户提供编号。
 - 启用默认不接管现有日报/周报；接管需要单独确认旧 scheduler owner 已释放。
 - Dreaming local state 使用 `byteworker-dreaming/v2`；读取已有 v1 时由确定性状态层先写本地私密
@@ -221,10 +221,8 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
   `process prepare` 只生成私密 EvidenceBatch，不调用模型、不写 Finding/报告/知识。
 - `process prepare` 后的 Agent 分析必须读 `references/dreaming-analysis.md`；Finding 持久与去重
   规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
-- 后台 process 每轮先快照并重放全部已登记且启用的 routine 来源，包括 Profile 和普通 digest
-  仍兼容的历史 raw 来源（UID 恢复见 `references/digest-routine.md`）；逐源执行原有来源规则、语义分析和 DigestTxn，只有真实
-  `committed/noop` 或工具核验的群聊 `empty_window` 才算完成。Wiki 子树沿用原有完整扫描与变化展示语义。全部来源完成后才推进
-  来源覆盖 checkpoint；任一来源失败则 process 失败且报告保持阻塞。
+- 后台 process 按 `references/dreaming-routine.md` 检查全部启用来源，逐源核验覆盖。
+  暂缓来源时保留进度并处理其它来源；完整报告仍须满足全部覆盖条件。
 - 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
 - Dreaming owner 下的 morning/daily/weekly 按 `references/dreaming-reports.md` 消费 process

@@ -96,8 +96,10 @@ def parser() -> argparse.ArgumentParser:
     usage.add_argument("--worker-role", required=True, choices=sorted(WORKER_ROLES))
     usage.add_argument("--usage-source", required=True, choices=sorted(USAGE_SOURCES))
     usage.add_argument("--call-id", required=True)
+    usage.add_argument("--call-duration-ms", type=int)
+    usage.add_argument("--call-gap-ms", type=int)
     for field in sorted(USAGE_FIELDS):
-        usage.add_argument("--" + field.replace("_", "-"), type=int, required=True)
+        usage.add_argument("--" + field.replace("_", "-"), type=int)
 
     waiting = sub.add_parser("wait", help="pause active timing while waiting for user")
     _add_kb(waiting)
@@ -174,7 +176,9 @@ def main() -> int:
                 worker_role=args.worker_role,
                 usage_source=args.usage_source,
                 call_id=args.call_id,
-                usage={field: getattr(args, field) for field in USAGE_FIELDS},
+                usage={field: getattr(args, field) for field in USAGE_FIELDS if getattr(args, field) is not None},
+                call_duration_ms=args.call_duration_ms,
+                call_gap_ms=args.call_gap_ms,
             )
         elif args.command == "wait":
             output = wait_for_user(

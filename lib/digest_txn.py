@@ -114,6 +114,10 @@ class DigestTxnError(RuntimeError):
     """A safe, user-actionable digest transaction error."""
 
 
+class DigestTxnRollbackError(DigestTxnError):
+    code = "DIGEST_TXN_ROLLBACK_FAILED"
+
+
 @dataclass(frozen=True)
 class ComponentPayload:
     name: str
@@ -1696,6 +1700,17 @@ def _restore_files(snapshots: Dict[Path, Optional[bytes]]) -> None:
             _atomic_write(path, content)
 
 
+def _rollback_digest(
+    snapshots: Dict[Path, Optional[bytes]], git_index_path: Path,
+    git_index_snapshot: Optional[bytes], *, staged_by_txn: bool,
+) -> None:
+    restore = {git_index_path: git_index_snapshot, **snapshots} if staged_by_txn else snapshots
+    try:
+        _restore_files(restore)
+    except Exception as exc:
+        raise DigestTxnRollbackError("Digest 回滚未完成，知识库写入状态需人工核验。") from exc
+
+
 def _rebuild_index(skill_root: Path, kb: Path) -> None:
     script = skill_root / "bin" / "rebuild_index.py"
     completed = subprocess.run(
@@ -1860,15 +1875,7 @@ def execute_plan(
             _git(kb, ["commit", "-m", commit_message])
             commit_hash = _git(kb, ["rev-parse", "HEAD"]).stdout.strip()
         except Exception:
-            if staged_by_txn:
-                if git_index_snapshot is None:
-                    try:
-                        git_index_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                else:
-                    _atomic_write(git_index_path, git_index_snapshot)
-            _restore_files(snapshots)
+            _rollback_digest(snapshots, git_index_path, git_index_snapshot, staged_by_txn=staged_by_txn)
             raise
 
     created = [node["id"] for node in result.nodes if node["op"] == "create"]
@@ -2027,15 +2034,7 @@ def execute_batch_plan(
             _git(kb, ["commit", "-m", str(result.plan["commit"]["message"]).strip()])
             commit_hash = _git(kb, ["rev-parse", "HEAD"]).stdout.strip()
         except Exception:
-            if staged_by_txn:
-                if git_index_snapshot is None:
-                    try:
-                        git_index_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                else:
-                    _atomic_write(git_index_path, git_index_snapshot)
-            _restore_files(snapshots)
+            _rollback_digest(snapshots, git_index_path, git_index_snapshot, staged_by_txn=staged_by_txn)
             raise
 
     return {

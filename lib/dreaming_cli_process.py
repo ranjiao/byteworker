@@ -7,7 +7,10 @@ from pathlib import Path
 
 from dreaming_batch import abort_batch
 from dreaming_collection import prepare_foreground_im_batch, prepare_im_batch
-from dreaming_digest import complete_routine_digest, prepare_routine_digest, record_routine_digest_result
+from dreaming_digest import (
+    complete_routine_digest, link_routine_digest, prepare_routine_digest, record_routine_digest_result,
+)
+from dreaming_digest_scan import scan_routine_digest
 from dreaming_grants import set_action_grants, set_im_grant
 from dreaming_process import commit_finding_bundle
 
@@ -34,6 +37,21 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     digest_prepare.add_argument("--kb", required=True, type=Path)
     digest_prepare.add_argument("--token", required=True)
     digest_prepare.set_defaults(_handler=lambda args, kb, root: prepare_routine_digest(kb, token=args.token))
+    digest_scan = process_sub.add_parser("digest-scan", help="Check registered routine sources in bounded waves")
+    digest_scan.add_argument("--kb", required=True, type=Path)
+    digest_scan.add_argument("--token", required=True)
+    digest_scan.add_argument("--max-workers", type=int, choices=(1, 2, 3), default=3)
+    digest_scan.set_defaults(_handler=lambda args, kb, root: scan_routine_digest(
+        kb, token=args.token, skill_root=root, max_workers=args.max_workers,
+    ))
+    digest_link = process_sub.add_parser("digest-link", help="Link the active Digest to one pending source")
+    digest_link.add_argument("--kb", required=True, type=Path)
+    digest_link.add_argument("--token", required=True)
+    digest_link.add_argument("--source-key", required=True)
+    digest_link.add_argument("--digest-run-id", required=True)
+    digest_link.set_defaults(_handler=lambda args, kb, root: link_routine_digest(
+        kb, token=args.token, source_key=args.source_key, digest_run_id=args.digest_run_id,
+    ))
     digest_record = process_sub.add_parser("digest-record", help="Record one routine digest result")
     digest_record.add_argument("--kb", required=True, type=Path)
     digest_record.add_argument("--token", required=True)
@@ -42,7 +60,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     digest_complete = process_sub.add_parser("digest-complete", help="Complete the routine digest batch")
     digest_complete.add_argument("--kb", required=True, type=Path)
     digest_complete.add_argument("--token", required=True)
-    digest_complete.set_defaults(_handler=lambda args, kb, root: complete_routine_digest(kb, token=args.token))
+    digest_complete.add_argument("--allow-partial", action="store_true")
+    digest_complete.set_defaults(_handler=lambda args, kb, root: complete_routine_digest(
+        kb, token=args.token, allow_partial=args.allow_partial,
+    ))
     prepare = process_sub.add_parser("prepare", help="Prepare a background IM batch")
     prepare.add_argument("--kb", required=True, type=Path)
     prepare.add_argument("--source", choices=("im",), required=True)

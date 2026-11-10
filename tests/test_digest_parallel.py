@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from digest_parallel import (  # noqa: E402
     DigestParallelError,
+    checkpoint_parallel_results,
     merge_parallel_results,
     plan_parallel_work,
 )
@@ -239,6 +240,45 @@ class DigestParallelTests(unittest.TestCase):
                 serialized = Path(batch["path"]).read_text()
                 self.assertLessEqual(estimate_tokens(serialized)["tokens"], 1000)
                 self.assertEqual(["shared-key"], json.loads(serialized)["duplicate_dedupe_keys"])
+
+    def test_semantic_checkpoints_reuse_only_matching_input(self):
+        self.write_packet(semantic_items=2)
+        kb = self.root / "kb"
+        folder = kb / "state/digest/flows"
+
+        def plan(id):
+            path = folder / f"DG-20261110T010101Z-{id:08x}" / "semantic"
+            return Path(plan_parallel_work(self.packet, path, stage="semantic")["plan_path"])
+
+        first = plan(1)
+        data = json.loads(first.read_bytes())
+        item = data["shards"][0]
+        result = self.root / "worker-result.json"
+        value = {
+            "schema_version": "byteworker-digest-parallel-result/v1",
+            "stage": "semantic", "shard_id": item["shard_id"], "input_hash": data["input_hash"],
+            "records": [],
+        }
+        result.write_text(json.dumps({**value, "input_hash": "invalid"}), encoding="utf-8")
+        with self.assertRaises(DigestParallelError):
+            checkpoint_parallel_results(kb, first, result_path=result)
+        self.assertEqual([item["shard_id"]], checkpoint_parallel_results(kb, first)["missing_shard_ids"])
+        result.write_text(json.dumps(value), encoding="utf-8")
+        saved = checkpoint_parallel_results(kb, first, result_path=result)["completed"][0]
+        self.assertEqual(0o600, Path(saved["result_path"]).stat().st_mode & 0o777)
+
+        packet = json.loads(self.packet.read_bytes())
+        packet["generated_at"] = "later"
+        self.packet.write_text(json.dumps(packet), encoding="utf-8")
+        second = plan(2)
+        resumed = checkpoint_parallel_results(kb, second)
+        self.assertEqual([], resumed["missing_shard_ids"])
+        paths = [Path(entry["result_path"]) for entry in resumed["completed"]]
+        merge_parallel_results(second, paths, self.root / "reduce.json")
+
+        packet["sections"][0]["text_items"][0]["text"] += " changed"
+        self.packet.write_text(json.dumps(packet), encoding="utf-8")
+        self.assertEqual([item["shard_id"]], checkpoint_parallel_results(kb, plan(3))["missing_shard_ids"])
 
     def test_merge_requires_complete_dependency_coverage(self):
         self.write_packet(dependencies=64, dependency_context_size=2000)

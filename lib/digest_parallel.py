@@ -8,10 +8,12 @@ import math
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from workflow_budget import estimate_tokens, inspect_budget
+from operation_trace import DIGEST_RUN_ID
+from workflow_budget import estimate_tokens, inspect_budget, load_manifest, resolve_route
 
 
 PARALLEL_PLAN_SCHEMA = "byteworker-digest-parallel-plan/v1"
@@ -584,6 +586,11 @@ def plan_parallel_work(
         "input_bytes": input_bytes,
         "shards": shard_entries,
     }
+    if stage == "semantic":
+        plan["content_fingerprint"] = _canonical_hash({
+            "identity": value.get("identity"), "components": value.get("component_hashes"),
+            "algorithm": value.get("analysis_algorithm_version"),
+        })
     _atomic_json(plan_path, plan)
     return {
         "schema_version": PARALLEL_PLAN_SCHEMA,
@@ -741,16 +748,7 @@ def _reducer_batches(packet: dict[str, Any], output: Path, *, skill_root: Path) 
     return receipts
 
 
-def merge_parallel_results(
-    plan_path: Path,
-    result_paths: Iterable[Path],
-    output_path: Path,
-    *,
-    skill_root: Path = DEFAULT_SKILL_ROOT,
-) -> dict[str, Any]:
-    """Validate complete worker coverage and create one reducer input packet."""
-
-    resolved_plan, plan = _load_json(plan_path, skill_root=skill_root)
+def _plan_shards(plan: Mapping[str, Any]) -> tuple[str, dict[str, Path]]:
     if plan.get("schema_version") != PARALLEL_PLAN_SCHEMA:
         raise DigestParallelError("DIGEST_PARALLEL_INPUT_INVALID", "并发 plan schema 非法。")
     stage = str(plan.get("stage", ""))
@@ -765,6 +763,110 @@ def merge_parallel_results(
     }
     if not expected or len(expected) != len(plan["shards"]):
         raise DigestParallelError("DIGEST_PARALLEL_INPUT_INVALID", "并发 plan shards 非法或重复。")
+    return stage, expected
+
+
+def _validate_shard_result(shard, result, stage, shard_id, input_hash):
+    if (
+        shard.get("schema_version") != PARALLEL_SHARD_SCHEMA
+        or shard.get("stage") != stage or shard.get("shard_id") != shard_id
+        or shard.get("input_hash") != input_hash
+    ):
+        raise DigestParallelError("DIGEST_PARALLEL_INPUT_INVALID", "shard 与 plan 不一致。")
+    records = _result_records(result, stage=stage, shard_id=shard_id, input_hash=input_hash)
+    {
+        "dependency": _validate_dependency_records,
+        "semantic": _validate_semantic_records,
+        "conflict": _validate_conflict_records,
+    }[stage](shard, records)
+    return records
+
+
+def checkpoint_parallel_results(
+    kb: Path, plan_path: Path, *, result_path: Path | None = None, skill_root: Path = DEFAULT_SKILL_ROOT,
+) -> dict[str, Any]:
+    """Save one validated shard or return the completed and missing shards."""
+    resolved, plan = _load_json(plan_path, skill_root=skill_root)
+    stage, expected = _plan_shards(plan)
+    root = kb.resolve() / "state" / "digest"
+    relative = resolved.relative_to(root) if resolved.is_relative_to(root) else Path()
+    if (
+        len(relative.parts) != 4 or relative.parts[0] != "flows"
+        or not DIGEST_RUN_ID.fullmatch(relative.parts[1]) or relative.parts[2] != stage
+    ):
+        raise DigestParallelError("DIGEST_PARALLEL_PATH_UNSAFE", "分片进度必须位于 Digest run 私有目录。")
+    route = resolve_route(load_manifest(skill_root / "references/workflow-routes.json"), workflow=WORKER_WORKFLOWS[stage])
+    rules = {
+        name: hashlib.sha256((skill_root / name).read_bytes()).hexdigest()
+        for name in route["static_rule_paths"] + route["worker_prompt_paths"]
+    }
+    supplied = _load_json(result_path, skill_root=skill_root)[1] if result_path else None
+    if supplied is not None and supplied.get("shard_id") not in expected:
+        raise DigestParallelError("DIGEST_PARALLEL_RESULT_INVALID", "worker result 的 shard_id 不在计划内。")
+    cache = root / "shard-results"
+    cutoff = time.time() - 30 * 86400
+    if cache.is_symlink():
+        raise DigestParallelError("DIGEST_PARALLEL_PATH_UNSAFE", "分片缓存目录不能是符号链接。")
+    if supplied is None and stage == "semantic":
+        for path in cache.glob("*.json"):
+            try:
+                if not path.is_symlink() and path.stat().st_mtime < cutoff:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                continue
+    completed, missing = [], []
+    input_hash = str(plan.get("input_hash", ""))
+    selected = expected if supplied is None else {supplied["shard_id"]: expected[supplied["shard_id"]]}
+    for shard_id, shard_path in selected.items():
+        resolved_shard, shard = _load_json(shard_path, skill_root=skill_root)
+        if not MACHINE_ID_RE.fullmatch(shard_id) or resolved_shard.parent != resolved.parent:
+            raise DigestParallelError("DIGEST_PARALLEL_PATH_UNSAFE", "分片不属于当前计划目录。")
+        fingerprint = _canonical_hash({
+            "rules": rules, "content": plan.get("content_fingerprint", input_hash),
+            "shard": {key: value for key, value in shard.items() if key != "input_hash"},
+        })
+        output = resolved.parent / "results" / f"{shard_id}.json"
+        shared = cache / f"{fingerprint.removeprefix('sha256:')}.json"
+        if supplied is not None and supplied.get("shard_id") == shard_id:
+            _validate_shard_result(shard, supplied, stage, shard_id, input_hash)
+            result = {**supplied, "checkpoint_fingerprint": fingerprint}
+            _atomic_json(output, result)
+            if stage == "semantic":
+                _atomic_json(shared, result)
+        else:
+            result = None
+            for candidate in (output, shared) if stage == "semantic" else (output,):
+                try:
+                    if candidate.is_symlink() or candidate.stat().st_mtime < cutoff:
+                        continue
+                    _, previous = _load_json(candidate, skill_root=skill_root)
+                    if previous.get("checkpoint_fingerprint") != fingerprint:
+                        continue
+                    rebound = {**previous, "input_hash": input_hash}
+                    _validate_shard_result(shard, rebound, stage, shard_id, input_hash)
+                except (DigestParallelError, OSError):
+                    continue
+                result = rebound
+                if candidate != output:
+                    _atomic_json(output, result)
+                break
+        if result is None:
+            missing.append(shard_id)
+        else:
+            completed.append({"shard_id": shard_id, "result_path": str(output)})
+    return {"stage": stage, "completed": completed, "missing_shard_ids": missing}
+
+
+def merge_parallel_results(
+    plan_path: Path,
+    result_paths: Iterable[Path],
+    output_path: Path,
+    *,
+    skill_root: Path = DEFAULT_SKILL_ROOT,
+) -> dict[str, Any]:
+    """Validate complete worker coverage and create one reducer input packet."""
+    resolved_plan, plan = _load_json(plan_path, skill_root=skill_root)
+    stage, expected = _plan_shards(plan)
     supplied: dict[str, Mapping[str, Any]] = {}
     for path in result_paths:
         _, result = _load_json(path, skill_root=skill_root)
@@ -784,23 +886,7 @@ def merge_parallel_results(
     dedupe_counts: dict[str, int] = {}
     for shard_id in sorted(expected):
         _, shard = _load_json(expected[shard_id], skill_root=skill_root)
-        if (
-            shard.get("schema_version") != PARALLEL_SHARD_SCHEMA
-            or shard.get("stage") != stage
-            or shard.get("input_hash") != plan.get("input_hash")
-        ):
-            raise DigestParallelError("DIGEST_PARALLEL_INPUT_INVALID", "shard 与 plan 不一致。")
-        records = _result_records(
-            supplied[shard_id],
-            stage=stage,
-            shard_id=shard_id,
-            input_hash=str(plan.get("input_hash", "")),
-        )
-        {
-            "dependency": _validate_dependency_records,
-            "semantic": _validate_semantic_records,
-            "conflict": _validate_conflict_records,
-        }[stage](shard, records)
+        records = _validate_shard_result(shard, supplied[shard_id], stage, shard_id, str(plan.get("input_hash", "")))
         for record in records:
             if stage == "semantic" and record.get("record_type") == "todo_candidate":
                 continue

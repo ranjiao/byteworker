@@ -40,6 +40,15 @@ def _secure_fchmod(fd: int, mode: int) -> None:
 
 
 STATE_SCHEMA = "byteworker-dreaming/v2"
+ROUTINE_WAIT_REASONS = (
+    "SOURCE_AUTH_REQUIRED",
+    "SOURCE_PERMISSION_DENIED",
+    "SOURCE_PROFILE_INVALID",
+    "SOURCE_REVIEW_REQUIRED",
+    "DREAMING_ROUTINE_SOURCE_INVALID",
+    "DREAMING_ROUTINE_SOURCE_UNSUPPORTED",
+    "DREAMING_BUDGET_REVIEW_REQUIRED",
+)
 LEGACY_STATE_SCHEMA = "byteworker-dreaming/v1"
 DIRECTORY_MODE = 0o700
 FILE_MODE = 0o600
@@ -413,6 +422,8 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
                 "DREAMING_STATE_INVALID",
                 f"Dreaming v2 job 无效: {name}",
             )
+        if job.get("waiting_for_user") in ROUTINE_WAIT_REASONS:
+            normalized_jobs[name] = {**job, "waiting_for_user": None}
     result = dict(value)
     maintenance = normalized_jobs["maintenance"]
     if maintenance.get("waiting_for_user") == "DOCTOR_USER_DECISION_REQUIRED":
@@ -669,8 +680,7 @@ def load_state_unlocked(kb: Path, now: datetime) -> dict[str, Any]:
             "DREAMING_STATE_INVALID",
             f"Dreaming 状态 schema 不受支持: {schema!r}",
         )
-    migrated = _migrate_v1(value, now)
-    _validate_v2(migrated)
+    migrated = _validate_v2(_migrate_v1(value, now))
     backup = _migration_backup_path(kb, now)
     atomic_write_json(backup, value)
     try:

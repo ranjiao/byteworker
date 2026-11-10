@@ -401,6 +401,19 @@ def list_runs(
     return {"count": len(ordered), "returned": min(limit, len(ordered)), "runs": ordered[:limit]}
 
 
+def run_performance(kb: Path, *, run_id: str, started_at: datetime, finished_at: datetime) -> dict[str, Any]:
+    from digest_run_log import DigestRunError, linked_performance
+
+    try:
+        run_ids = {
+            event["digest_run_id"] for event in _read_events(kb)
+            if event.get("run_id") == run_id and event.get("digest_run_id")
+        }
+        return linked_performance(kb, run_ids=run_ids, started_at=started_at, finished_at=finished_at)
+    except (DigestRunError, DreamingError, OSError, ValueError, TypeError, KeyError, OverflowError):
+        return {"status": "unavailable"}
+
+
 def show_run(kb: Path, *, run_id: str, include_summary: bool = True) -> dict[str, Any]:
     events = [item for item in _read_events(kb) if item.get("run_id") == run_id]
     if not events:

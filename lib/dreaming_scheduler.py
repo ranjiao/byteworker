@@ -17,11 +17,13 @@ from dreaming_run_log import (
     STAGES,
     append_run_event,
     logging_config,
+    run_performance,
 )
 from dreaming_run_result import RESULT_SCHEMA, read_run_result, save_run_result, validate_maintenance_issues
 
 from dreaming_state import (
     STATE_SCHEMA,
+    ROUTINE_WAIT_REASONS,
     DreamingError,
     atomic_write_json,
     build_job,
@@ -38,14 +40,11 @@ JOBS = ("process", "morning", "daily", "weekly", "maintenance", "recovery")
 RUN_STATUSES = {"success", "partial", "failed"}
 SOURCE_REVIEW_REQUIRED = "SOURCE_REVIEW_REQUIRED"
 HUMAN_BLOCKING_ERRORS = {
-    "SOURCE_AUTH_REQUIRED",
-    "SOURCE_PERMISSION_DENIED",
-    "SOURCE_PROFILE_INVALID",
-    SOURCE_REVIEW_REQUIRED,
-    "DREAMING_ROUTINE_SOURCE_INVALID",
-    "DREAMING_ROUTINE_SOURCE_UNSUPPORTED",
-    "DREAMING_BUDGET_REVIEW_REQUIRED",
     "DREAMING_GRANT_REQUIRED",
+    "DREAMING_STATE_INVALID",
+    "DREAMING_STATE_MIGRATION_FAILED",
+    "DIGEST_TXN_ROLLBACK_FAILED",
+    "KB_MUTATION_ROLLBACK_ERROR",
 }
 BACKOFF_MINUTES = 5
 BACKOFF_MAX_MINUTES = 240
@@ -1844,6 +1843,10 @@ def complete_run(
             from dreaming_action_ledger import count_run_kb_actions
 
             accounting.update(routine_run_accounting(kb, run_id))
+            if started_at is not None:
+                accounting["performance"] = run_performance(
+                    kb, run_id=run_id, started_at=started_at, finished_at=current,
+                )
             action_count = count_run_kb_actions(
                 kb, value["actions"], lease_token=token, started_at=started_at,
             )
@@ -1903,9 +1906,11 @@ def complete_run(
                 job["waiting_for_user"] = error_code
                 job["next_attempt_at"] = None
             else:
-                delay = min(
-                    BACKOFF_MAX_MINUTES,
-                    BACKOFF_MINUTES * (2 ** (failures - 1)),
+                routine_gap = error_code in ROUTINE_WAIT_REASONS or (
+                    job_name == "process" and error_code == "DREAMING_DIGEST_INCOMPLETE"
+                )
+                delay = BACKOFF_MINUTES if routine_gap else min(
+                    BACKOFF_MAX_MINUTES, BACKOFF_MINUTES * (2 ** (failures - 1)),
                 )
                 job["waiting_for_user"] = None
                 job["next_attempt_at"] = _iso(

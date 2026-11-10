@@ -159,7 +159,7 @@ class SupportDiagnosticsTests(unittest.TestCase):
         self.assertIn("RUN_STATE_WITHOUT_MATCHING_LOG", report["diagnostic_gaps"])
         self.assertEqual(before, state_path(self.kb).read_bytes())
 
-    def test_source_review_pauses_process_and_keeps_question_private(self):
+    def test_legacy_source_review_is_retryable_and_keeps_details_private(self):
         self.activate(minutes_ago=240)
         tick_id = trace.start("dreaming", self.kb)
         lease = observed_run_due(self.kb, owner="task", lease_seconds=100,
@@ -202,8 +202,8 @@ class SupportDiagnosticsTests(unittest.TestCase):
         self.assertEqual("idle", decision["status"])
         report = diagnose(self.kb, tick_id=tick_id)
         self.assertIsNone(report["active_lease"])
-        self.assertEqual("waiting_for_user", report["jobs"]["process"]["status"])
-        self.assertIsNone(report["jobs"]["process"]["next_attempt_at"])
+        self.assertEqual("backoff", report["jobs"]["process"]["status"])
+        self.assertIsNotNone(report["jobs"]["process"]["next_attempt_at"])
         self.assertEqual(reason, report["run"]["events"][-1]["code"])
         draft = generate(self.kb, run_id=tick_id, root=ROOT, bundle=False)
         summary, contents = self.export(tick_id)

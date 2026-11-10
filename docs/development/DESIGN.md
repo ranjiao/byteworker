@@ -441,6 +441,8 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
   长任务通过 token 匹配的 `renew` 延长有效租约，并在真实阶段变化或单阶段超过 60 秒时 heartbeat。
 - `partial/failed` 必须带稳定 error code，且不得覆盖 `last_success`；过期 lease 记录为
   `DREAMING_LEASE_EXPIRED`。
+- `waiting_for_user` 只用于任务级授权或严重状态、回滚错误。读取旧 v1/v2 时解除历史来源与预算等待，
+  不修改历史终态。普通来源缺口按最短退避后继续调度。
 - 禁用只关闭后续 job，不删除历史 receipt、报告或 findings，也不修改现有自动报告设置。
 
 运行日志使用 `byteworker-dreaming-run-event/v1`，位于
@@ -465,7 +467,11 @@ artifacts 和 evidence spool；正文只在用户主动打开本机调试页时�
 `state/dreaming/run-results/<run_id>.json`。新增可选 `accounting`，含租约耗时、来源结果、
 已核验的提交和文件/节点变更、持久化动作回执数、IM 会话消息数或报告条目引用分布。未核验的来源单列，
 维护修复数来自结果回执。终态事件只保存相对路径，`runs show` 和 Viewer 关联同一份私有摘要。
-新完成的 `SOURCE_REVIEW_REQUIRED` process 结果必填 `review`。字段包括阶段 `stage`
+process 的 `accounting.performance` 可记录租约内关联 Digest 的阶段累计时长、分来源阶段、
+未覆盖墙钟、缺失日志数及上报的调用间隔、耗时和 token。未上报的模型实际用量字段缺省。
+Digest usage 事件可带 `call_timing_ms`，只保存宿主提供的非负耗时和间隔。
+为兼容旧 runner，`SOURCE_REVIEW_REQUIRED` process 结果仍校验 `review`，并按普通缺口调度。
+字段包括阶段 `stage`
 （`dependency_review` 或 `conflict_review`）、具体问题 `problem`、待决定事项 `question` 和
 2 至 5 项 `options[{action,effect}]`。旧回执可继续读取。
 技术诊断和反馈投影不加载该正文。修复明细只含 KB 相对路径、问题码、动作和摘要。
@@ -501,11 +507,17 @@ state/dreaming/
 
 `digest-batches/<run_id>.json` 使用 `byteworker-dreaming-digest-batch/v1`，保存 process 开始时
 全部启用 Profile 和未被 Profile 取代的兼容历史 raw 来源快照、配置 revision、目标覆盖时间及
-有限下游 receipt。普通来源只接受能回查 `digest_status=digested` raw 的 DigestTxn
+有限下游 receipt。来源可记录 `work.digest_run_id`，以及 `failed/blocked` 和固定错误码。
+普通来源成功须接受能回查 `digest_status=digested` raw 的 DigestTxn
 `committed/noop`。群聊还接受 `empty_window`，来源结果引用确定性准备回执的 `digest_run_id`，
 据此核验私有 Bundle 并记录 UTC 窗口起止。空窗口 checkpoint 保存 `digest_run_id`，不需要
 `digest_key` 或 raw。Wiki 子树只接受 coverage complete 且 tree hash 可复验的 scan `observed`。
-完成前重新枚举来源；清单或 revision 漂移、任一来源失败时都不得更新 `source_checkpoints`。
+收尾前重新枚举来源；清单或 revision 漂移拒绝更新 `source_checkpoints`。partial 只推进有
+核验回执的来源，同版本已覆盖到更晚时间的 checkpoint 不回退。完整批次才允许 process 成功。
+同一来源配置的 checkpoint 已覆盖本次目标时，补跑批次可记 `covered`，保留原检查点。
+Digest flow 增加 `checked`，保存已预检的 Bundle。分片结果保存在各计划目录 `results/`，
+来源内语义结果还可按内容、分片和规则指纹缓存在 `state/digest/shard-results/` 30 天。
+缓存是私有可重建产物。依赖、冲突和提交回执仍在当前运行生成。
 
 - `process prepare` 采集并提交 `collected` manifest，只向机器输出 batch id、相对 manifest path、
   数量和 coverage，不输出消息正文。

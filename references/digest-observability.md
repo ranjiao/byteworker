@@ -83,6 +83,8 @@ bin/byteworker digest-run usage --kb "<KB>" --run-id "<RUN_ID>" \
 ```
 
 `call-id` 只接受稳定 opaque id，日志仅保存 SHA-256；同一 run 重报同一 id 时幂等，不重复计数。
+缓存输入和推理计数可省略。宿主提供真实调用耗时、调用间隔时，可附
+`--call-duration-ms`、`--call-gap-ms`；只有时序时可只传这两个计量项，不计入 token 用量。
 worker role 固定为 `coordinator/dependency_worker/semantic_worker/conflict_worker/final_reducer`。
 usage 事件可在 run 终态后补报，以覆盖最终响应；它不改变 committed/noop/failed/cancelled 状态或
 duration。`reasoning_tokens` 作为 `output_tokens` 的细分显示，`total_tokens` 不重复相加。
