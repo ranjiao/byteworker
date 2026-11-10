@@ -1,6 +1,6 @@
 # 开发文档归档
 
-本目录只用于历史追踪，不是当前实现或运行时 Agent 的权威来源。
+这里保存旧设计和已完成的计划，供追溯历史。当前行为以 `ARCHITECTURE.md`、`DESIGN.md`、代码和测试为准。
 
 ## 历史设计
 
@@ -11,5 +11,4 @@
 - [`initiatives/2026-08-token-efficiency.md`](initiatives/2026-08-token-efficiency.md)：token 效率改进计划。
 - [`initiatives/2026-09-command-refactor.md`](initiatives/2026-09-command-refactor.md)：`bin/` 命令架构重构任务。
 
-归档中的建议、开放问题和当时基线可能已经失效；如需重新实施，先在 `plans/` 建立当前范围，
-并以 `ARCHITECTURE.md`、`DESIGN.md`、代码和测试重新验证。
+要重启旧计划，先核对当时的建议、基线和未决问题，再到 `plans/` 记录当前范围。

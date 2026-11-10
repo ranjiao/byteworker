@@ -3467,7 +3467,7 @@ function renderDreamingSettings() {
   return `
     <div class="settings-section">
       <div class="settings-section-h">${icon('eye', 13)}<span>Dreaming 设置</span><span class="hint">${d.operational ? '已自动运行' : (d.enabled ? '等待本地任务' : '未启用')}</span></div>
-      <div class="settings-section-note">后台信息助手会按授权范围静默分析可见信息，生成待关注事项和晨报。本页保存运行偏好，真实运行仍依赖本地定时任务。<a class="settings-link" href="/app/dreaming-debug.html?api_token=${encodeURIComponent(API_TOKEN)}" target="_blank" rel="noopener">查看运行日志 ↗</a></div>
+      <div class="settings-section-note">Dreaming 会在授权范围内分析信息，并按设置生成待关注事项和晨报。本页保存运行偏好，自动运行需要接通本地定时任务。<a class="settings-link" href="/app/dreaming-debug.html?api_token=${encodeURIComponent(API_TOKEN)}" target="_blank" rel="noopener">查看运行日志 ↗</a></div>
       <div class="settings-form">
         <div class="settings-row"><label>信息范围</label><div class="settings-control-row">
           <select id="settings-im-mode" class="settings-select">
@@ -3536,7 +3536,7 @@ function renderLegacyReportSettings() {
   return `
     <div class="settings-section">
       <div class="settings-section-h">${icon('info', 13)}<span>旧版自动报告</span><span class="hint">兼容信息，只读</span></div>
-      <div class="settings-section-note">这是 Dreaming 上线前的独立日报/周报机制。它依赖外部定时任务运行，与现在的后台信息助手不是同一套调度。保留此页是为了查看旧配置，不能在这里启用或迁移。</div>
+      <div class="settings-section-note">这里可以查看独立于 Dreaming 运行的旧日报和周报配置。旧报告由各自的定时任务生成。本页仅供查看，启用或迁移请在对话中操作。</div>
       <div class="settings-form">
         <div class="settings-row"><span class="settings-row-label">历史选择</span><span>${esc(decisionLabels[report.decision] || report.decision || '尚未选择')}</span></div>
         <div class="settings-row"><span class="settings-row-label">旧版日报</span><span>${report.daily?.enabled ? esc(report.daily.schedule || '已启用') : '未启用'}</span></div>

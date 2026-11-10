@@ -1,33 +1,43 @@
-# report-template.html — 渲染契约
+# report-template.html 渲染契约
 
-Byteworker Dreaming report HTML template — v2 (cool dark / single accent).
+Dreaming 报告使用 v2 HTML 模板。界面采用冷色深色主题，用一种强调色。
 
-Design contract:
-- Self-contained only. No external JS/CSS/fonts/images/network URLs.
-- Keep placeholders wrapped as { {NAME} }. The Python renderer escapes all
-  business text before replacement.
+模板必须是自包含的单文件，禁止引用外部 JS、CSS、字体、图片或网络 URL。占位符用 `{{NAME}}` 格式。
+Python 渲染器先转义业务文本，再替换占位符。
 
-Placeholders (scalars):
-  { {TITLE} } { {GENERATED_AT} } { {WINDOW_START} } { {WINDOW_END} } { {TIMEZONE} }
-  { {COVERAGE_STATUS} } { {CONFIDENCE} } { {MANUAL_NOTES} }
+## 占位符
 
-Placeholders (HTML fragments the renderer builds — patterns below):
-  { {STATS} } { {SOURCE_TABS} } { {HIGHLIGHTS} } { {SECTION_CARDS} } { {SOURCES} }
-  { {COVERAGE_NOTES} }
+- 单值字段为 `TITLE`、`GENERATED_AT`、`WINDOW_START`、`WINDOW_END`、`TIMEZONE`、
+  `COVERAGE_STATUS`、`CONFIDENCE` 和 `MANUAL_NOTES`。
+- HTML 片段为 `STATS`、`SOURCE_TABS`、`HIGHLIGHTS`、`SECTION_CARDS`、`SOURCES` 和
+  `COVERAGE_NOTES`。
 
-FRAGMENT PATTERNS — copy these shapes exactly; the inline script relies on
-the data-* attributes for source filtering, expand/collapse and ref jumps.
+## HTML 片段
 
-{ {STATS} } — one per metric cell:
+按下面的结构生成片段。内联脚本用 `data-*` 属性过滤来源、展开或收起条目，以及跳到引用来源。
+
+### `STATS`
+
+每项指标生成一个单元。要突出显示数值时，例如高优先级事项数，给 `.stat-v` 加上 `accent`。
+
+```html
   <div class="stat"><span class="stat-k">ITEMS</span><span class="stat-v">25</span></div>
-  (add class "accent" on .stat-v to highlight, e.g. the high-priority count)
+```
 
-{ {SOURCE_TABS} } — first tab must be data-tab="all":
+### `SOURCE_TABS`
+
+第一个标签必须是 `data-tab="all"`。
+
+```html
   <button type="button" class="tab is-on" data-tab="all">全部来源<span class="pill" data-count="all">25</span></button>
   <button type="button" class="tab" data-tab="S1">《内部例会文档》<span class="pill" data-count="S1">11</span></button>
+```
 
-{ {HIGHLIGHTS} } — today's 3-6 top signals. data-src = space-separated source ids.
-Level class is lv-high | lv-attn | lv-info:
+### `HIGHLIGHTS`
+
+选当天最重要的 3–6 条事项。`data-src` 中的来源 ID 用空格分隔。等级类用 `lv-high`、`lv-attn` 或 `lv-info`。
+
+```html
   <button type="button" class="card item lv-attn" data-item data-src="S1">
     <span class="row-top">
       <span class="row-left"><span class="num">01</span><span class="lv">关注</span></span>
@@ -38,9 +48,13 @@ Level class is lv-high | lv-attn | lv-info:
     <span class="detail">展开后的补充说明。</span>
     <span class="refs"><a class="ref" href="#src-S1">[来源一] 高</a></span>
   </button>
+```
 
-{ {SECTION_CARDS} } — one block per section (关键进展 / 决策与对齐 / 风险 / 明日关注).
-Keep the 4-column head row; each row is an .item button:
+### `SECTION_CARDS`
+
+关键进展、决策与对齐、风险和明日关注各用一个区块。保留四列表头，每行用 `.item` 按钮。
+
+```html
   <section class="block" data-block>
     <div class="block-head"><span class="bar lv-info"></span><h2>关键进展</h2>
       <span class="code">Progress</span><span class="spacer"></span>
@@ -60,12 +74,20 @@ Keep the 4-column head row; each row is an .item button:
       </span>
     </button>
   </section>
+```
 
-{ {SOURCES} } — the jump targets; id must be src-<source id>:
+### `SOURCES`
+
+每个来源都是一个跳转目标，ID 必须是 `src-<source id>`。
+
+```html
   <div class="src" id="src-S1">
     <span class="cell"><span class="mono ref-static">[来源一]</span><span class="mono kind">文档</span></span>
     <span class="cell"><span class="src-name">《内部例会文档》</span><span class="src-meta">飞书文档 · 原始出处:已脱敏 …</span></span>
     <span class="mono conf conf-high">可信度 高</span>
   </div>
+```
 
-{ {COVERAGE_NOTES} } — one <span class="note">…</span> per note.
+### `COVERAGE_NOTES`
+
+每条覆盖说明用一个 `<span class="note">…</span>`。

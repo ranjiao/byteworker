@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。摄取飞书文档、妙记、会议、群聊、Meego、多维表格、风神、网页和本地 Markdown，支持查询、更新、会前简报、看板、工作上下文、思考、自动日报周报、能力推荐、Dreaming 后台助手和兼容诊断。保存或查询工作资料、设置后台任务、检查知识库、排查运行或生成反馈时使用。
+description: 个人飞书工作知识库。摄取飞书文档、妙记、会议、群聊、Meego、多维表格、风神、网页和本地 Markdown，支持查询、更新、会前简报、看板、工作上下文、思考、自动日报周报、能力推荐、Dreaming 和兼容诊断。保存或查询工作资料、配置 Dreaming 或后台任务、检查知识库、排查运行或生成反馈时使用。
 ---
 
 # byteworker
@@ -17,53 +17,52 @@ description: 个人飞书工作知识库。摄取飞书文档、妙记、会议�
 | context | 查看或维护全局工作上下文 |
 | thinking | 保存或持续更新用户自己的自然语言认知与推演 |
 | discover | 按当前知识库状态查看能力地图或推荐下一步 |
-| dreaming | 用自然语言设置、启停或查看后台信息助手；默认关闭 |
+| dreaming | 用自然语言设置、启停或查看 Dreaming，默认关闭 |
 | doctor | 检查或修复 schema/skill 兼容问题 |
 | help | 原样展示 `references/help.md` |
 
-自然语言未写子命令时按意图匹配。没有 `daily` / `weekly` 用户子命令；自动报告由宿主任务或
-自然语言补跑触发。
+用户直接描述任务时，按意图匹配。没有 `daily` / `weekly` 用户子命令。报告由宿主定时任务触发，也可以用自然语言要求补跑。
 
-## 每个 Session 先做
+## 会话预检
 
-真人参与的 session 首次使用本 skill 时只运行一次：
+交互会话首次使用本 skill 时，运行一次预检。
 
 ```bash
 bin/byteworker preflight --interactive
 ```
 
-定时任务、runner 和其它无人值守 session 改用 `preflight --unattended`；无参数也默认不产生 Tip。
+定时任务、runner 和其他无人值守会话用 `preflight --unattended`。省略参数时也默认不产生 Tip。
 
 访问尚未登记的飞书/Meego 来源时分别加 `--require feishu` / `--require meego`。
 
-- 无输出且退出码 0：静默继续，**不要再分别运行** update-check、依赖检查 或报告状态。
-- 输出 JSON：只处理 `byteworker-session-preflight/v1.notices`；blocking 先解决。
-- launcher 在加载 Python 模块前完成更新，因此本次 preflight 始终使用单一代码版本。
+- 退出码为 0 且无输出时静默继续，不要再分别运行更新、依赖检查和报告状态命令。
+- 有 JSON 输出时，只处理 `byteworker-session-preflight/v1.notices`，先解决 blocking 项。
+- launcher 先完成更新检查，再加载 Python 模块，确保本次预检使用同一个版本。
 - 只有 notice 或排障时才读 `references/session-preflight.md`。
-- Dreaming 是默认关闭的独立旁路；普通 preflight 不检查、不启用也不提示 Dreaming。
+- Dreaming 默认关闭，单独设置。普通 preflight 不检查、不启用也不提示 Dreaming。
 
 ## 交互语言
 
-优先级：用户当前明确要求 → KB 持久偏好 → 会话已确认语言；都没有时按当前消息语言询问一次，
-不默认英语。已有库先跑 `context view --intent preferences` 取 `interaction_language`，只补缺、
-不重建。命令名、URL、原文不构成语言切换；持久语言经 context mutation 写身份表「交互语言」。
+按顺序使用用户当前明确要求、KB 持久偏好、会话已确认语言。都没有时，用当前消息的语言询问一次，不默认英语。
+已有库先运行 `context view --intent preferences` 读取 `interaction_language`，只补缺、不重建。
+命令名、URL、原文不构成语言切换。用 context mutation 将持久偏好写入身份表「交互语言」。
 
 ## Workflow 路由
 
-`references/workflow-routes.json` 是机器真相源，Agent 不整读它。确定意图后运行：
+路由以 `references/workflow-routes.json` 为准。确定意图后用命令解析所需规则，避免整份加载。
 
 ```bash
 bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE>
 ```
 
-无来源省略 source-type；条件触发加 `--feature <FEATURE>`，失败才加 `--include-on-error`。
-已读文件不重复读；解释性链接不整包加载，明确条件规则仍须补读。
-隔离 worker 或动态输入接近上限时，按 `references/workflow-budgets.md` 取完整 budget receipt；
-超预算执行固定 action，不截断证据。
+无来源时省略 source-type。触发条件规则时加 `--feature <FEATURE>`，失败才加 `--include-on-error`。
+已读文件无需重读。只补读明确触发的条件规则，避免沿解释性链接整包加载。
+隔离 worker 或动态输入接近上限时，按 `references/workflow-budgets.md` 取完整 budget receipt。
+超预算时执行规定的 action，保留完整证据。
 
-公共 CLI envelope 见 `references/machine-protocol.md`。统一用
-`bin/byteworker <tool> ...`；飞书 CLI 用 `bin/byteworker lark ...`，辅助脚本用
-`bin/byteworker run ...`。Agent 不猜 Python、nvm、venv 或内部 CLI 路径。
+用 `bin/byteworker <tool> ...` 调用命令。飞书 CLI 用 `bin/byteworker lark ...`，辅助脚本用
+`bin/byteworker run ...`。由入口解析 Python、nvm、venv 和内部 CLI 路径。公共 CLI 响应格式见
+`references/machine-protocol.md`。
 
 ### 按意图加载
 
@@ -109,18 +108,18 @@ Dreaming 固定为 `explicit_only`，不进入通用推荐，仍只由用户明�
 
 ## Context
 
-语义任务不再读取完整 `context.md`。先调用：
+语义任务只读取当前意图需要的上下文。先调用：
 
 ```bash
 bin/byteworker context view --kb "<KB>" --intent "<intent>"
 ```
 
-只消费该 intent 的固定章节投影。超过硬预算时先请用户归档过期信息。context 是用户真相源；
-除用户明确要求的 context mutation 外，其它流程绝不改写。
+只使用命令返回的固定章节。超过硬预算时，先请用户归档过期信息。context 以用户提供的信息为准，
+仅在用户明确要求修改时走 context mutation。
 
 ## Digest
 
-digest 先 resolve 来源闭包，完整加载安全与语义 policy；出处按 `references/provenance.md`。
+digest 先用 resolve 找齐并加载该来源所需的规则，包括完整的安全与语义 policy。出处按 `references/provenance.md` 处理。
 
 来源规则由 resolve 选择，飞书正文和全部评论（`references/digest-comments.md`）均必读；白板只取结构 JSON 并加 whiteboard。
 会议簇、立场、大型输入、routine 按对应来源/feature 加载；Wiki 空间走 wiki_space（`references/digest-wiki-space.md`），
@@ -129,8 +128,9 @@ digest 先 resolve 来源闭包，完整加载安全与语义 policy；出处按
 按 `references/digest-flow.md` 编排、`references/digest-inline.md` 交接，复用 prepare 的 packet/plan。
 planner 选择 parallel 才加 parallel_execution，读 `digest-analysis-pipeline.md` / `digest-concurrency.md`；
 多来源原子提交加 batch，读 `references/digest-transaction.md`；内部资料加 internal_reading。
-候选完成后只运行 `digest-flow commit`（锁内复验）；独立 `validate` 只用于失败排障。
-多来源用 `digest-batch-plan/v2`。Agent 做语义判断、冲突分类；事务负责确定性写入与回滚；只认 `status=committed`。
+候选完成后只运行 `digest-flow commit`，由它在锁内复验。独立 `validate` 只用于失败排障。
+多来源用 `digest-batch-plan/v2`。Agent 负责语义判断、冲突分类，事务负责确定性写入和回滚。
+仅 `status=committed` 表示写入成功。
 
 flow 自动记录确定性阶段与终态；语义打点和等待按 inline。恢复、诊断或 usage 上报加 recovery
 读取 `references/digest-observability.md`。
@@ -142,8 +142,8 @@ person 用 `bin/resolve-users.sh --format json --jobs 4` 按 feishu_id 消解。
 Meego/Base/风神/群聊先做 `source auth-status`。宿主注入的 user 凭据失效时，要求重新注入，
 禁止用重复登录或静默切 bot 掩盖。其它未就绪先授权。`source inspect / capture` 仍 fail closed；
 资源权限不足时请所有者共享。
-结构化大视图保存完整快照，普通行不建节点，left_view 不等于删除。
-查询具体记录用 `kb-query source-record`，不让 Agent 扫完整 raw。
+大型结构化视图保存完整快照，不为普通行建节点。left_view 只表示记录已离开视图。
+查询具体记录时用 `kb-query source-record`，禁止 Agent 扫描完整 raw。
 
 大型输入 worker 和 Wiki resume page 必须从 workflow manifest 解析完整 digest 闭包；子 Agent
 必须使用宿主提供的**全新隔离上下文**，prompt 自足且只传来源、确认范围、KB 和临时 artifact
@@ -163,8 +163,8 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 
 ## 知识库检索回答引用(每次必做)
 
-KB 回答按 `references/citations.md` 逐条标 `[S<n>]`，列原始出处、收录时间与置信度，
-并列原文时间/覆盖与版本/raw_id，披露缺口。节点日期仅作元数据，事实时效按原始证据判断。
+按 `references/citations.md` 给 KB 回答逐条标 `[S<n>]`。列出原始出处、收录时间与置信度，
+并列出原文时间或覆盖范围、版本和已知缺口。按引用规则提供 raw_id。节点日期只作元数据，事实时效以原始证据为准。
 
 ## 报告与 Doctor
 
@@ -184,28 +184,27 @@ doctor 默认只读调用 `bin/doctor.py` 对应 facade；交互请求只有用�
 
 ## Dreaming
 
-Dreaming 是可选后台 orchestration layer，默认关闭。用户明确要求启用时先读取
+Dreaming 可以在后台定期检查已授权的信息，默认关闭。用户说「帮我配置 Dreaming」或明确要求启用时，先读取
 `references/dreaming.md`、`references/dreaming-onboarding.md` 和
-`references/dreaming-setup-guide.md`。用户说“设置自动信息分析”“每天汇总重要信息”“重要风险
-及时提醒”“调整后台频率/范围”“为什么没有自动运行/摘要”或“继续设置”时，也进入设置向导。
+`references/dreaming-setup-guide.md`。用户说「帮我配置后台信息助手」「设置自动信息分析」
+「每天汇总重要信息」「重要风险及时提醒」「调整后台频率/范围」「为什么没有自动运行/摘要」
+或「继续设置」时，也进入设置向导。
 优先使用 Codex / TRAE 的结构化选项控件；不可用时使用编号选项。
 
-面向用户一律使用“后台信息助手、自动检查、待关注事项、定时摘要、紧急提醒、本地定时任务”等
-自然语言，不直接展示 `operational`、`persist_report`、`instant_alert`、`harness`、grant、
-Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项时只问该项和依赖。所有选择用
-自然语言汇总并取得确认后才写配置；完成后只展示 `dreaming-setup-guide.md` 定义的用户状态卡。
+面向用户称为 Dreaming，具体选项用「自动检查」「待关注事项」「定时摘要」「紧急提醒」「本地定时任务」等
+自然语言。设置时不直接展示 `operational`、`persist_report`、`instant_alert`、`harness`、grant、
+Finding 或 job。先读取 status，从未完成的步骤继续。只修改一项时，只问该项及其依赖。
+用自然语言汇总选择，用户确认后再写配置。完成后只展示 `dreaming-setup-guide.md` 定义的用户状态卡。
 
-首次启用仍须完整介绍它与 digest 的差异、能力、默认授权、隐私、成本、机器条件、维护和退出
-方式；不能只给一句成本提示。启用前必须让用户配置并确认完整 schedule；导览、schedule、机器
-条件都明确确认后，才能传 `--acknowledge-capability-tour --acknowledge-schedule
---acknowledge-machine-runtime` 并创建宿主 local 任务。
+首次启用须完整介绍它与 digest 的差异、能力、默认授权、隐私、成本、机器条件、维护和退出方式。
+请用户配置并确认完整 schedule。导览、schedule 和机器条件都明确确认后，才能传
+`--acknowledge-capability-tour --acknowledge-schedule --acknowledge-machine-runtime` 并创建宿主 local 任务。
 
 - 普通安装、升级、preflight 和其它命令不得自动启用或反复询问。
 - process 支持按分钟间隔、每天固定时间、每 N 天固定时间；不得静默套用默认频率。先运行
   `dreaming configure`，回显所有 job、timezone、日志保留期和 `next_due_at`，再询问确认。
-- `enabled=true` 不等于会自动运行。宿主任务真实创建后必须 `dreaming harness register`；
-  只有 `harness.status=installed` 且 `operational=true` 才能声称后台已配置完成。
-  宿主无本地定时能力时只提供前台单次分析。
+- 宿主任务创建后，必须用 `dreaming harness register` 登记。只有 `harness.status=installed` 且
+  `operational=true` 才能告知用户后台已配置完成。宿主无本地定时能力时只提供前台单次分析。
 - 检测到 TRAE / TRAE SOLO / TraeWork 环境时必须加载 `references/dreaming-harness-trae.md`。
   当前会话没有 Schedule 工具时，提示用户在 TRAE 任务面板创建本地 Code 定时任务、每 30 分钟
   执行 runner，并先 Run now；没有真实任务和首次触发证据时保持 harness pending，禁止猜私有

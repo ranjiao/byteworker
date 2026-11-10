@@ -1,30 +1,29 @@
 # byteworker 命令手册
 
-本目录保存 byteworker 的确定性命令入口。它们负责抓取、校验、查询、事务写入、维护和更新；
-业务语义判断仍由 Agent 完成。
+这里列出抓取、校验、查询、事务写入、维护和更新命令。理解资料、判断冲突等业务语义由 Agent 处理。
 
 ## 1. 先选择正确的入口
 
 ### Agent 或自动化调用
 
-每个新 session 先调用一次：
+交互会话开始时运行一次预检。
 
 ```bash
 bin/byteworker preflight --interactive
 ```
 
-健康时完全无输出；有输出时只处理 `byteworker-session-preflight/v1.notices`。飞书任务可显式加
-`--require feishu`，Meego 任务加 `--require meego`；已登记来源会自动推导。
-自动报告、Dreaming runner 和其它定时任务改用 `preflight --unattended`；无参数也按无人值守安全
-默认处理，两者都不会返回能力 Tip。
+检查通过时无输出。有输出时只处理 `byteworker-session-preflight/v1.notices`。已登记来源会自动识别。
+即将访问未登记的飞书或 Meego 来源时，加 `--require feishu` 或 `--require meego`。
+自动报告、Dreaming runner 和其他定时任务用 `preflight --unattended`。省略参数时也按无人值守处理，
+两种写法都不返回功能建议。
 
-之后所有确定性工具通过同一个 runtime-safe launcher 调用：
+后续命令走同一个启动入口，由它解析运行环境。
 
 ```bash
 bin/byteworker <tool> [tool arguments...]
 ```
 
-命令清单不在文档中手工复制。人类查看分组帮助，Agent/自动化读取机器清单：
+手动查看用分组帮助。Agent 和自动化可读机器清单。
 
 ```bash
 bin/byteworker --help
@@ -33,14 +32,14 @@ bin/byteworker commands describe source.capture --json
 bin/byteworker commands search "digest" --json
 ```
 
-`lib/command_registry.py` 是命令名、入口、使用者、可见性、副作用、runtime 和文档位置的唯一
-真相源。顶层帮助先展示推荐的逻辑 namespace，例如 `digest flow`、`kb query` 和
-`automation dreaming`；原有 `digest-flow`、`kb-query`、`dreaming` 等扁平路径继续兼容。Agent 应从
-manifest 的 `preferred_path` 和 `aliases` 选择新路径，不自行猜测映射。默认帮助隐藏 tombstone；
-`bin/byteworker --help --all` 可审计全部兼容入口。
+命令名、入口、使用者、可见性、副作用、运行环境和文档位置以 `lib/command_registry.py` 为准。
+顶层帮助优先列出分组路径，如 `digest flow`、`kb query` 和 `automation dreaming`。
+原有的 `digest-flow`、`kb-query` 和 `dreaming` 等路径仍可用。Agent 按 manifest 的
+`preferred_path` 和 `aliases` 选择路径。查看全部兼容入口，包括默认隐藏的 tombstone，用
+`bin/byteworker --help --all`。
 
-面向用户的目标、例句和能力建议另由 `references/capabilities.json` 定义；不要把底层命令清单直接
-展示成产品功能。Agent 通过 `discover status/recommend/feedback` 读取能力地图并维护本地限频状态。
+给用户展示功能时用 `references/capabilities.json` 定义的目标、例句和建议。Agent 通过
+`discover status/recommend/feedback` 查看功能并记录本地提示频率。
 
 registry 中 `execution=facade` 的 tool 调用输出 `byteworker-cli/v1` JSON envelope：
 
@@ -149,7 +148,7 @@ cd "$BYTEWORKER_ROOT"
 
 ## 4. `byteworker-cli.py`：统一机器协议
 
-用途：把确定性 Python 工具包装为稳定的单行 JSON envelope，统一成功、需关注和错误状态。
+统一 Python 工具的单行 JSON 响应格式，区分成功、需关注和错误。
 
 ```bash
 bin/byteworker [--pretty] <tool> [tool arguments...]
@@ -193,12 +192,12 @@ bin/byteworker dreaming status \
 
 ## 5. `digest-run.py`：端到端摄取耗时
 
-输入到达后立即 `start`，对 Agent 阶段成对调用 `stage started/completed|failed`，宿主拿到模型
-usage 后调用 `usage`，最终调用 `complete`；`wait/resume` 显式排除用户等待时间，固定 6 小时没有
-lifecycle heartbeat 的非终态 run 显示 stale，活跃耗时截止最后事件。`list/show` 返回 active duration、
-最慢阶段和 token 汇总。完整
-阶段协议和隐私边界见
-`references/digest-observability.md`。
+收到输入就调用 `start`。每个 Agent 阶段都记录 `stage started`，结束时记录 `stage completed`
+或 `stage failed`。宿主拿到模型用量后调用 `usage`，最后调用 `complete`。
+
+用 `wait/resume` 排除等待用户的时间。未结束的运行连续 6 小时没有 lifecycle heartbeat 时显示
+stale，活跃耗时只算到最后一个事件。`list/show` 返回活跃耗时、最慢阶段和 token 汇总。
+阶段协议和隐私边界见 `references/digest-observability.md`。
 
 ```bash
 bin/byteworker digest-run start --kb "$BYTEWORKER_KB"
@@ -212,9 +211,9 @@ bin/byteworker digest-run show --kb "$BYTEWORKER_KB" --run-id "$DIGEST_RUN_ID"
 
 ## 5A. `digest-flow.py`：确定性生命周期编排
 
-标准 digest 先 `start`，capture 可多波执行，`prepare` 一次完成 Bundle、preflight、analysis packet
-和 dependency/semantic planner，最终 `commit` 委派 transaction。所有 request/plan 放返回的私有
-`work_dir`，中断后用 `status` 恢复。
+标准 digest 先 `start`，再按需分批 capture。`prepare` 一次完成 Bundle、preflight、analysis packet
+及依赖和语义规划，最后由 `commit` 调用事务。所有 request 和 plan 放入返回的私有 `work_dir`。
+中断后用 `status` 恢复。
 
 ```bash
 bin/byteworker digest-flow start --kb "$BYTEWORKER_KB" --source-type local_md
@@ -1058,9 +1057,8 @@ bin/byteworker preflight --unattended
 
 ### `browse.sh`
 
-在本机启动 Viewer。工作看板通过 `/api/dashboard` 按需只读生成，其余知识库浏览使用静态文件。
-设置对话框里的系统设置通过
-`viewer-server.py` 暴露的本机会话 API 写入受控配置。
+在本机启动 Viewer。工作看板由只读接口 `/api/dashboard` 按需生成，其他浏览内容来自静态文件。
+设置对话框通过 `viewer-server.py` 的本机会话 API 写入受控配置。
 
 Dreaming 运行日志调试页不加入主界面导航，服务启动后直接访问：
 
@@ -1099,13 +1097,13 @@ bin/check-deps.sh
 | `1` | Tier 1 必需依赖缺失 |
 | `2` | byteworker 基础可用，但内部来源依赖不完整 |
 
-Tier 1 包括 `git/jq/bash/python>=3.9 + zoneinfo`；Tier 2 包括可启动的 Node、`lark-cli` 与
-`meegle`。登录状态仍由具体来源的 `source auth-status` 检查，依赖检查不发起 OAuth。
-登录状态另用 `source auth-status` 检查。
+Tier 1 需要 `git`、`jq`、`bash` 和带 `zoneinfo` 的 Python 3.10+。Tier 2 检查 Node、
+`lark-cli` 和 `meegle` 能否启动。登录状态用对应来源的 `source auth-status` 检查。
+依赖检查不发起 OAuth。
 
 ## 13. 自动更新内部命令
 
-这些命令通常由 `SKILL.md` 和 `update-check.sh` 自动编排，不是日常用户入口。
+这些命令通常由 `SKILL.md` 和 `update-check.sh` 自动调用。手动排查先用 `bin/byteworker update-status`。
 
 ### `update-check.sh`
 
@@ -1139,8 +1137,8 @@ python3 bin/update-postflight.py \
   --format json
 ```
 
-它会保护 staged/dirty 工作、重复 ID、损坏 frontmatter、KB remote 和图完整性；安全修复完成后
-追加维护 journal，并创建知识库本地回滚 commit。严重问题返回决策状态，不猜写。
+它会检查 staged/dirty 改动、重复 ID、损坏的 frontmatter、KB remote 和关系图完整性。
+安全修复完成后，追加维护 journal 并创建本地回滚 commit。遇到严重问题时返回待决策状态。
 
 ### `update-state.py`
 

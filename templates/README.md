@@ -1,11 +1,6 @@
-# templates/ — 骨架模板
+# Byteworker 模板
 
-byteworker 用到的骨架。`node-*.md` 是 8 类知识节点的骨架；来源节点由 digest 生成，
-`thinking` 由用户明确要求保存或更新时生成。
-节点笔记；`source-bundle-v2.json` + `digest-plan-v2.json` 是新增单来源的 adapter 交接契约 /
-事务 manifest；`digest-batch-plan-v2.json` 是新增多来源原子事务模板；`digest-plan-v1.json`
-和 `digest-batch-plan-v1.json` 只用于兼容历史调用；
-`context.md` 是数据目录顶层用户状态文件的骨架;`report-*.md` 是报告输出骨架。
+这里存放知识节点、工作上下文、摄取计划和报告的模板。字段以 `docs/development/DESIGN.md` 为准。
 
 ## 节点模板
 
@@ -20,34 +15,28 @@ byteworker 用到的骨架。`node-*.md` 是 8 类知识节点的骨架；来源
 | `node-reading.md` | 外部 blog / 论文 / wiki 读物;内部路线思考 / 方法论 / 调研 / 技术白皮书资料卡 | 记录 · 低维护 |
 | `node-thinking.md` | 用户自己的认知、直觉、假设、推演和方案 | 持续更新 · 自然语言优先 |
 
-用法:
+digest 负责生成来源节点。只有用户明确要求保存或更新思考时，才使用 `thinking` 模板。
 
 1. 复制对应模板。
-2. 填 frontmatter(字段定义见 `docs/development/DESIGN.md` §4.1;命名规范见 §2)。
-3. 按 body 里的 `<!-- 指引 -->` 注释填写各章节。
-4. 生成正式节点时**删除所有指引注释**。
-5. 无法判定类型时不得写入；按 `references/semantic-policy.md` 给出有限候选和证据，请用户确认。
+2. 填写 frontmatter。字段和命名规范见 `docs/development/DESIGN.md` §4.1 和 §2。
+3. 按正文里的 `<!-- 指引 -->` 填写，生成正式节点时删除所有指引注释。
+4. 无法判定类型时，按 `references/semantic-policy.md` 给出有限候选和证据，等用户确认后再写入。
 
 ## context.md 模板
 
-`context.md` —— 数据目录顶层「全局工作上下文」文件的骨架(见 `docs/development/DESIGN.md` §10)。
-
-**与节点模板不同**:它是整文件骨架 —— 首次使用、或数据目录缺 `context.md` 时,由 skill
-**整份复制**为初始 `context.md`,之后由用户通过 agent 对话维护。它的 `<!-- 指引 -->` 注释**保留不删**
-(持续引导用户按统一格式填写)。统一模板 = 避免不同用户写出五花八门的格式。
-
-schema 以 `docs/development/DESIGN.md` 为唯一真相源。
+新建知识库或发现顶层缺少 `context.md` 时，整份复制模板，包括 `<!-- 指引 -->` 注释。
+之后由用户通过对话维护工作上下文。字段见 `docs/development/DESIGN.md` §10。
 
 ## digest plan 模板
 
-所有模板都只作为字段参考。新增单来源先按 `source-bundle-v2.json` 由 adapter 生成 bundle，
-再使用只引用 bundle 的 `digest-plan-v2.json`；不得在 v2 plan 复制 source 或 anchors。
-`digest-plan-v1.json` 只用于兼容未迁移调用方。多来源必须同成同败或共同更新节点时用
-`digest-batch-plan-v2.json`，每个 input 只引用已经校验的 SourceBundle，不复制 source 或
-anchors。使用时复制到**系统临时目录**并填写 Bundle 路径、raw 目标、完整候选节点、逐事实
-evidence 映射、journal 摘要和 commit message，再按
-`references/digest-transaction.md` 调用 `bin/digest-txn.py`。填过业务内容的 plan 和候选节点
-不得留在 templates 或 skill 仓库。
+这些模板用于查字段。新增单来源时，adapter 按 `source-bundle-v2.json` 生成 bundle，计划用
+`digest-plan-v2.json` 引用 bundle。多来源需要一起成功、一起回滚或共同更新节点时，用
+`digest-batch-plan-v2.json`，每个 input 只引用已校验的 SourceBundle。v2 计划禁止复制 source 或 anchors。
+v1 模板只供旧调用兼容。
+
+在系统临时目录填写 Bundle 路径、raw 目标、完整候选节点、逐条事实的 evidence 映射、journal 摘要和
+commit message。再按 `references/digest-transaction.md` 调用 `bin/digest-txn.py`。
+含业务数据的 plan 和候选节点禁止放进模板目录或 skill 仓库。
 
 ## report 模板
 
@@ -62,7 +51,8 @@ evidence 映射、journal 摘要和 commit message，再按
 | `report-automation-weekly.md` | 宿主本地自动周报 prompt | harness 定时任务配置 |
 | `report-automation-recovery.md` | 自动报告缺口检查与单期补跑 prompt | harness 周期性补偿任务配置 |
 
-报告模板只定义结构,不含业务数据。生成报告时复制结构到知识库数据目录,填入从节点 / raw /
-journal 或 committed Dreaming Finding 得到的事实,并保留 `## 手动补充 / 备注` 供用户自行改写。
-HTML 模板必须保持单文件自包含，不加载外部 JS/CSS/字体/图片；业务文本由 Python 渲染器转义后
-替换 `{{PLACEHOLDER}}`。Dreaming 只读取 `report-template.html`；文件不存在时报告渲染失败。
+生成报告时，在知识库目录填入节点、raw、journal 或已提交的 Dreaming Finding 中的事实。
+保留 `## 手动补充 / 备注`，供用户编辑。
+
+HTML 模板必须是独立文件，禁止加载外部 JS、CSS、字体或图片。Python 渲染器转义业务文本后替换
+`{{PLACEHOLDER}}`。Dreaming 只读取 `report-template.html`，缺少此文件时渲染失败。
