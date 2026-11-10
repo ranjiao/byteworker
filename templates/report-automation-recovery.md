@@ -5,7 +5,7 @@
 `digest` workflow。context 只用 `context view --intent report`。
 
 启动前只运行一次 `bin/byteworker preflight --unattended`；无输出则继续，blocking 则安全退出，不要再分别
-检查更新、依赖、Todo 或自动报告设置。
+检查更新、依赖或自动报告设置。
 
 1. 读取 `report-automation status` 和 `context.md` 时区。只检查已经启用的日报/周报，不创建或
    修改宿主任务，不扩大 routine 来源。

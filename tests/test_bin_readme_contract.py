@@ -31,7 +31,7 @@ class BinReadmeContractTests(unittest.TestCase):
             "系统临时目录或知识库目录",
             "禁止配置 remote，禁止 push",
             "只有返回 `data.status=committed`",
-            "## 15. 修改或新增命令时",
+            "## 14. 修改或新增命令时",
         ):
             with self.subTest(text=text):
                 self.assertIn(text, self.readme)

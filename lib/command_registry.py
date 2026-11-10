@@ -209,12 +209,6 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         operations=("audit", "plan", "validate", "apply"),
     ),
     CommandSpec(
-        "todo", "维护 Todo 状态和提醒时间", "productivity", "facade", "agent",
-        "public", "stable", "kb-write", "byteworker-cli/v1",
-        "references/todo.md", entrypoint="todo.py",
-        operations=("init", "parse-time", "add", "list", "check", "status", "snooze", "mark-reminded", "edit"),
-    ),
-    CommandSpec(
         "report-automation", "管理自动报告设置、租约和运行回执", "automation",
         "facade", "agent", "public", "stable", "state-write", "byteworker-cli/v1",
         "references/report-scheduling.md", entrypoint="report-automation.py",

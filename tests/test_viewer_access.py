@@ -1,6 +1,4 @@
 import importlib.util
-import json
-import subprocess
 import tempfile
 import unittest
 import urllib.request
@@ -17,79 +15,42 @@ spec.loader.exec_module(server)
 
 
 class ViewerAccessTests(unittest.TestCase):
-    def test_todo_status_api_archives_transactionally_and_rejects_stale_or_foreign_writes(self):
+    def test_viewer_no_longer_serves_or_writes_legacy_todos(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            todo = root / 'todo.md'
-            initial = (
-                '# TODO\n\n## Active\n\n'
-                '### [ ] T-20261109-001 · 第一项\n- status: open\n\n'
-                '### [ ] T-20261109-002 · 第二项\n- status: waiting\n\n'
-                '## Completed\n'
-            )
-            todo.write_text(initial, encoding='utf-8')
-
-            def git(*args):
-                return subprocess.check_output(['git', *args], cwd=root, text=True).strip()
-
-            git('init', '-q')
-            git('config', 'user.name', 'Viewer Test')
-            git('config', 'user.email', 'viewer@example.test')
-            git('add', 'todo.md')
-            git('commit', '-qm', 'init')
+            (root / "app").symlink_to(ROOT / "viewer", target_is_directory=True)
+            kb_dir = root / "kb"
+            kb_dir.mkdir()
+            todo = kb_dir / "todo.md"
+            initial = "# TODO\n\n## Active\n\n## Completed\n"
+            todo.write_text(initial, encoding="utf-8")
 
             class Handler(server.ViewerHandler):
-                kb = root
+                kb = kb_dir
                 auth_required = True
-                api_token = 'secret'
+                api_token = "secret"
 
-            with server.ThreadingHTTPServer(('127.0.0.1', 0), partial(Handler, directory=str(root))) as httpd:
+            factory = partial(Handler, directory=str(root))
+            with server.ThreadingHTTPServer(("127.0.0.1", 0), factory) as httpd:
                 worker = Thread(target=httpd.serve_forever)
                 worker.start()
                 try:
-                    base = f'http://127.0.0.1:{httpd.server_port}'
-
-                    def send(todo_id, status, *, token='secret', origin=base, content_type='application/json'):
-                        request = urllib.request.Request(
-                            base + '/api/todo/status', method='POST',
-                            data=json.dumps({'id': todo_id, 'status': status}).encode(),
-                            headers={'Content-Type': content_type, 'X-Byteworker-Token': token, 'Origin': origin},
-                        )
-                        with urllib.request.urlopen(request, timeout=5) as response:
-                            return json.load(response)
-
-                    first, second = 'T-20261109-001', 'T-20261109-002'
-                    for status, options, code in (
-                        ('done', {'token': ''}, 403),
-                        ('done', {'origin': 'http://other.test'}, 403),
-                        ('done', {'content_type': 'text/plain'}, 400),
-                        ('waiting', {}, 400),
+                    base = f"http://127.0.0.1:{httpd.server_port}"
+                    with urllib.request.urlopen(base + "/app/index.html", timeout=5) as response:
+                        self.assertNotIn('id="sc-todo"', response.read().decode("utf-8"))
+                    for method, path, code in (
+                        ("GET", "/kb/todo.md", 403),
+                        ("HEAD", "/kb/todo.md", 403),
+                        ("POST", "/api/todo/status", 404),
                     ):
-                        with self.assertRaises(HTTPError) as error:
-                            send(first, status, **options)
-                        self.assertEqual(code, error.exception.code)
-                    self.assertEqual(initial, todo.read_text())
-
-                    completed = send(first, 'done')
-                    self.assertEqual('committed', completed['transaction']['status'])
-                    commit = git('rev-parse', 'HEAD')
-                    self.assertEqual(commit, completed['transaction']['commit'])
-                    self.assertEqual('unchanged', send(first, 'done')['transaction']['status'])
-                    with self.assertRaises(HTTPError) as error:
-                        send(first, 'cancelled')
-                    self.assertEqual(409, error.exception.code)
-                    self.assertEqual(commit, git('rev-parse', 'HEAD'))
-
-                    discarded = send(second, 'cancelled')
-                    self.assertEqual('committed', discarded['transaction']['status'])
-                    archived = todo.read_text().split('## Completed')[1]
-                    self.assertIn(f'### [x] {first} · 第一项\n- kind: task\n- status: done', archived)
-                    self.assertIn(f'### [x] {second} · 第二项\n- kind: task\n- status: cancelled', archived)
-                    paths = git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').splitlines()
-                    self.assertEqual(2, len(paths))
-                    self.assertIn('todo.md', paths)
-                    self.assertTrue(any(path.startswith('journal/') for path in paths))
-                    self.assertEqual('', git('status', '--porcelain'))
+                        with self.subTest(method=method, path=path):
+                            request = urllib.request.Request(
+                                base + path, method=method, headers={"X-Byteworker-Token": "secret"}
+                            )
+                            with self.assertRaises(HTTPError) as error:
+                                urllib.request.urlopen(request, timeout=5)
+                            self.assertEqual(code, error.exception.code)
+                    self.assertEqual(initial, todo.read_text(encoding="utf-8"))
                 finally:
                     httpd.shutdown()
                     worker.join()

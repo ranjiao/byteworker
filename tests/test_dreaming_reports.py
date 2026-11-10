@@ -71,7 +71,7 @@ class DreamingReportTests(unittest.TestCase):
             "避免影响下午的灰度判断。第二，模型迁移计划进入首批验证阶段，但回滚负责人和异常"
             "阈值尚未形成书面结论，启动前需要补齐。第三，夜间出现一次稳定性告警，目前只能"
             "确认现象，尚不能判断根因。最高风险是未明确的回滚条件可能扩大故障影响。待确认项"
-            "包括是否按当前范围启动灰度，以及线上和离线指标采用哪套口径。详细事实、Todo、"
+            "包括是否按当前范围启动灰度，以及线上和离线指标采用哪套口径。详细事实、"
             "覆盖说明和原始引用请查看 HTML 晨报；本摘要只用于快速提醒，不替代完整报告。"
             "若今天只能处理一项，优先完成回滚条件和负责人确认，并把结论同步给相关团队。"
             "其他夜间变化暂未达到需要立即处理的门槛，可在完成上述事项后再查看。由于当前使用"
@@ -107,7 +107,6 @@ class DreamingReportTests(unittest.TestCase):
                 "changes": [],
                 "risks": [],
                 "confirmations": [],
-                "todos": [],
             },
             "sources": [
                 {
@@ -202,6 +201,7 @@ class DreamingReportTests(unittest.TestCase):
             packet = kb / result["packet_path"]
             self.assertTrue(packet.is_file())
             self.assertEqual(0o600, stat.S_IMODE(packet.stat().st_mode))
+            self.assertNotIn("todo.md", packet.read_text(encoding="utf-8"))
             queued = enqueue_delivery(
                 kb,
                 kind="morning",
@@ -222,7 +222,9 @@ class DreamingReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             now = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
             kb = self.make_kb(Path(temporary), now)
-            rendered = render_report_bundle(kb, document=self.report_document())
+            document = self.report_document()
+            document["sections"]["todos"] = [{"title": "Legacy personal task"}]
+            rendered = render_report_bundle(kb, document=document)
             manifest = json.loads(
                 (kb / rendered["manifest_path"]).read_text(encoding="utf-8")
             )
@@ -243,6 +245,10 @@ class DreamingReportTests(unittest.TestCase):
             self.assertNotIn("http://", html_text.lower())
             self.assertNotIn("https://", html_text.lower())
             self.assertNotIn("{{TITLE}}", html_text)
+            self.assertNotIn("你的 Todo", html_text)
+            self.assertNotIn("Legacy personal task", html_text)
+            report_json = Path(manifest["artifacts"]["document"]["absolute_path"])
+            self.assertNotIn("todos", json.loads(report_json.read_text())["sections"])
             self.assertIn("byteworker dreaming", html_text.lower())
             self.assertIn("Daily Intel Brief", html_text)
             archive = kb / rendered["report_path"]

@@ -268,7 +268,6 @@ def prepare_report_packet(
         },
         "findings": findings,
         "kb_inputs": {
-            "todo": "todo.md",
             "context_intent": "report",
             "query_required": True,
         },

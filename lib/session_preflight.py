@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -12,7 +11,7 @@ from capability_discovery import (
     peek_background_recommendation,
 )
 from report_automation import record_decision, status as report_status
-from runtime_deps import cached_check_runtime, runtime_environment
+from runtime_deps import cached_check_runtime
 
 
 FEISHU_SOURCE_PREFIXES = ("feishu_", "lark_")
@@ -48,48 +47,6 @@ def _notice(code: str, message: str, *, severity: str = "notice", data: Any = No
     return result
 
 
-def _todo_notice_item(value: Mapping[str, Any]) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for key in (
-        "id",
-        "title",
-        "category",
-        "due_at",
-        "remind_at",
-        "snoozed_until",
-    ):
-        item = value.get(key)
-        if isinstance(item, str) and item:
-            result[key] = item[:240]
-    return result
-
-
-def _run_json(
-    argv: list[str],
-    *,
-    env: Mapping[str, str],
-    runner=subprocess.run,
-) -> tuple[int, Any, str]:
-    try:
-        completed = runner(
-            argv,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=10,
-            env=dict(env),
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return 1, None, " ".join(str(exc).split())[:500]
-    try:
-        data = json.loads(completed.stdout) if completed.stdout.strip() else None
-    except json.JSONDecodeError:
-        data = None
-    error = " ".join((completed.stderr or completed.stdout).split())[:500]
-    return completed.returncode, data, error
-
-
 def run_preflight(
     root: Path,
     *,
@@ -98,7 +55,6 @@ def run_preflight(
     skip_update: bool = False,
     allow_capability_suggestions: bool = False,
     environ: Mapping[str, str] | None = None,
-    runner=subprocess.run,
 ) -> dict[str, Any]:
     notices: list[dict[str, Any]] = []
     blocking = False
@@ -145,7 +101,6 @@ def run_preflight(
         include_optional=False,
         environ=environ,
     )
-    env = runtime_environment(runtime, environ=environ)
     if not runtime["ready"]:
         blocking = True
         missing = [
@@ -195,52 +150,6 @@ def run_preflight(
                 severity="blocking",
             )
         )
-
-    todo_path = kb / "todo.md"
-    if not todo_path.is_file():
-        blocking = True
-        notices.append(
-            _notice(
-                "TODO_MISSING",
-                "知识库缺少 todo.md，需要先按模板初始化并创建本地回滚点。",
-                severity="blocking",
-            )
-        )
-    elif runtime["core_ready"]:
-        code, todo_data, error = _run_json(
-            [
-                runtime["python"]["path"],
-                str(root / "bin" / "todo.py"),
-                str(kb),
-                "check",
-            ],
-            env=env,
-            runner=runner,
-        )
-        if code != 0 or not isinstance(todo_data, list):
-            notices.append(
-                _notice(
-                    "TODO_CHECK_FAILED",
-                    "Todo 检查失败: " + (error or "返回格式无效"),
-                    severity="blocking",
-                )
-            )
-            blocking = True
-        elif todo_data:
-            notices.append(
-                _notice(
-                    "TODO_REMINDERS",
-                    f"有 {len(todo_data)} 项 Todo 到期、逾期或临期。",
-                    data={
-                        "items": [
-                            _todo_notice_item(item)
-                            for item in todo_data[:3]
-                            if isinstance(item, Mapping)
-                        ],
-                        "total": len(todo_data),
-                    },
-                )
-            )
 
     try:
         report = report_status(kb)

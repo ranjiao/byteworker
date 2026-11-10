@@ -7,8 +7,8 @@ bin/byteworker dashboard view --kb "<KB>"
 ```
 
 直接展示回执的 `data.markdown`。该内容由 Python 和 Viewer 的 `GET /api/dashboard` 共用的
-只读生成器计算，包含长期关注及已保存的节点摘要、手动看板提醒、逾期/临期待办和当日日志。
-「需要关注」只显示手动提醒和 Todo 到期情况。今日进展只从当天既有 journal 渲染，并标为知识库操作记录。
+只读生成器计算，包含长期关注及已保存的节点摘要、手动看板提醒和当日日志。
+「需要关注」只显示手动提醒。今日进展只从当天既有 journal 渲染，并标为知识库操作记录。
 生成过程不访问外部来源，不写文件、journal 或 Git，也不得创建业务事实。节点摘要引用按
 `citations.md` 的规则展示已记录的出处和缺口。知识库当前没有可供看板查询的结构化未裁决冲突清单。
 
@@ -35,7 +35,7 @@ bin/byteworker dashboard inputs --kb "<KB>"
 ## 看板提醒
 ```
 
-收到 committed receipt 后才宣称写入完成。带明确时间的一次性提醒走 Todo。记录新进展先走
+收到 committed receipt 后才宣称写入完成。记录新进展先走
 对应的 update/thinking/report/digest 入口，之后即可重新查看看板。
 
 ## 兼容迁移

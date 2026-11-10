@@ -39,7 +39,7 @@ Level class is lv-high | lv-attn | lv-info:
     <span class="refs"><a class="ref" href="#src-S1">[来源一] 高</a></span>
   </button>
 
-{ {SECTION_CARDS} } — one block per section (关键进展 / 决策与对齐 / 风险 / 明日关注 / Todo).
+{ {SECTION_CARDS} } — one block per section (关键进展 / 决策与对齐 / 风险 / 明日关注).
 Keep the 4-column head row; each row is an .item button:
   <section class="block" data-block>
     <div class="block-head"><span class="bar lv-info"></span><h2>关键进展</h2>

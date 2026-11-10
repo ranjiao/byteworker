@@ -12,7 +12,7 @@
 - 拉取正文、评论、白板、妙记或聊天原文，并把临时文件放在系统临时目录。
 - 抓取时保留 block/comment/reply/message/segment 等原系统 locator,按
   `references/provenance.md` 生成 anchors。
-- 重要依赖判断、用户范围确认、冲突检测、实体消解和 Todo 候选。
+- 重要依赖判断、用户范围确认、冲突检测、实体消解。
 - 区分【事实】/【主张】/【意图】/【观察】/【推断】。
 - 按节点模板生成“完整候选文件”；更新已有节点时先把用户已有内容合并进去。
 
@@ -28,7 +28,7 @@
 - 写锁、原子替换、失败回滚、INDEX 全量重建、journal、精确暂存和本地 commit。
 - 输出 receipt；没有 `status=committed` 和 commit hash，不得向用户声称已落库。
 
-脚本**不**理解业务内容、不决定建什么节点、不生成观点、不裁决冲突、不写 Todo，也永不 push。
+脚本**不**理解业务内容、不决定建什么节点、不生成观点、不裁决冲突，也永不 push。
 
 ## 临时 SourceBundle 与 manifest
 

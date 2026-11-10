@@ -25,6 +25,7 @@ from dreaming_state import (
 
 LEDGER_SCHEMA = "byteworker-action-ledger/v1"
 MAX_RECEIPT_BYTES = 1024 * 1024
+RETIRED_TODO_KIND = "todo_candidate"
 
 
 def _now() -> datetime:
@@ -57,6 +58,11 @@ def _read_action(kb: Path, action_id: str) -> dict[str, Any]:
 
 def _write_action(kb: Path, value: Mapping[str, Any]) -> None:
     atomic_write_json(_action_path(kb, str(value["action_id"])), value)
+
+
+def _require_supported_kind(action: Mapping[str, Any]) -> None:
+    if action.get("kind") == RETIRED_TODO_KIND:
+        raise DreamingError("DREAMING_ACTION_KIND_RETIRED", "个人待办功能已移除。")
 
 
 def _lease_active(lease: object, now: datetime) -> bool:
@@ -102,8 +108,11 @@ def plan_actions(
                 "DREAMING_ACTION_RUN_MISMATCH",
                 "ActionPlan run_id 必须等于当前 lease token。",
             )
+        actions = plan["actions"]
+        for action in actions:
+            _require_supported_kind(action)
         results = []
-        for action in plan["actions"]:
+        for action in actions:
             if action["policy_result"] == "denied":
                 results.append(
                     {
@@ -191,6 +200,7 @@ def claim_action(
         state = load_state_unlocked(kb, current)
         lease = _require_lease(state, token=lease_token, now=current)
         action = _read_action(kb, action_id)
+        _require_supported_kind(action)
         if (
             action["run_id"] != lease_token
             or action["lease_epoch"] != lease["epoch"]
@@ -246,6 +256,7 @@ def validate_claim(
     with state_lock(kb):
         state = load_state_unlocked(kb, current)
         action = _read_action(kb, action_id)
+        _require_supported_kind(action)
         if action.get("grant_revision") != state["grants"]["revision"]:
             raise DreamingError(
                 "DREAMING_GRANT_STALE",
@@ -301,7 +312,8 @@ def _verify_git_commit(kb: Path, commit: str, kind: str) -> None:
     paths = {line.strip() for line in completed.stdout.splitlines() if line.strip()}
     allowed = {
         "include_report": lambda path: path.startswith(("reports/", "journal/")),
-        "todo_candidate": lambda path: path == "todo.md" or path.startswith("journal/"),
+        # Verify receipts from runs that committed before the feature was removed.
+        RETIRED_TODO_KIND: lambda path: path == "todo.md" or path.startswith("journal/"),
         "knowledge_candidate": lambda path: path == "INDEX.md"
         or path.startswith(("raw_data/", "provenance/", "knowledge/", "journal/")),
     }
@@ -330,7 +342,7 @@ def _receipt_summary(
             "DREAMING_ACTION_RECEIPT_INVALID",
             "下游 receipt idempotency_key 与 action 不一致。",
         )
-    durable_kinds = {"include_report", "todo_candidate", "knowledge_candidate"}
+    durable_kinds = {"include_report", RETIRED_TODO_KIND, "knowledge_candidate"}
     if kind in durable_kinds:
         if receipt["status"] != "committed":
             raise DreamingError(

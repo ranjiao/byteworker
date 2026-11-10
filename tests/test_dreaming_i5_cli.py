@@ -117,7 +117,6 @@ class DreamingI5CliTests(unittest.TestCase):
                             "changes": [],
                             "risks": [],
                             "confirmations": [],
-                            "todos": [],
                         },
                         "sources": [],
                         "manual_notes": "",

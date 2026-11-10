@@ -36,17 +36,9 @@
     {
       "id": "dashboard",
       "title": "集中查看当前重点",
-      "outcome": "把长期关注、需关注事项、Todo 和项目最新状态汇总成工作看板。",
+      "outcome": "把长期关注、需关注事项和项目最新状态汇总成工作看板。",
       "example": "看看我的工作看板，当前最需要关注什么？",
       "setup": "有多个项目或关注事项时价值更高。",
-      "proactive_policy": "contextual"
-    },
-    {
-      "id": "todo",
-      "title": "用自然语言管理待办",
-      "outcome": "创建、完成、延期、取消和查询本地待办，不要求记内部编号。",
-      "example": "明天下午三点提醒我提交周报",
-      "setup": "无需额外配置；无对话时不会承诺后台推送。",
       "proactive_policy": "contextual"
     },
     {

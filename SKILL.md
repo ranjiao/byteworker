@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自然语言 Todo、自动日报/周报、全局工作上下文、个性化能力推荐、可选主动后台机制 Dreaming 和兼容诊断。当用户要保存或查询工作资料、了解 byteworker 能做什么、推荐下一步、沉淀自己的思考、管理待办提醒、生成工作报告、配置自动信息分析或摘要提醒、启用/关闭/查看 Dreaming、通过 Dreaming 分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help 时触发。
+description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自动日报/周报、全局工作上下文、个性化能力推荐、可选主动后台机制 Dreaming 和兼容诊断。当用户要保存或查询工作资料、了解 byteworker 能做什么、推荐下一步、沉淀自己的思考、生成工作报告、配置自动信息分析或摘要提醒、启用/关闭/查看 Dreaming、通过 Dreaming 分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/context/thinking/dreaming/doctor/help 时触发。
 ---
 
 # byteworker
@@ -14,7 +14,6 @@ description: 个人飞书工作知识库。把飞书文档、妙记、会议、�
 | update | 更新已有知识 |
 | brief | 生成会前简报 |
 | dashboard | 查看或维护工作看板 |
-| todo | 用自然语言管理待办和提醒 |
 | context | 查看或维护全局工作上下文 |
 | thinking | 保存或持续更新用户自己的自然语言认知与推演 |
 | discover | 按当前知识库状态查看能力地图或推荐下一步 |
@@ -37,7 +36,7 @@ bin/byteworker preflight --interactive
 
 访问尚未登记的飞书/Meego 来源时分别加 `--require feishu` / `--require meego`。
 
-- 无输出且退出码 0：静默继续，**不要再分别运行** update-check、依赖检查、Todo check 或报告状态。
+- 无输出且退出码 0：静默继续，**不要再分别运行** update-check、依赖检查 或报告状态。
 - 输出 JSON：只处理 `byteworker-session-preflight/v1.notices`；blocking 先解决。
 - launcher 在加载 Python 模块前完成更新，因此本次 preflight 始终使用单一代码版本。
 - 只有 notice 或排障时才读 `references/session-preflight.md`。
@@ -77,7 +76,6 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
   查看调用 `dashboard view`，仅管理手动项时加载 `references/kb-mutation.md`。
 - context：`references/command-context.md` + `references/kb-mutation.md`
 - thinking：`references/thinking.md` + `references/kb-mutation.md`
-- todo：`references/todo.md`
 - discover：`references/capability-discovery.md`
 - report：`references/report-scheduling.md` + `references/periodic-report.md` +
   `references/digest-routine.md` + `references/kb-mutation.md` + `references/citations.md`
@@ -93,7 +91,7 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
 
 ## 能力发现
 
-真人交互中，digest/search/update/brief/dashboard/todo/context/thinking、来源登记、报告和 Viewer
+真人交互中，digest/search/update/brief/dashboard/context/thinking、来源登记、报告和 Viewer
 请求成功后，最终回复前**必须**执行公共收尾，不先判断是否需要推荐：
 
 ```bash
@@ -155,7 +153,6 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 
 - digest 只走 digest transaction。
 - update/context/report 和 dashboard 手动设置写入只走 `byteworker-kb-mutation/v1`；thinking 使用 `update` operation。
-- Todo 只走 Todo 工具。
 - Agent 不直接执行 temp、INDEX、journal、git add/commit 或失败回滚。
 - mutation 候选与 plan 放系统临时目录或 KB，不得进入 skill 仓库。
 - knowledge mutation 必须按唯一 `conflict-policy.md` 声明 disposition；来源较新不等于可覆盖。
@@ -167,14 +164,12 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 KB 回答按 `references/citations.md` 逐条标 `[S<n>]`，列原始出处、收录时间与置信度，
 并列原文时间/覆盖与版本/raw_id，披露缺口。节点日期仅作元数据，事实时效按原始证据判断。
 
-## 报告、Todo 与 Doctor
+## 报告与 Doctor
 
 自动日报/周报先完整 **routine digest**（不受七天限制），再按周期枚举主日历
 `self_rsvp_status=accept` 日程；可访问的纪要、妙记转写和直接关联文档先 digest 后入报告，不建
 routine、不递归、不 OAuth / 申请权限。mutation 保留手动备注，commit 后 complete。细则见
 `references/report-calendar-meetings.md`。
-
-Todo 以自然语言为主，内部 id 不要求用户记忆。digest 识别出的 Todo 只是候选，用户确认后才写。
 
 Thinking 只在用户明确要求记录、保存、沉淀或更新认知时触发，普通讨论不自动保存。执行前读取
 `references/thinking.md`；同一稳定主题持续更新一个 `thinking` 节点，状态仅允许
@@ -227,7 +222,7 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
   仍兼容的历史 raw 来源（UID 恢复见 `references/digest-routine.md`）；逐源执行原有来源规则、语义分析和 DigestTxn，只有真实
   `committed/noop` 才算完成。Wiki 子树沿用原有完整扫描与变化展示语义。全部来源完成后才推进
   来源覆盖 checkpoint；任一来源失败则 process 失败且报告保持阻塞。
-- 任何报告、Todo、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
+- 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
 - Dreaming owner 下的 morning/daily/weekly 按 `references/dreaming-reports.md` 消费 process
   已提交的普通 digest、committed Finding 和 KB；报告 job 自身不得重复 routine digest，也不得
@@ -247,7 +242,7 @@ Finding 或 job。先读取 status 并从未完成步骤继续；只修改一项
   得进入本仓库或外传。
 - KB 禁止 remote/push；凭据只来自环境或仓库外权限文件，不得进入 URL、bundle、profile、raw、
   日志或命令参数。
-- 不调用 lark-task；会议待办保存在 event，个人待办保存在 todo.md。
+- 不调用 lark-task；会议中的原始行动项保存在 event。
 - 长流程只在真实阶段变化时给一行元信息状态；单阶段超过 60 秒可发一次 heartbeat，不粘贴业务
   原文、不为发状态主动轮询。大型 worker 由主 Agent 使用有界等待，避免主/子双重处理。
 

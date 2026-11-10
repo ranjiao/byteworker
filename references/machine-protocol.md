@@ -67,7 +67,6 @@ capture-time，失败只修宿主注入，不本地登录或切 bot。
 - digest：候选完成后直接调用 `digest-txn execute`；它内含完整 validate 与锁内复验。只认
   `status=committed` receipt；独立 `validate` 仅用于失败诊断。
 - 非 digest：只认 `kb-mutate execute` 的 `status=committed` receipt。
-- Todo：只认 todo 工具返回的新状态。
 - 自动报告：报告 mutation committed 后，再以真实结果调用 `report-automation complete`。
 - Dreaming：默认关闭；只有用户确认机器运行要求后才调用 `dreaming enable`。每个宿主 tick
   通过 `run-due` 领取至多一个 job，并在所有路径调用 `complete`。

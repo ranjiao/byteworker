@@ -34,7 +34,7 @@ class IndexMaintenanceTest(unittest.TestCase):
             (kb / directory).mkdir()
         for directory in ("daily", "morning", "weekly", "im"):
             (kb / "reports" / directory).mkdir(parents=True)
-        for name in ("context.md", "todo.md", "dashboard.md"):
+        for name in ("context.md", "dashboard.md"):
             (kb / name).write_text(f"# {name}\n", encoding="utf-8")
         (kb / "knowledge" / "people" / "person-alice.md").write_text(
             "---\n"

@@ -189,13 +189,6 @@
         "references/kb-mutation.md"
       ]
     },
-    "todo": {
-      "required": [
-        "references/machine-protocol.md",
-        "references/todo.md",
-        "references/discovery-completion.md"
-      ]
-    },
     "discover": {
       "required": [
         "references/machine-protocol.md",
@@ -398,15 +391,6 @@
       "source_packet_tokens": 16000,
       "total_input_tokens": 58000,
       "output_tokens": 8000,
-      "overflow_action": "compact_context_or_ask_user"
-    },
-    "todo": {
-      "static_rules_tokens": 18000,
-      "worker_prompt_tokens": 0,
-      "dynamic_context_tokens": 6000,
-      "source_packet_tokens": 0,
-      "total_input_tokens": 24000,
-      "output_tokens": 4000,
       "overflow_action": "compact_context_or_ask_user"
     },
     "report": {
