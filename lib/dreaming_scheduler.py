@@ -1072,6 +1072,20 @@ def _every_n_days_target(
     return target
 
 
+def _job_gate(job: Mapping[str, Any], now: datetime) -> str:
+    if not job.get("enabled"):
+        return "disabled"
+    if job.get("waiting_for_user"):
+        return "waiting_for_user"
+    next_attempt = _parse_time(job.get("next_attempt_at"))
+    if next_attempt is not None and next_attempt > now:
+        return "backoff"
+    blocked_by = job.get("blocked_by")
+    if isinstance(blocked_by, list) and blocked_by:
+        return "blocked_by_dependency"
+    return ""
+
+
 def _candidate(
     name: str,
     job: Mapping[str, Any],
@@ -1080,15 +1094,7 @@ def _candidate(
     local_now: datetime,
     enabled_at: datetime,
 ) -> dict[str, str] | None:
-    if not job.get("enabled"):
-        return None
-    if job.get("waiting_for_user"):
-        return None
-    next_attempt = _parse_time(job.get("next_attempt_at"))
-    if next_attempt is not None and next_attempt > now:
-        return None
-    blocked_by = job.get("blocked_by")
-    if isinstance(blocked_by, list) and blocked_by:
+    if _job_gate(job, now):
         return None
     schedule = job.get("schedule")
     if not isinstance(schedule, Mapping):
@@ -1302,6 +1308,7 @@ def run_due(
     owner: str,
     lease_seconds: int = 7200,
     followup_after_run_id: str = "",
+    observation: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if not owner.strip() or lease_seconds <= 0:
@@ -1310,6 +1317,7 @@ def run_due(
             "owner 不能为空，lease_seconds 必须大于 0。",
         )
     current = now or _now()
+    decisions = observation.setdefault("jobs", {}) if observation is not None else None
     from dreaming_grants import expire_foreground_sessions
 
     expire_foreground_sessions(kb, now=current)
@@ -1398,6 +1406,8 @@ def run_due(
                 local_now=current.astimezone(zone),
                 enabled_at=enabled_at,
             )
+            if decisions is not None:
+                decisions[name] = "due" if candidate else _job_gate(candidate_job, current) or "not_due"
             if candidate is not None:
                 if name in {"morning", "daily", "weekly"}:
                     from dreaming_reports import report_dependency_from_state
@@ -1415,6 +1425,8 @@ def run_due(
                         job["blocked_by"] = [item["key"] for item in blockers]
                         value["report_dependencies"][dependency_key] = dependency
                         report_blockers.extend(blockers)
+                        if decisions is not None:
+                            decisions[name] = "blocked_by_dependency"
                         continue
                     job["blocked_by"] = []
                     value["report_dependencies"].pop(dependency_key, None)
@@ -1457,6 +1469,8 @@ def run_due(
             }
         selected = min(candidates, key=lambda item: _candidate_key(item, current))
         job_name = selected["job"]
+        if decisions is not None:
+            decisions[job_name] = "selected"
         job = jobs[job_name]
         epoch = int(job.get("lease_epoch", 0)) + 1
         token = uuid.uuid4().hex
@@ -1492,6 +1506,8 @@ def run_due(
         value["active_lease"] = lease
         value["updated_at"] = _iso(current)
         _atomic_write(state_path(kb), value)
+        if observation is not None:
+            observation.update(run_id=run_id, job=job_name)
         log_settings = _log_settings(value)
         append_run_event(
             kb,
@@ -1577,10 +1593,15 @@ def heartbeat_run(
     detail_code: str = "",
     progress_current: int | None = None,
     progress_total: int | None = None,
+    digest_run_id: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if stage not in STAGES:
         raise DreamingError("DREAMING_RUN_LOG_INVALID", f"未知 run stage: {stage}")
+    if digest_run_id:
+        from operation_trace import DIGEST_RUN_ID
+        if not DIGEST_RUN_ID.fullmatch(digest_run_id):
+            raise DreamingError("DREAMING_RUN_LOG_INVALID", "Digest 运行编号无效。")
     current = now or _now()
     metrics: dict[str, int] = {}
     if progress_current is not None:
@@ -1621,6 +1642,7 @@ def heartbeat_run(
             status="running",
             detail_code=detail_code,
             metrics=metrics,
+            digest_run_id=digest_run_id,
             retention_days=log_settings["retention_days"],
             max_file_bytes=log_settings["max_file_bytes"],
             now=current,

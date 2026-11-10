@@ -3191,7 +3191,7 @@ async function settingsApi(method, body) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.error) {
     const err = payload.error || {};
-    throw new Error(err.message || err.code || '设置接口请求失败。');
+    throw new Error((err.message || err.code || '设置接口请求失败。') + (err.trace_id ? ` 诊断编号 ${err.trace_id}` : ''));
   }
   return payload;
 }

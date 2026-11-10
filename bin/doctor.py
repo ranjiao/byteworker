@@ -16,6 +16,10 @@ if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
 from doctor import render_text, scan  # noqa: E402
+from digest_feedback import export_bundle, feedback_draft  # noqa: E402
+from digest_run_log import DigestRunError  # noqa: E402
+import operation_trace as trace  # noqa: E402
+from support_feedback import generate  # noqa: E402
 from update_postflight import run_postflight  # noqa: E402
 
 
@@ -24,9 +28,10 @@ def resolve_kb(value: str) -> Path:
         kb = Path(value).expanduser()
     else:
         config = SKILL_ROOT / ".kbconfig"
-        if not config.is_file():
+        lines = config.read_text(encoding="utf-8").splitlines() if config.is_file() else []
+        if not lines or not lines[0].strip():
             raise ValueError("未找到 .kbconfig；请用 --kb 指定知识库目录")
-        kb = Path(config.read_text(encoding="utf-8").splitlines()[0].strip()).expanduser()
+        kb = Path(lines[0].strip()).expanduser()
     if not kb.is_dir():
         raise ValueError(f"知识库目录不存在: {kb}")
     return kb.resolve()
@@ -34,10 +39,19 @@ def resolve_kb(value: str) -> Path:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        description="扫描 byteworker 知识库与当前 skill/schema 的兼容性。"
+        description="检查知识库兼容性，或从本地技术回执生成反馈草稿和诊断包。"
     )
-    result.add_argument("command", nargs="?", choices=("scan", "fix"), default="scan")
+    result.add_argument(
+        "command", nargs="?", choices=(
+            "scan", "fix", "feedback", "bundle", "trace-start", "trace-finish", "trace-list",
+        ), default="scan"
+    )
     result.add_argument("--kb", default="", help="知识库目录；默认读取 .kbconfig")
+    result.add_argument("--run-id", help="反馈使用的运行或诊断编号")
+    result.add_argument("--kind", choices=sorted(trace.KINDS - {"dreaming"}))
+    result.add_argument("--result", choices=(
+        "success", "failed", "partial", "insufficient_evidence", "incorrect_result", "no_match",
+    ))
     result.add_argument(
         "--format", choices=("text", "json"), default="text", help="报告格式"
     )
@@ -61,6 +75,41 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.command in {"feedback", "bundle", "trace-start", "trace-finish", "trace-list"}:
+        try:
+            kb = Path(args.kb).expanduser().resolve() if args.kb else None
+            if args.command == "trace-start":
+                data = {"run_id": trace.start(args.kind, kb), "kind": args.kind}
+            elif args.command == "trace-list":
+                data = {"traces": [
+                    {"run_id": item["run_id"], **item["events"][-1]}
+                    for item in trace.recent(kind=args.kind, kb=kb) if item["events"]
+                ]}
+            elif not args.run_id:
+                raise DigestRunError("DIGEST_FEEDBACK_RUN_REQUIRED", "请指定 --run-id。")
+            elif args.command == "trace-finish":
+                if not args.run_id.startswith("BW-") or args.result is None:
+                    raise ValueError("trace-finish 需要 BW 诊断编号和 --result。")
+                trace.record(args.run_id, "agent_result", args.result)
+                data = {"run_id": args.run_id, "status": args.result}
+            elif args.run_id.startswith(("BW-", "DT-", "DR-")):
+                if kb is None and not args.run_id.startswith("BW-"):
+                    kb = resolve_kb("")
+                data = generate(
+                    kb, run_id=args.run_id, root=SKILL_ROOT, bundle=args.command == "bundle",
+                )
+            else:
+                action = feedback_draft if args.command == "feedback" else export_bundle
+                data = action(resolve_kb(args.kb), run_id=args.run_id, skill_root=SKILL_ROOT)
+        except DigestRunError as exc:
+            print(json.dumps({"error": exc.as_dict()}, ensure_ascii=False))
+            return 1
+        except (OSError, ValueError) as exc:
+            print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+            return 1
+        print(json.dumps(data, ensure_ascii=False))
+        return 0
+
     try:
         kb = resolve_kb(args.kb)
         repairs = []

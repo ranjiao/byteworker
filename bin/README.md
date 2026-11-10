@@ -123,7 +123,7 @@ cd "$BYTEWORKER_ROOT"
 | `wiki.py` | Agent / 维护者 | 按需探索 Wiki 空间/子树并筛选页面 | 写可重建树状态、候选文件或子树 Profile |
 | `digest-job.py` | Agent / 维护者 | 管理已确认多页 digest 的可恢复任务 | 写本地任务 checkpoint，不写 raw/节点 |
 | `kb-query.py` | Agent / 维护者 | 节点、证据和结构化 raw 查询 | 只读 |
-| `doctor.py` | Agent / 维护者 | 扫描 schema/graph/profile 漂移 | `fix` 可写 INDEX/links |
+| `doctor.py` | Agent / 维护者 | 扫描 schema/graph/profile 漂移，准备 Digest 反馈 | `fix` 可写 INDEX/links；`bundle` 仅写私有系统临时 ZIP |
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
 | `dreaming.py` | Agent / 自动化 | 组合 `lib/dreaming_cli_*.py` 的 schedule/process/review/report/action leaf handlers | 私密 state、`run-logs/` 与 KB 外评估指标 |

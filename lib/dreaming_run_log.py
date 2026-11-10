@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from operation_trace import DIGEST_RUN_ID
+
 from dreaming_state import (
     DIRECTORY_MODE,
     FILE_MODE,
@@ -247,6 +249,7 @@ def append_run_event(
     detail_code: str = "",
     batch_id: str = "",
     metrics: Mapping[str, Any] | None = None,
+    digest_run_id: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or datetime.now(timezone.utc)
@@ -270,6 +273,10 @@ def append_run_event(
         metrics=metrics,
         now=current,
     )
+    if digest_run_id:
+        if not DIGEST_RUN_ID.fullmatch(digest_run_id):
+            raise DreamingError("DREAMING_RUN_LOG_INVALID", "Digest 运行编号无效。")
+        value["digest_run_id"] = digest_run_id
     payload = (
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         + "\n"

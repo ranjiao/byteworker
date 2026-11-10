@@ -60,6 +60,8 @@ doctor     兼容诊断 —— 检查知识库是否匹配当前 skill/schema
   /byteworker doctor / "升级 skill 后检查一下知识库" / "扫描并修复知识库"
   → 默认只读列出结构、节点、raw、provenance、引用、links、INDEX 问题
     → 明确要求修复时只重建 INDEX、补双链/去重/删除自链接;语义问题不自动猜写
+  “反馈刚才的摄取问题” → 生成邮件草稿，由你检查后发送
+  “导出这次 Digest 的诊断包” → 生成本地 ZIP，只含技术诊断信息
 
 help       用法说明
 

@@ -1,4 +1,6 @@
 import json
+import io
+import os
 import shutil
 import socket
 import subprocess
@@ -11,6 +13,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zipfile import ZipFile
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +23,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from dreaming_run_log import append_run_event  # noqa: E402
+import operation_trace as trace  # noqa: E402
 
 
 class ViewerDreamingDebugTests(unittest.TestCase):
@@ -74,6 +79,9 @@ class ViewerDreamingDebugTests(unittest.TestCase):
             serve_root.mkdir()
             (serve_root / "app").symlink_to(ROOT / "viewer", target_is_directory=True)
             kb = self.make_kb(root)
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "diagnostics")}):
+                tick = trace.start("dreaming", kb)
+                trace.record(tick, "scheduler", "idle")
             started = datetime(2026, 8, 6, 2, 0, tzinfo=timezone.utc)
             append_run_event(
                 kb,
@@ -140,6 +148,7 @@ class ViewerDreamingDebugTests(unittest.TestCase):
                     "settings-token",
                 ],
                 cwd=ROOT,
+                env=dict(os.environ, XDG_STATE_HOME=str(root / "diagnostics")),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -182,6 +191,33 @@ class ViewerDreamingDebugTests(unittest.TestCase):
                 )
                 self.assertEqual("report", detail["result"]["kind"])
                 self.assertFalse(detail["result"]["available"])
+
+                _, diagnosis = self.request_json(f"{base}/api/dreaming/diagnose")
+                self.assertEqual(tick, diagnosis["tick"]["run_id"])
+                self.assertEqual("idle", diagnosis["tick"]["events"][-1]["status"])
+                for action in ("draft", "bundle"):
+                    body = json.dumps({"run_id": tick, "action": action}).encode()
+                    url = f"{base}/api/dreaming/feedback"
+                    for headers in (
+                        {"Content-Type": "application/json"},
+                        {"Content-Type": "application/json", "X-Byteworker-Token": "settings-token",
+                         "Origin": "https://external.invalid"},
+                    ):
+                        with self.assertRaises(urllib.error.HTTPError) as denied:
+                            urllib.request.urlopen(urllib.request.Request(url, data=body, headers=headers), timeout=5)
+                        self.assertEqual(403, denied.exception.code)
+                    headers = {"Content-Type": "application/json", "X-Byteworker-Token": "settings-token"}
+                    with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=headers), timeout=5) as response:
+                        if action == "draft":
+                            draft = json.loads(response.read())
+                            self.assertEqual(tick, draft["run_id"])
+                            self.assertIn("mailto:", draft["mailto"])
+                        else:
+                            self.assertEqual("application/zip", response.headers.get_content_type())
+                            with ZipFile(io.BytesIO(response.read())) as archive:
+                                summary = json.loads(archive.read("summary.json"))
+                                self.assertEqual("idle", summary["status"])
+                                self.assertNotIn(str(kb), archive.read("timeline.jsonl").decode())
 
                 with urllib.request.urlopen(
                     f"{base}/app/dreaming-debug.html", timeout=5

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from dreaming_reports import complete_delivery
-from dreaming_state import DreamingError, load_state_unlocked, state_lock
+from dreaming_state import DreamingError, load_state_unlocked, save_state_unlocked, state_lock, utc_iso
 
 
 def _now() -> datetime:
@@ -73,6 +73,31 @@ def format_lark_summary_message(summary: str, item: Mapping[str, Any]) -> str:
 
 
 def deliver_lark_bot_summary(
+    kb: Path,
+    *,
+    outbox_id: str,
+    binary: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current = now or _now()
+    try:
+        return _deliver_lark_bot_summary(kb, outbox_id=outbox_id, binary=binary, now=current)
+    except DreamingError as exc:
+        # Preserve the pending outbox and its idempotency key for recovery.
+        try:
+            with state_lock(kb):
+                state = load_state_unlocked(kb, current)
+                item = state.get("outbox", {}).get(outbox_id)
+                if isinstance(item, dict) and item.get("status") == "pending":
+                    item["last_error_code"] = exc.code
+                    item["last_attempt_at"] = utc_iso(current)
+                    save_state_unlocked(kb, state)
+        except (DreamingError, OSError):
+            pass
+        raise
+
+
+def _deliver_lark_bot_summary(
     kb: Path,
     *,
     outbox_id: str,

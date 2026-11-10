@@ -197,9 +197,10 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "references/maintenance.md", entrypoint="index.py", operations=("rebuild",),
     ),
     CommandSpec(
-        "doctor", "扫描或修复知识库兼容性问题", "knowledge", "facade",
+        "doctor", "扫描或修复知识库兼容性问题，或准备反馈", "knowledge", "facade",
         "agent", "public", "stable", "mixed", "byteworker-cli/v1",
-        "references/doctor.md", entrypoint="doctor.py", operations=("scan", "fix"),
+        "references/doctor.md", entrypoint="doctor.py",
+        operations=("scan", "fix", "feedback", "bundle", "trace-start", "trace-finish", "trace-list"),
         attention_exit_codes=(2,),
     ),
     CommandSpec(
@@ -218,7 +219,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "dreaming", "管理可选的 Dreaming 调度和处理流程", "automation",
         "facade", "agent", "public", "stable", "mixed", "byteworker-cli/v1",
         "references/dreaming.md", entrypoint="dreaming.py",
-        operations=("status", "configure", "enable", "disable", "manage-reports", "run-due", "renew", "retry-job", "harness", "heartbeat", "runs", "grant", "process", "review", "explain", "feedback", "shadow", "report", "action", "complete"),
+        operations=("status", "diagnose", "tick", "configure", "enable", "disable", "manage-reports", "run-due", "renew", "retry-job", "harness", "heartbeat", "runs", "grant", "process", "review", "explain", "feedback", "shadow", "report", "action", "complete"),
     ),
     CommandSpec(
         "lark", "在统一 runtime 中调用 lark-cli", "external", "external",

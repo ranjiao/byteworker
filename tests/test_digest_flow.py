@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,12 +14,14 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from digest_flow import (  # noqa: E402
+    DigestFlowError,
     capture_flow,
     commit_flow,
     flow_status,
     prepare_flow,
     start_flow,
 )
+from digest_feedback import feedback_draft  # noqa: E402
 
 
 class Result:
@@ -155,6 +158,26 @@ class DigestFlowTests(unittest.TestCase):
 
         stages = flow_status(self.kb, run_id=run_id)["run"]["stages"]
         self.assertEqual(2, sum(item["stage"] == "capture" for item in stages))
+
+    def test_committed_receipt_survives_failed_terminal_logging(self):
+        started = self.start()
+        run_id = started["run_id"]
+        plan = Path(started["work_dir"]) / "digest-plan.json"
+        plan.write_text("{}\n", encoding="utf-8")
+        def executor(*_):
+            return {"status": "committed"}
+
+        with patch("digest_flow.finish_run", side_effect=OSError("log unavailable")):
+            result = commit_flow(self.kb, run_id=run_id, plan_path=plan, executor=executor)
+        self.assertEqual("committed", result["phase"])
+        self.assertEqual("committed", result["receipt"]["status"])
+        self.assertEqual("degraded", result["receipt"]["digest_run_logging"])
+        with self.assertRaises(DigestFlowError) as caught:
+            commit_flow(self.kb, run_id=run_id, plan_path=plan, executor=executor)
+        self.assertEqual("DIGEST_FLOW_TERMINAL", caught.exception.code)
+        draft = feedback_draft(self.kb, run_id=run_id, skill_root=ROOT)
+        self.assertIn("事务结果：committed", draft["body"])
+        self.assertIn("RUN_TERMINAL_NOT_RECORDED", draft["body"])
 
     def test_cli_start_and_status_use_one_public_facade(self):
         cli = ROOT / "bin" / "digest-flow.py"

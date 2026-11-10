@@ -97,6 +97,12 @@ class AgentRouteContractTests(unittest.TestCase):
         self.assertIn("references/digest-reading.md", route["features"]["internal_reading"])
         self.assertIn("references/digest-inline.md", self.workflows["dreaming"]["features"]["routine_digest"])
 
+    def test_digest_feedback_has_a_separate_on_demand_route(self):
+        reference = "references/digest-feedback.md"
+        self.assertIn(reference, self.closure("digest_feedback"))
+        self.assertNotIn(reference, self.closure("doctor"))
+        self.assertNotIn(reference, self.closure("digest"))
+
     def test_inline_contract_preserves_capture_evidence_wait_and_write_boundaries(self):
         text = (ROOT / "references/digest-inline.md").read_text(encoding="utf-8")
         for contract in (

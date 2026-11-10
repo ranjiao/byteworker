@@ -138,3 +138,6 @@ bin/byteworker digest-run show --kb "<KB>" --run-id "<RUN_ID>"
 运行 `digest-run resume`。`usage` 补报不属于 heartbeat，不能把 stale run 伪装为 active。日志位于
 `state/digest/run-logs/<UTC-date>[-NNNN].jsonl`，目录/文件权限为 `0700/0600`，单文件 5 MiB
 轮转，默认保留 30 天，并通过本地 `.git/info/exclude` 的 `/state/` 排除在 KB Git 之外。
+
+用户明确要反馈或打包时按 [Digest 反馈流程](digest-feedback.md) 处理，使用当前运行的 `run_id`。
+对外内容只能来自该入口的白名单投影。

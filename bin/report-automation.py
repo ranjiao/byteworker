@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -13,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
+
+import operation_trace as trace  # noqa: E402
 
 from report_automation import (  # noqa: E402
     ReportAutomationError,
@@ -132,12 +135,18 @@ def _run(args: argparse.Namespace) -> object:
             period=args.period,
         )
     if args.operation == "lease":
+        trace_id = os.environ.get(trace.TRACE_ENV, "")
+        if not trace_id.startswith("BW-") or not trace.TRACE_ID.fullmatch(trace_id):
+            trace_id = ""
+        elif (trace.read(trace_id, kb=kb) or {}).get("kind") != "report":
+            trace_id = ""
         return acquire_lease(
             kb,
             kind=args.kind,
             period=args.period,
             owner=args.owner,
             lease_seconds=args.lease_seconds,
+            trace_id=trace_id,
         )
     if args.operation == "complete":
         return complete_run(

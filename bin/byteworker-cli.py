@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -26,6 +27,7 @@ from command_registry import (  # noqa: E402
 from bounded_process import run_bounded_output  # noqa: E402
 from machine_protocol import context, envelope, error_payload, write_envelope  # noqa: E402
 from update_state import load_state  # noqa: E402
+import operation_trace as trace  # noqa: E402
 
 
 TOOLS = facade_entrypoints()
@@ -200,6 +202,13 @@ def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
             ),
             context_value=context_value,
         )
+    trace_id = os.environ.get(trace.TRACE_ENV)
+    if trace_id and operation in trace.COMMANDS.get(tool, ()):
+        try:
+            trace.record_result(trace_id, tool, operation, payload, elapsed)
+            payload["context"]["trace_id"] = trace_id
+        except (OSError, ValueError, KeyError, TypeError):
+            payload["context"]["trace_recording"] = "degraded"
     write_envelope(sys.stdout, payload, pretty=pretty)
     return completed.returncode
 

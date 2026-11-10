@@ -2,17 +2,20 @@
 
 这是用户明确启用的本地 Dreaming 定时任务。不要改变 Dreaming 设置，也不要处理未授权来源。
 
-1. 在 byteworker skill 仓库运行一次 `bin/byteworker preflight --unattended`；无人值守运行不展示
-   任何能力 Tip，也不调用 `discover recommend`。
-2. 从 `references/workflow-routes.json` 解析 `dreaming` workflow，并读取其完整 required 闭包。
-3. 调用 `bin/byteworker dreaming run-due --kb "<KB>" --owner "<TASK_ID>"`。
-4. `disabled/idle/busy` 时安静结束。
+1. 首个命令调用 `bin/byteworker dreaming tick --kb "<KB>" --owner "<TASK_ID>"`，保存 `tick_id`。
+   该入口先记唤醒，再执行一次 `preflight --unattended` 和 `run-due`。无人值守不展示能力 Tip，
+   不调用 `discover recommend`。不要重复启动检查或领取。
+2. `preflight_failed/scheduler_failed` 时结束，只留本地诊断编号和失败阶段。
+3. `disabled/idle/busy` 时安静结束。
+4. `leased` 后从 `references/workflow-routes.json` 解析 `dreaming` 并读取 required 闭包。
 5. `leased` 时只执行返回的一个 `job/period`，遵守 Dreaming reference 对该 job 的要求；
    `job=maintenance` 时额外加载 workflow manifest 的 `features.maintenance`。
    `job=process` 时必须额外加载 `features.routine_digest`，先调用
    `dreaming process digest-prepare --token "<lease.token>"` 获取本轮全部已启用定期来源快照。
    对清单逐源执行其原有普通 digest 工作流，不缩减依赖、语义、冲突、候选、引用或事务步骤：
-   Profile 来源按 `source_type/source_uid` 重放；`origin=legacy_raw` 时按返回的历史 raw 定位兼容
+   普通 Digest 取得 `run_id` 后立刻调用 `dreaming heartbeat --token "<lease.token>"
+   --stage collection --digest-run-id "<DIGEST_RUN_ID>"`，同时传 `--kb`。即使子运行后来失败，
+   也保留显式关联。Wiki 多页同样在各页普通 Digest 启动后记录。Profile 来源按 `source_type/source_uid` 重放；`origin=legacy_raw` 时按返回的历史 raw 定位兼容
    配置；Wiki 子树执行原有完整扫描和变化展示，变化页面仍按普通文档 digest。
    `feishu_chat` 的 `source capture` 已直接产出 SourceBundle，只传 `--out <bundle.json>`，
    不得再传 `--bundle-out`；只有先产出独立 capture JSON 的来源才同时使用两者。
@@ -47,7 +50,7 @@
    maintenance 成功回执必须按维护规则附最终 Doctor 扫描的完整 `issues`。仍有待办时也按成功
    完成扫描；宿主只汇总完成回执的 `maintenance.new`。
 9. 若本轮成功完成 `job=process` 且 `period=catchup:*`，立即再调用一次：
-   `bin/byteworker dreaming run-due --kb "<KB>" --owner "<TASK_ID>" --followup-after-run-id "<run_id>"`。
+   `bin/byteworker dreaming run-due --kb "<KB>" --owner "<TASK_ID>" --followup-after-run-id "<run_id>" --tick-id "<tick_id>"`。
    只处理返回的 morning/daily/weekly；`disabled/idle/busy` 安静结束。本轮最多这一个 follow-up。
 10. morning/daily/weekly 按 `references/dreaming-reports.md` 一次生成结构化报告 JSON 后，
     必须调用 `dreaming report complete`。该命令会渲染 summary、内部 Markdown、自包含 HTML、

@@ -30,10 +30,13 @@ from settings import (  # noqa: E402
     update_settings,
 )
 from dreaming_debug import inspect_run  # noqa: E402
+from dreaming_diagnostics import diagnose  # noqa: E402
 from dreaming_run_log import list_runs  # noqa: E402
 from dreaming_state import DreamingError, parse_time  # noqa: E402
 from dashboard_settings import DashboardError  # noqa: E402
 from dashboard_view import dashboard_view  # noqa: E402
+import operation_trace as trace  # noqa: E402
+from support_feedback import generate  # noqa: E402
 
 
 MAX_BODY_BYTES = 128 * 1024
@@ -51,6 +54,20 @@ class ViewerHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def _send_json(self, value: Any, *, status: HTTPStatus = HTTPStatus.OK) -> None:
+        trace_id = None
+        if status >= 400 and self._authorized() and urlsplit(self.path).path in {
+            "/api/dashboard", "/api/settings",
+        }:
+            try:
+                trace_id = trace.start("viewer", self.kb)
+                trace.record(
+                    trace_id, "viewer", "failed",
+                    code="VIEWER_ACCESS_DENIED" if status == HTTPStatus.FORBIDDEN else "VIEWER_REQUEST_FAILED",
+                )
+            except (OSError, ValueError):
+                trace_id = None
+            if trace_id and isinstance(value, dict) and isinstance(value.get("error"), dict):
+                value = {**value, "error": {**value["error"], "trace_id": trace_id}}
         payload = json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -194,14 +211,60 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": exc.as_dict()}, status=status)
         except Exception as exc:  # pragma: no cover - defensive boundary
             self._send_json(
-                {
-                    "error": {
-                        "code": "VIEWER_DREAMING_LOG_FAILED",
-                        "message": f"读取 Dreaming 运行日志失败: {exc}",
-                    }
-                },
+                {"error": {"code": "VIEWER_DREAMING_LOG_FAILED", "message": f"读取 Dreaming 运行日志失败: {exc}"}},
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+
+    def _handle_dreaming_diagnosis(self) -> None:
+        if not self._authorized():
+            self._reject_unauthorized()
+            return
+        query = parse_qs(urlsplit(self.path).query)
+        try:
+            self._send_json(diagnose(
+                self.kb, job=query.get("job", [""])[0], tick_id=query.get("tick_id", [""])[0],
+                run_id=query.get("run_id", [""])[0],
+            ))
+        except (OSError, ValueError):
+            self._send_json({"error": {"message": "无法读取运行诊断。"}}, status=HTTPStatus.BAD_REQUEST)
+
+    def _handle_dreaming_feedback(self) -> None:
+        if not self._authorized():
+            self._reject_unauthorized()
+            return
+        host, origin = self.headers.get("Host", ""), self.headers.get("Origin")
+        if not re.fullmatch(r"(?:localhost|127\.0\.0\.1)(?::[0-9]+)?", host, re.IGNORECASE) or (
+            origin is not None and origin != f"http://{host}"
+        ):
+            self._send_json({"error": {"message": "请从本机 Viewer 生成反馈。"}}, status=HTTPStatus.FORBIDDEN)
+            return
+        try:
+            payload = self._read_json_body()
+            if not isinstance(payload, dict) or set(payload) != {"run_id", "action"}:
+                raise ValueError("Invalid feedback request")
+            run_id, action = payload["run_id"], payload["action"]
+            if not isinstance(run_id, str) or not run_id.startswith(("DR-", "DT-")) or action not in ("draft", "bundle"):
+                raise ValueError("Invalid feedback selection")
+            result = generate(self.kb, run_id=run_id, root=ROOT, bundle=action == "bundle")
+            if action == "bundle":
+                path = Path(result["path"])
+                try:
+                    data = path.read_bytes()
+                finally:
+                    path.unlink(missing_ok=True)
+            else:
+                self._send_json(result)
+                return
+        except (OSError, ValueError):
+            self._send_json({"error": {"message": "无法生成反馈。"}}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", f'attachment; filename="byteworker-{run_id}.zip"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
@@ -227,6 +290,9 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/dreaming/runs" or path.startswith("/api/dreaming/runs/"):
             self._handle_dreaming_runs_get()
+            return
+        if path == "/api/dreaming/diagnose":
+            self._handle_dreaming_diagnosis()
             return
         super().do_GET()
 
@@ -286,6 +352,9 @@ class ViewerHandler(SimpleHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/settings":
             self._handle_api_patch()
+            return
+        if path == "/api/dreaming/feedback":
+            self._handle_dreaming_feedback()
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 

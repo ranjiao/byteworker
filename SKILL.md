@@ -1,6 +1,6 @@
 ---
 name: byteworker
-description: 个人飞书工作知识库。把飞书文档、妙记、会议、群聊、Meego 保存视图、飞书多维表格视图、风神看板、外部 blog/论文/wiki、本地 md 消化成结构化实体图，并保存和持续更新用户自己的自然语言思考，支持查询、更新、会前简报、看板、自动日报/周报、全局工作上下文、个性化能力推荐、可选主动后台机制 Dreaming 和兼容诊断。当用户要保存或查询工作资料、了解 byteworker 能做什么、推荐下一步、沉淀自己的思考、生成工作报告、配置自动信息分析或摘要提醒、启用/关闭/查看 Dreaming、通过 Dreaming 分析飞书 IM、检查知识库，或使用 /byteworker digest/search/update/brief/dashboard/context/thinking/dreaming/doctor/help 时触发。
+description: 个人飞书工作知识库。摄取飞书文档、妙记、会议、群聊、Meego、多维表格、风神、网页和本地 Markdown，支持查询、更新、会前简报、看板、工作上下文、思考、自动日报周报、能力推荐、Dreaming 后台助手和兼容诊断。保存或查询工作资料、设置后台任务、检查知识库、排查运行或生成反馈时使用。
 ---
 
 # byteworker
@@ -88,6 +88,8 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
   `references/dreaming-harness-trae.md`；process job 还必须从 manifest 加载
   `features.routine_digest` 的完整普通 digest 闭包
 - doctor：`references/doctor.md`
+- 反馈或排查后台运行 → digest_feedback：`references/digest-feedback.md`
+- search/brief/update/thinking/context/dashboard/report 的运行记录见 `references/operation-trace.md`。
 
 ## 能力发现
 

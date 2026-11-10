@@ -16,6 +16,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from session_preflight import run_preflight  # noqa: E402
+import operation_trace as trace  # noqa: E402
 
 
 def parser() -> argparse.ArgumentParser:
@@ -54,6 +55,23 @@ def main(argv: list[str] | None = None) -> int:
         environ=os.environ,
         allow_capability_suggestions=args.interactive,
     )
+    trace_id = os.environ.get(trace.TRACE_ENV)
+    if not trace_id and args.interactive and not result["ready"]:
+        try:
+            trace_id = trace.start("install")
+        except (OSError, ValueError):
+            pass
+    if trace_id:
+        try:
+            codes = sorted({
+                notice["code"] for notice in result["notices"]
+                if notice.get("severity") == "blocking" and notice.get("code") in trace.CODES
+            })
+            for code in codes or [None]:
+                trace.record(trace_id, "preflight", "success" if result["ready"] else "failed", code=code)
+            result["diagnostic_id"] = trace_id
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
     if args.json or result["status"] != "healthy":
         payload = result
         if not args.json:
@@ -61,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
                 key: result[key]
                 for key in ("schema_version", "status", "ready", "kb", "notices")
             }
+            if result.get("diagnostic_id"):
+                payload["diagnostic_id"] = result["diagnostic_id"]
         print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     return 0 if result["ready"] else 1
 

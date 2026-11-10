@@ -252,7 +252,7 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
   <header class="header">
     <div>
       <h1>Dreaming 运行日志</h1>
-      <div class="subtitle">本地调试视图 · 仅展示运行元数据，不包含消息正文</div>
+      <div class="subtitle">本地调试视图 · 运行与业务详情仅在本机查看</div>
     </div>
     <div class="actions">
       <button id="refresh" class="refresh" type="button">立即刷新</button>
@@ -260,6 +260,22 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
   </header>
 
   <div id="load-error" class="load-error hidden"></div>
+
+  <section class="panel" aria-label="为什么没跑">
+    <div class="panel-head">
+      <span>为什么没跑</span>
+      <div class="actions">
+        <select id="wake-filter" aria-label="唤醒记录"><option value="">最近一次唤醒</option></select>
+        <button id="wake-draft" type="button" disabled>生成反馈草稿</button>
+        <button id="wake-bundle" type="button" disabled>导出诊断包</button>
+      </div>
+    </div>
+    <div id="diagnosis" class="detail" aria-live="polite">正在读取调度证据…</div>
+  </section>
+  <section id="feedback-preview" class="panel hidden" aria-label="反馈邮件预览">
+    <div class="panel-head"><span>反馈邮件预览</span><a id="open-feedback-mail">打开邮件草稿</a></div>
+    <textarea id="feedback-text" readonly rows="12" style="width:100%; box-sizing:border-box"></textarea>
+  </section>
 
   <section class="cards" aria-label="运行概览">
     <div class="card"><div class="card-label">全部运行</div><div id="count-all" class="card-value">0</div></div>
@@ -307,7 +323,11 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
     <div class="panel">
       <div class="panel-head">
         <span>阶段详情</span>
-        <span id="event-count" class="panel-meta"></span>
+        <div class="actions">
+          <span id="event-count" class="panel-meta"></span>
+          <button id="run-draft" type="button" disabled>生成反馈草稿</button>
+          <button id="run-bundle" type="button" disabled>导出诊断包</button>
+        </div>
       </div>
       <div id="detail" class="detail">
         <div class="empty">选择左侧运行记录查看阶段时间线</div>
@@ -328,6 +348,90 @@ const JOB_DESCRIPTIONS = {
   maintenance: "运行 doctor 检查知识库健康，并执行确定性白名单修复。",
   recovery: "补偿后台异常，例如过期租约、失败回执、待发送 outbox 或缺失审计结果。"
 };
+
+const DIAG_LABELS = {
+  request: "宿主已唤醒", preflight: "启动检查", scheduler: "调度决定",
+  job_decision: "任务决定", started: "已开始", success: "成功", failed: "失败",
+  disabled: "未启用", idle: "本轮未领取", busy: "已有任务运行", leased: "已领取",
+  not_due: "未到期或本期已完成", waiting_for_user: "等待用户处理", backoff: "等待重试",
+  blocked_by_dependency: "等待上游任务", selected: "本轮已领取", due: "已到期",
+  running: "运行中", interrupted: "租约已过期", delivered: "已送达",
+  pending: "待投递", not_recorded: "没有投递记录",
+  WAKE_NOT_OBSERVED: "未观察到宿主启动。可检查宿主的本地任务历史。",
+  WAKE_LINK_NOT_RECORDED: "缺少与本次运行关联的宿主唤醒记录。",
+  RUN_STATE_WITHOUT_MATCHING_LOG: "有任务状态，但缺少对应的运行日志。",
+  SCHEDULER_STATE_UNAVAILABLE: "无法读取调度状态。",
+};
+const diagLabel = value => DIAG_LABELS[value] || value || "未知";
+
+async function loadDiagnosis() {
+  const picker = el("wake-filter");
+  const selected = picker.value;
+  try {
+    const query = new URLSearchParams(selected ? { tick_id: selected } : {});
+    const data = await api(`/api/dreaming/diagnose?${query}`);
+    if (picker.value !== selected) return;
+    picker.replaceChildren(new Option("最近一次唤醒", ""));
+    for (const wake of data.recent_wakes || []) {
+      picker.add(new Option(`${displayTime(wake.started_at)} · ${diagLabel(wake.status)}`, wake.tick_id));
+    }
+    if (selected && ![...picker.options].some(option => option.value === selected)) {
+      picker.add(new Option("所选历史唤醒", selected));
+    }
+    picker.value = selected;
+    state.tickId = data.tick?.run_id || "";
+    for (const id of ["wake-draft", "wake-bundle"]) el(id).disabled = !state.tickId;
+    const events = (data.tick?.events || []).map(event =>
+      `<li>${esc(displayTime(event.timestamp))} · ${esc(event.job || diagLabel(event.stage))} · ${esc(diagLabel(event.status))}${event.code ? ` · ${esc(event.code)}` : ""}</li>`).join("");
+    const jobs = Object.entries(data.jobs || {}).map(([name, job]) =>
+      `<li>${esc(name)} · ${esc(diagLabel(job.status))}${job.next_due_at ? ` · 下次 ${esc(displayTime(job.next_due_at))}` : ""}</li>`).join("");
+    const run = data.run;
+    const runLine = run
+      ? `<p>关联任务 ${esc(run.job || "")} · ${esc(diagLabel(run.status))} · ${esc(run.run_id)}${run.delivery ? ` · 投递 ${esc(diagLabel(run.delivery))}` : ""}${run.delivery_code ? ` · ${esc(run.delivery_code)}` : ""}</p>`
+      : "";
+    el("diagnosis").innerHTML = [
+      ...(data.diagnostic_gaps || []).map(gap => `<p>${esc(diagLabel(gap))}</p>`),
+      events ? `<ul>${events}</ul>` : "",
+      runLine,
+      data.active_lease ? `<p>最近任务心跳 ${esc(displayTime(data.active_lease.last_heartbeat_at))} · ${esc(diagLabel(data.active_lease.status))} · ${esc(data.active_lease.stage || "")}</p>` : "",
+      jobs ? `<details><summary>当前任务与下次运行时间</summary><ul>${jobs}</ul></details>` : "",
+    ].join("");
+  } catch (error) {
+    state.tickId = "";
+    for (const id of ["wake-draft", "wake-bundle"]) el(id).disabled = true;
+    el("diagnosis").textContent = error.message;
+  }
+}
+
+async function shareFeedback(runId, action) {
+  if (!runId) return;
+  try {
+    const response = await fetch("/api/dreaming/feedback", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-Byteworker-Token": new URLSearchParams(location.search).get("api_token") || "" },
+      body: JSON.stringify({ run_id: runId, action }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error?.message || "反馈生成失败");
+    if (action === "draft") {
+      const draft = await response.json();
+      el("feedback-text").value = `收件人 ${draft.to}\n主题 ${draft.subject}\n\n${draft.body}`;
+      el("open-feedback-mail").href = draft.mailto;
+      el("feedback-preview").classList.remove("hidden");
+      el("feedback-text").focus();
+      el("feedback-text").select();
+      return;
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const download = document.createElement("a");
+    download.href = url;
+    download.download = `byteworker-${runId}.zip`;
+    download.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    showError(error.message);
+  }
+}
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -426,6 +530,7 @@ function eventFields(event) {
   if (event.stage) fields.push(`<span>stage <code>${esc(event.stage)}</code></span>`);
   if (event.detail_code) fields.push(`<span>detail <code>${esc(event.detail_code)}</code></span>`);
   if (event.artifact_path) fields.push(`<span>artifact <code>${esc(event.artifact_path)}</code></span>`);
+  if (event.digest_run_id) fields.push(`<span>Digest 运行 <code>${esc(event.digest_run_id)}</code></span>`);
   for (const [key, value] of Object.entries(event.metrics || {})) {
     fields.push(`<span>${esc(key)} <code>${esc(value)}</code></span>`);
   }
@@ -574,6 +679,7 @@ function renderDetail(openIds = new Set()) {
   }
   const first = events[0];
   const last = events[events.length - 1];
+  const run = state.runDiagnosis?.run;
   el("detail").innerHTML = `
     <div class="detail-title">
       <strong>${esc(first.job || "unknown")}</strong>
@@ -581,6 +687,7 @@ function renderDetail(openIds = new Set()) {
     </div>
     <div class="job-note">${esc(jobDescription(first.job))}</div>
     <div class="detail-id">${esc(state.detail.run_id)}</div>
+    ${run?.delivery ? `<div class="job-note">投递 ${esc(diagLabel(run.delivery))}${run.delivery_code ? ` · ${esc(run.delivery_code)}` : ""}</div>` : ""}
     <div class="facts">
       <div class="fact"><div class="fact-label">周期</div><div class="fact-value">${esc(first.period || "—")}</div></div>
       <div class="fact"><div class="fact-label">总耗时</div><div class="fact-value">${esc(duration(events))}</div></div>
@@ -621,9 +728,19 @@ async function api(path) {
 async function loadRun(runId) {
   const preserveOpen = runId === state.selectedRunId ? openFindingIds() : new Set();
   state.selectedRunId = runId;
+  for (const id of ["run-draft", "run-bundle"]) el(id).disabled = !/^DR-[a-f0-9]{32}$/.test(runId);
   renderRuns();
   try {
-    state.detail = await api(`/api/dreaming/runs/${encodeURIComponent(runId)}`);
+    const encoded = encodeURIComponent(runId);
+    const [detail, diagnosis] = await Promise.all([
+      api(`/api/dreaming/runs/${encoded}`),
+      /^DR-[a-f0-9]{32}$/.test(runId)
+        ? api(`/api/dreaming/diagnose?run_id=${encoded}`).catch(() => null)
+        : null,
+    ]);
+    if (state.selectedRunId !== runId) return;
+    state.detail = detail;
+    state.runDiagnosis = diagnosis;
     showError();
     renderDetail(preserveOpen);
   } catch (error) {
@@ -652,6 +769,7 @@ async function refresh(options = {}) {
       if (state.selectedRunId && !summary) {
         state.selectedRunId = "";
         state.detail = null;
+        for (const id of ["run-draft", "run-bundle"]) el(id).disabled = true;
         el("event-count").textContent = "";
         el("detail").innerHTML = state.runs.length
           ? '<div class="empty">当前选择不在时间范围内，请重新选择运行记录</div>'
@@ -668,7 +786,16 @@ async function refresh(options = {}) {
   }
 }
 
-el("refresh").addEventListener("click", () => refresh({ forceDetail: true }));
+el("refresh").addEventListener("click", () => {
+  refresh({ forceDetail: true });
+  loadDiagnosis();
+});
+el("wake-filter").addEventListener("change", loadDiagnosis);
+for (const [prefix, selection] of [["wake", () => state.tickId], ["run", () => state.selectedRunId]]) {
+  for (const action of ["draft", "bundle"]) {
+    el(`${prefix}-${action}`).addEventListener("click", () => shareFeedback(selection(), action));
+  }
+}
 ["search", "job-filter", "status-filter"].forEach(id => {
   el(id).addEventListener(id === "search" ? "input" : "change", renderRuns);
 });
@@ -678,6 +805,7 @@ el("time-filter").addEventListener("change", () => {
   refresh({ forceDetail: true });
 });
 refresh({ forceDetail: true });
+loadDiagnosis();
 </script>
 </body>
 </html>

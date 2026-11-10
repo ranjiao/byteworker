@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from dreaming_cli_common import optional_bool, positive
+from dreaming_diagnostics import diagnose, observed_run_due, run_tick
 from dreaming_reports import report_migration_readiness
 from dreaming_run_log import list_runs, show_run, tail_events
 from dreaming_scheduler import (
@@ -19,7 +20,6 @@ from dreaming_scheduler import (
     register_harness,
     renew_lease,
     retry_job,
-    run_due,
     set_report_management,
     status,
     unregister_harness,
@@ -31,6 +31,24 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     status_parser = sub.add_parser("status", help="Show Dreaming configuration and runtime status")
     status_parser.add_argument("--kb", required=True, type=Path)
     status_parser.set_defaults(_handler=_handle_status)
+
+    diagnosis = sub.add_parser("diagnose", help="Explain host wakes, scheduling, and run health")
+    diagnosis.add_argument("--kb", required=True, type=Path)
+    diagnosis.add_argument("--job", default="")
+    selected = diagnosis.add_mutually_exclusive_group()
+    selected.add_argument("--tick-id", default="")
+    selected.add_argument("--run-id", default="")
+    diagnosis.set_defaults(_handler=lambda args, kb, root: diagnose(
+        kb, job=args.job, tick_id=args.tick_id, run_id=args.run_id,
+    ))
+
+    tick = sub.add_parser("tick", help="Record a wake, run unattended preflight and claim at most one job")
+    tick.add_argument("--kb", required=True, type=Path)
+    tick.add_argument("--owner", required=True)
+    tick.add_argument("--lease-seconds", type=positive, default=7200)
+    tick.set_defaults(_handler=lambda args, kb, root: run_tick(
+        kb, owner=args.owner, lease_seconds=args.lease_seconds, root=root,
+    ))
 
     configure_parser = sub.add_parser("configure", help="Update Dreaming settings")
     configure_parser.add_argument("--kb", required=True, type=Path)
@@ -89,7 +107,11 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     due.add_argument("--owner", required=True)
     due.add_argument("--lease-seconds", type=positive, default=7200)
     due.add_argument("--followup-after-run-id", default="", help="仅在刚完成 process catchup 后领取被解锁的报告 job")
-    due.set_defaults(_handler=lambda args, kb, root: run_due(kb, owner=args.owner, lease_seconds=args.lease_seconds, followup_after_run_id=args.followup_after_run_id))
+    due.add_argument("--tick-id", default="", help="关联宿主唤醒记录")
+    due.set_defaults(_handler=lambda args, kb, root: observed_run_due(
+        kb, owner=args.owner, lease_seconds=args.lease_seconds,
+        followup=args.followup_after_run_id, tick_id=args.tick_id,
+    ))
 
     renew = sub.add_parser("renew", help="Renew an active run lease")
     renew.add_argument("--kb", required=True, type=Path)
@@ -119,7 +141,12 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     heartbeat.add_argument("--detail-code", default="")
     heartbeat.add_argument("--progress-current", type=int)
     heartbeat.add_argument("--progress-total", type=int)
-    heartbeat.set_defaults(_handler=lambda args, kb, root: heartbeat_run(kb, token=args.token, stage=args.stage, detail_code=args.detail_code, progress_current=args.progress_current, progress_total=args.progress_total))
+    heartbeat.add_argument("--digest-run-id", default="")
+    heartbeat.set_defaults(_handler=lambda args, kb, root: heartbeat_run(
+        kb, token=args.token, stage=args.stage, detail_code=args.detail_code,
+        progress_current=args.progress_current, progress_total=args.progress_total,
+        digest_run_id=args.digest_run_id,
+    ))
 
     runs = sub.add_parser("runs", help="Inspect bounded Dreaming run logs")
     runs_sub = runs.add_subparsers(dest="runs_operation", required=True)

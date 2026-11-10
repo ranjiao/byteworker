@@ -259,6 +259,18 @@ committed/noop/failed/cancelled 都写终态，`list/show` 从事件流派生总
 该旁路只观察既有信息流，不读取 component/candidate 正文，不参与语义判断，也不改变 transaction
 receipt 的成功真相源。
 
+Agent 仅在用户请求 Digest 反馈时解析 `digest_feedback` 工作流。反馈经 `doctor feedback/bundle`
+进入 `lib/digest_feedback.py`，按指定 `run_id` 只读运行日志。
+导出层先重建白名单时间线，再从同一投影派生邮件草稿或 ZIP。它不依赖 doctor 扫描、flow checkpoint、
+provider、SourceBundle 或知识库内容。缺失或部分损坏的日志仍可生成有限结果，并明确标出缺口。
+邮件草稿返回正文及邮件链接，由用户自行发送。
+
+其它前台请求由 Agent 创建 `BW-…`，仅显式携带 `BYTEWORKER_TRACE_ID` 的公共命令将技术回执写入
+`lib/operation_trace.py`。Agent 最终结果单独记录，查询成功不代表回答正确。Viewer 在业务 API 失败时
+生成编号；交互 preflight 阻塞时也能生成安装编号。旧自动报告可将该编号与租约和完成回执关联。
+技术记录退化不改写既有业务结果。反馈导出统一经 `feedback_export.py` 生成邮件及私有 ZIP；
+各类型的字段投影仍由对应适配层负责，通用导出层不读取命令业务结果或 KB。
+
 标准路径由 `digest-flow` 把 start/classify、多波 capture、Bundle、preflight、analysis prepare、
 dependency/semantic planner 和 transaction 组织为可恢复状态机。flow 只调用确定性库并返回固定
 `next_action`，不判断依赖重要性、不抽取事实、不裁决冲突、不生成节点候选。私有 checkpoint 位于
@@ -813,8 +825,10 @@ flowchart TB
 - provider 特例只能进入 source adapter、operation adapter 或明确标注的 legacy compatibility
   模块。
 - 飞书群聊的外部凭据兼容只存在于 operation/collection adapter：`auth status` 被宿主禁用时
-  显式调用 `whoami --as user`，只把 user runtime readiness 前移，scope 与资源权限仍在
-  capture-time fail closed；不得静默选择 bot 或建议不可用的本地登录。
+  显式调用 `whoami --as user`；当前 CLI 明确返回 `unknown command "auth"` 时，使用
+  `contact +get-user --as user` 的成功只读响应校验 `ok=true`、`identity=user` 和用户 open_id。
+  只把 user runtime readiness 前移，scope 与资源权限仍在 capture-time fail closed；
+  其它认证、权限或网络错误不得触发此兼容分支，不静默选择 bot 或建议不可用的本地登录。
 - `bin/source.py` 只组合公共命令和 operation contract；provider 参数、runtime 与 handler
   由 operation adapter 声明，不在入口重复枚举。
 - CLI 不承载业务语义；Agent 不复制确定性实现。
@@ -849,7 +863,8 @@ flowchart TB
 | `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |
 | `bin/semantic.py` | 校验 IM 等结构化语义结果 | validation report / 稳定 error code |
 | `bin/kb-query.py` | search / conflict-search / evidence / source-record；conflict-search 对多 query 只扫描节点一次 | 有覆盖信息的有限候选、同源定位与短 snippet |
-| `bin/doctor.py` | scan / fix | finding 与修复回执 |
+| `bin/doctor.py` | scan / fix 检查兼容性；feedback / bundle 路由运行反馈 | finding、修复回执、邮件草稿或本地 ZIP 回执 |
+| `lib/digest_feedback.py` | 按 run id 从已有日志重建可对外分享的技术时间线 | 白名单投影，无知识库内容或来源标识 |
 | `bin/resolve-users.sh` | 按 open_id 最多 4 路只读解析 person 身份与当前通讯录画像，按 ID 确定性归并；默认 TSV 兼容旧调用 | `byteworker-resolved-users/v1` JSON 或兼容三列 TSV |
 | 其它 `bin/*.sh` | 外部拉取、索引/links 重建、viewer、安装与更新辅助 | 明确的文件或 JSON/文本回执 |
 
@@ -1139,6 +1154,9 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_models.py` | EvidenceBatch、batch、FindingBundle、ActionPlan、ActionClaim 的结构校验 | 否 |
 | `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、interval/daily/every-N-days、next due、harness truth、fairness、退避、lease/heartbeat、process catch-up 后受限报告 follow-up、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
 | `lib/dreaming_run_log.py` | 每个 run 的 leased/heartbeat/renewed/completed/expired 事件、白名单 metrics、按日/大小轮转、保留期清理与 list/show/tail | `state/dreaming/run-logs/*.jsonl`，仅 `0600` 元数据 |
+| `lib/dreaming_diagnostics.py` | `tick` 先记宿主唤醒，再运行无人值守 preflight 和当前版本的调度器；`diagnose` 只读关联唤醒、实际调度决定、租约、run 日志和投递 | 唤醒记录使用共用技术存储；诊断读取不迁移、不领取、不重试 |
+| `lib/operation_trace.py` | 本机技术回执，字段与取值白名单、独立锁、有界保留 | 用户私有状态目录；与 KB 写锁和 Git 事务分离 |
+| `lib/support_feedback.py` | 从一个 BW、DT 或 DR 编号重建白名单摘要；不使用本地业务调试详情 | 草稿或本地 ZIP，复用 Digest 的呈现层 |
 | `lib/dreaming_debug.py` | 本地调试页按 run 关联 batch/report 产物，校验 Finding/evidence 一致性并按需投影原文片段 | 只读 `state/dreaming/`，不复制正文到日志 |
 | `lib/dreaming_run_result.py` | 校验 maintenance/recovery 的结构化结果摘要、检查项与修复明细 | `state/dreaming/run-results/<run_id>.json` 私密审计产物 |
 | `lib/dreaming_grants.py` | IM off/monitored/all_visible、persist_finding revision 与降级清理 | grant state、撤销范围内 spool/batch |
@@ -1204,6 +1222,7 @@ flowchart LR
 | `byteworker-workflow-routes/v2` | `SKILL.md` + `workflow_budget.py` + route contract tests | 独立入口闭包可递归展开；静态规则/worker prompt/context/source/总输入/输出预算分离；超限 action 固定 |
 | `byteworker-workflow-route/v1` | `workflow-budget resolve` + `resolve_route` | 只返回所选闭包和 prompt 路径；与 inspect 同一 resolver；无 KB/runtime/provider 副作用 |
 | `byteworker-workflow-budget-receipt/v1` | `workflow_budget.py` | tokenizer 或版本化保守估算显式；完整条件闭包计数；动态内容不回显、不静默截断 |
+| `byteworker-digest-feedback/v1` | `digest_feedback.py` | 单次运行；草稿只返回邮件字段；ZIP 回执返回文件清单和摘要；不会把原始日志作为附件 |
 | `byteworker-provenance/v1` | `provenance.py` | anchor 可解析；绑定 raw content hash；关键事实 `[E]` 可回原文 |
 | `byteworker-record-index/v1` | `sources/models.py` + collection adapter + transaction | provider-neutral 有限查询投影；原 provider snapshot 仍保留 |
 | `byteworker-wiki-tree-state/v1` | `wiki_explorer.py` | 完整 coverage 才替换；无 TTL；不进入 raw/实体图/LLM 输出 |
@@ -1286,10 +1305,19 @@ IM 阈值不一致、未知 reason code、缺 message evidence 和 context 超�
 不能让 Agent 用自由文本解释绕过。
 
 digest 运行日志位于 KB 私有 `state/digest/`，不竞争 durable content 写锁，也不进入 KB Git。
-日志只允许 run/source type/source identity hash、固定 action/stage/status/detail code、时间与非负计数；
+日志只允许 run/source type/source identity hash、固定 action/stage/status/detail code、版本、时间与非负计数；
 禁止正文、标题、人员或群名、URL、凭据、argv、stdout/stderr 和自由文本错误。日志开始失败时不得
 继续一个“不可观测”的新 digest；transaction 已 committed 后的结束日志失败只能在 receipt 中标记
 degraded，不能把已完成写入伪装成事务失败或触发无条件重写。
+
+反馈出口使用比本地日志更窄的字段与取值白名单。来源类型、哈希、业务计数、usage、路径、对话和
+未知原因码均不导出。事务结果只采用已记录的终态或明确的事务阶段回执；缺少这些证据时保持
+unknown，事务失败也不推断回滚成功。ZIP 仅在明确要求时生成到两个仓库之外的系统临时目录。
+
+Dreaming 的宿主唤醒与任务运行分别使用 `DT-…` 和 `DR-…`。调度器原样执行真实规则并提供
+固定任务决定。已持久化租约但运行日志追加失败时，诊断保留已知关联及缺口；既有 fail-closed
+执行边界保持有效。没有唤醒证据只表示未观察到启动。报告成功和投递状态独立取证，pending
+保留可重试语义。Viewer 诊断 GET 与本机同源 POST 遵守会话口令；导出不调用业务调试 API。
 
 自动报告另有四条失败边界：任务只能在宿主本地环境中运行；任一 routine 来源的授权、分页或
 digest 事务失败时不得继续生成“看似完整”的报告；报告周期 Calendar 枚举必须使用 user 身份且
@@ -1477,6 +1505,8 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | Transaction | digest/mutation、batch、no-op、新版本、共享跨进程锁、文件/index/HEAD rollback、章节保留、provenance |
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
 | Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
+| Digest 反馈 | 单 run 隔离、失败与成功、无终态和缺失或损坏日志、草稿/ZIP 白名单、收件地址覆盖、写入成功后的日志退化 |
+| 通用反馈与 Dreaming 诊断 | 前台多命令关联、宿主未观察到与启动失败、无任务领取、显式子运行关联、租约中断、状态与日志不一致、生成与投递独立、Viewer 权限和导出白名单 |
 | Session preflight | 更新先于 Python import、健康静默、blocking、更新 notice、报告迁移、PATH/NVM/显式 override |
 | Command discovery | registry 唯一性、入口/文档存在、顶层完整分组、嵌套 help 只读且不探测 optional runtime、tombstone 默认隐藏、manifest/description schema |
 | Agent route / semantic | workflow 闭包、独立入口自足、context 字符预算、冲突唯一 owner、IM 阈值/reason/evidence |

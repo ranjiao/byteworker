@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 from digest_analysis import prepare_analysis_packet
-from digest_capture import execute_capture_plan
+from digest_capture import DigestCaptureError, execute_capture_plan
 from digest_parallel import plan_parallel_work
 from digest_run_log import (
     finish_run,
@@ -243,7 +243,10 @@ def capture_flow(
             },
         )
     except Exception as exc:
-        _record_failure(kb, run_id, "capture", "DIGEST_FLOW_CAPTURE_FAILED")
+        code = (
+            exc.code if isinstance(exc, DigestCaptureError) else "DIGEST_FLOW_CAPTURE_FAILED"
+        )
+        _record_failure(kb, run_id, "capture", code)
         with _flow_lock(kb):
             state = _load_state(kb, run_id)
             state["phase"] = "capture_failed"
@@ -419,6 +422,16 @@ def commit_flow(
             raise DigestFlowError(
                 "DIGEST_FLOW_RECEIPT_INVALID", "transaction 未返回 committed/noop。"
             )
+    except Exception as exc:
+        _record_failure(kb, run_id, "transaction", "DIGEST_FLOW_TRANSACTION_FAILED")
+        with _flow_lock(kb):
+            state = _load_state(kb, run_id)
+            state["phase"] = "commit_failed"
+            _atomic_state(_state_path(kb, run_id), state)
+        code = str(getattr(exc, "code", "DIGEST_FLOW_COMMIT_FAILED"))
+        raise DigestFlowError(code, str(exc)) from exc
+
+    try:
         nodes = receipt.get("nodes")
         node_count = len(nodes) if isinstance(nodes, list) else 0
         warnings = receipt.get("warnings")
@@ -428,7 +441,7 @@ def commit_flow(
             run_id=run_id,
             stage="transaction",
             status="completed",
-            detail_code="DIGEST_FLOW_TRANSACTION_COMPLETED",
+            detail_code=f"DIGEST_FLOW_TRANSACTION_{status.upper()}",
             metrics={"node_count": node_count, "warning_count": warning_count},
         )
         finish_run(
@@ -437,14 +450,8 @@ def commit_flow(
             status=status,
             metrics={"node_count": node_count, "warning_count": warning_count},
         )
-    except Exception as exc:
-        _record_failure(kb, run_id, "transaction", "DIGEST_FLOW_TRANSACTION_FAILED")
-        with _flow_lock(kb):
-            state = _load_state(kb, run_id)
-            state["phase"] = "commit_failed"
-            _atomic_state(_state_path(kb, run_id), state)
-        code = str(getattr(exc, "code", "DIGEST_FLOW_COMMIT_FAILED"))
-        raise DigestFlowError(code, str(exc)) from exc
+    except Exception:
+        receipt = {**receipt, "digest_run_logging": "degraded"}
     with _flow_lock(kb):
         state = _load_state(kb, run_id)
         state["phase"] = status
