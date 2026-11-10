@@ -190,7 +190,7 @@ a { color: inherit; text-decoration: none; }
 .kbd {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 14px; height: 16px; padding: 0 4px;
-  font-family: var(--font-mono); font-size: 10px;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.07em;
   background: var(--bg-chip); border: 1px solid var(--line);
   border-radius: 3px; color: var(--ink-3);
 }
@@ -237,7 +237,8 @@ body.sidebar-resizing * {
   transition: border-color var(--duration-fast);
 }
 .side-search:hover { border-color: var(--line-strong); }
-.side-search .placeholder { flex: 1; text-align: left; }
+.side-search .placeholder { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-search .kbd { flex-shrink: 0; white-space: nowrap; }
 
 .side-filter {
   margin: 0 12px 8px;
@@ -256,6 +257,7 @@ body.sidebar-resizing * {
   min-width: 0;
 }
 .side-filter input::placeholder { color: var(--ink-4); }
+.side-filter .kbd { flex-shrink: 0; }
 .side-filter .clear {
   width: 16px; height: 16px; border-radius: 50%;
   background: var(--bg-chip); color: var(--ink-3);
@@ -300,10 +302,11 @@ body.sidebar-resizing * {
   font-family: var(--font-mono);
 }
 .type-group-more:hover { color: var(--accent); background: var(--bg-hover); }
-.type-group.pinned .type-group-h .label { color: var(--ink-2); }
 
 .side-shortcuts { padding: 0 6px 4px; display: flex; flex-direction: column; gap: 1px; }
-.report-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
+.document-shortcuts, .report-shortcuts { display: grid; gap: 2px; }
+.document-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.report-shortcuts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .side-shortcut {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 10px; border-radius: 6px; font-size: 12.5px;
@@ -886,7 +889,7 @@ button.history-entry:not([aria-current]):hover { background: var(--bg-hover); bo
 
 /* ---- sidebar command row (⌘K launcher + settings gear) ---- */
 .cmd-row { display: flex; align-items: center; gap: 4px; margin: 10px 12px 6px; }
-.cmd-row .side-search { margin: 0; flex: 1; }
+.cmd-row .side-search { margin: 0; flex: 1; min-width: 0; }
 .gear-btn {
   width: 30px; height: 30px; min-width: 30px; padding: 0; flex-shrink: 0;
   border: 1px solid var(--line); background: var(--bg-elev); color: var(--ink-3);
@@ -895,6 +898,32 @@ button.history-entry:not([aria-current]):hover { background: var(--bg-hover); bo
 .gear-btn svg { width: 14px; height: 14px; }
 .reload-btn.spinning svg { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.shortcut-help-btn { font: 600 13px var(--font-mono); }
+/* Leave room beside controls for longer Ctrl and Alt labels. */
+[data-shortcut-platform="pc"] .titlebar :is(.nav-arrow, .reload-btn) { min-width: 52px; }
+[data-shortcut-platform="pc"] .document-shortcuts .side-shortcut { justify-content: flex-start; padding-inline: 6px; }
+.shortcut-overlay { position: fixed; inset: 0; z-index: 120; pointer-events: none; }
+.shortcut-hint, .shortcut-global {
+  position: absolute;
+  color: var(--ink-2); background: var(--bg-elev);
+  background: color-mix(in srgb, var(--bg-elev) 80%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(145%);
+  backdrop-filter: blur(12px) saturate(145%);
+  border: 1px solid var(--line-strong); box-shadow: var(--shadow-card);
+}
+.shortcut-hint {
+  padding: 1px 4px; border-radius: 5px; white-space: nowrap;
+  font: 600 10px/1.4 var(--font-mono); letter-spacing: 0.07em;
+}
+.shortcut-global {
+  bottom: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px;
+  width: max-content; max-width: calc(100% - 16px);
+  padding: 5px 10px; border-radius: 8px; font-size: 11px;
+}
+.shortcut-global-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.shortcut-global .kbd { color: var(--ink); }
 
 /* ======================================================================
    STRUCTURED BODY — sections rendered by kind, not flat markdown.
@@ -1430,16 +1459,18 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
     </div>
     <div class="title-spacer"></div>
     <div class="nav-arrows">
-      <button class="nav-arrow" id="btn-back" disabled title="后退 (⌘[)">
+      <button class="nav-arrow" id="btn-back" disabled title="后退">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"/></svg>
       </button>
-      <button class="nav-arrow" id="btn-fwd" disabled title="前进 (⌘])">
+      <button class="nav-arrow" id="btn-fwd" disabled title="前进">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l4 4-4 4"/></svg>
       </button>
     </div>
-    <button class="tbtn reload-btn" id="btn-reload" title="重新载入知识库 (⌘R)" aria-label="重新载入知识库">
+    <button class="tbtn reload-btn" id="btn-reload" title="重新载入知识库" aria-label="重新载入知识库">
       <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 7a4 4 0 1 1-1-2.8M11 2v3H8"/></svg>
     </button>
+    <button class="tbtn" id="btn-theme" type="button" aria-label="切换主题"></button>
+    <button class="tbtn shortcut-help-btn" id="btn-shortcuts" type="button" title="快捷键提示" aria-label="快捷键提示" aria-pressed="false">?</button>
   </div>
 
   <!-- Sidebar -->
@@ -1448,9 +1479,9 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
       <button class="side-search" id="btn-search" aria-label="全库搜索 / 跳转">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 3 3"/></svg>
         <span class="placeholder">全库搜索 / 跳转</span>
-        <span class="kbd">⌘K</span>
+        <span class="kbd" id="search-key-hint">⌘K</span>
       </button>
-      <button class="tbtn gear-btn" id="btn-settings" title="显示设置 (⌘,)" aria-label="显示设置">
+      <button class="tbtn gear-btn" id="btn-settings" title="显示设置" aria-label="显示设置">
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h3M8 3.5h4M2 7h6M11 7h1M2 10.5h1M6 10.5h6"/><circle cx="6.5" cy="3.5" r="1.5"/><circle cx="9.5" cy="7" r="1.5"/><circle cx="4.5" cy="10.5" r="1.5"/></svg>
       </button>
     </div>
@@ -1460,6 +1491,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
       <button class="clear" id="side-filter-clear" title="清除">
         <svg width="8" height="8" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l8 8M11 3l-8 8"/></svg>
       </button>
+      <kbd class="kbd" aria-hidden="true">/</kbd>
     </div>
     <div class="side-sort" id="side-sort" aria-label="侧栏排序">
       <button data-sort="updated" title="按最后更新时间倒序">
@@ -1472,10 +1504,16 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
       </button>
     </div>
     <div class="side-shortcuts">
-      <button class="side-shortcut" id="sc-index">
-        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h4a2 2 0 0 1 2 2v8a1.5 1.5 0 0 0-1.5-1.5H2V3zM12 3H8a2 2 0 0 0-2 2v8a1.5 1.5 0 0 1 1.5-1.5H12V3z"/></svg>
-        <span>主索引 INDEX</span>
-      </button>
+      <div class="document-shortcuts">
+        <button class="side-shortcut mini" id="sc-index" title="主索引 INDEX">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h4a2 2 0 0 1 2 2v8a1.5 1.5 0 0 0-1.5-1.5H2V3zM12 3H8a2 2 0 0 0-2 2v8a1.5 1.5 0 0 1 1.5-1.5H12V3z"/></svg>
+          <span>索引</span>
+        </button>
+        <button class="side-shortcut mini" id="sc-context" title="全局上下文">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 7s2-4 5.5-4 5.5 4 5.5 4-2 4-5.5 4S1.5 7 1.5 7z"/><circle cx="7" cy="7" r="1.6"/></svg>
+          <span>上下文</span>
+        </button>
+      </div>
       <div class="report-shortcuts">
         <button class="side-shortcut mini" id="sc-dash" title="工作看板">
           <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1l2 3 3 .5L9.5 7l.5 3L7 8.5 4 10l.5-3L2 4.5 5 4z"/></svg>
@@ -1490,10 +1528,6 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
           <span>周报</span>
         </button>
       </div>
-      <button class="side-shortcut" id="sc-context">
-        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 7s2-4 5.5-4 5.5 4 5.5 4-2 4-5.5 4S1.5 7 1.5 7z"/><circle cx="7" cy="7" r="1.6"/></svg>
-        <span>全局上下文</span>
-      </button>
     </div>
     <div class="report-nav" id="report-nav" hidden></div>
     <div class="side-scroll" id="side-scroll"></div>
@@ -1518,7 +1552,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
           <svg width="24" height="24" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h4a2 2 0 0 1 2 2v8a1.5 1.5 0 0 0-1.5-1.5H2V3zM12 3H8a2 2 0 0 0-2 2v8a1.5 1.5 0 0 1 1.5-1.5H12V3z"/></svg>
         </div>
         <div style="font-size:14px">从左侧选择一个节点</div>
-        <div style="font-size:12px;color:var(--ink-4)">或按 <span class="kbd">⌘K</span> 搜索</div>
+        <div style="font-size:12px;color:var(--ink-4)">也可使用左侧的全库搜索</div>
       </div>
     </div>
   </section>
@@ -1549,6 +1583,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
 <div id="palette-portal"></div>
 <!-- Settings modal portal -->
 <div id="settings-portal"></div>
+<div class="shortcut-overlay" id="shortcut-overlay" hidden aria-hidden="true"></div>
 
 <script src="vendor/markdown-it.min.js"></script>
 <script src="index-parser.js?v=2"></script>
@@ -1584,6 +1619,12 @@ const TYPE_HELP = {
 };
 const ID_RE = /\b(?:person|project|area|org|event|decision|reading|thinking)-[a-z0-9]+(?:[.-][a-z0-9]+)*\b/g;
 const TODAY = new Date().toISOString().slice(0, 10);
+const THEME_OPTIONS = [
+  { v: 'light', l: '浅色', icon: 'sun' },
+  { v: 'dark', l: '深色', icon: 'moon' },
+  { v: 'auto', l: '跟随系统', icon: 'monitor' },
+];
+const systemTheme = window.matchMedia?.('(prefers-color-scheme: dark)');
 const TIMEZONE_OPTIONS = [
   'Asia/Shanghai',
   'Asia/Hong_Kong',
@@ -1659,10 +1700,8 @@ const state = {
   // ui
   openGroups: Object.fromEntries(TYPE_ORDER.map(t => [t, true])),
   expandedGroups: Object.fromEntries(TYPE_ORDER.map(t => [t, false])), // "+N more" toggled
-  recentOpen: true,
   sideFilterQ: '',
   sideSort: 'updated',
-  recentIds: [], // most-recently-opened, deduped, capped 8
   rail: 'graph',
   settings: { theme: 'light', density: 'normal', width: 'normal' },
   settingsTab: 'display',
@@ -1692,6 +1731,7 @@ try {
   const stored = JSON.parse(localStorage.getItem('bw.viewer.settings') || '{}');
   state.settings = Object.assign(state.settings, stored);
 } catch (e) { /* defaults */ }
+if (!THEME_OPTIONS.some(option => option.v === state.settings.theme)) state.settings.theme = 'light';
 try {
   const storedSort = localStorage.getItem('bw.viewer.sideSort');
   if (storedSort === 'name' || storedSort === 'updated') state.sideSort = storedSort;
@@ -1704,11 +1744,23 @@ try {
 // apply theme / density / width as data-* attrs on <html>
 function applySettings() {
   const h = document.documentElement;
-  h.dataset.theme = state.settings.theme;
+  const theme = state.settings.theme;
+  h.dataset.theme = theme === 'auto' ? (systemTheme?.matches ? 'dark' : 'light') : theme;
   h.dataset.density = state.settings.density;
   h.dataset.width = state.settings.width;
+  const option = THEME_OPTIONS.find(option => option.v === theme);
+  const label = `主题：${option.l}，切换到${nextTheme().l}`;
+  D.btnTheme.innerHTML = icon(option.icon, 14);
+  D.btnTheme.title = label;
+  D.btnTheme.setAttribute('aria-label', label);
 }
-applySettings();
+
+function nextTheme() {
+  const index = THEME_OPTIONS.findIndex(option => option.v === state.settings.theme);
+  return THEME_OPTIONS[(index + 1) % THEME_OPTIONS.length];
+}
+
+function cycleTheme() { setSetting('theme', nextTheme().v); }
 
 function clampSidebarWidth(width) {
   return Math.max(220, Math.min(520, Math.round(width)));
@@ -1727,6 +1779,7 @@ const D = {
   btnBack: $('btn-back'),
   btnFwd: $('btn-fwd'),
   btnReload: $('btn-reload'),
+  btnTheme: $('btn-theme'),
   btnSearch: $('btn-search'),
   btnSettings: $('btn-settings'),
   btnCopy: $('btn-copy'),
@@ -2119,11 +2172,6 @@ function navOpen(entry) {
     state.history.push(entry);
     state.hIdx = state.history.length - 1;
   }
-  // track recents (node entries only)
-  if (entry.kind === 'node') {
-    state.recentIds = [entry.id, ...state.recentIds.filter(i => i !== entry.id)].slice(0, 8);
-    renderSidebar();
-  }
   updateNavButtons();
   renderCurrent();
 }
@@ -2218,29 +2266,6 @@ function renderSidebar() {
   D.sideFilterWrap.classList.toggle('has-q', q.length > 0);
   updateSortControls();
 
-  // "Recently viewed" group (only when not filtering, and ≥2 recents)
-  let recentHTML = '';
-  if (!q && state.recentIds.length >= 2) {
-    const items = state.recentIds.map(id => {
-      const n = state.byId[id];
-      if (!n) return '';
-      return `<button class="entity-row" data-id="${esc(n.id)}" title="${esc(rowTooltip(n))}" aria-label="${esc(n.title)}">
-        <span class="tdot ${n.type}" style="margin-right:2px"></span>
-        <span class="title" title="${esc(n.title)}">${esc(n.title)}</span>
-        ${updatedChip(n)}
-      </button>`;
-    }).join('');
-    recentHTML = `<div class="type-group pinned ${state.recentOpen ? 'open' : ''}">
-      <button class="type-group-h" data-toggle-recent>
-        <span class="chev">▸</span>
-        <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="5"/><path d="M7 4v3l2 1"/></svg>
-        <span class="label">最近</span>
-        <span class="count">${state.recentIds.length}</span>
-      </button>
-      <div class="type-group-body">${items}</div>
-    </div>`;
-  }
-
   // Type groups
   const groupsHTML = TYPE_ORDER.map(t => {
     const allRows = state.byType[t] || [];
@@ -2292,11 +2317,11 @@ function renderSidebar() {
   if (q && !groupsHTML) {
     emptyHTML = `<div style="padding: 24px 16px; text-align: center; color: var(--ink-4); font-size: 12px; line-height: 1.6;">
       未找到匹配 <span style="font-family:var(--font-mono);color:var(--ink-3)">"${esc(q)}"</span> 的节点。<br>
-      试试 <span class="kbd">⌘K</span> 全库搜索。
+      试试 <span class="kbd">${primaryKeyHint}K</span> 全库搜索。
     </div>`;
   }
 
-  D.sideScroll.innerHTML = recentHTML + groupsHTML + emptyHTML;
+  D.sideScroll.innerHTML = groupsHTML + emptyHTML;
 
   // wire events
   D.sideScroll.querySelectorAll('[data-toggle]').forEach(el => {
@@ -2306,13 +2331,6 @@ function renderSidebar() {
       el.parentElement.classList.toggle('open', state.openGroups[t]);
     });
   });
-  const recHead = D.sideScroll.querySelector('[data-toggle-recent]');
-  if (recHead) {
-    recHead.addEventListener('click', () => {
-      state.recentOpen = !state.recentOpen;
-      recHead.parentElement.classList.toggle('open', state.recentOpen);
-    });
-  }
   D.sideScroll.querySelectorAll('[data-expand]').forEach(el => {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2393,7 +2411,6 @@ async function renderReaderNode(id) {
   const primary = await resolveNodePrimarySource(fm);
   const current = currentEntry();
   if (!(current?.kind === 'node' && current.id === id)) return;
-  renderSidebar();
   const status = fm.status || n.status || 'current';
   const statusLabel = { current: '现行', stale: '陈旧', superseded: '已取代' }[status] || status;
   const tags = Array.isArray(fm.tags) ? fm.tags : [];
@@ -3175,7 +3192,11 @@ function renderPalette() {
   input.addEventListener('keydown', (e) => {
     if (state.paletteComposing || e.isComposing) return;
     const r = paletteResults();
-    if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (shortcutHintsMode) setShortcutHints('');
+      else closePalette();
+    }
     else if (e.key === 'ArrowDown') { e.preventDefault(); state.paletteSel = Math.min(state.paletteSel + 1, r.length - 1); renderPalette(); focusPaletteInput(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); state.paletteSel = Math.max(state.paletteSel - 1, 0); renderPalette(); focusPaletteInput(); }
     else if (e.key === 'Enter' && r[state.paletteSel]) { e.preventDefault(); navOpen({ kind: 'node', id: r[state.paletteSel].id }); closePalette(); }
@@ -3592,7 +3613,7 @@ function renderSettingsBody() {
   ).join('') + `</div>`;
   return state.settingsTab === 'display' ? `<div class="settings-group">
     <div class="settings-label">主题</div>
-    ${seg('theme', [{ v: 'light', l: '浅色', icon: 'sun' }, { v: 'dark', l: '深色', icon: 'moon' }])}
+    ${seg('theme', THEME_OPTIONS)}
   </div>
   <div class="settings-group">
     <div class="settings-label">密度</div>
@@ -3679,7 +3700,7 @@ function renderSettings() {
       <div class="settings-body"></div>
       <footer class="settings-foot">
         <span class="settings-foot-text"></span>
-        <span class="kbd">⌘,</span>
+        <span class="kbd">${primaryKeyHint},</span>
       </footer>
     </div>
   </div>`;
@@ -3700,6 +3721,7 @@ const ICONS = {
   x: '<path d="M3 3l8 8M11 3l-8 8"/>',
   sun: '<circle cx="7" cy="7" r="2.5"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.5 2.5l1 1M10.5 10.5l1 1M2.5 11.5l1-1M10.5 3.5l1-1"/>',
   moon: '<path d="M11 7a4 4 0 1 1-4-4 3 3 0 0 0 4 4z"/>',
+  monitor: '<rect x="1.5" y="2.5" width="11" height="7.5" rx="1.5"/><path d="M7 10v2.5m-2 0h4"/>',
   info: '<circle cx="7" cy="7" r="5.5"/><path d="M7 4.5h.01M7 6.5V10"/>',
   clock: '<circle cx="7" cy="7" r="5"/><path d="M7 4v3l2 1"/>',
   people: '<circle cx="5" cy="5" r="2"/><circle cx="10" cy="5.5" r="1.5"/><path d="M1.5 11.5c0-1.7 1.5-3 3.5-3s3.5 1.3 3.5 3M9 11.5c0-1.5 1.2-2.5 2.5-2.5"/>',
@@ -4298,6 +4320,10 @@ window.addEventListener('pointerup', () => {
 D.btnBack.addEventListener('click', navBack);
 D.btnFwd.addEventListener('click', navFwd);
 D.btnReload.addEventListener('click', reloadKb);
+D.btnTheme.addEventListener('click', cycleTheme);
+systemTheme?.addEventListener?.('change', () => {
+  if (state.settings.theme === 'auto') applySettings();
+});
 D.btnSearch.addEventListener('click', openPalette);
 D.btnSettings.addEventListener('click', openSettings);
 D.btnCopy.addEventListener('click', () => {
@@ -4321,27 +4347,312 @@ document.querySelectorAll('.rail-tab').forEach(el => {
   });
 });
 
-// keyboard
+// ---- keyboard shortcuts and their on-screen labels ------------
+const isMac = /^Mac/i.test(navigator.userAgentData?.platform || navigator.platform || '');
+document.documentElement.dataset.shortcutPlatform = isMac ? 'mac' : 'pc';
+const primaryKeyHint = isMac ? '⌘' : 'Ctrl+';
+const altKeyHint = isMac ? '⌥' : 'Alt+';
+const shortcutOverlay = $('shortcut-overlay');
+const shortcutHelpButton = $('btn-shortcuts');
+const shortcutBindings = [
+  { key: '[', modifier: 'primary', target: '#btn-back' },
+  { key: ']', modifier: 'primary', target: '#btn-fwd' },
+  { key: 'r', modifier: 'primary', target: '#btn-reload' },
+  { key: 'k', modifier: 'primary', target: '#btn-search', globalLabel: '搜索', scope: 'palette', inField: true,
+    run: () => state.paletteOpen ? closePalette() : openPalette() },
+  { key: ',', modifier: 'primary', target: '#btn-settings', globalLabel: '设置', scope: 'settings', inField: true,
+    run: () => state.settingsOpen ? closeSettings() : openSettings() },
+  { key: '\\', modifier: 'primary', target: '#btn-theme', globalLabel: '切换主题', scope: 'settings', run: cycleTheme },
+  { key: '1', code: 'Digit1', modifier: 'alt', target: '#sc-dash' },
+  { key: '2', code: 'Digit2', modifier: 'alt', target: '#sc-daily' },
+  { key: '3', code: 'Digit3', modifier: 'alt', target: '#sc-weekly' },
+  { key: '4', code: 'Digit4', modifier: 'alt', target: '#sc-index' },
+  { key: '5', code: 'Digit5', modifier: 'alt', target: '#sc-context' },
+  { key: '6', code: 'Digit6', modifier: 'alt', target: '[data-rail="graph"]' },
+  { key: '7', code: 'Digit7', modifier: 'alt', target: '[data-rail="meta"]' },
+  { key: '8', code: 'Digit8', modifier: 'alt', target: '[data-rail="source"]' },
+  { key: '9', code: 'Digit9', modifier: 'alt', target: '#side-sort [data-sort="updated"]' },
+  { key: '0', code: 'Digit0', modifier: 'alt', target: '#side-sort [data-sort="name"]' },
+  { key: 'c', code: 'KeyC', modifier: 'alt', target: '#btn-copy' },
+  { key: '/', target: '#side-filter', hideHint: true, run: () => {
+    D.sideFilter.focus();
+    D.sideFilter.select();
+  } },
+  { key: 'k', sidebarKey: 'ArrowUp', target: '#side-scroll', hideHint: true, run: () => moveSidebarNode(-1) },
+  { key: 'j', sidebarKey: 'ArrowDown', target: '#side-scroll', hideHint: true, run: () => moveSidebarNode(1) },
+  { key: '?', target: '#btn-shortcuts', globalLabel: '快捷键', scope: 'any', run: toggleShortcutHints },
+  { key: 'Escape', target: '#settings-close', scope: 'settings', onlyInScope: true, inField: true,
+    run: closeSettings },
+  { key: 'Escape', target: '#palette-box', scope: 'palette', onlyInScope: true, inField: true,
+    run: closePalette },
+];
+
+function moveSidebarNode(direction) {
+  const rows = [...D.sideScroll.querySelectorAll('.type-group.open .entity-row')];
+  const active = D.sideScroll.querySelector('.entity-row.on');
+  const index = rows.indexOf(active);
+  const next = index < 0 ? (direction > 0 ? rows[0] : rows.at(-1)) : rows[index + direction];
+  if (!next) return;
+  next.click();
+  next.focus({ preventScroll: true });
+  next.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function shortcutLabel(binding) {
+  const prefix = binding.modifier === 'primary' ? primaryKeyHint : binding.modifier === 'alt' ? altKeyHint : '';
+  return prefix + (binding.key === 'Escape' ? 'Esc' : binding.key.toUpperCase());
+}
+
+const pageShortcutHints = new Map();
+for (const binding of shortcutBindings) {
+  if (binding.onlyInScope) continue;
+  const labels = pageShortcutHints.get(binding.target) || [];
+  labels.push(shortcutLabel(binding));
+  pageShortcutHints.set(binding.target, labels);
+}
+for (const [selector, labels] of pageShortcutHints) {
+  const target = document.querySelector(selector);
+  if (target?.title) target.title += ` (${labels.join(' · ')})`;
+  const keys = shortcutBindings.filter(binding => binding.target === selector).flatMap(binding => {
+    const prefix = binding.modifier === 'primary' ? (isMac ? 'Meta+' : 'Control+') :
+      binding.modifier === 'alt' ? 'Alt+' : '';
+    const key = prefix + binding.key.toUpperCase();
+    return binding.sidebarKey ? [key, binding.sidebarKey] : [key];
+  });
+  target?.setAttribute('aria-keyshortcuts', keys.join(' '));
+}
+$('search-key-hint').textContent = primaryKeyHint + 'K';
+shortcutHelpButton.title = isMac ? '快捷键提示（长按 ⌘ 或按 ?）' : '快捷键提示（长按 Win 或 Ctrl，或按 ?）';
+
+let shortcutHoldTimer = null;
+let shortcutHintsMode = '';
+
+function shortcutInScope(binding, scope) {
+  return binding.scope === 'any' || binding.scope === scope || (scope === 'page' && !binding.onlyInScope);
+}
+
+function shortcutRectIntersects(a, b, gap = 0) {
+  return a.left < b.right + gap && a.right > b.left - gap &&
+    a.top < b.bottom + gap && a.bottom > b.top - gap;
+}
+
+// The edges of a compact button can be used if the badge clears its text and icon.
+function shortcutControlContent(control, bounds) {
+  const walker = document.createTreeWalker(control, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  const rects = [...control.querySelectorAll('svg, img, input')].map(el => el.getBoundingClientRect());
+  for (let node; (node = walker.nextNode());) {
+    if (!node.nodeValue.trim()) continue;
+    range.selectNodeContents(node);
+    rects.push(...range.getClientRects());
+  }
+  return rects.filter(rect => rect.width && rect.height && shortcutRectIntersects(rect, bounds));
+}
+
+function shortcutHintRect(hint, left, top) {
+  return { left, top, right: left + hint.offsetWidth, bottom: top + hint.offsetHeight };
+}
+
+function canPlaceShortcutHint(rect, target, controls, occupied) {
+  if (rect.left < 4 || rect.right > window.innerWidth - 4 || rect.top < 4 || rect.bottom > window.innerHeight - 4) return false;
+  if (occupied.some(other => shortcutRectIntersects(rect, other))) return false;
+  const titlebar = target.el.closest('.titlebar');
+  return !controls.some(control => {
+    if (!shortcutRectIntersects(rect, control.bounds) || control.el === titlebar) return false;
+    if (!control.content) return true;
+    if (control.el !== target.el && rect.top >= control.bounds.top && rect.bottom <= control.bounds.bottom) return true;
+    return control.content.some(ink => shortcutRectIntersects(rect, ink, 1));
+  });
+}
+
+function applyShortcutHintPosition(hint, rect, occupied) {
+  hint.style.left = `${rect.left}px`;
+  hint.style.top = `${rect.top}px`;
+  occupied.push(rect);
+}
+
+function placeShortcutHintRow(row, entries, controls, occupied) {
+  const top = Math.min(...entries.map(({ target }) => target.bounds.top));
+  const bottom = Math.max(...entries.map(({ target }) => target.bounds.bottom));
+  const height = Math.max(...entries.map(({ hint }) => hint.offsetHeight));
+  const middle = (top + bottom - height) / 2;
+  // Keep the badges next to their buttons, but choose their vertical position as a row.
+  const preferred = row.matches('#side-sort') ? bottom - 3 : row.matches('.document-shortcuts') ? middle :
+    row.matches('.nav-arrows') ? bottom - 1 : bottom + 3;
+  for (const y of new Set([preferred, bottom + 3, bottom - 3, middle, top - height + 1, top - height - 3])) {
+    const positions = [];
+    for (const { hint, target } of entries) {
+      const b = target.bounds;
+      const width = hint.offsetWidth;
+      const xEnd = window.innerWidth - width - 4;
+      const candidates = [b.right - width, (b.left + b.right - width) / 2, b.left].map(x =>
+        shortcutHintRect(hint, Math.max(4, Math.min(x, xEnd)), y));
+      const rect = candidates.find(rect => canPlaceShortcutHint(rect, target, controls, [...occupied, ...positions]));
+      if (!rect) break;
+      positions.push(rect);
+    }
+    if (positions.length !== entries.length) continue;
+    entries.forEach(({ hint }, i) => applyShortcutHintPosition(hint, positions[i], occupied));
+    return;
+  }
+  entries.forEach(({ hint }) => hint.remove());
+}
+
+function placeShortcutHint(hint, target, controls, occupied) {
+  const b = target.bounds;
+  const width = hint.offsetWidth, height = hint.offsetHeight;
+  const xEnd = window.innerWidth - width - 4;
+  const x = Math.max(4, Math.min(b.right - width, xEnd));
+  const y = b.top + Math.max(0, Math.min((b.height - height) / 2, 6));
+  const centered = Math.max(4, Math.min(b.left + (b.width - width) / 2, xEnd));
+  const inset = [x - 2, y];
+  const right = [b.right + 4, y];
+  const titlebar = target.el.closest('.titlebar');
+  const positions = [
+    ...(titlebar ? [[centered, b.bottom - 1]] : []),
+    right, inset,
+    [x, b.top - height - 3], [x, b.bottom + 3], [centered, b.bottom + 3],
+    [x, b.top - height + 1], [x, b.bottom - 1], [centered, b.bottom - 1], [x, b.bottom - 3],
+    [b.left - width - 4, y], [x - 8, y], [x - 16, y],
+  ];
+  for (const [left, top] of positions) {
+    const rect = shortcutHintRect(hint, left, top);
+    if (!canPlaceShortcutHint(rect, target, controls, occupied)) continue;
+    applyShortcutHintPosition(hint, rect, occupied);
+    return;
+  }
+  hint.remove();
+}
+
+function renderShortcutHints() {
+  if (!shortcutHintsMode) return;
+  const scope = state.settingsOpen ? 'settings' : state.paletteOpen ? 'palette' : 'page';
+  shortcutOverlay.innerHTML = '';
+  const global = document.createElement('div');
+  global.className = 'shortcut-global';
+  global.innerHTML = shortcutBindings.filter(binding => binding.globalLabel && shortcutInScope(binding, scope))
+    .map(binding => `<span class="shortcut-global-item"><kbd class="kbd">${esc(shortcutLabel(binding))}</kbd>${esc(binding.globalLabel)}</span>`).join('');
+  shortcutOverlay.appendChild(global);
+  const occupied = [global.getBoundingClientRect()];
+  const hints = new Map();
+  for (const binding of shortcutBindings) {
+    if (binding.globalLabel || binding.hideHint || !shortcutInScope(binding, scope)) continue;
+    const labels = hints.get(binding.target) || [];
+    labels.push(shortcutLabel(binding));
+    hints.set(binding.target, labels);
+  }
+  if (scope === 'palette') hints.set('#palette-box', ['↑ / ↓ · Enter · Esc']);
+  const contentTargets = scope === 'page'
+    ? '.nav-arrow, .side-shortcut, #side-sort button, .rail-tab, #btn-reload, #btn-copy, .report-nav-h'
+    : '#settings-close';
+  const protectedAreas = scope === 'page'
+    ? '.titlebar, .title-brand, #btn-theme, #btn-shortcuts, .cmd-row, #side-filter-wrap, .report-nav-list, .report-nav-empty, #side-scroll, .side-footer, .reader-history'
+    : '#palette-box';
+  const controls = [...document.querySelectorAll(`${contentTargets}, ${protectedAreas}`)].map(el => {
+    const bounds = el.getBoundingClientRect();
+    return { el, bounds, content: el.matches(contentTargets) ? shortcutControlContent(el, bounds) : null };
+  }).filter(({ bounds }) => bounds.width && bounds.height && bounds.bottom > 0 &&
+    bounds.right > 0 && bounds.left < window.innerWidth && bounds.top < window.innerHeight);
+  const entries = [];
+  for (const [selector, labels] of hints) {
+    const el = document.querySelector(selector);
+    const target = controls.find(control => control.el === el);
+    if (!target) continue;
+    const hint = document.createElement('kbd');
+    hint.className = 'shortcut-hint';
+    hint.dataset.shortcutTarget = selector;
+    hint.textContent = labels.join(' · ');
+    shortcutOverlay.appendChild(hint);
+    entries.push({ hint, target });
+  }
+  for (const selector of ['.nav-arrows', '#side-sort', '.document-shortcuts', '.report-shortcuts', '.rail-tabs']) {
+    const row = document.querySelector(selector);
+    const group = entries.filter(({ target }) => row?.contains(target.el));
+    if (!group.length) continue;
+    placeShortcutHintRow(row, group, controls, occupied);
+    group.forEach(entry => entries.splice(entries.indexOf(entry), 1));
+  }
+  entries.forEach(({ hint, target }) => placeShortcutHint(hint, target, controls, occupied));
+}
+
+function setShortcutHints(mode) {
+  shortcutHintsMode = mode;
+  shortcutOverlay.hidden = !mode;
+  shortcutHelpButton.setAttribute('aria-pressed', String(Boolean(mode)));
+  if (mode) renderShortcutHints();
+}
+
+function toggleShortcutHints() {
+  setShortcutHints(shortcutHintsMode ? '' : 'toggle');
+}
+
+function stopShortcutHold() {
+  clearTimeout(shortcutHoldTimer);
+  shortcutHoldTimer = null;
+}
+
+function isShortcutHintKey(e) {
+  return e.key === 'Meta' || e.key === 'OS' || (!isMac && e.key === 'Control');
+}
+
+shortcutHelpButton.addEventListener('click', toggleShortcutHints);
 document.addEventListener('keydown', (e) => {
-  const tag = (e.target.tagName || '').toLowerCase();
-  const inField = tag === 'input' || tag === 'textarea';
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); state.paletteOpen ? closePalette() : openPalette(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'r') { e.preventDefault(); reloadKb(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === ',') { e.preventDefault(); state.settingsOpen ? closeSettings() : openSettings(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); setSetting('theme', state.settings.theme === 'dark' ? 'light' : 'dark'); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === '[') { e.preventDefault(); navBack(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === ']') { e.preventDefault(); navFwd(); return; }
-  if (inField || state.paletteOpen) return;
-  if (e.key === '/') { e.preventDefault(); D.sideFilter.focus(); D.sideFilter.select(); return; }
-  if (e.key === 'j' || e.key === 'k') {
+  if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+  if (isShortcutHintKey(e)) {
+    if (!e.repeat && !e.altKey && !e.shiftKey && !shortcutHintsMode && shortcutHoldTimer === null) {
+      shortcutHoldTimer = setTimeout(() => setShortcutHints('hold'), 450);
+    }
+    return;
+  }
+  stopShortcutHold();
+  if (shortcutHintsMode && e.key === 'Escape') {
     e.preventDefault();
-    const all = state.nodes;
-    const cur = currentEntry();
-    const i = cur?.kind === 'node' ? all.findIndex(n => n.id === cur.id) : -1;
-    const next = e.key === 'j' ? Math.min(i + 1, all.length - 1) : Math.max(i - 1, 0);
-    if (all[next]) navOpen({ kind: 'node', id: all[next].id });
+    setShortcutHints('');
+    return;
+  }
+
+  const key = e.key.toLowerCase();
+  const modifier = (e.metaKey || e.ctrlKey) && !e.altKey ? 'primary' :
+    e.altKey && !e.ctrlKey && !e.metaKey ? 'alt' :
+    e.altKey || e.ctrlKey || e.metaKey ? 'mixed' : '';
+  if (e.shiftKey && key !== '?') return;
+  const scope = state.settingsOpen ? 'settings' : state.paletteOpen ? 'palette' : 'page';
+  const inField = e.target.isContentEditable || e.target.closest?.('input, textarea, select');
+  const sidebarFocused = e.target.closest?.('#side-scroll .entity-row');
+  const binding = shortcutBindings.find(item =>
+    modifier === (item.modifier || '') &&
+    (!inField || item.inField) &&
+    shortcutInScope(item, scope) &&
+    (item.code ? e.code === item.code : key === item.key.toLowerCase() ||
+      (sidebarFocused && e.key === item.sidebarKey))
+  );
+  if (!binding) return;
+  e.preventDefault();
+  if (e.repeat && !binding.sidebarKey) return;
+  if (binding.key !== '?') setShortcutHints('');
+  if (binding.run) binding.run();
+  else document.querySelector(binding.target)?.click();
+});
+document.addEventListener('keyup', (e) => {
+  if (!isShortcutHintKey(e)) return;
+  stopShortcutHold();
+  if (shortcutHintsMode === 'hold') setShortcutHints('');
+});
+document.addEventListener('pointerdown', (e) => {
+  stopShortcutHold();
+  if (shortcutHintsMode && !e.target.closest?.('#btn-shortcuts')) setShortcutHints('');
+});
+window.addEventListener('blur', () => {
+  stopShortcutHold();
+  setShortcutHints('');
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopShortcutHold();
+    setShortcutHints('');
   }
 });
+window.addEventListener('resize', renderShortcutHints);
 
 // hash routing
 window.addEventListener('hashchange', () => {
@@ -4411,7 +4722,6 @@ async function reloadKb() {
   try {
     clearKbCaches();
     applyIndex(await loadIndex());
-    state.recentIds = state.recentIds.filter(id => state.byId[id]);
     renderSidebar();
     updateScanStatus();
     if (currentEntry()) renderCurrent();
@@ -4449,7 +4759,7 @@ function renderHome() {
       <h1 class="reader-title" id="home-title">${rows ? '最近更新' : '开始使用知识库'}</h1>
       ${rows ? `<button type="button" class="primary-source-button home-search">
         <svg aria-hidden="true" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 3 3"/></svg>
-        搜索知识库 <span class="kbd" aria-hidden="true">⌘K</span>
+        搜索知识库 <span class="kbd" aria-hidden="true">${primaryKeyHint}K</span>
       </button>` : ''}
     </div>
     ${rows ? `<ol class="home-updates" aria-labelledby="home-title">${rows}</ol>` :
