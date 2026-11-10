@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from operation_trace import DIGEST_RUN_ID
+from dreaming_run_result import read_run_result
 
 from dreaming_state import (
     DIRECTORY_MODE,
@@ -250,6 +251,7 @@ def append_run_event(
     batch_id: str = "",
     metrics: Mapping[str, Any] | None = None,
     digest_run_id: str = "",
+    result_path: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or datetime.now(timezone.utc)
@@ -277,6 +279,10 @@ def append_run_event(
         if not DIGEST_RUN_ID.fullmatch(digest_run_id):
             raise DreamingError("DREAMING_RUN_LOG_INVALID", "Digest 运行编号无效。")
         value["digest_run_id"] = digest_run_id
+    if result_path:
+        if event != "completed" or result_path != f"state/dreaming/run-results/{run_id}.json":
+            raise DreamingError("DREAMING_RUN_LOG_INVALID", "运行摘要必须关联本轮终态。")
+        value["result_path"] = result_path
     payload = (
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         + "\n"
@@ -395,11 +401,18 @@ def list_runs(
     return {"count": len(ordered), "returned": min(limit, len(ordered)), "runs": ordered[:limit]}
 
 
-def show_run(kb: Path, *, run_id: str) -> dict[str, Any]:
+def show_run(kb: Path, *, run_id: str, include_summary: bool = True) -> dict[str, Any]:
     events = [item for item in _read_events(kb) if item.get("run_id") == run_id]
     if not events:
         raise DreamingError("DREAMING_RUN_NOT_FOUND", f"未找到 run: {run_id}")
-    return {"run_id": run_id, "event_count": len(events), "events": events}
+    result = {"run_id": run_id, "event_count": len(events), "events": events}
+    if include_summary and any(
+        event.get("event") == "completed"
+        and event.get("result_path") == f"state/dreaming/run-results/{run_id}.json"
+        for event in events
+    ):
+        result["summary"] = read_run_result(kb, run_id)
+    return result
 
 
 def tail_events(

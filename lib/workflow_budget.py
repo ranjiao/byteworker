@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -15,6 +16,11 @@ ESTIMATOR_METHOD = "byteworker-conservative-token-estimate/v1"
 TOKENIZER_METHOD = "tiktoken:o200k_base"
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "references" / "workflow-routes.json"
+INPUT_LIMITS = (
+    "static_rules_tokens", "worker_prompt_tokens",
+    "dynamic_context_tokens", "source_packet_tokens",
+)
+ADJUSTABLE_LIMITS = {"dynamic_context_tokens", "source_packet_tokens"}
 
 
 class WorkflowBudgetError(RuntimeError):
@@ -236,6 +242,42 @@ def _external_text(path: Path | None) -> str:
         ) from exc
 
 
+def _budget_checks(actual: Mapping[str, int], budget: Mapping[str, Any]) -> tuple[dict[str, bool], int]:
+    reserved = sum(budget[field] for field in INPUT_LIMITS)
+    checks = {field: count <= budget[field] for field, count in actual.items()}
+    checks["reserved_total_tokens"] = reserved <= budget["total_input_tokens"]
+    return checks, reserved
+
+
+def _review_overflow(route, inputs, actual, budget, checks) -> dict[str, Any]:
+    failed = [field for field, passed in checks.items() if not passed]
+    review: dict[str, Any] = {"exceeded_limits": failed}
+    # A runtime exception can only cover input types the route already permits.
+    if any(
+        field != "total_input_tokens" and (field not in ADJUSTABLE_LIMITS or budget[field] == 0)
+        for field in failed
+    ):
+        return review
+    proposed = {field: max(budget[field], actual[field]) for field in INPUT_LIMITS}
+    proposed["total_input_tokens"] = max(budget["total_input_tokens"], sum(proposed.values()))
+    changes = {
+        field: {"current": budget[field], "proposed": limit}
+        for field, limit in proposed.items() if limit != budget[field]
+    }
+    scope = {
+        "route": route,
+        "budget": budget,
+        "actual": actual,
+        "input_digests": {
+            field: hashlib.sha256("\n\n".join(texts).encode("utf-8")).hexdigest()
+            for field, texts in inputs.items()
+        },
+    }
+    review["id"] = hashlib.sha256(json.dumps(scope, sort_keys=True).encode("utf-8")).hexdigest()
+    review["proposed_changes"] = changes
+    return review
+
+
 def inspect_budget(
     *,
     workflow: str,
@@ -244,6 +286,8 @@ def inspect_budget(
     include_on_error: bool = False,
     context_path: Path | None = None,
     source_packet_path: Path | None = None,
+    approved_review_id: str = "",
+    host_input_limit: int | None = None,
     root: Path = ROOT,
     manifest_path: Path = MANIFEST_PATH,
 ) -> dict[str, Any]:
@@ -279,46 +323,31 @@ def inspect_budget(
         raise WorkflowBudgetError(
             "WORKFLOW_BUDGET_INVALID", f"workflow {workflow} 预算必须为非负整数。"
         )
-    static = _measure_texts(
-        _safe_text(root, path) for path in route["static_rule_paths"]
-    )
-    worker_prompt = _measure_texts(
-        _safe_text(root, path) for path in route["worker_prompt_paths"]
-    )
-    context = _measure_texts([_external_text(context_path)])
-    source_packet = _measure_texts([_external_text(source_packet_path)])
-    actual = {
-        "static_rules_tokens": static["tokens"],
-        "worker_prompt_tokens": worker_prompt["tokens"],
-        "dynamic_context_tokens": context["tokens"],
-        "source_packet_tokens": source_packet["tokens"],
+    inputs = {
+        "static_rules_tokens": [_safe_text(root, path) for path in route["static_rule_paths"]],
+        "worker_prompt_tokens": [_safe_text(root, path) for path in route["worker_prompt_paths"]],
+        "dynamic_context_tokens": [_external_text(context_path)],
+        "source_packet_tokens": [_external_text(source_packet_path)],
     }
+    measures = {field: _measure_texts(texts) for field, texts in inputs.items()}
+    actual = {field: measure["tokens"] for field, measure in measures.items()}
     actual["total_input_tokens"] = sum(actual.values())
-    checks = {
-        field: actual[field] <= int(budget[field])
-        for field in actual
-    }
-    reserved_total = sum(
-        int(budget[field])
-        for field in (
-            "static_rules_tokens",
-            "worker_prompt_tokens",
-            "dynamic_context_tokens",
-            "source_packet_tokens",
-        )
-    )
-    checks["reserved_total_tokens"] = reserved_total <= int(
-        budget["total_input_tokens"]
-    )
+    checks, reserved_total = _budget_checks(actual, budget)
+    review = None if all(checks.values()) else _review_overflow(route, inputs, actual, budget, checks)
+    if approved_review_id or host_input_limit is not None:
+        if not approved_review_id or not review or review.get("id") != approved_review_id:
+            raise WorkflowBudgetError(
+                "WORKFLOW_BUDGET_APPROVAL_INVALID", "预算确认与当前规则、预算或输入不匹配，请重新核算。",
+            )
+        if type(host_input_limit) is not int or host_input_limit < actual["total_input_tokens"]:
+            raise WorkflowBudgetError(
+                "WORKFLOW_BUDGET_HOST_LIMIT", "本次估算总输入超过已确认的宿主可用输入容量，须分片或调整范围。",
+            )
+        budget = {**budget, **{field: change["proposed"] for field, change in review["proposed_changes"].items()}}
+        checks, reserved_total = _budget_checks(actual, budget)
+        review["approved"] = True
     within_budget = all(checks.values())
-    methods = sorted(
-        {
-            static["method"],
-            worker_prompt["method"],
-            context["method"],
-            source_packet["method"],
-        }
-    )
+    methods = sorted({measure["method"] for measure in measures.values()})
     return {
         "schema_version": BUDGET_RECEIPT_SCHEMA,
         "status": "within_budget" if within_budget else "over_budget",
@@ -326,17 +355,13 @@ def inspect_budget(
         "route": route,
         "measurement": {
             "method": methods[0] if len(methods) == 1 else methods,
-            "exact": bool(
-                static["exact"]
-                and worker_prompt["exact"]
-                and context["exact"]
-                and source_packet["exact"]
-            ),
-            "static_rules_characters": static["characters"],
-            "worker_prompt_characters": worker_prompt["characters"],
+            "exact": all(measure["exact"] for measure in measures.values()),
+            "static_rules_characters": measures["static_rules_tokens"]["characters"],
+            "worker_prompt_characters": measures["worker_prompt_tokens"]["characters"],
             **actual,
         },
         "budget": {**dict(budget), "reserved_total_tokens": reserved_total},
         "checks": checks,
         "action": "continue" if within_budget else str(budget["overflow_action"]),
+        **({"review": review} if review is not None else {}),
     }

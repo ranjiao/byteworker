@@ -425,6 +425,22 @@ class DreamingSchedulerTests(unittest.TestCase):
             self.assertEqual("retry_enabled", receipt["status"])
             self.assertIsNone(status(kb)["jobs"]["process"]["waiting_for_user"])
 
+    def test_budget_review_releases_lease_and_stops_automatic_process_retry(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            kb = self.make_kb(Path(temporary))
+            enabled_at = datetime(2026, 8, 3, 1, 0, tzinfo=timezone.utc)
+            self.enable_at(kb, enabled_at)
+            now = enabled_at + timedelta(hours=2)
+            lease = run_due(kb, owner="host", now=now)["lease"]
+            reason = "DREAMING_BUDGET_REVIEW_REQUIRED"
+            complete_run(kb, token=lease["token"], run_status="failed", error_code=reason, now=now)
+            state = status(kb, now=now)
+            self.assertIsNone(state["active_lease"])
+            self.assertEqual(reason, state["jobs"]["process"]["waiting_for_user"])
+            observed = {}
+            run_due(kb, owner="host", now=now + timedelta(minutes=10), observation=observed)
+            self.assertEqual("waiting_for_user", observed["jobs"]["process"])
+
     def test_blocked_job_is_not_selected(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))

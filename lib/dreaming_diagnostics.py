@@ -141,7 +141,7 @@ def _project_attempt(value: object, now: datetime) -> dict | None:
 
 def _run_events(kb: Path, run_id: str, gaps: set[str]) -> list[dict]:
     try:
-        raw = show_run(kb, run_id=run_id)["events"]
+        raw = show_run(kb, run_id=run_id, include_summary=False)["events"]
     except (DreamingError, OSError, ValueError):
         gaps.add("RUN_LOG_UNAVAILABLE")
         return []

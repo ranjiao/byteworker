@@ -34,6 +34,8 @@ identity、coverage、anchors、provider_metadata 由来源 adapter 交给 Bundl
 - plan 选 inline 时只处理唯一 shard；选 parallel 时，执行前通过 resolve 加 parallel_execution，
   读取 `digest-concurrency.md` / `digest-analysis-pipeline.md` 和角色闭包。最多 4 worker、完整
   coverage、单一 reducer、用户闸门和一次事务规则保持。不得改阈值、跳过 planner 或截断证据。
+  预算核算使用模型实际读取的 shard，勿把整个 analysis packet 再带入。超限时按
+  `workflow-budgets.md` 复核投影与分片消耗，确需放宽才交用户确认。
 
 ## 冲突交接
 

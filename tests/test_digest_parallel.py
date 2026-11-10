@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,7 @@ from digest_parallel import (  # noqa: E402
     merge_parallel_results,
     plan_parallel_work,
 )
+from workflow_budget import estimate_tokens  # noqa: E402
 
 
 class DigestParallelTests(unittest.TestCase):
@@ -180,6 +182,63 @@ class DigestParallelTests(unittest.TestCase):
             "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM",
             receipt["selection_reason_code"],
         )
+
+    def test_overflow_shards_preserve_text_and_reduce_in_bounded_batches(self):
+        self.write_packet(semantic_items=1, dependencies=4)
+        packet = json.loads(self.packet.read_text())
+        text = "证据正文与原始定位\n" * 800
+        packet["sections"][0]["text_items"][0]["text"] = text
+        packet["anchors"][0]["quote"] = "保留在私有索引的引文" * 200
+        self.packet.write_text(json.dumps(packet, ensure_ascii=False))
+
+        def budgets(workflow, **_):
+            limits = {"digest": 2000, "digest_semantic_worker": 1200, "digest_final_reducer": 1000}
+            return 100, limits[workflow]
+
+        with patch("digest_parallel._route_tokens", side_effect=budgets):
+            receipt = plan_parallel_work(self.packet, self.work, stage="semantic", max_workers=1)
+            plan = self.load_plan(receipt)
+            self.assertTrue(receipt["budget_required"])
+            self.assertEqual(1, receipt["max_workers"])
+            self.assertGreater(receipt["shard_count"], 4)
+            results = []
+            cursor = 0
+            pieces = []
+            for index, entry in enumerate(plan["shards"]):
+                path = Path(entry["path"])
+                serialized = path.read_text()
+                shard = json.loads(serialized)
+                self.assertLessEqual(estimate_tokens(serialized)["tokens"], 1200)
+                self.assertTrue(shard["anchors_deferred"])
+                self.assertEqual([], shard["anchors"])
+                item = shard["sections"][0]["text_items"][0]
+                self.assertEqual(cursor, item["text_range"]["start"])
+                cursor += len(item["text"])
+                self.assertEqual(cursor, item["text_range"]["end"])
+                pieces.append(item["text"])
+                result = self.root / f"result-{index}.json"
+                result.write_text(json.dumps({
+                    "schema_version": "byteworker-digest-parallel-result/v1",
+                    "stage": "semantic", "shard_id": shard["shard_id"], "input_hash": shard["input_hash"],
+                    "records": [{
+                        "record_id": f"fact-{index}", "record_type": "fact", "dedupe_key": "shared-key",
+                        "source_refs": [{"component": "body", "path": item["path"]}],
+                        "payload": {"description": "可核验记录" * 50},
+                    }],
+                }, ensure_ascii=False))
+                results.append(result)
+            self.assertEqual(text, "".join(pieces))
+            self.assertEqual(packet, json.loads(self.packet.read_text()))
+            with self.assertRaises(DigestParallelError):
+                merge_parallel_results(Path(receipt["plan_path"]), results[:-1], self.root / "reduce.json")
+            merged = merge_parallel_results(Path(receipt["plan_path"]), results, self.root / "reduce.json")
+            batches = merged["reduction_batches"]
+            self.assertGreater(len(batches), 1)
+            self.assertEqual(len(results), sum(batch["record_count"] for batch in batches))
+            for batch in batches:
+                serialized = Path(batch["path"]).read_text()
+                self.assertLessEqual(estimate_tokens(serialized)["tokens"], 1000)
+                self.assertEqual(["shared-key"], json.loads(serialized)["duplicate_dedupe_keys"])
 
     def test_merge_requires_complete_dependency_coverage(self):
         self.write_packet(dependencies=64, dependency_context_size=2000)

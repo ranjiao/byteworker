@@ -19,7 +19,7 @@ import operation_trace as trace  # noqa: E402
 from dreaming_delivery_lark import deliver_lark_bot_summary  # noqa: E402
 from dreaming_diagnostics import diagnose, observed_run_due  # noqa: E402
 from dreaming_reports import enqueue_delivery  # noqa: E402
-from dreaming_run_log import append_run_event  # noqa: E402
+from dreaming_run_log import append_run_event, show_run  # noqa: E402
 from dreaming_scheduler import complete_run, enable, heartbeat_run  # noqa: E402
 from dreaming_state import DreamingError, atomic_write_json, state_path  # noqa: E402
 from support_feedback import generate  # noqa: E402
@@ -158,6 +158,57 @@ class SupportDiagnosticsTests(unittest.TestCase):
         self.assertEqual("interrupted", report["run"]["status"])
         self.assertIn("RUN_STATE_WITHOUT_MATCHING_LOG", report["diagnostic_gaps"])
         self.assertEqual(before, state_path(self.kb).read_bytes())
+
+    def test_source_review_pauses_process_and_keeps_question_private(self):
+        self.activate(minutes_ago=240)
+        tick_id = trace.start("dreaming", self.kb)
+        lease = observed_run_due(self.kb, owner="task", lease_seconds=100,
+                                 followup="", tick_id=tick_id)["lease"]
+        question = "PRIVATE_REVIEW_QUESTION"
+        reason = "SOURCE_REVIEW_REQUIRED"
+        document = {
+            "schema_version": "byteworker-dreaming-run-result/v1",
+            "job": "process", "period": lease["period"], "summary": "本轮摘要",
+        }
+        with self.assertRaisesRegex(DreamingError, "必须提供.*review"):
+            complete_run(
+                self.kb, token=lease["token"], run_status="failed", error_code=reason,
+                result_document=document,
+            )
+        review = {
+            "stage": "dependency_review",
+            "problem": "PRIVATE_REVIEW_PROBLEM",
+            "question": question,
+            "options": [
+                {"action": "继续分析当前范围", "effect": "PRIVATE_REVIEW_EFFECT"},
+                {"action": "暂缓", "effect": "等用户补充范围后继续"},
+            ],
+        }
+        with self.assertRaisesRegex(DreamingError, "review.options"):
+            complete_run(
+                self.kb, token=lease["token"], run_status="failed", error_code=reason,
+                result_document={**document, "review": {**review, "options": []}},
+            )
+        self.assertEqual(lease["run_id"], diagnose(self.kb)["active_lease"]["run_id"])
+        receipt = complete_run(
+            self.kb, token=lease["token"], run_status="failed", error_code=reason,
+            result_document={**document, "review": review},
+        )
+        self.assertEqual(review, receipt["summary"]["review"])
+        self.assertEqual(receipt["summary"], show_run(self.kb, run_id=lease["run_id"])["summary"])
+        next_tick = trace.start("dreaming", self.kb)
+        decision = observed_run_due(self.kb, owner="task", lease_seconds=100,
+                                    followup="", tick_id=next_tick)
+        self.assertEqual("idle", decision["status"])
+        report = diagnose(self.kb, tick_id=tick_id)
+        self.assertIsNone(report["active_lease"])
+        self.assertEqual("waiting_for_user", report["jobs"]["process"]["status"])
+        self.assertIsNone(report["jobs"]["process"]["next_attempt_at"])
+        self.assertEqual(reason, report["run"]["events"][-1]["code"])
+        draft = generate(self.kb, run_id=tick_id, root=ROOT, bundle=False)
+        summary, contents = self.export(tick_id)
+        self.assertEqual(reason, summary["reason_code"])
+        self.assertNotIn("PRIVATE_REVIEW", contents + draft["body"] + json.dumps(report))
 
     def test_morning_wake_records_actual_dependency_block(self):
         self.activate(minutes_ago=24 * 60)

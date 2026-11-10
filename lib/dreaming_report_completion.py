@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from dreaming_delivery_lark import deliver_lark_bot_summary
 from dreaming_report_bundle import render_report_bundle
 from dreaming_reports import enqueue_delivery
+from dreaming_run_result import RESULT_SCHEMA
 from dreaming_scheduler import complete_run, status
 from dreaming_state import DreamingError
 
@@ -31,6 +32,11 @@ def complete_report_run(
         item_count=item_count,
         finding_count=finding_count,
         gap_count=gap_count,
+        result_document={
+            "schema_version": RESULT_SCHEMA, "job": rendered["kind"],
+            "period": rendered["period"], "summary": rendered["summary"],
+        },
+        report_sources=rendered["source_distribution"],
     )
     delivery = _deliver_if_enabled(
         kb,

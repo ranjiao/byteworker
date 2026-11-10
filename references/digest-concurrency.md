@@ -83,7 +83,8 @@ bin/byteworker digest-parallel plan \
 ```
 
 planner 使用固定 token/墙钟策略：先估算 inline 与 parallel 的总 token、worker 启动成本、最长 shard
-和 reducer 时间。dependency 少于 32 项、semantic 少于 200 项、conflict 少于 16 项一律 inline；即使
+和 reducer 时间。对可在预算内单包执行的输入，dependency 少于 32 项、semantic 少于 200 项、
+conflict 少于 16 项保持 inline；即使
 超过项数，来源 token 未达到阶段 floor、预计至少节省 30 秒且比例达到 25%、worker/reducer packet
 预算或阶段 parallel 总预算任一不满足，也保持 inline。只有 receipt
 `selection_reason_code=PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM` 才 fan-out，最多 4 路。Agent 不
@@ -91,7 +92,14 @@ planner 使用固定 token/墙钟策略：先估算 inline 与 parallel 的总 t
 
 receipt/plan 同时给出 `inline` 与 `parallel_estimate` 的 estimated total tokens/wall time、估算方法、
 阶段 token budget 和 `parallel_budget_remaining_tokens`。没有 tokenizer 时方法明确为版本化保守估算；预算超限必须继续分片或
-保持 inline，不静默截断 item/evidence。
+复核可用输入，不静默截断 item/evidence。每个阶段只估算它实际消费的投影。
+
+超过 inline 来源上限，或拟用的并行 shard 实测超限时，planner 返回
+`budget_required=true`，按实际序列化 token 生成可跨多批执行的 shards，同时最多运行 4 个
+worker。语义长条目可按字符范围无损切分，仍引用原 component/path。详细 anchor 索引保留在
+原始私有包，`anchors_deferred=true` 时 worker 只用本 shard 的 component/path 和原文引用，
+coordinator 按需要定位原始证据。比较 `budget_shards_total_input_tokens` 与当前工作必要性，
+如额外消耗须用户决定，走预算复核流程。
 
 每个 worker 只写一个结果文件：
 
@@ -125,6 +133,8 @@ bin/byteworker digest-parallel merge \
 merge 校验 input hash、完整 shard coverage、逐项覆盖和 source/candidate 边界；semantic 只标出重复
 `dedupe_key`，不冒充语义去重。单一 reducer 消费 reduce packet，解决重复与跨分片关系，然后生成
 一次依赖询问、一个冲突 query ledger 或一份最终 DigestPlan。
+若整份 reduce packet 超限，回执提供 `reduction_batches`，按批处理并保留记录的来源引用、
+去重键和冲突状态。合并紧凑结果后复验预算，再统一裁决。全量包留作本地核对。
 
 ## 5. 大输入编排
 
@@ -139,3 +149,4 @@ merge 校验 input hash、完整 shard coverage、逐项覆盖和 source/candida
 
 宿主不支持并行 worker 时按 shard 顺序处理，仍使用相同 plan/result/merge coverage 契约。不要为了
 并发让 worker 递归创建 worker，也不要在等待期间轮询临时文件或把正文传回主对话。
+预算分片每批都须有足够的上下文余量。宿主无法提供时，按预算复核规则给出下一步选项。

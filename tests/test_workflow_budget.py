@@ -18,6 +18,7 @@ if str(LIB) not in sys.path:
 from workflow_budget import (  # noqa: E402
     ESTIMATOR_METHOD,
     TOKENIZER_METHOD,
+    WorkflowBudgetError,
     estimate_tokens,
     inspect_budget,
     load_manifest,
@@ -82,6 +83,29 @@ class WorkflowBudgetTests(unittest.TestCase):
         self.assertEqual("over_budget", receipt["status"])
         self.assertEqual("compact_context_or_ask_user", receipt["action"])
         self.assertFalse(receipt["checks"]["dynamic_context_tokens"])
+
+    def test_approved_overflow_is_bound_to_input_and_host_capacity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            context = Path(temporary) / "context.md"
+            context.write_text("alpha " * 100_000, encoding="utf-8")
+            args = {"workflow": "search", "context_path": context}
+            original = inspect_budget(**args)
+            approval = original["review"]["id"]
+            required = original["measurement"]["total_input_tokens"]
+            self.assertIn("dynamic_context_tokens", original["review"]["exceeded_limits"])
+            with self.assertRaises(WorkflowBudgetError) as limited:
+                inspect_budget(**args, approved_review_id=approval, host_input_limit=required - 1)
+            self.assertEqual("WORKFLOW_BUDGET_HOST_LIMIT", limited.exception.code)
+
+            approved = inspect_budget(**args, approved_review_id=approval, host_input_limit=required)
+            self.assertEqual("within_budget", approved["status"])
+            self.assertTrue(approved["review"]["approved"])
+            self.assertEqual("over_budget", inspect_budget(**args)["status"])
+
+            context.write_text("bravo " * 100_000, encoding="utf-8")
+            with self.assertRaises(WorkflowBudgetError) as changed:
+                inspect_budget(**args, approved_review_id=approval, host_input_limit=required)
+            self.assertEqual("WORKFLOW_BUDGET_APPROVAL_INVALID", changed.exception.code)
 
     def test_cli_returns_budget_receipt(self):
         result = subprocess.run(

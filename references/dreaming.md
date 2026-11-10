@@ -141,7 +141,7 @@ heartbeat 不保存业务文本，`detail-code` 必须是有限机器码。
 
 - run/job/period/owner/epoch 与时间；
 - leased/heartbeat/renewed/completed/lease_expired；
-- stage、status、error code、artifact path；
+- stage、status、error code、artifact path、终态的私有摘要相对路径；
 - process batch id、duration/item/finding/gap/progress 等非负计数。
 
 禁止写消息正文、Finding summary、人员、群名、URL、凭据、命令 argv 或 stderr 原文。查询：
@@ -151,6 +151,12 @@ bin/byteworker dreaming runs list --kb "<KB>" --limit 20
 bin/byteworker dreaming runs show --kb "<KB>" "<run_id>"
 bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 ```
+
+完成回执和 `runs show` 返回同一份 `summary`。Agent 回显主要信息、来源处理分布、耗时和已核验
+的库变更。process 的主要信息及可选 `source_notes[{source_key,summary}]` 由 Agent 经
+`complete --result-input` 提供，报告采用已生成的摘要。系统从租约、来源回执和可回查的 Git 提交
+补齐计数。未完成或无法核验的来源单列，不能把未知变更当作零。日志终态关联
+`state/dreaming/run-results/<run_id>.json`，正文仅用于本机查询和宿主本轮结果。
 
 本地 viewer 启用访问保护时，日志 API 与知识库文件、设置 API 均需本次会话口令；使用启动输出或设置页中的带口令链接打开调试页。
 本地 viewer 提供专用调试页，路径固定为 `/app/dreaming-debug.html`；启动 `bin/browse.sh` 后访问：
@@ -190,6 +196,18 @@ capture、依赖、语义、冲突、候选、引用和 DigestTxn 规则处理�
 Wiki 子树按其原有语义接受完整 scan 的
 `observed`，变化页面仍需经过普通文档 digest。清单、Profile revision 或任一来源结果不完整时
 不推进 checkpoint，也不允许 process 成功。
+
+遇到预算超限先按 `references/workflow-budgets.md` 复核，不以超限本身结束任务。
+确需决定时，宿主结果显示待确认和可选下一步，后台释放租约并暂停该任务的自动重试。
+用户同意后，可以在交互会话使用保留的私有输入和现有普通 digest 恢复流程完成本次分析。
+完成或按用户要求调整范围后，再用 `dreaming retry-job --job process` 解除等待。
+
+依赖范围或内容冲突确实需要用户裁决时，用 `SOURCE_REVIEW_REQUIRED` 结束本轮 process 并暂停自动重试。
+完成回执必须含私有 `summary.review`，包括具体问题、要用户决定的事项和带后果的操作选项。
+宿主和本地调试页显示该字段，用户可在宿主任务会话回复选项编号或说明处理范围。用户报告看不懂
+待复核结果时，通过最近一次运行找到私有摘要，按证据解释问题。历史回执缺少具体问题时，先核查
+关联 Digest 已完成的阶段和保留的产物，再判断是否需要用户决定。用户答复后按普通 Digest 恢复
+流程复用仍有效的私有材料，再解除等待。诊断和反馈仅投影固定原因码。
 
 IM grant 默认关闭：
 

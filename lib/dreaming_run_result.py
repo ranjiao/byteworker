@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
@@ -11,6 +12,7 @@ from dreaming_state import DreamingError, atomic_write_json, secure_path, utc_is
 
 RESULT_SCHEMA = "byteworker-dreaming-run-result/v1"
 RESULT_STATUSES = {"pass", "warning", "fail", "noop"}
+RUN_ID = re.compile(r"[A-Za-z0-9-]{1,96}")
 
 
 def validate_maintenance_issues(raw_issues: object) -> list[dict[str, str]]:
@@ -47,6 +49,38 @@ def _text(value: object, field: str, limit: int, *, required: bool = False) -> s
             f"{field} 超过 {limit} 字符。",
         )
     return normalized
+
+
+def _review_text(value: object, field: str, limit: int) -> str:
+    if not isinstance(value, str):
+        raise DreamingError("DREAMING_RUN_RESULT_INVALID", f"{field} 必须是非空文本。")
+    return _text(value, field, limit, required=True)
+
+
+def _validate_review(value: object) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or value.get("stage") not in ("dependency_review", "conflict_review"):
+        raise DreamingError(
+            "DREAMING_RUN_RESULT_INVALID", "review.stage 必须是 dependency_review 或 conflict_review。"
+        )
+    options = value.get("options")
+    if not isinstance(options, list) or not 2 <= len(options) <= 5:
+        raise DreamingError("DREAMING_RUN_RESULT_INVALID", "review.options 必须给出 2 至 5 个处理选项。")
+    normalized_options = []
+    for option in options:
+        if not isinstance(option, Mapping):
+            raise DreamingError("DREAMING_RUN_RESULT_INVALID", "复核选项必须包含 action 和 effect。")
+        normalized_options.append({
+            "action": _review_text(option.get("action"), "review.options.action", 160),
+            "effect": _review_text(option.get("effect"), "review.options.effect", 500),
+        })
+    if len({option["action"] for option in normalized_options}) != len(normalized_options):
+        raise DreamingError("DREAMING_RUN_RESULT_INVALID", "复核选项必须是不同的操作。")
+    return {
+        "stage": value["stage"],
+        "problem": _review_text(value.get("problem"), "review.problem", 1200),
+        "question": _review_text(value.get("question"), "review.question", 500),
+        "options": normalized_options,
+    }
 
 
 def validate_run_result(
@@ -92,6 +126,18 @@ def validate_run_result(
                 "detail": _text(raw.get("detail"), "repair.detail", 2000),
             }
         )
+    raw_notes = value.get("source_notes", [])
+    if not isinstance(raw_notes, list) or len(raw_notes) > 200:
+        raise DreamingError("DREAMING_RUN_RESULT_INVALID", "source_notes 必须是最多 200 项的数组。")
+    source_notes = {}
+    for note in raw_notes:
+        if not isinstance(note, Mapping):
+            raise DreamingError("DREAMING_RUN_RESULT_INVALID", "来源摘要格式无效。")
+        key = _text(note.get("source_key"), "source_key", 64, required=True)
+        if not re.fullmatch(r"[a-f0-9]{64}", key) or key in source_notes:
+            raise DreamingError("DREAMING_RUN_RESULT_INVALID", "来源摘要编号无效或重复。")
+        source_notes[key] = _text(note.get("summary"), "source_notes.summary", 500, required=True)
+    review = _validate_review(value["review"]) if "review" in value else None
     return {
         "schema_version": RESULT_SCHEMA,
         "run_id": run_id,
@@ -100,6 +146,8 @@ def validate_run_result(
         "summary": _text(value.get("summary"), "summary", 4000, required=True),
         "checks": checks,
         "repairs": repairs,
+        **({"source_notes": source_notes} if source_notes else {}),
+        **({"review": review} if review is not None else {}),
     }
 
 
@@ -111,6 +159,7 @@ def save_run_result(
     period: str,
     run_id: str,
     now,
+    accounting: Mapping[str, Any] | None = None,
 ) -> str:
     normalized = validate_run_result(
         document,
@@ -119,6 +168,24 @@ def save_run_result(
         run_id=run_id,
     )
     normalized["recorded_at"] = utc_iso(now)
+    if accounting is not None:
+        source_keys = {source["source_key"] for source in accounting.get("routine_sources", [])}
+        if set(normalized.get("source_notes", {})) - source_keys:
+            raise DreamingError("DREAMING_RUN_RESULT_INVALID", "来源摘要引用了本轮未登记的来源。")
+        normalized["accounting"] = dict(accounting)
     target = secure_path(kb, "run-results", f"{run_id}.json")
     atomic_write_json(target, normalized)
     return str(target.relative_to(kb.resolve()))
+
+
+def read_run_result(kb: Path, run_id: str) -> dict[str, Any] | None:
+    if not RUN_ID.fullmatch(run_id):
+        return None
+    try:
+        path = secure_path(kb, "run-results", f"{run_id}.json")
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (DreamingError, OSError, ValueError):
+        return None
+    if isinstance(value, dict) and value.get("schema_version") == RESULT_SCHEMA and value.get("run_id") == run_id:
+        return value
+    return None

@@ -25,11 +25,18 @@
    不得再传 `--bundle-out`；只有先产出独立 capture JSON 的来源才同时使用两者。
    群聊 `digest-flow prepare` 若返回 `receipt.status=empty_window`，以该回执调用
    `process digest-record`（结果 `status=empty_window`），再继续下一个来源。此时没有节点或提交计划。
-   任一来源的预算回执返回 `route_large_input` 或 `shard_source_packet` 时，必须按
-   workflow manifest 的 `large_digest_worker` 闭包加载大输入规则，运行 planner 并按其
-   inline/parallel 计划处理和归并；parallel worker 必须是全新隔离上下文。不得仅因预算超限就把
-   `ROUTINE_DIGEST_INPUT_OVER_BUDGET` 作为本轮终态，也不得因其它来源可处理而截断该来源；
-   宿主缺少所需隔离能力或实际处理失败时，按真实阻塞原因失败，不得绕过预算或登记成功。
+   超预算或 planner 返回 `budget_required=true` 时，读取 `references/workflow-budgets.md`，
+   先核算实际分片和总消耗。复用已有 analysis packet 和预算分片，按角色闭包分批处理及归并，
+   每个 parallel worker 使用全新隔离上下文。不要重抓已验证的材料、把 `inline` 当作预算通过或截断来源。
+   确需用户决定时，保留私有产物，以 `DREAMING_BUDGET_REVIEW_REQUIRED` 完成并释放租约。
+   宿主结果首行显示「等待预算确认」与诊断编号，随后列出超限项、估算量、当前上限、已尝试的拆分及
+   建议的一次性放宽值或预计总消耗，请用户选择继续、调整范围或暂缓。宿主容纳不下时说明可行的
+   拆分或宿主选项，不建议提高软件上限。技术故障按实际原因报告并给下一步，不冒充待确认。
+   分片通过预算后继续逐片语义分析和归并。工具或执行受阻时，报告实际阶段、原因和下一步。
+   依赖范围或内容冲突确实需要用户裁决时，按普通 Digest 规则记录等待原因，保留已核验的私有材料。
+   用 `SOURCE_REVIEW_REQUIRED` 和带 `review` 的 `--result-input` 完成并释放租约。具体写出发现了
+   哪个范围问题或冲突、为什么需要用户决定，给出可行操作及其后果。问题未定位时继续核查；
+   无法继续时按实际执行阻塞结束。
    每个普通来源取得 DigestTxn `committed/noop` 或群聊 `empty_window` 回执后，把
    `byteworker-dreaming-digest-result/v1` 写入 KB 外临时文件并调用 `process digest-record`；
    Wiki 完整扫描使用 `status=observed` 和真实 scan receipt。全部记录后调用
@@ -47,12 +54,18 @@
    `--item-count/--finding-count/--gap-count`，不得用字符串 checkpoint 代替可结构化计数。
    process 已生成 EvidenceBatch 时还必须传 `--batch-id "<EB-...>"`，供运行审计关联本轮输入、
    FindingBundle 和 evidence。
-   maintenance/recovery 还必须把本轮结论写入 KB 外临时 JSON，并传 `--result-input`。结构为：
+   每个由通用 `complete` 结束的任务都要把本轮主要信息写入 KB 外临时 JSON，并传 `--result-input`。
+   只总结有证据的发现、变化和阻塞。process 可用 `source_notes` 为已登记来源补充简短发现，
+   每项含 `source_key` 和 `summary`。没有完成的来源不得概括为「无新增」。结果结构为：
    `{"schema_version":"byteworker-dreaming-run-result/v1","job":"<job>",`
    `"period":"<period>","summary":"本轮做了什么及结论",`
    `"checks":[{"name":"<检查项>","status":"pass|warning|fail|noop","detail":"<结果>"}],`
    `"repairs":[{"path":"<KB 相对路径>","code":"<问题码>","action":"<修复动作>","detail":"<修复结果>"}]}`。
    没有自动修复时 `repairs` 写空数组；不得写业务正文、完整 diff、URL token 或 stdout/stderr。
+   待来源复核时，结果文档必须额外提供
+   `review: {stage, problem, question, options: [{action, effect}]}`。
+   `stage` 为 `dependency_review` 或 `conflict_review`，给出 2 至 5 个不同选项，可包括暂缓。
+   若完成命令因字段缺失拒绝，依据现有证据修正后用同一租约完成。
    maintenance 成功回执必须按维护规则附最终 Doctor 扫描的完整 `issues`。仍有待办时也按成功
    完成扫描；宿主只汇总完成回执的 `maintenance.new`。
 9. 若本轮成功完成 `job=process` 且 `period=catchup:*`，立即再调用一次：
@@ -63,9 +76,12 @@
     `reports/<kind>/<period>.md` 归档快照，完成 lease，并按配置投递摘要；它是报告成功路径唯一
     的完成调用，之后禁止再调用通用 `dreaming complete`。不要再分开调用
     `report render`、`complete`、`enqueue-delivery` 和 `report deliver`。
-11. 报告任务结果必须回显 300-500 字 summary 和 HTML 绝对路径；宿主支持本地产物预览时可直接预览，
-    否则返回可点击文件链接。不得调用宿主私有 HTML API。飞书失败不删除本地产物，也不得冒充
-    送达。
+11. 将完成回执中的 `summary`（报告为 `run.summary`）用自然语言返回给用户。首行按步骤 2，
+    随后给出主要信息、各来源分布、实际耗时、已核验的知识库变更和仍未覆盖的范围。
+    有 `summary.review` 时，首行显示「等待来源复核」，随后直接给出具体问题、要用户决定的事项，
+    按编号列出操作及其影响，请用户回复编号或说明处理范围。区分本轮运行摘要与后续定期报告。
+    对未知数值标记未核算，不估算写入数。同一次唤醒续跑报告时，按执行顺序返回各任务摘要，
+    以同一 DT 编号关联。报告结果另外提供 HTML 文件链接与投递状态；宿主支持本地预览时可预览。
 12. 不循环领取，不创建飞书任务，不 push。除已配置的报告摘要和 maintenance 按规则
     提交的有限 doctor 决策摘要外，不发送外部消息。
 
