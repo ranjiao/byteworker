@@ -74,7 +74,7 @@ class ViewerLayoutContractTests(unittest.TestCase):
         self.assertIn("function renderGlobalSettings()", self.viewer)
         self.assertIn("function renderDigestSettings()", self.viewer)
         self.assertIn("function renderDreamingSettings()", self.viewer)
-        self.assertIn("function updateSettingsDialog()", self.viewer)
+        self.assertIn("function updateSettingsDialog(keepPosition = false)", self.viewer)
         self.assertIn("if (document.getElementById('settings-bg'))", self.viewer)
         self.assertIn("body.innerHTML = renderSettingsBody();", self.viewer)
 
@@ -91,7 +91,8 @@ class ViewerLayoutContractTests(unittest.TestCase):
 
     def test_system_settings_auto_save_without_explicit_save_button(self):
         self.assertIn("function scheduleSystemSettingsSave()", self.viewer)
-        self.assertIn("修改后会自动生效", self.viewer)
+        self.assertIn('class="settings-foot-text" role="status"', self.viewer)
+        self.assertIn("return '已保存'", self.viewer)
         self.assertIn("当前页设置会自动写入知识库本地配置", self.viewer)
         self.assertNotIn('id="settings-system-save"', self.viewer)
 

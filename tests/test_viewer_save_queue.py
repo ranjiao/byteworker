@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class ViewerSaveQueueTests(unittest.TestCase):
     def test_revision_queue_navigation_and_failure(self):
         page = (ROOT / 'viewer/index.html').read_text()
-        source = page[page.index('async function closeSettings()'):page.index('function scheduleValue')]
+        source = page[page.index('async function closeSettings()'):page.index('function renderAppSettingsState')]
         script = '''
 const assert = require('assert');
 const API_TOKEN = 'secret';
@@ -20,9 +20,11 @@ let checked = false, renders = 0, requests = [];
 let discard = false;
 const confirmations = [];
 function confirm(message){ confirmations.push(message); return discard; }
-const D = {settingsPortal:{innerHTML:'open'}};
+const D = {settingsPortal:{innerHTML:'open'}, app:{inert:true}, palettePortal:{inert:true},
+  btnSettings:{focus(){ this.focused = true; }}};
 const document = {getElementById: id => ({checked, value:'UTC'})};
-function renderSettings(){ renders++; }
+function renderSettings(keepPosition){ renders++; lastRenderKeptPosition = keepPosition; }
+let lastRenderKeptPosition;
 function updateSettingsStatus(){}
 function fetch(url, options) {
   assert.equal(options.headers['X-Byteworker-Token'], 'secret');
@@ -43,6 +45,7 @@ function succeed(request){ request.resolve({ok:true,json:async()=>({persisted:re
   assert.equal(requests[1].body.viewer.access_token_required,true);
   succeed(requests[1]); await first;
   assert.equal(state.appSettingsDirty,false);
+  assert.equal(lastRenderKeptPosition,true);
   checked=false; scheduleSystemSettingsSave();
   const closing=closeSettings();
   assert.equal(state.settingsOpen,true);
@@ -90,6 +93,17 @@ function succeed(request){ request.resolve({ok:true,json:async()=>({persisted:re
   assert.equal(state.appSettingsError,'');
   assert.equal(confirmations.length,4);
   assert.ok(confirmations[3].includes('server down'));
+  assert.equal(D.app.inert,false);
+  assert.equal(D.palettePortal.inert,false);
+  assert.equal(D.btnSettings.focused,true);
+
+  state.settingsTab='dreaming';
+  state.appSettings={dreaming:{timezone:''},kb:{context:{timezone_hint:'Asia/Tokyo'}}};
+  assert.equal(collectSettingsPatch().dreaming.timezone, 'Asia/Tokyo');
+  state.appSettings.kb.context.timezone_hint='待补充';
+  assert.equal(collectSettingsPatch().dreaming.timezone, 'Asia/Shanghai');
+  state.appSettings.dreaming.timezone='UTC';
+  assert.equal(Object.hasOwn(collectSettingsPatch().dreaming, 'timezone'),false);
 })().catch(e=>{console.error(e);process.exitCode=1});
 '''
         result = subprocess.run(['node', '-e', script], capture_output=True, text=True)

@@ -1367,8 +1367,10 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
   font-size: 11.5px; color: var(--ink-4); font-family: var(--font-mono);
   display: flex; align-items: center; gap: 10px; flex-shrink: 0;
 }
+.settings-foot-text { overflow-wrap: anywhere; }
 .settings-foot .kbd { margin-left: auto; }
 .settings-section {
+  flex-shrink: 0;
   border: 1px solid var(--line); border-radius: 10px; background: var(--bg-elev);
   overflow: hidden;
 }
@@ -1424,6 +1426,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
 }
 .settings-actions {
   position: sticky; bottom: -14px; z-index: 2;
+  flex-shrink: 0;
   display: flex; justify-content: flex-end; gap: 8px;
   margin: 0 -18px -14px; padding: 12px 18px;
   border-top: 1px solid var(--divider); background: var(--bg-elev);
@@ -1441,6 +1444,12 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
   display: grid; grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px; align-items: center; padding: 9px 10px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--bg);
+}
+@media (max-width: 540px) {
+  .settings-row, .settings-source { grid-template-columns: minmax(0, 1fr); }
+  .settings-row { gap: 4px; }
+  .settings-row-label:empty { display: none; }
+  .settings-input, .settings-select { max-width: 100%; }
 }
 .settings-source-title { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-source-meta { color: var(--ink-4); font-size: 11px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1710,6 +1719,7 @@ const state = {
   appSettingsLoading: false,
   appSettingsSaving: false,
   appSettingsError: '',
+  appSettingsSavedTab: '',
   appSettingsDirty: false,
   appSettingsSaveTimer: null,
   appSettingsRevision: 0,
@@ -3215,17 +3225,23 @@ function setSetting(key, value) {
   state.settings[key] = value;
   applySettings();
   try { localStorage.setItem('bw.viewer.settings', JSON.stringify(state.settings)); } catch (e) {}
-  if (state.settingsOpen) renderSettings();
+  if (state.settingsOpen) renderSettings(true);
 }
 function openSettings() {
   state.settingsOpen = true;
   renderSettings();
+  D.app.inert = true;
+  D.palettePortal.inert = true;
+  document.getElementById('settings-close').focus();
   if (state.settingsTab !== 'display' && !state.appSettings) loadSystemSettings();
 }
 async function closeSettings() {
   if (!(await flushSettings(true))) return;
   state.settingsOpen = false;
   D.settingsPortal.innerHTML = '';
+  D.app.inert = false;
+  D.palettePortal.inert = false;
+  D.btnSettings.focus();
 }
 async function settingsApi(method, body) {
   const options = {
@@ -3253,7 +3269,8 @@ async function loadSystemSettings() {
   if (state.appSettingsDirty && !(await flushSettings())) return;
   state.appSettingsLoading = true;
   state.appSettingsError = '';
-  renderSettings();
+  state.appSettingsSavedTab = '';
+  renderSettings(true);
   try {
     state.appSettings = await settingsApi('GET');
     state.appSettingsDirty = false;
@@ -3261,7 +3278,7 @@ async function loadSystemSettings() {
     state.appSettingsError = e.message || String(e);
   } finally {
     state.appSettingsLoading = false;
-    renderSettings();
+    renderSettings(true);
   }
 }
 function clearSettingsSaveTimer() {
@@ -3381,6 +3398,9 @@ function collectSettingsPatch() {
           },
         },
       };
+      if (!state.appSettings?.dreaming?.timezone) {
+        patch.dreaming.timezone = settingsTimezone();
+      }
     } else {
       return;
     }
@@ -3412,6 +3432,7 @@ function saveSystemSettings() {
         if (draft.revision === state.appSettingsRevision) {
           state.appSettingsPending = null;
           state.appSettingsDirty = false;
+          state.appSettingsSavedTab = state.settingsTab;
         }
       }
     } catch (e) {
@@ -3419,7 +3440,7 @@ function saveSystemSettings() {
     } finally {
       state.appSettingsSaving = false;
       state.appSettingsSavePromise = null;
-      if (!state.appSettingsDirty) renderSettings();
+      if (!state.appSettingsDirty) renderSettings(true);
       else updateSettingsStatus();
     }
   })();
@@ -3434,6 +3455,17 @@ function timezoneOptions(selected) {
   const values = TIMEZONE_OPTIONS.includes(current) ? TIMEZONE_OPTIONS : [current, ...TIMEZONE_OPTIONS];
   return values.map(value => `<option value="${esc(value)}" ${value === current ? 'selected' : ''}>${esc(value)}</option>`).join('');
 }
+function settingsTimezone() {
+  const configured = state.appSettings?.dreaming?.timezone;
+  if (configured) return configured;
+  const hint = state.appSettings?.kb?.context?.timezone_hint;
+  if (hint) {
+    try {
+      return new Intl.DateTimeFormat('zh-CN', { timeZone: hint }).resolvedOptions().timeZone;
+    } catch (e) { /* Use the default for an invalid context hint. */ }
+  }
+  return 'Asia/Shanghai';
+}
 function renderAppSettingsState() {
   if (state.appSettingsLoading && !state.appSettings) {
     return `<div class="settings-status">正在读取配置…</div>`;
@@ -3444,25 +3476,16 @@ function renderAppSettingsState() {
   return '';
 }
 function renderSystemActions() {
-  const statusText = state.appSettingsError
-    ? `<span class="settings-status error">${esc(state.appSettingsError)}</span>`
-    : state.appSettingsSaving
-      ? '<span class="settings-muted">正在保存…</span>'
-      : state.appSettingsDirty
-        ? '<span class="settings-muted">有未保存的修改…</span>'
-        : '<span class="settings-muted">修改后会自动生效</span>';
-  return `<div class="settings-actions" id="settings-system-actions">
+  return `<div class="settings-actions">
     <button class="settings-secondary" id="settings-system-reload">重新读取</button>
-    ${statusText}
   </div>`;
 }
 function renderGlobalSettings() {
   const pending = renderAppSettingsState();
   if (pending) return pending;
   const cfg = state.appSettings;
-  const d = cfg.dreaming || {};
   const viewer = cfg.viewer || {};
-  const timezone = d.timezone || cfg.kb?.context?.timezone_hint || 'Asia/Shanghai';
+  const timezone = settingsTimezone();
   return `
     <div class="settings-section">
       <div class="settings-section-h">${icon('gear', 13)}<span>全局设置</span><span class="hint">本地 viewer</span></div>
@@ -3488,8 +3511,8 @@ function renderDigestSettings() {
           <div class="settings-source-meta">${esc(source.source_label)} · ${esc(source.profile_path)}</div>
         </div>
         <div class="settings-control-row">
-          <label class="settings-check"><input type="checkbox" data-source-enabled ${source.routine?.enabled ? 'checked' : ''}>定期读取</label>
-          <select class="settings-select" data-source-cadence>
+          <label class="settings-check"><input id="settings-source-enabled-${esc(source.source_uid)}" type="checkbox" data-source-enabled ${source.routine?.enabled ? 'checked' : ''}>定期读取</label>
+          <select id="settings-source-cadence-${esc(source.source_uid)}" class="settings-select" data-source-cadence>
             ${['', 'daily', 'weekly', 'monthly'].map(v => `<option value="${v}" ${source.routine?.cadence === v ? 'selected' : ''}>${v === 'daily' ? '每天' : v === 'weekly' ? '每周' : v === 'monthly' ? '每月' : '不设置'}</option>`).join('')}
           </select>
         </div>
@@ -3520,7 +3543,7 @@ function renderDreamingSettings() {
   return `
     <div class="settings-section">
       <div class="settings-section-h">${icon('eye', 13)}<span>Dreaming 设置</span><span class="hint">${d.operational ? '已自动运行' : (d.enabled ? '等待本地任务' : '未启用')}</span></div>
-      <div class="settings-section-note">Dreaming 会在授权范围内分析信息，并按设置生成待关注事项和晨报。本页保存运行偏好，自动运行需要接通本地定时任务。<a class="settings-link" href="/app/dreaming-debug.html?api_token=${encodeURIComponent(API_TOKEN)}" target="_blank" rel="noopener">查看运行日志 ↗</a></div>
+      <div class="settings-section-note">Dreaming 会在授权范围内分析信息，并按设置生成待关注事项和晨报。本页保存运行偏好，自动运行需要接通本地定时任务。<a id="settings-dreaming-logs" class="settings-link" href="/app/dreaming-debug.html?api_token=${encodeURIComponent(API_TOKEN)}" target="_blank" rel="noopener">查看运行日志 ↗</a></div>
       <div class="settings-form">
         <div class="settings-row"><label>信息范围</label><div class="settings-control-row">
           <select id="settings-im-mode" class="settings-select">
@@ -3590,7 +3613,7 @@ function renderActiveSettingsTab() {
 function renderSettingsBody() {
   const s = state.settings;
   const seg = (key, opts) => `<div class="settings-seg" role="radiogroup">` + opts.map(o =>
-    `<button type="button" role="radio" aria-checked="${s[key] === o.v}" class="${s[key] === o.v ? 'on' : ''}" data-set="${key}" data-val="${o.v}">${o.icon ? icon(o.icon, 12) : ''}<span>${o.l}</span></button>`
+    `<button type="button" id="settings-${key}-${o.v}" role="radio" aria-checked="${s[key] === o.v}" class="${s[key] === o.v ? 'on' : ''}" data-set="${key}" data-val="${o.v}">${o.icon ? icon(o.icon, 12) : ''}<span>${o.l}</span></button>`
   ).join('') + `</div>`;
   return state.settingsTab === 'display' ? `<div class="settings-group">
     <div class="settings-label">主题</div>
@@ -3607,9 +3630,10 @@ function renderSettingsBody() {
 }
 function settingsFooterText() {
   if (state.settingsTab === 'display') return '显示设置自动保存到浏览器本地';
-  if (state.appSettingsError) return `保存失败：${state.appSettingsError}`;
-  if (state.appSettingsSaving) return '正在把修改写入本地配置';
+  if (state.appSettingsError) return `${state.appSettingsDirty ? '保存' : '读取'}失败：${state.appSettingsError}`;
+  if (state.appSettingsSaving) return '正在保存…';
   if (state.appSettingsDirty) return '有未保存的修改';
+  if (state.appSettingsSavedTab === state.settingsTab) return '已保存';
   return '当前页设置会自动写入知识库本地配置';
 }
 function bindSettingsBodyEvents() {
@@ -3633,14 +3657,10 @@ function bindSettingsBodyEvents() {
 }
 function updateSettingsStatus() {
   const footer = D.settingsPortal.querySelector('.settings-foot-text');
-  if (footer) footer.textContent = settingsFooterText();
-  const actions = D.settingsPortal.querySelector('#settings-system-actions');
-  if (actions && state.settingsTab !== 'display') {
-    actions.outerHTML = renderSystemActions();
-    document.getElementById('settings-system-reload')?.addEventListener('click', loadSystemSettings);
-  }
+  const message = settingsFooterText();
+  if (footer && footer.textContent !== message) footer.textContent = message;
 }
-function updateSettingsDialog() {
+function updateSettingsDialog(keepPosition = false) {
   D.settingsPortal.querySelectorAll('[data-settings-tab]').forEach(button => {
     const active = button.dataset.settingsTab === state.settingsTab;
     button.classList.toggle('on', active);
@@ -3648,17 +3668,36 @@ function updateSettingsDialog() {
   });
   const body = D.settingsPortal.querySelector('.settings-body');
   if (body) {
+    const scrollTop = keepPosition ? body.scrollTop : 0;
+    const focused = document.activeElement;
+    const focusId = keepPosition && body.contains(focused) ? focused.id : '';
+    const selection = focusId && focused.selectionStart != null
+      ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
     body.innerHTML = renderSettingsBody();
-    body.scrollTop = 0;
+    const nextFocus = focusId && document.getElementById(focusId);
+    if (nextFocus) {
+      nextFocus.focus({ preventScroll: true });
+      if (selection) nextFocus.setSelectionRange(...selection);
+    }
+    body.scrollTop = scrollTop;
   }
-  const footer = D.settingsPortal.querySelector('.settings-foot-text');
-  if (footer) footer.textContent = settingsFooterText();
+  updateSettingsStatus();
   bindSettingsBodyEvents();
 }
-function renderSettings() {
+function keepSettingsFocus(event) {
+  if (event.key !== 'Tab') return;
+  const controls = Array.from(event.currentTarget.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]'
+  )).filter(element => element.getClientRects().length);
+  const edge = event.shiftKey ? controls[0] : controls.at(-1);
+  if (document.activeElement !== edge) return;
+  event.preventDefault();
+  (event.shiftKey ? controls.at(-1) : controls[0]).focus();
+}
+function renderSettings(keepPosition = false) {
   if (!state.settingsOpen) { D.settingsPortal.innerHTML = ''; return; }
   if (document.getElementById('settings-bg')) {
-    updateSettingsDialog();
+    updateSettingsDialog(keepPosition);
     return;
   }
   D.settingsPortal.innerHTML = `<div class="settings-bg" id="settings-bg">
@@ -3676,13 +3715,14 @@ function renderSettings() {
       </div>
       <div class="settings-body"></div>
       <footer class="settings-foot">
-        <span class="settings-foot-text"></span>
+        <span class="settings-foot-text" role="status"></span>
         <span class="kbd">${primaryKeyHint},</span>
       </footer>
     </div>
   </div>`;
   const bg = document.getElementById('settings-bg');
   bg.addEventListener('mousedown', (e) => { if (e.target === bg) closeSettings(); });
+  bg.addEventListener('keydown', keepSettingsFocus);
   document.getElementById('settings-close').addEventListener('click', closeSettings);
   D.settingsPortal.querySelectorAll('[data-settings-tab]').forEach(b => {
     b.addEventListener('click', () => setSettingsTab(b.dataset.settingsTab));
