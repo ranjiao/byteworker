@@ -63,17 +63,17 @@ class ViewerLayoutContractTests(unittest.TestCase):
         self.assertIn("width: max-content; min-width: 100%; table-layout: auto;", self.viewer)
 
     def test_settings_use_domain_tabs_and_one_scrollable_body(self):
-        for tab in ("global", "digest", "dreaming", "legacy-report"):
+        for tab in ("display", "global", "digest", "dreaming"):
             with self.subTest(tab=tab):
                 self.assertIn(f'data-settings-tab="{tab}"', self.viewer)
         self.assertNotIn('data-settings-tab="system"', self.viewer)
+        self.assertNotIn('data-settings-tab="legacy-report"', self.viewer)
         self.assertIn("flex: 1; min-height: 0; padding: 18px 18px 14px;", self.viewer)
         self.assertIn("overflow-y: auto; overscroll-behavior: contain;", self.viewer)
         self.assertNotIn(".settings-source-list.scroll", self.viewer)
         self.assertIn("function renderGlobalSettings()", self.viewer)
         self.assertIn("function renderDigestSettings()", self.viewer)
         self.assertIn("function renderDreamingSettings()", self.viewer)
-        self.assertIn("function renderLegacyReportSettings()", self.viewer)
         self.assertIn("function updateSettingsDialog()", self.viewer)
         self.assertIn("if (document.getElementById('settings-bg'))", self.viewer)
         self.assertIn("body.innerHTML = renderSettingsBody();", self.viewer)

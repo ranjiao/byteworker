@@ -3443,7 +3443,7 @@ function renderAppSettingsState() {
   }
   return '';
 }
-function renderSystemActions(readOnly = false) {
+function renderSystemActions() {
   const statusText = state.appSettingsError
     ? `<span class="settings-status error">${esc(state.appSettingsError)}</span>`
     : state.appSettingsSaving
@@ -3453,7 +3453,7 @@ function renderSystemActions(readOnly = false) {
         : '<span class="settings-muted">修改后会自动生效</span>';
   return `<div class="settings-actions" id="settings-system-actions">
     <button class="settings-secondary" id="settings-system-reload">重新读取</button>
-    ${readOnly ? '' : statusText}
+    ${statusText}
   </div>`;
 }
 function renderGlobalSettings() {
@@ -3581,29 +3581,10 @@ function renderDreamingSettings() {
     </div>
     ${renderSystemActions()}`;
 }
-function renderLegacyReportSettings() {
-  const pending = renderAppSettingsState();
-  if (pending) return pending;
-  const report = state.appSettings.report_automation || {};
-  const decisionLabels = { enabled: '已选择使用', disabled: '已选择不使用', unasked: '尚未选择' };
-  return `
-    <div class="settings-section">
-      <div class="settings-section-h">${icon('info', 13)}<span>旧版自动报告</span><span class="hint">兼容信息，只读</span></div>
-      <div class="settings-section-note">这里可以查看独立于 Dreaming 运行的旧日报和周报配置。旧报告由各自的定时任务生成。本页仅供查看，启用或迁移请在对话中操作。</div>
-      <div class="settings-form">
-        <div class="settings-row"><span class="settings-row-label">历史选择</span><span>${esc(decisionLabels[report.decision] || report.decision || '尚未选择')}</span></div>
-        <div class="settings-row"><span class="settings-row-label">旧版日报</span><span>${report.daily?.enabled ? esc(report.daily.schedule || '已启用') : '未启用'}</span></div>
-        <div class="settings-row"><span class="settings-row-label">旧版周报</span><span>${report.weekly?.enabled ? esc(report.weekly.schedule || '已启用') : '未启用'}</span></div>
-        <div class="settings-row"><span class="settings-row-label">失败补跑</span><span>${report.recovery?.enabled ? esc(report.recovery.schedule || '已启用') : '未启用'}</span></div>
-      </div>
-    </div>
-    ${renderSystemActions(true)}`;
-}
 function renderActiveSettingsTab() {
   if (state.settingsTab === 'global') return renderGlobalSettings();
   if (state.settingsTab === 'digest') return renderDigestSettings();
   if (state.settingsTab === 'dreaming') return renderDreamingSettings();
-  if (state.settingsTab === 'legacy-report') return renderLegacyReportSettings();
   return '';
 }
 function renderSettingsBody() {
@@ -3626,7 +3607,6 @@ function renderSettingsBody() {
 }
 function settingsFooterText() {
   if (state.settingsTab === 'display') return '显示设置自动保存到浏览器本地';
-  if (state.settingsTab === 'legacy-report') return '旧版报告仅展示历史兼容状态';
   if (state.appSettingsError) return `保存失败：${state.appSettingsError}`;
   if (state.appSettingsSaving) return '正在把修改写入本地配置';
   if (state.appSettingsDirty) return '有未保存的修改';
@@ -3647,9 +3627,7 @@ function bindSettingsBodyEvents() {
         : 'input';
     element.addEventListener(eventName, () => {
       if (element.id === 'settings-process-kind') updateProcessScheduleFields();
-      if (state.settingsTab !== 'display' && state.settingsTab !== 'legacy-report') {
-        scheduleSystemSettingsSave();
-      }
+      scheduleSystemSettingsSave();
     });
   });
 }
@@ -3658,7 +3636,7 @@ function updateSettingsStatus() {
   if (footer) footer.textContent = settingsFooterText();
   const actions = D.settingsPortal.querySelector('#settings-system-actions');
   if (actions && state.settingsTab !== 'display') {
-    actions.outerHTML = renderSystemActions(state.settingsTab === 'legacy-report');
+    actions.outerHTML = renderSystemActions();
     document.getElementById('settings-system-reload')?.addEventListener('click', loadSystemSettings);
   }
 }
@@ -3695,7 +3673,6 @@ function renderSettings() {
         <button class="settings-tab ${state.settingsTab === 'global' ? 'on' : ''}" data-settings-tab="global">${icon('gear', 12)}全局</button>
         <button class="settings-tab ${state.settingsTab === 'digest' ? 'on' : ''}" data-settings-tab="digest">${icon('clock', 12)}Digest</button>
         <button class="settings-tab ${state.settingsTab === 'dreaming' ? 'on' : ''}" data-settings-tab="dreaming">${icon('eye', 12)}Dreaming</button>
-        <button class="settings-tab ${state.settingsTab === 'legacy-report' ? 'on' : ''}" data-settings-tab="legacy-report">${icon('info', 12)}旧版报告</button>
       </div>
       <div class="settings-body"></div>
       <footer class="settings-foot">
