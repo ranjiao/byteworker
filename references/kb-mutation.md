@@ -41,7 +41,7 @@ operation 与目标一一对应：`context` → `context.md`，`dashboard` → `
 thinking 节点属于 knowledge update，因此 plan 使用 `operation: "update"`。
 看板设置的固定章节为「长期关注」与「看板提醒」。旧文件退役只走
 `kb-mutate migrate-dashboard`，该命令生成并验证仅限迁移的 `retire_dashboard_sha256`。
-raw/provenance/source/todo 不走本工具。knowledge write 必须按 `conflict-policy.md` 声明处置；
+raw/provenance/source 不走本工具。knowledge write 必须按 `conflict-policy.md` 声明处置；
 非 `no_conflict` 必须带证据。
 
 ```bash

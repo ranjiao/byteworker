@@ -29,46 +29,15 @@ class MachineProtocolTests(unittest.TestCase):
             env=env,
         )
 
-    def test_todo_success_uses_stable_single_line_envelope(self):
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+    def test_removed_todo_command_cannot_initialize_or_modify_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
             kb = Path(temporary)
-            subprocess.run(["git", "init", "-q"], cwd=kb, check=True)
-            subprocess.run(
-                ["git", "config", "user.email", "todo@example.test"],
-                cwd=kb,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Todo Test"],
-                cwd=kb,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "commit", "--allow-empty", "-qm", "init"],
-                cwd=kb,
-                check=True,
-            )
-            result = self.run_cli(
-                "todo",
-                kb,
-                "init",
-                "--template",
-                ROOT / "templates" / "todo.md",
-            )
-            self.assertEqual(0, result.returncode)
-            self.assertEqual("", result.stderr)
-            self.assertEqual(1, len(result.stdout.splitlines()))
+            result = self.run_cli("todo", kb, "init")
+            self.assertEqual(2, result.returncode)
             payload = json.loads(result.stdout)
-            self.assertEqual("success", payload["status"])
-            self.assertIsNone(payload["error"])
-            self.assertEqual("byteworker-cli/v1", payload["context"]["protocol"])
-            self.assertEqual("todo", payload["context"]["tool"])
-            self.assertEqual("init", payload["context"]["operation"])
-            self.assertTrue(payload["data"]["created"])
-            self.assertEqual(
-                "committed",
-                payload["data"]["transaction"]["status"],
-            )
+            self.assertEqual("error", payload["status"])
+            self.assertEqual("CLI_USAGE_ERROR", payload["error"]["code"])
+            self.assertEqual([], list(kb.iterdir()))
 
     def test_argument_error_has_stable_code_and_exit_status(self):
         result = self.run_cli("kb-query", "search", "--kb", "/tmp/missing-query")
@@ -476,7 +445,7 @@ class MachineProtocolTests(unittest.TestCase):
                 (kb / directory).mkdir()
             for directory in ("daily", "morning", "weekly", "im"):
                 (kb / "reports" / directory).mkdir(parents=True)
-            for name in ("context.md", "todo.md", "dashboard.md"):
+            for name in ("context.md", "dashboard.md"):
                 (kb / name).write_text(f"# {name}\n", encoding="utf-8")
             (kb / "INDEX.md").write_text("# stale\n", encoding="utf-8")
             subprocess.run(["git", "init", "-q"], cwd=kb, check=True)

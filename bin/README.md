@@ -95,7 +95,7 @@ cd "$BYTEWORKER_ROOT"
 ```
 
 - 很多命令默认从根目录 `.kbconfig` 第一行读取知识库路径；显式 `--kb` 会覆盖它。
-- `kb-query.py` 和 `todo.py` 要求显式提供知识库路径。
+- `kb-query.py` 要求显式提供知识库路径。
 - capture、SourceBundle、DigestPlan、backfill plan 和候选节点可能含业务内容，只能放系统临时
   目录或知识库目录，不能放 byteworker skill 仓库。
 - 知识库是独立本地 Git 仓库，禁止配置 remote，禁止 push。
@@ -109,7 +109,7 @@ cd "$BYTEWORKER_ROOT"
 |---|---|---|---|
 | `byteworker` | Agent / 自动化 | 稳定 Python bootstrap 与 runtime-safe launcher | 取决于子命令 |
 | `byteworker-launcher.py` | 内部入口 | preflight、机器 CLI、lark/meegle/run 分发 | 取决于子命令 |
-| `session-preflight.py` | Agent / 自动化 | 每 session 一次合并启动检查 | 更新 skill 状态、Todo/报告本地状态检查 |
+| `session-preflight.py` | Agent / 自动化 | 每 session 一次合并启动检查 | 更新 skill 状态、自动报告设置检查 |
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
 | `discover.py` | Agent | status 能力地图；complete 交互收尾；diagnose 只读不推荐原因；feedback 拒绝或延后 | complete/recommend 需 --interactive 才写 KB 已排除的 `state/capability_discovery.json`；diagnose 不写 |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
@@ -125,7 +125,6 @@ cd "$BYTEWORKER_ROOT"
 | `kb-query.py` | Agent / 维护者 | 节点、证据和结构化 raw 查询 | 只读 |
 | `doctor.py` | Agent / 维护者 | 扫描 schema/graph/profile 漂移 | `fix` 可写 INDEX/links |
 | `provenance-backfill.py` | Agent / 维护者 | 历史 raw 出处和证据回填 | `apply` 写 KB 并创建本地 commit |
-| `todo.py` | Agent | Todo 薄 CLI；models/time/store/service 位于 `lib/todo_*.py` | 写命令事务化更新 todo、journal 和本地 commit |
 | `report-automation.py` | Agent / 自动化 | 自动报告设置状态、跨任务租约和真实运行回执 | 写 KB 已排除的 `state/` |
 | `dreaming.py` | Agent / 自动化 | 组合 `lib/dreaming_cli_*.py` 的 schedule/process/review/report/action leaf handlers | 私密 state、`run-logs/` 与 KB 外评估指标 |
 | `viewer-server.py` | `browse.sh` 内部 | 本地 Viewer 静态服务、受会话访问控制的设置、看板和 Dreaming 日志接口 | 只通过 `settings.py` 写受控配置 |
@@ -569,7 +568,7 @@ bin/byteworker source diff \
 ## 6A. `wiki.py` 与 `digest-job.py`：按需 Wiki 工作流
 
 两个入口只在用户探索飞书知识库空间或恢复多页 digest 时使用。`byteworker-cli.py` 以子进程
-调用它们，普通 digest/query/todo 路径不会 import Wiki 模块、检查授权、扫描状态或创建目录。
+调用它们，普通 digest/query 路径不会 import Wiki 模块、检查授权、扫描状态或创建目录。
 
 `wiki.py` 的主要操作：
 
@@ -836,55 +835,7 @@ bin/byteworker provenance-backfill apply \
 
 Plan 和 candidate 只能位于系统临时目录或知识库目录。
 
-## 10. `todo.py`：Todo 状态维护
-
-Todo 以自然语言交互为主，命令供 Agent 做确定性存储。直接 CLI 的第一个位置参数是知识库目录：
-
-```bash
-python3 bin/todo.py "$BYTEWORKER_KB" <subcommand> ...
-```
-
-通过机器协议时保持相同参数顺序：
-
-```bash
-bin/byteworker todo "$BYTEWORKER_KB" <subcommand> ...
-```
-
-| 子命令 | 用途 | 是否写入 |
-|---|---|---|
-| `init` | `todo.md` 不存在时从模板初始化 | 可能 |
-| `parse-time` | 按 context 默认值解析自然语言时间 | 否 |
-| `add` | 新增 Todo | 是 |
-| `list` | 列出 active/completed/all | 否 |
-| `check` | 返回逾期和临期事项 | 否 |
-| `status` | 改为 `open/waiting/done/cancelled` | 是 |
-| `snooze` | 延后提醒时间 | 是 |
-| `mark-reminded` | 记录已展示提醒，用于限频 | 是 |
-| `edit` | 修改标题、截止、提醒或备注 | 是 |
-
-示例：
-
-```bash
-bin/byteworker todo "$BYTEWORKER_KB" init \
-  --template templates/todo.md
-
-bin/byteworker todo "$BYTEWORKER_KB" parse-time \
-  "明天下午三点" \
-  --kind remind
-
-bin/byteworker todo "$BYTEWORKER_KB" add \
-  --title "提交周报" \
-  --due "2026-07-31T18:00:00+08:00" \
-  --remind "2026-07-31T15:00:00+08:00"
-
-bin/byteworker todo "$BYTEWORKER_KB" list --scope active
-bin/byteworker todo "$BYTEWORKER_KB" status <todo-id> done
-bin/byteworker todo "$BYTEWORKER_KB" snooze <todo-id> "明天上午十点"
-```
-
-用户不需要记忆或输入内部 Todo ID；Agent 应根据标题和当前对话定位 ID。
-
-## 11. 来源抓取辅助命令
+## 10. 来源抓取辅助命令
 
 ### `pull_doc_comments.py`
 
@@ -1006,7 +957,7 @@ runner 仍逐源执行普通 digest，Dreaming 只快照来源、核验 `committ
 
 该命令较重，默认建议一天最多运行一次。
 
-## 12. 知识库维护命令
+## 11. 知识库维护命令
 
 ### `rebuild-index.sh`
 
@@ -1081,7 +1032,7 @@ bin/repair-links.sh \
 python3 bin/repair_links.py "$BYTEWORKER_KB" [--dry-run] [--autolink]
 ```
 
-## 13. 浏览与安装检查
+## 12. 浏览与安装检查
 
 ### `byteworker` / `session-preflight.py`
 
@@ -1094,7 +1045,7 @@ bin/byteworker preflight --unattended
 ```
 
 - 默认健康路径 stdout/stderr 均为空，退出码 `0`。
-- 有 Todo、自动更新、自动报告迁移或依赖问题时，输出一行
+- 有自动更新、自动报告迁移或依赖问题时，输出一行
   `byteworker-session-preflight/v1` JSON；只有 blocking 返回非零。
 - `--json` 仅供排障，健康时也展示 KB、resolved runtime 与完整检查结果。
 - preflight 自动从 `sources/*.json` 推导已经配置的飞书/Meego runtime；`--require` 用于本次
@@ -1152,7 +1103,7 @@ Tier 1 包括 `git/jq/bash/python>=3.9 + zoneinfo`；Tier 2 包括可启动的 N
 `meegle`。登录状态仍由具体来源的 `source auth-status` 检查，依赖检查不发起 OAuth。
 登录状态另用 `source auth-status` 检查。
 
-## 14. 自动更新内部命令
+## 13. 自动更新内部命令
 
 这些命令通常由 `SKILL.md` 和 `update-check.sh` 自动编排，不是日常用户入口。
 
@@ -1221,7 +1172,7 @@ status
 bin/byteworker update-status
 ```
 
-## 15. 修改或新增命令时
+## 14. 修改或新增命令时
 
 1. 先判断命令属于 Agent 语义、确定性应用服务、Provider adapter 还是维护工具。
 2. 在 `lib/command_registry.py` 增加唯一 `CommandSpec`，声明执行入口、使用者、可见性、

@@ -14,7 +14,7 @@
    - 仅引用当前 manifest item id 的 `evidence_refs`
    - `confidence`: low/medium/high
    - `uncertainties` 数组
-7. 模型只提出 Finding，不直接写 history、报告、Todo、知识或 ActionPlan。
+7. 模型只提出 Finding，不直接写 history、报告、知识或 ActionPlan。
 8. 调用：
 
 ```bash

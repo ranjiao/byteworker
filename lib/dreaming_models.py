@@ -15,7 +15,6 @@ ACTION_KINDS = {
     "wait",
     "include_report",
     "instant_alert",
-    "todo_candidate",
     "source_candidate",
     "conflict_review",
     "knowledge_candidate",

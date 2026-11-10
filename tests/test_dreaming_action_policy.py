@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -9,10 +10,11 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from dreaming_action_policy import evaluate_action_plan  # noqa: E402
+from dreaming_action_policy import evaluate_action_plan, load_action_plan  # noqa: E402
 from dreaming_batch import create_collected_batch  # noqa: E402
 from dreaming_consolidation import consolidate_findings  # noqa: E402
 from dreaming_grants import set_action_grants, set_im_grant  # noqa: E402
+from dreaming_state import DreamingError  # noqa: E402
 
 
 class DreamingActionPolicyTests(unittest.TestCase):
@@ -96,7 +98,7 @@ class DreamingActionPolicyTests(unittest.TestCase):
                     "run_id": "lease-token",
                     "actions": [
                         self.action("include_report", target="daily"),
-                        self.action("todo_candidate"),
+                        self.action("source_candidate"),
                         self.action("knowledge_candidate"),
                         self.action("instant_alert"),
                     ],
@@ -104,11 +106,24 @@ class DreamingActionPolicyTests(unittest.TestCase):
             )
             actions = {value["kind"]: value for value in result["actions"]}
             self.assertEqual("allowed", actions["include_report"]["policy_result"])
-            self.assertEqual("confirm", actions["todo_candidate"]["policy_result"])
-            self.assertTrue(actions["todo_candidate"]["requires_confirmation"])
+            self.assertEqual("confirm", actions["source_candidate"]["policy_result"])
+            self.assertTrue(actions["source_candidate"]["requires_confirmation"])
             self.assertEqual("allowed", actions["knowledge_candidate"]["policy_result"])
             self.assertTrue(actions["knowledge_candidate"]["requires_recapture"])
             self.assertEqual("denied", actions["instant_alert"]["policy_result"])
+
+    def test_retired_todo_cannot_be_planned(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "action.json"
+            path.write_text(json.dumps({
+                "schema_version": "byteworker-action-plan/v1",
+                "run_id": "lease-token",
+                "actions": [self.action("todo_candidate")],
+            }), encoding="utf-8")
+            with self.assertRaises(DreamingError) as caught:
+                load_action_plan(path, skill_root=ROOT)
+            self.assertEqual("DREAMING_MODEL_INVALID", caught.exception.code)
+            self.assertIn("actions[0].kind", str(caught.exception))
 
     def test_discovery_evidence_cannot_be_archived(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

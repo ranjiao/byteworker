@@ -21,18 +21,6 @@ def load_cli(name: str, relative_path: str):
 
 
 class CommandRefactorBoundaryTests(unittest.TestCase):
-    def test_todo_cli_only_defines_parser_and_io_boundary(self):
-        source = (ROOT / "bin" / "todo.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        functions = {
-            node.name for node in tree.body if isinstance(node, ast.FunctionDef)
-        }
-        classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
-        self.assertEqual({"build_parser", "main"}, functions)
-        self.assertEqual([], classes)
-        self.assertNotIn("subprocess", source)
-        self.assertNotIn("kb_write_lock", source)
-
     def test_dreaming_cli_modules_do_not_import_each_other(self):
         modules = sorted(LIB.glob("dreaming_cli_*.py"))
         self.assertGreaterEqual(len(modules), 6)

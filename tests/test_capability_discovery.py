@@ -271,7 +271,7 @@ class CapabilityDiscoveryTests(unittest.TestCase):
 
     def test_every_interactive_business_route_loads_completion_contract(self):
         manifest = json.loads((ROOT / "references/workflow-routes.json").read_text())
-        for name in ("digest", "search", "update", "brief", "dashboard", "todo",
+        for name in ("digest", "search", "update", "brief", "dashboard",
                      "context", "thinking", "report"):
             self.assertIn("references/discovery-completion.md",
                           manifest["workflows"][name]["required"], name)
@@ -281,7 +281,6 @@ class CapabilityDiscoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             kb = self.make_kb(Path(temporary))
             (kb / "context.md").touch()
-            (kb / "todo.md").touch()
             for index in range(3):
                 (kb / "knowledge/projects" / f"project-{index}.md").touch()
             (kb / "state").mkdir()
@@ -293,8 +292,6 @@ class CapabilityDiscoveryTests(unittest.TestCase):
                 mock.patch.object(session_preflight, "cached_check_runtime", return_value=(
                     {"ready": True, "core_ready": True,
                      "python": {"path": sys.executable}, "programs": {}}, "hit")),
-                mock.patch.object(session_preflight, "runtime_environment", return_value={}),
-                mock.patch.object(session_preflight, "_run_json", return_value=(0, [], "")),
             ):
                 result = session_preflight.run_preflight(
                     ROOT, kb_override=kb, skip_update=True, allow_capability_suggestions=True

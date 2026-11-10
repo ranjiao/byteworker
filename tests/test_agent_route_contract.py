@@ -175,6 +175,10 @@ class AgentRouteContractTests(unittest.TestCase):
         self.assertNotIn("inbox", self.workflows)
         self.assertNotIn("inbox", self.manifest["budgets"])
 
+    def test_removed_todo_is_not_an_agent_workflow(self):
+        self.assertNotIn("todo", self.workflows)
+        self.assertNotIn("todo", self.manifest["budgets"])
+
     def test_dreaming_routes_enable_tour_and_maintenance_on_demand(self):
         features = self.workflows["dreaming"]["features"]
         self.assertEqual(

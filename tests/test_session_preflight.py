@@ -2,7 +2,6 @@ import json
 import importlib.util
 import io
 from pathlib import Path
-import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -66,7 +65,6 @@ class SessionPreflightTests(unittest.TestCase):
         kb.mkdir()
         (root / ".kbconfig").write_text(str(kb) + "\n", encoding="utf-8")
         (kb / "context.md").write_text("# context\n", encoding="utf-8")
-        (kb / "todo.md").write_text("# todo\n", encoding="utf-8")
         sources = kb / "sources"
         sources.mkdir()
         (sources / "chat.json").write_text(
@@ -79,23 +77,8 @@ class SessionPreflightTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             kb = self.layout(root)
-            runner = mock.Mock(
-                return_value=subprocess.CompletedProcess(
-                    ["update"], 0, stdout="", stderr=""
-                )
-            )
             with (
                 mock.patch.object(session_preflight, "cached_check_runtime", return_value=(runtime(), "hit")),
-                mock.patch.object(
-                    session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "_run_json",
-                    return_value=(0, [], ""),
-                ),
                 mock.patch.object(
                     session_preflight,
                     "report_status",
@@ -105,14 +88,14 @@ class SessionPreflightTests(unittest.TestCase):
                     },
                 ),
             ):
-                result = session_preflight.run_preflight(root, runner=runner)
+                result = session_preflight.run_preflight(root)
             self.assertEqual("healthy", result["status"])
             self.assertTrue(result["ready"])
             self.assertEqual([], result["notices"])
             self.assertEqual(["feishu"], result["required_sources"])
             self.assertEqual(str(kb.resolve()), result["kb"])
 
-    def test_background_suggestion_coexists_with_report_upgrade_and_todo(self):
+    def test_background_suggestion_coexists_with_report_upgrade(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.layout(root)
@@ -125,16 +108,6 @@ class SessionPreflightTests(unittest.TestCase):
                     session_preflight,
                     "cached_check_runtime",
                     return_value=(runtime(), "hit"),
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "_run_json",
-                    return_value=(0, [{"id": "todo-1", "title": "due"}], ""),
                 ),
                 mock.patch.object(
                     session_preflight,
@@ -157,7 +130,7 @@ class SessionPreflightTests(unittest.TestCase):
                 )
             self.assertEqual("attention", result["status"])
             self.assertEqual(
-                ["TODO_REMINDERS", "REPORT_AUTOMATION_PROMPT_UPGRADE", "CAPABILITY_SUGGESTION"],
+                ["REPORT_AUTOMATION_PROMPT_UPGRADE", "CAPABILITY_SUGGESTION"],
                 [notice["code"] for notice in result["notices"]],
             )
             self.assertEqual(suggestion, result["notices"][-1]["data"]["suggestion"])
@@ -171,16 +144,6 @@ class SessionPreflightTests(unittest.TestCase):
                     session_preflight,
                     "cached_check_runtime",
                     return_value=(runtime(), "hit"),
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "_run_json",
-                    return_value=(0, [], ""),
                 ),
                 mock.patch.object(
                     session_preflight,
@@ -212,16 +175,6 @@ class SessionPreflightTests(unittest.TestCase):
                 ),
                 mock.patch.object(
                     session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "_run_json",
-                    return_value=(0, [], ""),
-                ),
-                mock.patch.object(
-                    session_preflight,
                     "report_status",
                     return_value={
                         "needs_onboarding": False,
@@ -241,35 +194,12 @@ class SessionPreflightTests(unittest.TestCase):
             self.assertTrue(result["ready"])
             self.assertEqual([], result["notices"])
 
-    def test_surfaces_update_todo_and_one_time_report_notices(self):
+    def test_surfaces_update_and_one_time_report_notices(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.layout(root)
-            runner = mock.Mock(
-                return_value=subprocess.CompletedProcess(
-                    ["update"],
-                    0,
-                    stdout="byteworker:自动更新暂时失败。",
-                    stderr="",
-                )
-            )
-            reminder = {
-                "id": "T-20260730-001",
-                "title": "提交材料",
-                "category": "due_soon",
-            }
             with (
                 mock.patch.object(session_preflight, "cached_check_runtime", return_value=(runtime(), "hit")),
-                mock.patch.object(
-                    session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "_run_json",
-                    return_value=(0, [reminder], ""),
-                ),
                 mock.patch.object(
                     session_preflight,
                     "report_status",
@@ -282,7 +212,6 @@ class SessionPreflightTests(unittest.TestCase):
             ):
                 result = session_preflight.run_preflight(
                     root,
-                    runner=runner,
                     environ={
                         "BYTEWORKER_UPDATE_NOTICE": "byteworker:自动更新暂时失败。"
                     },
@@ -292,57 +221,29 @@ class SessionPreflightTests(unittest.TestCase):
             self.assertEqual(
                 [
                     "UPDATE_CHECK_NOTICE",
-                    "TODO_REMINDERS",
                     "REPORT_AUTOMATION_ONBOARDING",
                 ],
                 [item["code"] for item in result["notices"]],
-            )
-            todo_notice = result["notices"][1]["data"]["items"][0]
-            self.assertEqual(
-                {"id", "title", "category"},
-                set(todo_notice),
             )
             decision.assert_called_once_with(
                 (Path(temporary) / "kb").resolve(),
                 decision="prompted",
             )
 
-    def test_todo_command_failure_is_bounded_into_a_notice(self):
+    def test_legacy_todo_file_is_ignored(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            self.layout(root)
+            kb = self.layout(root)
+            legacy = kb / "todo.md"
+            legacy.write_bytes(b"\xff retired format")
             with (
-                mock.patch.object(
-                    session_preflight,
-                    "cached_check_runtime",
-                    return_value=(runtime(), "hit"),
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "report_status",
-                    return_value={
-                        "needs_onboarding": False,
-                        "prompt_upgrade_available": False,
-                    },
-                ),
+                mock.patch.object(session_preflight, "cached_check_runtime", return_value=(runtime(), "hit")),
+                mock.patch.object(session_preflight, "report_status", return_value={}),
             ):
-                result = session_preflight.run_preflight(
-                    root,
-                    skip_update=True,
-                    runner=mock.Mock(side_effect=OSError("cannot execute")),
-                )
-            self.assertFalse(result["ready"])
-            notice = next(
-                item
-                for item in result["notices"]
-                if item["code"] == "TODO_CHECK_FAILED"
-            )
-            self.assertIn("cannot execute", notice["message"])
+                result = session_preflight.run_preflight(root)
+            self.assertTrue(result["ready"])
+            self.assertEqual([], result["notices"])
+            self.assertEqual(b"\xff retired format", legacy.read_bytes())
 
     def test_external_update_notice_is_nonblocking_and_bounded(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -353,16 +254,6 @@ class SessionPreflightTests(unittest.TestCase):
                     session_preflight,
                     "cached_check_runtime",
                     return_value=(runtime(), "hit"),
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "_run_json",
-                    return_value=(0, [], ""),
                 ),
                 mock.patch.object(
                     session_preflight,
@@ -395,16 +286,6 @@ class SessionPreflightTests(unittest.TestCase):
                     session_preflight,
                     "cached_check_runtime",
                     return_value=(runtime(), "hit"),
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
-                    "_run_json",
-                    return_value=(0, [], ""),
                 ),
                 mock.patch.object(
                     session_preflight,
@@ -442,11 +323,6 @@ class SessionPreflightTests(unittest.TestCase):
                 ),
                 mock.patch.object(
                     session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
-                mock.patch.object(
-                    session_preflight,
                     "report_status",
                     return_value={
                         "needs_onboarding": False,
@@ -464,31 +340,20 @@ class SessionPreflightTests(unittest.TestCase):
                 result["notices"][0]["code"],
             )
 
-    def test_first_use_still_runs_update_before_returning_onboarding_notice(self):
+    def test_first_use_returns_onboarding_notice(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "bin").mkdir()
-            runner = mock.Mock(
-                return_value=subprocess.CompletedProcess(
-                    ["update"], 0, stdout="", stderr=""
-                )
-            )
             with (
                 mock.patch.object(
                     session_preflight,
                     "cached_check_runtime",
                     return_value=(runtime(), "hit"),
                 ),
-                mock.patch.object(
-                    session_preflight,
-                    "runtime_environment",
-                    return_value={"PATH": "/usr/bin"},
-                ),
             ):
-                result = session_preflight.run_preflight(root, runner=runner)
+                result = session_preflight.run_preflight(root)
             self.assertFalse(result["ready"])
             self.assertEqual("KB_CONFIG_MISSING", result["notices"][-1]["code"])
-            runner.assert_not_called()
 
     def test_cli_is_silent_when_healthy_and_compact_on_attention(self):
         healthy = {
@@ -510,7 +375,7 @@ class SessionPreflightTests(unittest.TestCase):
         attention = {
             **healthy,
             "status": "attention",
-            "notices": [{"code": "TODO_REMINDERS", "message": "one"}],
+            "notices": [{"code": "UPDATE_CHECK_NOTICE", "message": "one"}],
         }
         output = io.StringIO()
         with (
@@ -520,7 +385,7 @@ class SessionPreflightTests(unittest.TestCase):
             self.assertEqual(0, PREFLIGHT_CLI.main([]))
         payload = json.loads(output.getvalue())
         self.assertNotIn("runtime", payload)
-        self.assertEqual("TODO_REMINDERS", payload["notices"][0]["code"])
+        self.assertEqual("UPDATE_CHECK_NOTICE", payload["notices"][0]["code"])
 
     def test_cli_passes_explicit_interaction_mode(self):
         healthy = {

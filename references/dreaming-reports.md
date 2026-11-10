@@ -25,7 +25,7 @@ Finding 数量和 coverage：
 
 ## 生成与提交
 
-1. 读取 packet、report context、Todo 和有限 KB query。
+1. 读取 packet、report context 和有限 KB query。
 2. 一次生成 `byteworker-report-document/v1`；事实按 `references/citations.md` 回到原始
    evidence，`message_summary` 为 300-500 字。
 3. 将候选保存到 KB 外临时文件，调用：

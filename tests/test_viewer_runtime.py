@@ -47,64 +47,6 @@ class ViewerRuntimeTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stderr)
         self.assertEqual("syntax-ok", completed.stdout)
 
-    def test_todo_list_parses_existing_format_and_keeps_deadlines_separate_from_reminders(self):
-        completed = self.run_node(
-            textwrap.dedent(
-                f"""\
-                const fs = require('fs');
-                const vm = require('vm');
-                const assert = require('node:assert/strict');
-                const html = fs.readFileSync({json.dumps(str(VIEWER))}, 'utf8');
-                const template = fs.readFileSync('templates/todo.md', 'utf8');
-                const helpers = html.slice(html.indexOf('function esc('), html.indexOf('function nodeDir('));
-                const todo = html.slice(html.indexOf('const TODO_STATUS'), html.indexOf('async function renderReaderTodos'));
-                const context = vm.createContext({{
-                  assert, template,
-                  icon: () => '',
-                  Date: class extends Date {{ static now() {{ return Date.parse('2026-11-09T12:00+08:00'); }} }},
-                }});
-                vm.runInContext(helpers + todo + String.raw`
-                  assert.equal(parseTodoMarkdown(template).length, 0);
-                  const sample = [
-                    '## Active',
-                    '### [ ] T-20261109-001 · 跟进进度',
-                    '- kind: follow_up',
-                    '- status: waiting',
-                    '- due_at: 2026-11-09T10:00+08:00',
-                    '- remind_at: 2026-11-08T09:00+08:00',
-                    '- snoozed_until: 2026-11-10T09:00+08:00',
-                    '### [ ] T-20261109-002 · <img onerror=alert(1)>',
-                    '- remind_at: 2026-11-08T09:00+08:00',
-                    '- note: regression',
-                    '## Completed',
-                    '### [X] T-20261109-003 · 已交付',
-                    '- status: done',
-                    '- due_at: 2026-11-01T18:00+08:00',
-                    '### [x] T-20261109-004 · 历史计划',
-                    '- status: cancelled',
-                  ].join('\\n');
-                  const items = parseTodoMarkdown(sample.replaceAll('\\n', '\\r\\n'));
-                  assert.equal(items.length, 4);
-                  assert.equal(items[1].status, 'open');
-                  const active = renderTodoList(items, 'active', '');
-                  assert.match(active, /todo-group overdue[\\s\\S]*跟进进度[\\s\\S]*等待中 · 跟进/);
-                  assert.match(active, /截止<\\/span><time[^>]*>2026-11-09 10:00/);
-                  assert.match(active, /暂停至<\\/span><time[^>]*>2026-11-10 09:00/);
-                  assert.match(active, /todo-group unscheduled[\\s\\S]*&lt;img[\\s\\S]*提醒<\\/span><time/);
-                  assert.doesNotMatch(active, /<img|已交付|历史计划/);
-                  assert.match(renderTodoList(items, 'all', ' REGRESSION '), /&lt;img/);
-                  const archived = renderTodoList(items, 'archived', '');
-                  assert.match(archived, /已完成/);
-                  assert.match(archived, /已废弃/);
-                  assert.doesNotMatch(archived, /todo-group overdue/);
-                  assert.throws(() => parseTodoMarkdown('# TODO'), /Active/);
-                  assert.throws(() => parseTodoMarkdown(sample + '\\n### [ ] T-20261109-001 · 重复'), /重复/);
-                `, context);
-                """
-            )
-        )
-        self.assertEqual(0, completed.returncode, completed.stderr)
-
     def test_thinking_nodes_are_parsed_routed_and_linkable(self):
         completed = self.run_node(
             textwrap.dedent(

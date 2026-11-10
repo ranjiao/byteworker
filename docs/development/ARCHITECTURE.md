@@ -72,7 +72,7 @@ flowchart TB
     subgraph K["C. 用户知识库目录：私有、持久、仅本地 Git"]
         K1["sources / raw_data / provenance"]
         K2["knowledge / reports / journal"]
-        K3["context / todo / settings / INDEX"]
+        K3["context / settings / INDEX"]
     end
 
     R1 -->|"指导 Agent"| T
@@ -143,8 +143,8 @@ flowchart TD
     P["运行 post-update doctor<br/>只修白名单内确定性问题"]
     X["exec 当前版本 launcher<br/>加载单一版本模块"]
     K["读取 .kbconfig<br/>定位私有知识库"]
-    C["验证 context.md / todo.md"]
-    T["Todo check + report status<br/>低频能力建议资格"]
+    C["验证 context.md"]
+    T["report status<br/>低频能力建议资格"]
     N{"有 notice 或 blocking？"}
     Z["健康静默退出"]
     R{"意图路由"}
@@ -161,7 +161,7 @@ flowchart TD
     R -->|"search / update / brief / dashboard"| Q["知识查询与派生流程"]
     R -->|"自动报告 / 自然语言补跑"| W["报告流程"]
     R -->|"用户显式启停 / 宿主 tick"| DR["可选 Dreaming 控制面"]
-    R -->|"todo / context"| L["本地用户状态流程"]
+    R -->|"context"| L["本地用户状态流程"]
     R -->|"能力地图 / 推荐下一步"| E["能力发现流程"]
     R -->|"doctor / maintenance"| M["维护与恢复流程"]
     R -->|"help"| H["只读帮助文档"]
@@ -178,15 +178,20 @@ Python 绝对路径持久化为本机缓存；缓存没有 TTL，每次只做
 `deps --refresh`、`runtime-reset` 仍可要求重建。`lib/runtime_deps.py` 从显式 override、当前
 PATH、常见本地目录和 NVM installations 中解析可执行文件，实际执行仍由 `bin/byteworker`
 注入同一组环境。preflight 的更新检查在 shell 中先完成，之后 `exec` 当前工作树的 launcher，
-因此不会在一次调用中混用更新前后模块。`lib/session_preflight.py` 只合并 KB 定位、依赖、Todo、
+因此不会在一次调用中混用更新前后模块。`lib/session_preflight.py` 只合并 KB 定位、依赖、
 自动报告设置和低频能力建议资格检查，并接收 shell 传入的有限更新 notice。能力建议采用 fail-safe
 默认：只有真人对话显式使用 `preflight --interactive` 才计算和返回；无参数或 `--unattended` 均
 禁止，已有旧定时任务也因此不会误触发。建议只读取本地有界计数和状态，不访问外部来源；存在
-blocking 或没有到期建议时保持静默；普通 Todo、报告升级或更新 notice 不抑制候选。它不读取
+blocking 或没有到期建议时保持静默；报告升级或更新 notice 不抑制候选。它不读取
 `context.md` 正文：
 语义任务在路由后通过 `context view --intent` 读取固定章节投影，help/纯维护任务不承担这部分
 context。
 公共阶段的目的不是“加载所有数据”，而是以稳定协议建立安全边界。
+
+个人待办已从命令、意图路由和 Viewer 退役。已有 `todo.md` 留在原知识库目录，
+启动检查、Doctor、看板和报告都不再依赖它。会议行动项仍随 event 保存。历史 Dreaming
+待办动作只保留对账能力，不能新建、claim 或通过执行前校验；旧语义 shard 的待办候选通过
+原结构校验后在合并时丢弃。历史报告文件继续按原内容浏览。
 
 Dreaming 不属于公共 preflight。状态缺失等同关闭；普通 session、安装、升级和
 digest/search/update 等既有入口不读取 Dreaming 状态，也不提示启用。能力目录把 Dreaming 标为
@@ -362,7 +367,7 @@ flowchart LR
 `record_index` 存在时，`source-record` 优先读取 provider-neutral 的
 `byteworker-record-index/v1`；旧 raw 才通过兼容投影解析 Meego/Base/Aeolus 原始结构。
 
-### 2.5 自动报告、Todo 与维护流程
+### 2.5 自动报告、用户状态与维护流程
 
 ```mermaid
 flowchart TB
@@ -379,9 +384,9 @@ flowchart TB
     end
 
     subgraph State["用户状态"]
-        S1["自然语言 Todo / Context 请求"]
-        S2["Agent 解析意图和时间"]
-        S3["todo.py 或 KB mutation"]
+        S1["自然语言 Context 请求"]
+        S2["Agent 解析意图并生成候选"]
+        S3["KB mutation"]
         S1 --> S2 --> S3
     end
 
@@ -543,7 +548,7 @@ flowchart TD
     RAW["raw_data/<br/>本次实际读取内容"]
     PROV["provenance/<br/>精确 locator"]
     NODE["knowledge/<br/>可演进知识节点"]
-    USER["context / todo<br/>settings.md 手动项"]
+    USER["context<br/>settings.md 手动项"]
     REPORT["reports/<br/>用户可编辑归档快照"]
     INDEX["INDEX.md<br/>可重建索引"]
     DASH["工作看板<br/>按需生成"]
@@ -819,7 +824,7 @@ flowchart TB
 | 模块 | 职责 | 输出 |
 |---|---|---|
 | `bin/byteworker` + `bin/byteworker-launcher.py` | shell 先定位 Python 并完成 update-check，再 exec 当前版本 launcher；统一执行 preflight、机器 CLI 或外部工具 | 单一版本模块、静默健康路径、机器 envelope 或下游输出 |
-| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、Todo、自动报告设置与低频能力建议资格；区分 interactive / unattended，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；无人值守不输出能力建议，交互模式默认仅异常或到期建议输出 |
+| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、自动报告设置与低频能力建议资格；区分 interactive / unattended，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；无人值守不输出能力建议，交互模式默认仅异常或到期建议输出 |
 | `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
 | `lib/command_registry.py` | 命令名、入口、operation、逻辑 namespace、兼容 alias、使用者、可见性、stability、副作用、runtime、协议与文档的唯一真相源 | `byteworker-command-manifest/v1` / `byteworker-command-description/v1`；推荐 namespace 和兼容入口帮助 |
 | `bin/byteworker-cli.py` | registry 中确定性工具的统一 facade；子进程调用直接 CLI；任意层级 `-h/--help` 原样透传到底层 argparse | 普通调用返回 `byteworker-cli/v1` envelope；help 返回底层文本和退出码 |
@@ -838,14 +843,13 @@ flowchart TB
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
 | `bin/report-automation.py` | 自动报告 status/decision/configure/check/lease/complete；不创建宿主任务 | 设置状态、缺口判定、租约与真实运行回执 |
 | `bin/dreaming.py` + `lib/dreaming_cli_*.py` | 主入口只校验 KB、组合 parser 和编码错误；schedule/process/review/report/action 子域各自注册 leaf handler | 原有 job/grant/report/action 回执与不含正文的 batch 摘要 |
-| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务、会话鉴权、设置与待办操作、只读 Dreaming 日志和实时看板 | 设置回执、Todo 归档回执、运行日志白名单元数据 |
+| `bin/viewer-server.py` | 127.0.0.1 本地 viewer 静态服务、会话鉴权、设置、只读 Dreaming 日志和实时看板 | 设置回执、运行日志白名单元数据 |
 | `bin/index.py` | INDEX rebuild dry-run/apply 的机器协议入口；不承担 journal/Git 收尾 | 变化/hash/副作用回执 |
 | `bin/kb-mutate.py` | validate/execute 非 digest mutation plan | validation report / committed receipt |
 | `bin/context.py` | 按 intent 读取有限 context 投影 | `byteworker-context-view/v1` |
 | `bin/semantic.py` | 校验 IM 等结构化语义结果 | validation report / 稳定 error code |
 | `bin/kb-query.py` | search / conflict-search / evidence / source-record；conflict-search 对多 query 只扫描节点一次 | 有覆盖信息的有限候选、同源定位与短 snippet |
 | `bin/doctor.py` | scan / fix | finding 与修复回执 |
-| `bin/todo.py` + `lib/todo_*.py` | CLI 只解析参数和编码 JSON；models/time/store/service 分别承担状态、时间、Markdown/Git 事务和应用操作 | Todo 状态与 committed transaction receipt |
 | `bin/resolve-users.sh` | 按 open_id 最多 4 路只读解析 person 身份与当前通讯录画像，按 ID 确定性归并；默认 TSV 兼容旧调用 | `byteworker-resolved-users/v1` JSON 或兼容三列 TSV |
 | 其它 `bin/*.sh` | 外部拉取、索引/links 重建、viewer、安装与更新辅助 | 明确的文件或 JSON/文本回执 |
 
@@ -1083,20 +1087,19 @@ flowchart TD
     GIT -->|"任一步失败"| ROLLBACK
 ```
 
-digest、Profile、provenance backfill、postflight、Todo 和通用 mutation 全部使用
+digest、Profile、provenance backfill、postflight 和通用 mutation 全部使用
 `lib/kb_write_txn.py` 的同一个 advisory lock；不能再为不同 writer 创建互不相见的锁。
 
 digest 之外的 update/context/dashboard/report 使用 `byteworker-kb-mutation/v1`；thinking 复用
 `update` operation：
 Agent 提供候选、目标 `base_sha256`、章节模式、冲突处置、journal 摘要和 commit message；
 `lib/kb_mutation.py` 在锁内重新校验，执行完整替换/固定章节替换/保留手动章节替换，按需重建
-INDEX，并统一完成 journal、精确暂存、commit 和 rollback。它不允许写 raw/provenance/sources/
-todo。
+INDEX，并统一完成 journal、精确暂存、commit 和 rollback。它不允许写 raw/provenance/sources。
 
 工作看板的 Python 读模型由 `lib/dashboard_view.py` 提供。对话使用 `dashboard view`，Viewer 使用
 带会话访问控制的 `GET /api/dashboard`，两者调用同一生成器。它读取 `settings.md` 的长期关注
-和看板提醒、已绑定节点的摘要、Todo、context 时区与到期窗口及当日 journal。没有绑定项时跳过
-节点扫描。「需要关注」来自手动提醒及 Todo 截止时间。只输出 Markdown，
+和看板提醒、已绑定节点的摘要、context 时区及当日 journal。没有绑定项时跳过节点扫描。
+「需要关注」来自手动看板提醒。只输出 Markdown，
 无文件、外部来源或 Git 副作用。日志只作操作记录，不得为了填充“今日进展”创建业务事实。
 日报和周报使用 `dashboard inputs` 读取同一手动项解析器，不生成完整视图。
 
@@ -1121,10 +1124,6 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/context_view.py` | 解析固定 context 章节并按 intent 返回有预算投影 | 否 |
 | `lib/semantic_policy.py` | 校验 IM 分数、阈值、reason code 和 message evidence | 否 |
 | `lib/kb_mutation.py` | 非 digest plan 校验、章节处理和统一事务提交 | 仅显式 execute |
-| `lib/todo_models.py` + `lib/todo_time.py` | Todo typed state、偏好和确定性时间解析 | 否 |
-| `lib/todo_store.py` | Markdown parse/render、共享锁、journal、精确 commit 与失败回滚 | 仅由 Todo 写命令调用 |
-| `lib/todo_service.py` | Todo 应用操作与提醒分类，不解析 CLI 或直接执行 Git | 通过 store 写入 |
-| `bin/todo.py` | 参数解析、服务调用与 JSON 编码 | 写命令显式执行 |
 | `lib/provenance.py` | anchor schema、sidecar、节点 `[E]` 物化、raw 扫描 | 仅由事务调用 |
 | `lib/provenance_backfill.py` | 历史出处 audit → plan → validate → apply | 仅显式 apply |
 | `lib/doctor.py` | 编排布局、节点、raw、provenance、links、报告、Dreaming state、INDEX 与来源契约扫描 | scan 否；fix 受白名单限制 |
@@ -1234,7 +1233,7 @@ flowchart LR
 | `byteworker-shadow-evaluation/v1` | `dreaming_evaluation.py` | 只含指标与 sample IDs；评估输入拒绝业务文本字段 |
 | `byteworker-resolved-users/v1` | `bin/resolve-users.sh` | 精确 open_id 输入；身份失败不创建 person；部门为空不表示调动；`resolved_at` 带时区 |
 | `byteworker-runtime-check/v1` | `runtime_deps.py` | 绝对 executable、可执行探测与同源 PATH；显式 override 无效时不静默 fallback |
-| `byteworker-session-preflight/v1` | `session_preflight.py` | 健康无 notice；blocking 阻止依赖业务；Todo/迁移/更新只返回有限行动项 |
+| `byteworker-session-preflight/v1` | `session_preflight.py` | 健康无 notice；blocking 阻止依赖业务；报告迁移和更新只返回有限行动项 |
 | `byteworker-cli/v1` | `machine_protocol.py` | 稳定 `status/data/error/context`，不泄漏完整 argv 或正文 |
 | transaction receipt | `digest_txn.py` / `kb_mutation.py` | `committed/noop` 语义明确；写入和 commit 同成同败 |
 
@@ -1475,10 +1474,10 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | Bundle | schema、credential/path 防护、component、anchor、coverage、canonical hash、重载后的 provider 派生一致性 |
 | Profile | v1/v2 兼容、revision、unknown field、URL/userinfo/编码凭据拒绝、非 Profile legacy 配置共存、validator 无反向 import |
 | SnapshotStore | latest/history、坏 raw fail closed、source mismatch、baseline/diff |
-| Transaction | digest/mutation/Todo、batch、no-op、新版本、共享跨进程锁、文件/index/HEAD rollback、章节保留、provenance |
+| Transaction | digest/mutation、batch、no-op、新版本、共享跨进程锁、文件/index/HEAD rollback、章节保留、provenance |
 | Query | canonical record index、legacy fallback、latest/history、exact anchor |
 | Doctor | Profile v1/v2、routine 覆盖、raw/Profile identity、record index、legacy severity、postflight blocker |
-| Session preflight | 更新先于 Python import、健康静默、blocking、更新 notice、Todo notice、报告迁移、PATH/NVM/显式 override |
+| Session preflight | 更新先于 Python import、健康静默、blocking、更新 notice、报告迁移、PATH/NVM/显式 override |
 | Command discovery | registry 唯一性、入口/文档存在、顶层完整分组、嵌套 help 只读且不探测 optional runtime、tombstone 默认隐藏、manifest/description schema |
 | Agent route / semantic | workflow 闭包、独立入口自足、context 字符预算、冲突唯一 owner、IM 阈值/reason/evidence |
 | 自动报告 | 首次/升级只询问一次、local-only 配置、宿主真相源、跨日报/周报租约、过期恢复、成功/失败回执、每次完整 routine digest |
@@ -1514,10 +1513,6 @@ byteworker/
 │   ├── command_registry.py # 命令事实、帮助、runtime/副作用元数据与机器清单
 │   ├── source_operation_contract.py # provider operation 的 argparse 声明
 │   ├── source_cli_service.py # Source 通用应用操作、持久化与紧凑回执
-│   ├── todo_models.py    # Todo typed state 与枚举
-│   ├── todo_time.py      # Todo 偏好和确定性时间解析
-│   ├── todo_store.py     # Todo Markdown、共享锁与 Git 事务
-│   ├── todo_service.py   # Todo 应用操作和提醒分类
 │   ├── session_preflight.py # 每 session 一次的静默公共准备
 │   ├── kb_write_txn.py   # durable writer 共享锁和回滚原语
 │   ├── kb_mutation.py    # 非 digest 内容事务
@@ -1571,8 +1566,8 @@ byteworker/
 相关性、支持程度和时效判断置信度。节点年龄不触发看板告警、状态推断或搜索降级。
 
 本地 viewer 的页面代码公开；浏览器默认请求的 `/favicon.ico` 通过现有静态检查读取
-`/app/favicon.ico`。启用会话口令时，KB 静态 GET/HEAD、Dreaming 日志、设置 API、Todo 归档
-与实时看板 GET 均要求同一 token。KB 静态内容仅开放 knowledge/raw_data/reports 和 INDEX/context/todo.md；
+`/app/favicon.ico`。启用会话口令时，KB 静态 GET/HEAD、Dreaming 日志、设置 API
+与实时看板 GET 均要求同一 token。KB 静态内容仅开放 knowledge/raw_data/reports、INDEX.md 和 context.md；
 隐藏路径、内部 state/sources/provenance/journal 和越出 app/KB 根的符号链接
 始终拒绝；唯一的 state 静态例外是调试页链接的 reports/<id>/artifacts/report.html，
 同样要求 token 且禁止符号链接改道。前端为 KB 请求及日志页面、报告链接传递 token。
@@ -1603,17 +1598,6 @@ Viewer 的 INDEX 解析职责由 `viewer/index-parser.js` 承担，主页面负�
 入口升级解析器兼容性时更新脚本 URL 版本，避免旧浏览器缓存误报辅助表解析异常。
 解析异常独立于读取失败和正常空库；部分解析仍可浏览已识别节点，但不能显示索引就绪。
 无 hash 的首页展示最近更新或首次摄取引导；鉴权和设置发布边界不变。
-
-侧栏「待办」进入独立的 Todo 视图。主页面通过现有带会话鉴权的静态路径读取
-`todo.md`，按固定标题和字段解析记录，再在浏览器内分组、搜索和展开详情。
-解析遵循 `lib/todo_store.py` 的既有结构与状态，跳过模板注释，识别到的格式错误单独提示。
-旧记录缺少类型或状态时按普通任务和待处理读取，保存时写入明确值。
-文件缺失显示空列表，读取失败提供重试；离开页面后的异步结果不覆盖当前视图。
-网页通过 `POST /api/todo/status` 归档待办，JSON 只接受 `id` 和 `status`。
-端点检查本机 Host 和浏览器 Origin，委派 `todo_service.archive_todo` 在共享 KB 写锁内校验、
-写入 `todo.md` 和当天 journal，并创建本地 Git 回滚点。CLI 和 Viewer 共用状态保存与事务逻辑，
-写入路径拒绝符号链接。网页允许未归档项变为 `done` 或 `cancelled`，同结果重试直接回执，
-相反的已归档结果返回冲突。前端确认提交或同状态回执后重读列表并保留筛选条件。
 
 `kb_query` 保持无持久派生索引：完整词匹配优先；仅在单个节点未命中时，以标题/tag 中
 至少两个中文相邻字对低权重补召回。该层不做业务同义词判断，不将候选当作事实，

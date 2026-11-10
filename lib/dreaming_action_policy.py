@@ -15,7 +15,7 @@ from dreaming_state import DreamingError, load_state_unlocked, state_lock
 
 
 MAX_ACTION_PLAN_BYTES = 1024 * 1024
-CONFIRMATION_KINDS = {"todo_candidate", "source_candidate", "conflict_review"}
+CONFIRMATION_KINDS = {"source_candidate", "conflict_review"}
 
 
 def _canonical(value: object) -> bytes:

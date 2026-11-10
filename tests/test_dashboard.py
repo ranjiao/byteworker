@@ -94,10 +94,10 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("2026-11-09T00:10:00+08:00", first["generated_at"])
             for fragment in (
                 "current node state [S1]", "https://example.test/source#block", "版本 abc",
-                "Todo 逾期 1 项 · Overdue", "Todo 临期 1 项 · Due soon", "new progress", "keep this reminder",
+                "new progress", "keep this reminder",
             ):
                 self.assertIn(fragment, first["markdown"])
-            for fragment in ("陈旧", "节点提醒", "上次验证", "project-unwatched"):
+            for fragment in ("陈旧", "节点提醒", "上次验证", "project-unwatched", "待办", "Overdue", "Due soon"):
                 self.assertNotIn(fragment, first["markdown"])
             self.assertNotIn("new progress", next_day["markdown"])
             self.assertEqual(before, {path: path.read_bytes() for path in kb.rglob("*.md")})

@@ -97,7 +97,6 @@ class DreamingReportTests(unittest.TestCase):
                 "changes": [],
                 "risks": [],
                 "confirmations": [],
-                "todos": [],
             },
             "sources": [
                 {
@@ -192,6 +191,7 @@ class DreamingReportTests(unittest.TestCase):
             packet = kb / result["packet_path"]
             self.assertTrue(packet.is_file())
             self.assertEqual(0o600, stat.S_IMODE(packet.stat().st_mode))
+            self.assertNotIn("todo.md", packet.read_text(encoding="utf-8"))
             queued = enqueue_delivery(
                 kb,
                 kind="morning",
@@ -212,7 +212,9 @@ class DreamingReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             now = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
             kb = self.make_kb(Path(temporary), now)
-            rendered = render_report_bundle(kb, document=self.report_document())
+            document = self.report_document()
+            document["sections"]["todos"] = [{"title": "Legacy personal task"}]
+            rendered = render_report_bundle(kb, document=document)
             manifest = json.loads(
                 (kb / rendered["manifest_path"]).read_text(encoding="utf-8")
             )
@@ -233,6 +235,10 @@ class DreamingReportTests(unittest.TestCase):
             self.assertNotIn("http://", html_text.lower())
             self.assertNotIn("https://", html_text.lower())
             self.assertNotIn("{{TITLE}}", html_text)
+            self.assertNotIn("你的 Todo", html_text)
+            self.assertNotIn("Legacy personal task", html_text)
+            report_json = Path(manifest["artifacts"]["document"]["absolute_path"])
+            self.assertNotIn("todos", json.loads(report_json.read_text())["sections"])
             self.assertIn("byteworker dreaming", html_text.lower())
             self.assertIn("Daily Intel Brief", html_text)
             archive = kb / rendered["report_path"]

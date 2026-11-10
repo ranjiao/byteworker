@@ -41,7 +41,7 @@ byteworker 由**两个物理隔离**的部分组成。
 
 | 文件/目录 | 存什么 |
 |-----------|--------|
-| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/todo/context/thinking/dreaming/doctor/help + 自动日报/周报) |
+| `SKILL.md` | skill 行为定义(digest/search/update/brief/dashboard/context/thinking/dreaming/doctor/help + 自动日报/周报) |
 | `docs/development/ARCHITECTURE.md` | 信息处理流程、代码分层、模块边界、依赖方向与演进约束 |
 | `docs/development/DESIGN.md` | 本文档:存储 schema |
 | `templates/` | 8 类节点骨架模板 |
@@ -59,7 +59,7 @@ byteworker 由**两个物理隔离**的部分组成。
 | `bin/provenance-backfill.py` + `lib/provenance*.py` | 出处 sidecar、节点证据物化及历史 raw 保守回填 |
 | `bin/doctor.py` + `lib/doctor.py` + `lib/doctor_sources.py` | 按当前 DESIGN/模板/代码契约只读扫描知识库兼容性；来源契约审计独立覆盖 Profile、routine 迁移、raw/Profile 绑定、持久化 payload/record index；主 doctor 覆盖报告引用、Dreaming state v2 schema，并编排 INDEX/links 的确定性修复 |
 | `bin/byteworker` + `bin/byteworker-launcher.py` + `lib/runtime_deps.py` | 无需 Agent 猜路径的稳定启动入口；解析 Python >=3.10、Node、lark-cli、meegle 并向子进程注入同一 runtime |
-| `bin/session-preflight.py` + `lib/session_preflight.py` | shell 更新完成后，每个新 session 一次合并 KB、依赖、Todo 与自动报告设置检查；健康路径静默 |
+| `bin/session-preflight.py` + `lib/session_preflight.py` | shell 更新完成后，每个新 session 一次合并 KB、依赖与自动报告设置检查；健康路径静默 |
 | `bin/byteworker-cli.py` + `lib/command_registry.py` + `lib/machine_protocol.py` | 以单一命令 registry 驱动分发、发现、runtime/副作用元数据，并为确定性 CLI 提供 `byteworker-cli/v1` 单行 JSON envelope；不改变底层参数、业务语义或退出码 |
 | `bin/update-check.sh` + `bin/update-state.py` + `lib/update_state.py` | fast-forward 自动更新、并发锁、成功/失败退避状态和独立 postflight 重试 |
 | `bin/update-postflight.py` + `lib/update_postflight.py` | 代码实际更新后运行 doctor auto_fix、复扫并创建知识库本地回滚提交 |
@@ -87,7 +87,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `INDEX.md` | 主索引:8 类节点登记表 + 定期摄取清单 + 群聊高水位 | skill 维护,可全量重建 | 高频更新 |
 | `settings.md` | 用户维护的长期关注与看板提醒 | 仅显式维护时写入 | 随知识库 Git 回滚 |
 | `context.md` | 格式化全局工作上下文 —— 身份 / 职责 / 重点 / 约束 / 提醒偏好 / 背景 | 用户通过 agent 维护 | 手维护 |
-| `todo.md` | 用户确认过的行动项、截止 / 提醒时间与完成状态 | 用户通过 agent 维护 | 高频更新 |
+| `todo.md`（仅历史 KB 可存在） | 已退役的个人待办记录 | 仅保留已有文件 | 不初始化、迁移或删除 |
 | `.last-routine-digest` | 上次「定期摄取」例程运行日期(一行 `YYYY-MM-DD`)—— 到期提醒据此判断 | skill 写入 | 每次定期摄取覆盖 |
 | `state/wiki/` | 可重新扫描得到的 Wiki baseline / 子树目录状态；完整 JSON 不进入 Agent context | `wiki scan` 按需原子写入 | 无 TTL；仅显式扫描替换 |
 | `state/viewer.json` | 本地 viewer 偏好，例如是否要求本次访问口令 | 设置页通过 `lib/settings.py` 写入 | 显式重配时更新 |
@@ -181,11 +181,10 @@ doctor 对 `sources/*.json` 逐文件复用当前 Profile validator，并按唯�
 历史 raw 中记录的 Profile revision 可以与当前 revision 不同，但 path/revision 必须成对存在，
 且 source identity 必须与所引用的当前 Profile 一致。
 - `context.md` —— 使用者主动维护的全局工作上下文;手维护、不可派生,只此一处保存。
-- `todo.md` —— 用户确认后的行动状态;来源节点无法重建“完成 / 延期 / 取消”,只此一处保存。
 
 **纯派生(derived —— 可随时丢弃,必须 100% 可重建,不必单独备份):**
 - `INDEX.md` —— 可从全部节点的 frontmatter + body 首行 TL;DR、加 `raw_data/` frontmatter **确定性**全量重建(见 §6)。
-- 工作看板 —— 关注项当前状态、手动提醒、逾期/临期待办、今日进展，每次查看时生成。
+- 工作看板 —— 关注项当前状态、手动看板提醒和今日进展，每次查看时生成。
 
 **推论(SKILL.md「重建与恢复」据此实现):**
 - 派生物永远服从真相源 —— 两者不一致时,**以真相源为准、重建派生物**,绝不反向改真相源。
@@ -522,14 +521,14 @@ state/dreaming/
   state.json.actions         # 有限状态索引，不复制正文
 ```
 
-- Action kind 固定为 suppress/wait/include_report/instant_alert/todo_candidate/source_candidate/
+- Action kind 固定为 suppress/wait/include_report/instant_alert/source_candidate/
   conflict_review/knowledge_candidate。模型提供的 `policy_result` 不可信，由 Python 重算。
-- include_report、instant_alert、knowledge_candidate 分别要求对应 grant；Todo、来源、冲突必须
+- include_report、instant_alert、knowledge_candidate 分别要求对应 grant；来源和冲突必须
   用户确认；knowledge 还要求 complete monitored evidence，并强制 recapture。
 - plan 必须绑定当前 lease token；claim 绑定 run/job/period/lease epoch/grant revision，返回随机
   claim token 和稳定 dedupe key。下游调用前必须 `validate-claim`。
-- Ledger 不执行下游写入。Agent 使用现有公开 mutation/Todo/DigestTxn，并把 dedupe key 传为下游
-  idempotency key。报告/Todo/知识要求 KB Git 中真实存在且路径匹配的 committed receipt；即时提醒
+- Ledger 不执行下游写入。Agent 使用现有公开 mutation/DigestTxn，并把 dedupe key 传为下游
+  idempotency key。报告和知识要求 KB Git 中真实存在且路径匹配的 committed receipt；即时提醒
   要求 delivery id；无写动作才接受 noop。所有 receipt 的 key 必须匹配。
 - 租约过期或 grant 变化后，claimed action 不重新认领，只进入 reconcile。无真实 receipt 时保持
   reconcile；找到 receipt 后可对账 committed。committed 重放相同 receipt 幂等，不同 receipt 拒绝。
@@ -614,7 +613,7 @@ I6 foreground/review/shadow：
 - `operation` 为 `update/context/dashboard/report`，分别只允许
   `knowledge/**/*.md`、`context.md`、`settings.md`、`reports/**/*.md`。
 - write 目标只允许 `context.md`、`settings.md`、`knowledge/**/*.md`、`reports/**/*.md`；
-  其中历史 `reports/im/**` 显式拒绝；raw/provenance/sources/todo 不走此契约。
+  其中历史 `reports/im/**` 显式拒绝；raw/provenance/sources 不走此契约。
 - 已有目标必须带当前 `base_sha256`；新建目标的 baseline 为空。
 - mode 为 `replace`、`replace_section` 或 `replace_preserving_sections`。固定章节/可保留章节由
   validator 白名单控制，Agent 不能任意匹配标题；顶层和 write 未知字段一律拒绝。
@@ -634,7 +633,7 @@ I6 foreground/review/shadow：
 
 **`byteworker-context-view/v1`**
 
-- 根据 todo/search/digest/update/brief/dashboard/report/dreaming 选择固定章节，不返回无关章节。
+- 根据 search/digest/update/brief/dashboard/report/dreaming 选择固定章节，不返回无关章节。
 - 投影 12k 字符以上返回 warning，24k 以上 fail closed；完整 `context.md` 写入上限为 32 KiB。
 - 不静默截断。超预算时由用户归档过期条目。
 
@@ -1224,7 +1223,6 @@ templates/
   node-reading.md
   node-thinking.md       thinking 的低结构自然语言骨架
   context.md             context.md 文件骨架(全局上下文,§10;首次使用整份复制为初始 context.md)
-  todo.md                todo.md 文件骨架(用户行动状态,§11;首次使用 Todo 时整份复制)
   report-daily.md        日报骨架(daily 输出到 reports/daily/)
   report-weekly.md       周报骨架(weekly 输出到 reports/weekly/)
   report-morning.md      Dreaming 晨报骨架(输出到 reports/morning/)
@@ -1291,10 +1289,7 @@ code 与证据，请用户确认。
 16. **digest 幂等与 raw 不覆盖** — raw frontmatter 增加 `source_uid` / `source_revision` /
    `content_hash` / `digest_key` 等运维字段;重复摄取同一来源同一正文必须 no-op,同源新版本写
    新 raw 并更新已有主记录节点;任何情况下都不得覆盖旧 raw 正文。见 §2、§3、references/digest-core.md。
-17. **本地 Todo + 自然语言优先** — 数据目录顶层 `todo.md` 是用户确认后行动状态的唯一真相源;
-   event / report 的待办只保留来源事实,不承担完成状态。digest 只产候选、必须经用户确认后入 Todo;
-   用户日常以“明天提醒我”“刚才那个做完了”等自然语言操作,id 仅供内部关联。每次 skill 运行
-   拉取式检查到期 / 临期项;无对话时不承诺后台推送,也不调用 `lark-task`。见 §11、references/todo.md。
+17. **个人待办已退役** — 历史 `todo.md` 留在原处。会议行动项继续随 event 保存。见 §11。
 18. **飞书文档评论进入证据链** — `feishu_doc` 正文与评论独立拉取、独立 hash;raw 保留全部评论
    (含已解决)、完整回复链、作者 / 时间 / 解决状态和正文锚点。评论变化即使不改变正文 revision
    也可触发同源新版本。直属上司与用户点名特别关注人员只提高抽取 / 提醒优先级,其观点仍按
@@ -1381,8 +1376,8 @@ Git 管理，新库可在首次维护时创建。首版格式：
 - <常驻提示>
 ```
 
-工作看板由代码按需生成。关注状态来自所绑定节点的摘要。「需要关注」来自手动看板提醒与
-Todo 逾期和临期，后两者由截止时间及本地窗口决定。「今日进展」只读当前时区的
+工作看板由代码按需生成。关注状态来自所绑定节点的摘要。「需要关注」来自手动看板提醒。
+「今日进展」只读当前时区的
 当日 journal，并标明它是知识库操作记录。生成过程不得写 journal 或其它业务事实。
 知识库当前没有结构化的未裁决冲突清单。日报、周报通过 `dashboard inputs` 读取关注项。
 
@@ -1395,9 +1390,9 @@ Todo 逾期和临期，后两者由截止时间及本地窗口决定。「今日
 
 ## 10. context.md — 全局工作上下文
 
-数据目录顶层文件,与 `INDEX.md` / `settings.md` / `todo.md` 并列。**使用者通过对话维护**的
+数据目录顶层文件,与 `INDEX.md` / `settings.md` 并列。**使用者通过对话维护**的
 格式化全局工作上下文 —— 语义任务按 intent 加载相关章节投影，作为 digest / search / brief /
-dashboard / todo 的「透镜」。
+dashboard 的「透镜」。
 
 - **性质**:真相源、不可派生。skill 在 digest / search 等流程中**只读、绝不自动改写**;
   用户明确要求时由 agent 代为增删改(SKILL 的 `context` 子命令)—— 完全通过对话式 agent
@@ -1405,8 +1400,8 @@ dashboard / todo 的「透镜」。
    统一由 KB mutation 执行。
 - **保持简短**:它是「透镜」不是「档案」。日常通过 `byteworker-context-view/v1` 读取相关章节；
   12k 字符给 warning、24k fail closed，完整文件 mutation 上限 32 KiB，不静默截断。
-- **用法**:身份表用于本人识别和交互语言选择;职责 / 重点用于 digest 相关性与 Todo 候选判断;
-  时区 / 默认时间用于自然语言提醒解析;search / brief 在客观答案旁带出使用者视角,并在事实与陈述意图冲突时提示。
+- **用法**:身份表用于本人识别和交互语言选择;职责 / 重点用于 digest 相关性判断。
+  看板和报告使用身份表时区。search / brief 在客观答案旁带出使用者视角,并在事实与陈述意图冲突时提示。
 - **交互语言**:`我的身份` 表格使用固定行 `交互语言` 保存用户确认的持久回复语言，规范值使用
   `zh-CN` / `en` / `en-US` 等 BCP-47 标签，中文、简体中文等别名在 context view 中规范化；
   缺失或「待补充」不猜测默认语言，Agent 需用当前对话语言询问。命令名、URL 或资料原文不构成语言切换。
@@ -1426,50 +1421,15 @@ dashboard / todo 的「透镜」。
 用户明确维护时使用 mutation 的 `replace_section`，由 validator 保证章节名、baseline、journal、
 精确 commit 和失败回滚；Agent 不直接覆盖文件。
 
-## 11. todo.md — 用户行动与提醒
+## 11. 历史个人待办
 
-数据目录顶层文件。它不是知识节点、不进入 `INDEX.md`,是用户确认后行动状态的唯一真相源。
-event / report 中的“待办”记录来源当时说了什么;`todo.md` 记录用户后来是否确认、完成、延期或取消。
+已有 `todo.md` 保留在知识库根目录，新库无需创建。当前 CLI、启动检查、Doctor、看板、
+Viewer 和报告均无需读取该文件。旧报告仍可浏览；生成新报告时忽略旧结构化输入中的
+`sections.todos`。会议行动项继续作为来源事实保存在 event。原 `context.md` 章节名保留，
+旧库中的交互语言设置继续兼容。
 
-固定结构：
-
-```markdown
-# TODO
-## Active
-### [ ] T-20260723-001 · 提交周报
-- kind: task
-- status: open
-- created_at: 2026-07-23T10:30:00+08:00
-- updated_at: 2026-07-23T10:30:00+08:00
-- due_at: 2026-07-24T18:00:00+08:00
-- remind_at: 2026-07-24T09:00:00+08:00
-- time_expression: 明天
-- snoozed_until:
-- source: direct:user
-- links: project-example
-- reason:
-- last_reminded_at:
-- note:
-
-## Completed
-```
-
-- **内部 id**:`T-<YYYYMMDD>-<三位序号>`,创建后不变。只供去重、关联、脚本更新;用户侧不要求输入。
-- **kind**:`task` / `follow_up` / `watch`;**status**:`open` / `waiting` / `done` / `cancelled`。
-- **时间**:`due_at` = 截止,`remind_at` = 何时提醒,`snoozed_until` = 暂停提醒到何时;
-  均用带时区 ISO8601。`time_expression` 保留用户原相对时间短语,回显时同时给出绝对时间。
-- **来源**:直接输入写 `direct:user`;digest 确认项写 event / raw / report id 或 URL。`links` 可连
-  project / person 等知识节点,但 Todo 不加入节点双向 links,避免把操作状态混进知识图谱。
-- **写入**:`lib/todo_time.py` 解析受支持的相对时间，`lib/todo_models.py` 定义状态，
-  `lib/todo_store.py` 在共享 KB 写锁内原子重写 `todo.md`、追加 journal、精确本地 commit
-  和失败回滚；`lib/todo_service.py` 组合应用操作，`bin/todo.py` 只负责 CLI；
-  agent 负责从自然语言提取标题、区分截止 / 提醒语义、在多个相似项间做语义消解。
-- **提醒**:每次 skill 运行检查到点提醒、逾期、24 小时内临期(窗口可由 context 配置);无命中静默。
-  `last_reminded_at` 用于限频。它是拉取式能力,不代表后台 scheduler。
-- **确认闸门**:用户直接说“记个待办 / 提醒我”即授权写入;digest 自动分析只产候选,用户明确选择后才写。
-- **完成历史**:done / cancelled 移到 `Completed`,仍留在同一个文件中供追溯。
-
-完整交互与时间规则见 `references/todo.md`;骨架见 `templates/todo.md`。
+Dreaming 不再接受新的 `todo_candidate`。旧账本记录保留，可核验已有 Git 回执完成对账，
+但不能领取执行。并行 digest 合并旧 shard 时校验并忽略待办候选。
 
 ## 12. reports/ — 归档报告快照
 
