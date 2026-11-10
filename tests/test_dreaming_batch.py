@@ -168,6 +168,30 @@ class DreamingBatchTests(unittest.TestCase):
             os.utime(spool, (old, old))
             self.assertEqual(1, gc_spool(kb, ttl_hours=24, now=now)["removed"])
 
+    def test_backfill_resolves_only_covered_gap_and_cannot_rewind_cursor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 8, 4, 3, tzinfo=timezone.utc)
+            batch_id = self.create(kb, now)["batch_id"]
+            write_stage_receipt(kb, batch_id=batch_id, stage="analyzed", receipt={"ok": True})
+            write_stage_receipt(kb, batch_id=batch_id, stage="consolidated", receipt={"ok": True})
+            newer_cursor = {"through": "2026-08-04T02:00:00+00:00", "committed_batch_id": "newer"}
+            with state_lock(kb):
+                state = load_state_unlocked(kb, now)
+                state["cursors"]["im:monitored"] = newer_cursor
+                state["gaps"]["crossing"] = {"lane": "monitored", "windows": [{
+                    "start": "2026-08-03T23:00:00+00:00", "end": "2026-08-04T01:00:00+00:00",
+                }]}
+                save_state_unlocked(kb, state)
+            commit_batch(kb, batch_id=batch_id, cursor_key="im:monitored", through="2026-08-04T01:00:00+00:00")
+            self.assertEqual(0, recover_committed_cursors(kb)["repaired"])
+            with state_lock(kb):
+                state = load_state_unlocked(kb, now)
+            self.assertEqual(newer_cursor, state["cursors"]["im:monitored"])
+            self.assertEqual([{
+                "start": "2026-08-03T23:00:00+00:00", "end": "2026-08-04T00:00:00+00:00",
+            }], state["gaps"]["crossing"]["windows"])
+
 
 if __name__ == "__main__":
     unittest.main()

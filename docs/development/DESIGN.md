@@ -521,6 +521,9 @@ Digest flow 增加 `checked`，保存已预检的 Bundle。分片结果保存在
 
 - `process prepare` 采集并提交 `collected` manifest，只向机器输出 batch id、相对 manifest path、
   数量和 coverage，不输出消息正文。
+- 自动 IM 采集只看最近 14 天。跨界部分在回执 `skipped_window` 和缺口记录中保留，
+  与 collected 状态一起写入。recovery 租约的 `im_recovery` 提供最新近期窗口和超龄窗口数。
+  旧缺口仍代表未覆盖。
 - 当前飞书 CLI 明确不提供 `auth` 命令时，群聊 operation 和 Dreaming IM collector 以
   `contact +get-user --as user` 校验当前用户身份；必须成功且具有 `identity=user` 和用户 open_id，
   不把身份校验成功当成消息 scope 或资源权限通过。保留旧 `auth status` / 外部 `whoami` 分支，
@@ -529,8 +532,8 @@ Digest flow 增加 `checked`，保存已预检的 Bundle。分片结果保存在
   complete/partial coverage；all_visible 使用 queryless search，永远是 best_effort。
 - message 去重键为 `message_id + update_time/create_time`；spool 文件保存规范消息 JSON，权限
   `0600`，manifest 只保存 anchor、hash 和 `spool://` 引用。
-- commit 必须已有 consolidation receipt；先 fsync `batch.commit.json`，再更新 cursor 和
-  `committed_batch_id`。marker 已存在而 cursor 缺失时 recovery 只补 cursor。
+- commit 必须已有 consolidation receipt。先 fsync `batch.commit.json`，再结清同一通道实际
+  覆盖的缺口并单调更新时间游标。marker 重放只采用较新的时间游标。
 - 默认 spool TTL：all_visible 24 小时、monitored 72 小时。GC 和 grant 撤销不得跟随符号链接。
 
 I3 Finding 状态：
@@ -600,6 +603,7 @@ reports/<kind>/<period>.md
   catch-up lease；process commit 清除已覆盖 gap 并刷新 dependency 后，runner 可用该 catch-up
   `run_id` 做一次受限 follow-up 领取报告。follow-up 只考虑 morning/daily/weekly，不参与普通
   process/recovery/maintenance 竞争，也不得循环领取。
+- 自动调度淘汰窗口结束已超龄的旧报告依赖，再按当前周期判断覆盖。
 - all_visible discovery 即使追平也只能标 partial/best_effort。所有合法定期 Profile 和普通
   digest 兼容历史来源都必须进入 process；Profile 无效时迁移和报告 fail closed，不允许按
   provider 类型静默忽略。

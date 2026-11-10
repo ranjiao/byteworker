@@ -1322,6 +1322,7 @@ def run_due(
     current = now or _now()
     decisions = observation.setdefault("jobs", {}) if observation is not None else None
     from dreaming_grants import expire_foreground_sessions
+    from dreaming_reports import expire_report_dependencies
 
     expire_foreground_sessions(kb, now=current)
     with _state_lock(kb):
@@ -1352,6 +1353,7 @@ def run_due(
                 "lease": None,
             }
         _expire_lease(kb, value, current)
+        expire_report_dependencies(value, current)
         timezone_name = str(value.get("timezone", ""))
         zone = _timezone(timezone_name)
         enabled_at = _parse_time(value.get("enabled_at"))
@@ -1492,6 +1494,10 @@ def run_due(
         }
         if selected.get("dependency"):
             lease["dependency"] = selected["dependency"]
+        if job_name == "recovery":
+            from dreaming_collection import plan_im_recovery
+
+            lease["im_recovery"] = plan_im_recovery(value, current)
         job["lease_epoch"] = epoch
         job["last_attempt"] = {
             "run_id": run_id,

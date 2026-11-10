@@ -23,6 +23,8 @@
    用 `process digest-complete --allow-partial` 汇总实际覆盖，只有全量完成才可成功。
    收尾列出仍缺的来源、已尝试的处理和下次自动检查的范围；普通缺口使用
    `DREAMING_DIGEST_INCOMPLETE`。预算、单源权限或冲突只暂停受影响的来源。
+   `job=recovery` 补 IM 缺口时只用 `lease.im_recovery.window`。窗口为空时继续检查其它恢复项，
+   没有可恢复项就成功结束。若窗口在执行时到期，记为跳过并继续其它恢复项。
 6. 保存 lease 的 `run_id`。进入 collection/analysis/consolidation/action/report/maintenance/
    recovery 阶段时调用 `dreaming heartbeat`；单阶段超过 60 秒时至少再写一次 heartbeat。
    `detail-code` 只用有限机器码，禁止放业务正文。

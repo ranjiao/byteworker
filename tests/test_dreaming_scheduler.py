@@ -425,6 +425,46 @@ class DreamingSchedulerTests(unittest.TestCase):
             self.assertEqual("retry_enabled", receipt["status"])
             self.assertIsNone(status(kb)["jobs"]["process"]["waiting_for_user"])
 
+    def test_recovery_lease_filters_old_im_gaps(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 11, 10, 12, tzinfo=timezone.utc)
+            state = self.enable_at(kb, now - timedelta(days=2))
+            for name, job in state["jobs"].items():
+                job["enabled"] = name == "recovery"
+            state["grants"]["im"]["mode"] = "monitored"
+            state["gaps"]["history"] = {"lane": "monitored", "windows": [
+                {"start": (now - timedelta(days=32)).isoformat(), "end": (now - timedelta(days=31)).isoformat()},
+                {"start": (now - timedelta(days=15)).isoformat(), "end": (now - timedelta(days=13)).isoformat()},
+            ]}
+            atomic_write_json(state_path(kb), state)
+            lease = run_due(kb, owner="host", now=now)["lease"]
+            self.assertEqual("recovery", lease["job"])
+            self.assertEqual({
+                "expired_windows": 2, "window": {
+                    "start": (now - timedelta(days=14)).isoformat(), "end": (now - timedelta(days=13)).isoformat(),
+                },
+            }, lease["im_recovery"])
+            self.assertEqual(state["gaps"], status(kb, now=now)["gaps"])
+
+    def test_expired_report_dependency_does_not_block_current_period(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 11, 10, 3, tzinfo=timezone.utc)
+            state = self.enable_at(kb, now - timedelta(days=32))
+            for name, job in state["jobs"].items():
+                job["enabled"] = name == "morning"
+            old_end = (now - timedelta(days=30)).isoformat()
+            state["jobs"]["morning"]["blocked_by"] = ["old-window"]
+            state["report_dependencies"]["morning:old"] = {
+                "window": {"kind": "morning", "end": old_end},
+                "blockers": [{"key": "old-window"}],
+            }
+            atomic_write_json(state_path(kb), state)
+            leased = run_due(kb, owner="host", now=now)
+            self.assertEqual(("morning", "2026-11-10"), (leased["job"], leased["period"]))
+            self.assertEqual({}, status(kb, now=now)["report_dependencies"])
+
     def test_routine_gaps_release_lease_and_retry_without_input(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))

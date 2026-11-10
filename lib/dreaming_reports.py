@@ -289,6 +289,27 @@ def prepare_report_packet(
     }
 
 
+def expire_report_dependencies(state: dict[str, Any], now: datetime) -> None:
+    from dreaming_collection import IM_BACKFILL_LOOKBACK
+
+    cutoff = now - IM_BACKFILL_LOOKBACK
+    dependencies = state["report_dependencies"]
+    for key, dependency in list(dependencies.items()):
+        window = dependency.get("window") if isinstance(dependency, Mapping) else None
+        if not isinstance(window, Mapping):
+            continue
+        end = parse_time(window.get("end"))
+        if end is None or end > cutoff:
+            continue
+        dependencies.pop(key)
+        kind = window.get("kind")
+        job = state["jobs"].get(kind) if isinstance(kind, str) else None
+        records = dependency.get("blockers")
+        blockers = [item.get("key") for item in records if isinstance(item, Mapping)] if isinstance(records, list) else []
+        if isinstance(job, dict) and blockers and job.get("blocked_by") == blockers:
+            job.update(blocked_by=[], ready_since=None, deadline_at=None)
+
+
 def refresh_report_dependencies(
     kb: Path,
     *,

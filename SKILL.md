@@ -223,6 +223,7 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
   规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
 - 后台 process 按 `references/dreaming-routine.md` 检查全部启用来源，逐源核验覆盖。
   暂缓来源时保留进度并处理其它来源；完整报告仍须满足全部覆盖条件。
+- 自动 IM 补跑只看最近 14 天，历史窗口可按需前台处理。
 - 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
 - Dreaming owner 下的 morning/daily/weekly 按 `references/dreaming-reports.md` 消费 process

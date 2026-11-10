@@ -1,8 +1,9 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +11,7 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from dreaming_collection import prepare_im_batch  # noqa: E402
+from dreaming_collection import prepare_foreground_im_batch, prepare_im_batch  # noqa: E402
 from dreaming_grants import set_im_grant  # noqa: E402
 from dreaming_state import DreamingError, load_state_unlocked, state_lock  # noqa: E402
 
@@ -101,6 +102,31 @@ class DreamingCollectionTests(unittest.TestCase):
                             collector=FakeCollector(),
                             now=now,
                         )
+
+    def test_background_collection_skips_old_windows_and_clips_crossing_windows(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 11, 10, 12, tzinfo=timezone.utc)
+            old = (now - timedelta(days=30)).isoformat()
+            older_end = (now - timedelta(days=29)).isoformat()
+            with self.assertRaises(DreamingError) as caught:
+                prepare_im_batch(kb, start=old, end=older_end, collector=object(), now=now)
+            self.assertEqual("DREAMING_IM_WINDOW_EXPIRED", caught.exception.code)
+            collector = Mock(wraps=FakeCollector())
+            recent = prepare_im_batch(kb, start=old, end=now.isoformat(), collector=collector, now=now)
+            cutoff = (now - timedelta(days=14)).isoformat()
+            collector.collect_discovery.assert_called_once_with(start=cutoff, end=now.isoformat())
+            self.assertEqual(cutoff, recent["window"]["start"])
+            self.assertEqual({"start": old, "end": cutoff, "reason": "backfill_age_limit"}, recent["skipped_window"])
+            with state_lock(kb):
+                state = load_state_unlocked(kb, now)
+            self.assertIn(recent["skipped_window"], state["gaps"][recent["batch_id"]]["windows"])
+            foreground = prepare_foreground_im_batch(
+                kb, start=old, end=older_end, mode="all_visible", acknowledge_all_visible=True,
+                collector=collector, now=now,
+            )
+            collector.collect_discovery.assert_called_with(start=old, end=older_end)
+            self.assertEqual(old, foreground["window"]["start"])
 
 
 if __name__ == "__main__":

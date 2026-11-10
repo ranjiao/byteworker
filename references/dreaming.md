@@ -219,6 +219,8 @@ bin/byteworker dreaming process abort --kb "<KB>" \
 `prepare` 只生成私密 spool 与 `collected` EvidenceBatch，返回 batch id、相对 manifest path、数量和
 coverage，不返回消息正文。monitored 读取已登记的 chat Profile；all_visible 的 queryless search
 永远标 `best_effort`。预算截断形成时间切片 gap，page token 不跨 attempt 保存。
+自动 IM 采集最多回看 14 天。完全超龄的窗口在读取来源前返回 `DREAMING_IM_WINDOW_EXPIRED`；
+跨界窗口只采集近期部分，`skipped_window` 记录未采集范围。用户明确指定历史时间可用前台单次处理。
 
 拿到 collected batch 后，读取 `references/dreaming-analysis.md` 生成 FindingBundle，再调用
 `process commit`。持久化与恢复规则见 `references/dreaming-consolidation.md`。
@@ -245,7 +247,9 @@ checkpoint 和 Finding history；报告 job 不能再次独立执行完整 routi
 
 ### `recovery`
 
-只补偿一个过期 lease、gap、失败 receipt 或 delivery outbox。没有待补偿项时成功 no-op。
+只补偿一个过期 lease、近期 gap、失败 receipt 或 delivery outbox。IM 缺口使用租约的
+`im_recovery.window`，最多取最近 14 天内最新的一个窗口。`expired_windows` 统计含超龄部分的缺口，
+旧缺口留作记录。没有待补偿项时成功 no-op。补跑仅结清实际覆盖的范围，已有采集进度取较晚值。
 
 ### `maintenance`
 
