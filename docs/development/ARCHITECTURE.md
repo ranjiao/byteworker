@@ -467,6 +467,10 @@ Dreaming 只通过 `bin/byteworker` 公开入口调用 source、query、mutation
 flow 与 Dreaming 传播固定错误码，防止被当成可重复写入的普通故障。
 旧 `SOURCE_REVIEW_REQUIRED` 结果的私有复核结构仍可读取，诊断和反馈只投影固定原因码。
 
+自动 IM 采集使用 14 天时间上限。collection 负责恢复窗口选择并在访问 provider 前再次核验时间。
+recovery 租约只提供最新的近期 IM 缺口，超龄部分保留为未覆盖历史。调度器淘汰超龄报告依赖，
+让当前周期重新评估覆盖。IM 批次提交与提交标记重放均保持时间游标单调；补跑只结清实际覆盖。
+
 I7 后独立 Inbox 不再是 workflow：旧 scanner、writer、模板、context intent 和 route manifest
 条目均已删除。`bin/inbox.py` 只是一个 major 版本的无副作用 tombstone，只输出
 `INBOX_REMOVED`，不得读取 IM、Dreaming state 或 KB。明确的单次 IM 分析进入 Dreaming

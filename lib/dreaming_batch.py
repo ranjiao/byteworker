@@ -57,6 +57,7 @@ def create_collected_batch(
     messages: list[Mapping[str, Any]],
     grant_revision: int,
     foreground_token: str = "",
+    skipped_window: Mapping[str, str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
@@ -157,6 +158,16 @@ def create_collected_batch(
             "foreground_token": foreground_token,
             "updated_at": utc_iso(current),
         }
+        gaps = list(coverage.get("gaps", []))
+        if skipped_window:
+            gaps.append(dict(skipped_window))
+        if gaps:
+            state["gaps"][batch_id] = {
+                "source_type": source.get("source_type"),
+                "lane": lane,
+                "windows": gaps,
+                "created_at": utc_iso(current),
+            }
         state["updated_at"] = utc_iso(current)
         save_state_unlocked(kb, state)
     return {
@@ -207,6 +218,39 @@ def write_stage_receipt(
         state["updated_at"] = utc_iso(current)
         save_state_unlocked(kb, state)
     return {"batch_id": batch_id, "stage": stage}
+
+
+def _advance_cursor(state: dict, marker: Mapping[str, Any], now: datetime) -> bool:
+    key, batch_id, through = marker["cursor_key"], marker["batch_id"], marker["through"]
+    cursor = state["cursors"].get(key)
+    previous_end = parse_time(cursor.get("through")) if isinstance(cursor, Mapping) else None
+    end = parse_time(through)
+    if previous_end is not None and (end is None or end <= previous_end):
+        return False
+    if (
+        isinstance(cursor, Mapping)
+        and cursor.get("committed_batch_id") == batch_id
+        and cursor.get("through") == through
+    ):
+        return False
+    state["cursors"][key] = {
+        "through": through, "committed_batch_id": batch_id, "updated_at": utc_iso(now),
+    }
+    return True
+
+
+def _subtract_gap(window: Any, start: datetime, end: datetime) -> list:
+    if not isinstance(window, Mapping):
+        return [window]
+    left, right = parse_time(window.get("start")), parse_time(window.get("end"))
+    if left is None or right is None or left >= right or left >= end or right <= start:
+        return [window]
+    remaining = []
+    if left < start:
+        remaining.append({**window, "end": utc_iso(start)})
+    if right > end:
+        remaining.append({**window, "start": utc_iso(end)})
+    return remaining
 
 
 def commit_batch(
@@ -274,29 +318,20 @@ def commit_batch(
             and isinstance(window, Mapping)
         ):
             lane = source.get("lane")
-            start = str(window.get("requested_start", ""))
-            end = str(window.get("requested_end", ""))
-            for gap_id, gap in list(state["gaps"].items()):
-                if not isinstance(gap, dict) or gap.get("lane") != lane:
-                    continue
-                remaining = [
-                    item
-                    for item in gap.get("windows", [])
-                    if not (
-                        isinstance(item, Mapping)
-                        and str(item.get("start", "")) >= start
-                        and str(item.get("end", "")) <= end
-                    )
-                ]
-                if remaining:
-                    gap["windows"] = remaining
-                else:
-                    state["gaps"].pop(gap_id, None)
-        state["cursors"][cursor_key] = {
-            "through": through,
-            "committed_batch_id": batch_id,
-            "updated_at": utc_iso(current),
-        }
+            start = parse_time(window.get("requested_start"))
+            end = parse_time(window.get("requested_end"))
+            if start is not None and end is not None and start < end:
+                for gap_id, gap in list(state["gaps"].items()):
+                    if not isinstance(gap, dict) or gap.get("lane") != lane:
+                        continue
+                    remaining = [
+                        fragment for item in gap.get("windows", []) for fragment in _subtract_gap(item, start, end)
+                    ]
+                    if remaining:
+                        gap["windows"] = remaining
+                    else:
+                        state["gaps"].pop(gap_id, None)
+        _advance_cursor(state, marker, current)
         run["stage"] = "committed"
         run["updated_at"] = utc_iso(current)
         state["receipt_index"][batch_id] = marker
@@ -320,18 +355,11 @@ def recover_committed_cursors(
                 marker = json.loads(marker_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            key = str(marker.get("cursor_key", ""))
-            batch_id = str(marker.get("batch_id", ""))
-            if not key or not batch_id:
+            if not isinstance(marker, dict) or not all(
+                isinstance(marker.get(key), str) and marker[key] for key in ("cursor_key", "batch_id", "through")
+            ):
                 continue
-            cursor = state["cursors"].get(key)
-            if not isinstance(cursor, Mapping) or cursor.get("committed_batch_id") != batch_id:
-                state["cursors"][key] = {
-                    "through": str(marker.get("through", "")),
-                    "committed_batch_id": batch_id,
-                    "updated_at": utc_iso(current),
-                }
-                repaired += 1
+            repaired += _advance_cursor(state, marker, current)
         if repaired:
             state["updated_at"] = utc_iso(current)
             save_state_unlocked(kb, state)

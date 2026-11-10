@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -16,13 +16,39 @@ from dreaming_grants import (
 )
 from dreaming_state import (
     DreamingError,
-    load_state_unlocked,
     parse_time,
-    save_state_unlocked,
-    state_lock,
     utc_iso,
 )
 from source_profiles import list_profiles
+
+IM_BACKFILL_LOOKBACK = timedelta(days=14)
+
+
+def plan_im_recovery(state: Mapping[str, Any], now: datetime) -> dict[str, Any]:
+    mode = state["grants"]["im"]["mode"]
+    lane = {"all_visible": "discovery", "monitored": "monitored"}.get(mode)
+    cutoff = now - IM_BACKFILL_LOOKBACK
+    selected = None
+    expired = 0
+    for gap in state["gaps"].values():
+        if lane is None or not isinstance(gap, Mapping) or gap.get("lane") != lane:
+            continue
+        for window in gap.get("windows", []):
+            if not isinstance(window, Mapping):
+                continue
+            start, end = parse_time(window.get("start")), parse_time(window.get("end"))
+            if start is None or end is None or not start < end <= now:
+                continue
+            if start < cutoff:
+                expired += 1
+            if end > cutoff:
+                candidate = (end, max(start, cutoff))
+                if selected is None or candidate > selected:
+                    selected = candidate
+    return {
+        "expired_windows": expired,
+        "window": {"start": utc_iso(selected[1]), "end": utc_iso(selected[0])} if selected else None,
+    }
 
 
 def _window(start: str, end: str) -> tuple[datetime, datetime]:
@@ -84,6 +110,18 @@ def prepare_im_batch(
             "DREAMING_WINDOW_INVALID",
             "采集窗口 end 不能晚于当前时间。",
         )
+    skipped_window = None
+    cutoff = current - IM_BACKFILL_LOOKBACK
+    if not foreground_token and start_at < cutoff:
+        if end_at <= cutoff:
+            raise DreamingError(
+                "DREAMING_IM_WINDOW_EXPIRED",
+                "自动 IM 补跑仅处理最近 14 天内的窗口。",
+            )
+        skipped_window = {
+            "start": utc_iso(start_at), "end": utc_iso(cutoff), "reason": "backfill_age_limit",
+        }
+        start_at = cutoff
     grant = get_im_grant(kb)
     foreground = (
         foreground_session(kb, token=foreground_token, now=current)
@@ -161,19 +199,9 @@ def prepare_im_batch(
         messages=messages,
         grant_revision=grant["revision"],
         foreground_token=foreground_token,
+        skipped_window=skipped_window,
         now=current,
     )
-    if coverage.get("gaps"):
-        with state_lock(kb):
-            state = load_state_unlocked(kb, current)
-            state["gaps"][receipt["batch_id"]] = {
-                "source_type": "feishu_chat",
-                "lane": source["lane"],
-                "windows": coverage["gaps"],
-                "created_at": utc_iso(current),
-            }
-            state["updated_at"] = utc_iso(current)
-            save_state_unlocked(kb, state)
     return {
         **receipt,
         "lane": source["lane"],
@@ -182,6 +210,7 @@ def prepare_im_batch(
             "start": utc_iso(start_at),
             "end": utc_iso(end_at),
         },
+        **({"skipped_window": skipped_window} if skipped_window else {}),
     }
 
 

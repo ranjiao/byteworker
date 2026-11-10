@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import subprocess
 import sys
@@ -23,7 +24,8 @@ class DreamingI3CliTests(unittest.TestCase):
                 "if sys.argv[1:3] == ['auth', 'status']:\n"
                 " print(json.dumps({'ok':True,'data':{'identities':{'user':{'openId':'ou_me'}}}}))\n"
                 "else:\n"
-                " print(json.dumps({'ok':True,'data':{'messages':[{'message_id':'om_1','chat_id':'oc_1','create_time':'2020-01-01T00:10:00+00:00','sender':{'id':'ou_sender'},'content':'risk'}],'has_more':False,'page_token':''}}))\n",
+                " start = sys.argv[sys.argv.index('--start') + 1]\n"
+                " print(json.dumps({'ok':True,'data':{'messages':[{'message_id':'om_1','chat_id':'oc_1','create_time':start,'sender':{'id':'ou_sender'},'content':'risk'}],'has_more':False,'page_token':''}}))\n",
                 encoding="utf-8",
             )
             fake.chmod(0o755)
@@ -45,6 +47,7 @@ class DreamingI3CliTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(0, grant.returncode, grant.stdout)
+            end = datetime.now(timezone.utc)
             prepared = subprocess.run(
                 [
                     sys.executable,
@@ -56,9 +59,9 @@ class DreamingI3CliTests(unittest.TestCase):
                     "--source",
                     "im",
                     "--start",
-                    "2020-01-01T00:00:00+00:00",
+                    (end - timedelta(hours=1)).isoformat(),
                     "--end",
-                    "2020-01-01T01:00:00+00:00",
+                    end.isoformat(),
                 ],
                 text=True,
                 stdout=subprocess.PIPE,
