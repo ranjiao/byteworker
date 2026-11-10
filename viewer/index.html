@@ -12,10 +12,10 @@
    Single-file, vanilla JS (no React/Babel), only markdown-it as a vendor.
    ======================================================================== */
 :root {
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
-             "Microsoft YaHei", "Segoe UI", sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display",
-                  "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: var(--font-preferred, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+                 "Microsoft YaHei", "Segoe UI", sans-serif);
+  --font-display: var(--font-preferred, -apple-system, BlinkMacSystemFont, "SF Pro Display",
+                      "PingFang SC", "Microsoft YaHei", sans-serif);
   --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Mono",
                Menlo, Consolas, monospace;
 
@@ -66,6 +66,18 @@
 
   --duration: 180ms;
   --duration-fast: 120ms;
+}
+[data-font="pingfang"] {
+  --font-preferred: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+[data-font="yahei"] {
+  --font-preferred: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+[data-font="noto"] {
+  --font-preferred: "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+[data-font="songti"] {
+  --font-preferred: "Songti SC", SimSun, "Noto Serif CJK SC", "Noto Serif SC", serif;
 }
 [data-theme="dark"] {
   --bg: #1c1c1e;
@@ -1248,10 +1260,10 @@ button.history-entry:not([aria-current]):hover { background: var(--bg-hover); bo
 /* ======================================================================
    SETTINGS — reader width + density (data-attrs on <html>)
    ====================================================================== */
-:root { --reader-w: 760px; --reader-px: 56px; --reader-py: 36px; }
-html[data-width="narrow"]  { --reader-w: 600px; }
-html[data-width="normal"]  { --reader-w: 760px; }
-html[data-width="wide"]    { --reader-w: 980px; }
+:root { --reader-width: 760; --reader-w: calc(var(--reader-width) * 1px); --reader-px: 56px; --reader-py: 36px; }
+html[data-width="narrow"]  { --reader-width: 600; }
+html[data-width="normal"]  { --reader-width: 760; }
+html[data-width="wide"]    { --reader-width: 980; }
 html[data-density="compact"]  { --reader-py: 20px; --reader-px: 40px; }
 html[data-density="spacious"] { --reader-py: 48px; --reader-px: 64px; }
 
@@ -1347,7 +1359,7 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
   font-size: 12px; font-weight: 600; color: var(--ink-3);
   font-family: var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase;
 }
-.settings-seg { display: inline-flex; background: var(--bg-chip); border-radius: 7px; padding: 2px; gap: 2px; }
+.settings-seg { display: inline-flex; flex-wrap: wrap; background: var(--bg-chip); border-radius: 7px; padding: 2px; gap: 2px; }
 .settings-seg button {
   border: 0; background: transparent; cursor: pointer;
   font-family: var(--font-ui); font-size: 12.5px;
@@ -1391,6 +1403,16 @@ html[data-density="spacious"] .sx-todo          { padding: 12px 0; }
   padding: 9px 12px 0; color: var(--ink-4); font-size: 11.5px; line-height: 1.5;
 }
 .settings-runtime-note { padding-bottom: 12px; color: var(--ink-3); }
+.settings-preview { padding: 12px; background: var(--bg); }
+.settings-preview .reader-inner {
+  /* Scale the reading column to the space available inside settings. */
+  width: calc(var(--reader-width) * 100% / 980);
+  padding: calc(var(--reader-py) / 2) min(var(--reader-px), 6%);
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg-elev);
+}
+.settings-preview .reader-title { margin-top: 0; font-size: 20px; }
+.settings-preview p { margin: 0 0 0.65em; }
+.settings-preview p:last-child { margin-bottom: 0; }
 .settings-form { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
 .settings-row {
   display: grid; grid-template-columns: 150px minmax(0, 1fr);
@@ -1642,6 +1664,13 @@ const THEME_OPTIONS = [
   { v: 'dark', l: '深色', icon: 'moon' },
   { v: 'auto', l: '跟随系统', icon: 'monitor' },
 ];
+const FONT_OPTIONS = [
+  { v: 'system', l: '系统默认' },
+  { v: 'pingfang', l: '苹方' },
+  { v: 'yahei', l: '微软雅黑' },
+  { v: 'noto', l: '思源黑体' },
+  { v: 'songti', l: '宋体' },
+];
 const systemTheme = window.matchMedia?.('(prefers-color-scheme: dark)');
 const TIMEZONE_OPTIONS = [
   'Asia/Shanghai',
@@ -1721,7 +1750,7 @@ const state = {
   sideFilterQ: '',
   sideSort: 'updated',
   rail: 'graph',
-  settings: { theme: 'light', density: 'normal', width: 'normal' },
+  settings: { theme: 'light', font: 'system', density: 'normal', width: 'normal' },
   settingsTab: 'display',
   settingsOpen: false,
   appSettings: null,
@@ -1751,6 +1780,7 @@ try {
   state.settings = Object.assign(state.settings, stored);
 } catch (e) { /* defaults */ }
 if (!THEME_OPTIONS.some(option => option.v === state.settings.theme)) state.settings.theme = 'light';
+if (!FONT_OPTIONS.some(option => option.v === state.settings.font)) state.settings.font = 'system';
 try {
   const storedSort = localStorage.getItem('bw.viewer.sideSort');
   if (storedSort === 'name' || storedSort === 'updated') state.sideSort = storedSort;
@@ -1760,11 +1790,12 @@ try {
   if (Number.isFinite(storedWidth)) state.sidebarWidth = storedWidth;
 } catch (e) { /* defaults */ }
 
-// apply theme / density / width as data-* attrs on <html>
+// Apply display preferences as data-* attributes on <html>.
 function applySettings() {
   const h = document.documentElement;
   const theme = state.settings.theme;
   h.dataset.theme = theme === 'auto' ? (systemTheme?.matches ? 'dark' : 'light') : theme;
+  h.dataset.font = state.settings.font;
   h.dataset.density = state.settings.density;
   h.dataset.width = state.settings.width;
   const option = THEME_OPTIONS.find(option => option.v === theme);
@@ -3646,13 +3677,29 @@ function renderSettingsBody() {
     ${seg('theme', THEME_OPTIONS)}
   </div>
   <div class="settings-group">
+    <div class="settings-label">字体</div>
+    ${seg('font', FONT_OPTIONS)}
+  </div>
+  <div class="settings-group">
     <div class="settings-label">密度</div>
     ${seg('density', [{ v: 'compact', l: '紧凑' }, { v: 'normal', l: '标准' }, { v: 'spacious', l: '宽松' }])}
   </div>
   <div class="settings-group">
     <div class="settings-label">阅读宽度</div>
     ${seg('width', [{ v: 'narrow', l: '窄' }, { v: 'normal', l: '中' }, { v: 'wide', l: '宽' }])}
-  </div>` : renderActiveSettingsTab();
+  </div>
+  <section class="settings-section" aria-labelledby="settings-preview-title">
+    <h3 class="settings-section-h" id="settings-preview-title">${icon('book', 13)}正文预览</h3>
+    <div class="settings-preview">
+      <div class="reader-inner">
+        <div class="reader-title">一份项目笔记</div>
+        <div class="sx-doc">
+          <p>评审结束后，团队决定先完成小范围试用。收集反馈时，重点记录操作中断、需要反复确认的步骤，以及用户原本想完成的任务。</p>
+          <p><strong>下一步</strong> 整理试用反馈，在下一次评审中确认优先处理的问题。</p>
+        </div>
+      </div>
+    </div>
+  </section>` : renderActiveSettingsTab();
 }
 function settingsFooterText() {
   if (state.settingsTab === 'display') return '显示设置自动保存到浏览器本地';
