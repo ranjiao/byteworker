@@ -1791,16 +1791,22 @@ def complete_run(
             }
             value["maintenance_issues"] = issues
         normalized_batch_id = batch_id.strip()
-        if job_name == "process" and run_status == "success":
-            from dreaming_digest import process_has_complete_routine_digest
+        if job_name == "process":
+            from dreaming_digest import process_has_complete_routine_digest, require_routine_digest_completion
 
-            if not process_has_complete_routine_digest(
-                kb,
-                run_id=_lease_run_id(lease),
+            if run_status == "success":
+                if not process_has_complete_routine_digest(kb, run_id=_lease_run_id(lease)):
+                    raise DreamingError(
+                        "DREAMING_DIGEST_INCOMPLETE",
+                        "process 成功前必须完成全部已启用来源的普通 digest。",
+                    )
+            elif error_code != SOURCE_REVIEW_REQUIRED and not (
+                run_status == "failed" and error_code in HUMAN_BLOCKING_ERRORS | {
+                    "USER_REQUESTED_STOP", "ENOSPC", "COORDINATOR_STATE_WRITE_VIOLATION",
+                }
             ):
-                raise DreamingError(
-                    "DREAMING_DIGEST_INCOMPLETE",
-                    "process 成功前必须完成全部已启用来源的普通 digest。",
+                require_routine_digest_completion(
+                    kb, lease, now=current, log_settings=_log_settings(value),
                 )
         if normalized_batch_id:
             manifest = secure_path(

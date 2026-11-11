@@ -261,18 +261,7 @@ def _wall_time_ms(
     return input_ms + output_ms
 
 
-def _plan_mode(
-    *,
-    stage: str,
-    value: Mapping[str, Any],
-    source_text: str,
-    item_count: int,
-    max_workers: int,
-    skill_root: Path,
-) -> dict[str, Any]:
-    source_estimate = estimate_tokens(source_text)
-    source_tokens = int(source_estimate["tokens"])
-    output_tokens = item_count * OUTPUT_TOKENS_PER_ITEM[stage]
+def _inline_route(value: Mapping[str, Any], stage: str, source_tokens: int) -> tuple[str, list[str]]:
     identity = value.get("identity", {})
     source_type = str(identity.get("source_type", "")) if isinstance(identity, Mapping) else ""
     section_kinds = {
@@ -287,6 +276,22 @@ def _plan_mode(
         features.append("whiteboard")
     if source_tokens >= SOURCE_TOKEN_FLOOR[stage]:
         features.append("large_input")
+    return source_type, features
+
+
+def _plan_mode(
+    *,
+    stage: str,
+    value: Mapping[str, Any],
+    source_text: str,
+    item_count: int,
+    max_workers: int,
+    skill_root: Path,
+) -> dict[str, Any]:
+    source_estimate = estimate_tokens(source_text)
+    source_tokens = int(source_estimate["tokens"])
+    output_tokens = item_count * OUTPUT_TOKENS_PER_ITEM[stage]
+    source_type, features = _inline_route(value, stage, source_tokens)
     inline_rules, inline_source_budget = _route_tokens(
         "digest",
         skill_root=skill_root,
@@ -782,12 +787,7 @@ def _validate_shard_result(shard, result, stage, shard_id, input_hash):
     return records
 
 
-def checkpoint_parallel_results(
-    kb: Path, plan_path: Path, *, result_path: Path | None = None, skill_root: Path = DEFAULT_SKILL_ROOT,
-) -> dict[str, Any]:
-    """Save one validated shard or return the completed and missing shards."""
-    resolved, plan = _load_json(plan_path, skill_root=skill_root)
-    stage, expected = _plan_shards(plan)
+def _plan_run_id(kb: Path, resolved: Path, stage: str) -> str:
     root = kb.resolve() / "state" / "digest"
     relative = resolved.relative_to(root) if resolved.is_relative_to(root) else Path()
     if (
@@ -795,6 +795,67 @@ def checkpoint_parallel_results(
         or not DIGEST_RUN_ID.fullmatch(relative.parts[1]) or relative.parts[2] != stage
     ):
         raise DigestParallelError("DIGEST_PARALLEL_PATH_UNSAFE", "分片进度必须位于 Digest run 私有目录。")
+    return relative.parts[1]
+
+
+def attempt_parallel_shard(
+    kb: Path, plan_path: Path, *, shard_id: str, failure: str = "", skill_root: Path = DEFAULT_SKILL_ROOT,
+) -> dict[str, Any]:
+    """Check the assigned shard's budget or record a failure reported by the host."""
+    from digest_run_log import record_shard_attempt
+
+    resolved, plan = _load_json(plan_path, skill_root=skill_root)
+    stage, expected = _plan_shards(plan)
+    run_id = _plan_run_id(kb, resolved, stage)
+    if resolved.name != f"{stage}-plan.json" or shard_id not in expected:
+        raise DigestParallelError("DIGEST_PARALLEL_INPUT_INVALID", "指定计划或分片编号无效。")
+    shard_path, shard = _load_json(expected[shard_id], skill_root=skill_root)
+    if shard_path.parent != resolved.parent or (
+        shard.get("schema_version") != PARALLEL_SHARD_SCHEMA
+        or shard.get("stage") != stage or shard.get("shard_id") != shard_id
+        or shard.get("input_hash") != plan.get("input_hash")
+    ):
+        raise DigestParallelError("DIGEST_PARALLEL_INPUT_INVALID", "分片与当前计划不一致。")
+
+    budget = None
+    if not failure:
+        workflow = WORKER_WORKFLOWS[stage]
+        source_type, features = "", []
+        if plan.get("mode") == "inline":
+            workflow = "digest"
+            packet_path = resolved.parent.parent / "analysis-packet.json"
+            packet = _load_json(packet_path, skill_root=skill_root)[1] if packet_path.is_file() else shard
+            source_type, features = _inline_route(packet, stage, int(plan["estimates"]["source_tokens"]))
+        receipt = inspect_budget(
+            workflow=workflow, source_type=source_type, features=features, source_packet_path=shard_path,
+            root=skill_root, manifest_path=skill_root / "references" / "workflow-routes.json",
+        )
+        measurement, limits = receipt["measurement"], receipt["budget"]
+        budget = {
+            "status": receipt["status"],
+            "workflow": workflow,
+            "method": measurement["method"],
+            "exact": measurement["exact"],
+            "source_packet_tokens": measurement["source_packet_tokens"],
+            "source_packet_limit": limits["source_packet_tokens"],
+            "total_input_tokens": measurement["total_input_tokens"],
+            "total_input_limit": limits["total_input_tokens"],
+            "exceeded_limits": [name for name, passed in receipt["checks"].items() if not passed],
+        }
+    return record_shard_attempt(
+        kb, run_id=run_id, stage=stage, shard_id=shard_id,
+        plan_hash=hashlib.sha256(resolved.read_bytes()).hexdigest(), budget=budget, failure=failure,
+    )
+
+
+def checkpoint_parallel_results(
+    kb: Path, plan_path: Path, *, result_path: Path | None = None, skill_root: Path = DEFAULT_SKILL_ROOT,
+) -> dict[str, Any]:
+    """Save one validated shard or return the completed and missing shards."""
+    resolved, plan = _load_json(plan_path, skill_root=skill_root)
+    stage, expected = _plan_shards(plan)
+    _plan_run_id(kb, resolved, stage)
+    root = kb.resolve() / "state" / "digest"
     route = resolve_route(load_manifest(skill_root / "references/workflow-routes.json"), workflow=WORKER_WORKFLOWS[stage])
     rules = {
         name: hashlib.sha256((skill_root / name).read_bytes()).hexdigest()

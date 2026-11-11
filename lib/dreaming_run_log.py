@@ -37,6 +37,7 @@ EVENT_KINDS = {
     "renewed",
     "completed",
     "lease_expired",
+    "source_completion_rejected",
 }
 STAGES = {
     "scheduled",

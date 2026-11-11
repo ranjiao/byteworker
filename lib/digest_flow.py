@@ -14,12 +14,13 @@ from digest_analysis import prepare_analysis_packet
 from digest_capture import DigestCaptureError, execute_capture_plan
 from digest_parallel import plan_parallel_work
 from digest_run_log import (
+    MACHINE_CODE_RE,
     finish_run,
     record_stage,
     show_run,
     start_run,
 )
-from digest_txn import DigestTxnRollbackError, execute_plan, preflight_bundle
+from digest_txn import execute_plan, preflight_bundle
 from source_bundle_request import build_bundle_from_request
 from source_capture import write_capture
 from sources import load_source_bundle
@@ -490,7 +491,7 @@ def commit_flow(
             )
     except Exception as exc:
         code = str(getattr(exc, "code", "DIGEST_FLOW_COMMIT_FAILED"))
-        detail = code if isinstance(exc, DigestTxnRollbackError) else "DIGEST_FLOW_TRANSACTION_FAILED"
+        detail = code if MACHINE_CODE_RE.fullmatch(code) else "DIGEST_FLOW_TRANSACTION_FAILED"
         _record_failure(kb, run_id, "transaction", detail)
         with _flow_lock(kb):
             state = _load_state(kb, run_id)

@@ -86,9 +86,9 @@ planner 使用固定 token/墙钟策略：先估算 inline 与 parallel 的总 t
 和 reducer 时间。对可在预算内单包执行的输入，dependency 少于 32 项、semantic 少于 200 项、
 conflict 少于 16 项保持 inline；即使
 超过项数，来源 token 未达到阶段 floor、预计至少节省 30 秒且比例达到 25%、worker/reducer packet
-预算或阶段 parallel 总预算任一不满足，也保持 inline。只有 receipt
-`selection_reason_code=PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM` 才 fan-out，最多 4 路。Agent 不
-自行改阈值或增加 worker。
+预算或阶段 parallel 总预算任一不满足，也保持 inline。对预算内可单包执行的输入，
+`selection_reason_code=PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM` 表示值得为提速而并发。
+由预算触发的分片也需要执行，按计划和宿主容量决定并发或顺序处理。最大并发为 4，阈值由工具控制。
 
 receipt/plan 同时给出 `inline` 与 `parallel_estimate` 的 estimated total tokens/wall time、估算方法、
 阶段 token budget 和 `parallel_budget_remaining_tokens`。没有 tokenizer 时方法明确为版本化保守估算；预算超限必须继续分片或
