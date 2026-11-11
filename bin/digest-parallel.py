@@ -16,10 +16,13 @@ if str(LIB) not in sys.path:
 
 from digest_parallel import (  # noqa: E402
     DigestParallelError,
+    attempt_parallel_shard,
     checkpoint_parallel_results,
     merge_parallel_results,
     plan_parallel_work,
 )
+from digest_run_log import SHARD_FAILURE_CODES, DigestRunError  # noqa: E402
+from workflow_budget import WorkflowBudgetError  # noqa: E402
 
 
 def parser() -> argparse.ArgumentParser:
@@ -38,6 +41,11 @@ def parser() -> argparse.ArgumentParser:
     checkpoint.add_argument("--kb", required=True, type=Path)
     checkpoint.add_argument("--plan", required=True, type=Path)
     checkpoint.add_argument("--result", type=Path)
+    attempt = sub.add_parser("attempt", help="Check one shard's budget or record a host execution failure")
+    attempt.add_argument("--kb", required=True, type=Path)
+    attempt.add_argument("--plan", required=True, type=Path)
+    attempt.add_argument("--shard-id", required=True)
+    attempt.add_argument("--failure", choices=sorted(SHARD_FAILURE_CODES), default="")
     return result
 
 
@@ -53,9 +61,11 @@ def main() -> int:
             )
         elif args.command == "merge":
             value = merge_parallel_results(args.plan, args.result, args.out)
-        else:
+        elif args.command == "checkpoint":
             value = checkpoint_parallel_results(args.kb, args.plan, result_path=args.result)
-    except DigestParallelError as exc:
+        else:
+            value = attempt_parallel_shard(args.kb, args.plan, shard_id=args.shard_id, failure=args.failure)
+    except (DigestParallelError, DigestRunError, WorkflowBudgetError) as exc:
         json.dump({"error": exc.as_dict()}, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")
         return 1

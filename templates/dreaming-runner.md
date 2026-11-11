@@ -19,7 +19,8 @@
    `job=maintenance` 时额外加载 workflow manifest 的 `features.maintenance`。
    `job=process` 时加载 `features.routine_digest`，先调用 `dreaming process digest-scan`。
    按定期摄取细则完成全部来源的变化检查，再对有变化的来源解析普通 Digest。
-   逐来源关联 Digest、保存已核验分片、登记成功或失败。卡住时先完成其它独立来源。
+   逐来源关联 Digest，按计划检查并执行缺失分片，逐片保存结果。实际遇到阻塞时先记录原因，
+   再登记暂缓并完成其它独立来源。收尾返回 `DREAMING_DIGEST_EXECUTION_REQUIRED` 时继续处理所指来源。
    用 `process digest-complete --allow-partial` 汇总实际覆盖，只有全量完成才可成功。
    收尾列出仍缺的来源、已尝试的处理和下次自动检查的范围；普通缺口使用
    `DREAMING_DIGEST_INCOMPLETE`。预算、单源权限或冲突只暂停受影响的来源。

@@ -78,6 +78,14 @@ USAGE_FIELDS = {
     "reasoning_tokens",
 }
 REQUIRED_USAGE_FIELDS = {"input_tokens", "output_tokens"}
+SHARD_FAILURE_CODES = {
+    "DIGEST_WORKER_UNAVAILABLE",
+    "DIGEST_WORKER_TIMEOUT",
+    "DIGEST_WORKER_FAILED",
+    "DIGEST_HOST_CONTEXT_LIMIT",
+    "DIGEST_PARALLEL_RESULT_INVALID",
+}
+SHARD_ATTEMPT_EVENTS = {"shard_budget_checked", "shard_execution_failed"}
 METRIC_FIELDS = {
     "item_count",
     "component_count",
@@ -421,7 +429,7 @@ def _latest_source_type(events: list[dict[str, Any]]) -> str:
 
 
 def _lifecycle_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [event for event in events if event.get("event") != "usage_recorded"]
+    return [event for event in events if event.get("event") not in SHARD_ATTEMPT_EVENTS | {"usage_recorded"}]
 
 
 def _is_terminal(event: Mapping[str, Any]) -> bool:
@@ -701,6 +709,47 @@ def record_stage(
         }
         log_path = _append(root, event, now=current)
     return {**event, "log_path": log_path}
+
+
+def record_shard_attempt(
+    kb: Path,
+    *,
+    run_id: str,
+    stage: str,
+    shard_id: str,
+    plan_hash: str,
+    budget: Mapping[str, Any] | None = None,
+    failure: str = "",
+) -> dict[str, Any]:
+    current = _utc_now()
+    with _log_lock(kb) as root:
+        events = _require_active_run(_read_events_from_root(root), run_id, now=current)
+        if failure:
+            previous = next(
+                (event for event in reversed(events)
+                 if event.get("event") in SHARD_ATTEMPT_EVENTS and event.get("plan_hash") == plan_hash
+                 and event.get("stage") == stage and event.get("shard_id") == shard_id),
+                None,
+            )
+            if failure not in SHARD_FAILURE_CODES or not previous or previous["status"] != "within_budget":
+                raise DigestRunError("DIGEST_SHARD_ATTEMPT_REQUIRED", "先对同一计划的分片执行预算检查，再登记宿主失败。")
+            budget = previous["budget"]
+        event = {
+            "schema_version": RUN_EVENT_SCHEMA,
+            "timestamp": _iso(current),
+            "run_id": run_id,
+            "event": "shard_execution_failed" if failure else "shard_budget_checked",
+            "stage": stage,
+            "shard_id": shard_id,
+            "plan_hash": plan_hash,
+            "status": "failed" if failure else budget["status"],
+            "detail_code": failure or (
+                "DIGEST_SHARD_OVER_BUDGET" if budget["status"] == "over_budget" else "DIGEST_SHARD_WITHIN_BUDGET"
+            ),
+            "budget": dict(budget),
+        }
+        _append(root, event, now=current)
+    return event
 
 
 def _current_stage(events: list[dict[str, Any]]) -> str:

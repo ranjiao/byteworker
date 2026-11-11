@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from frontmatter import parse_file
-from dreaming_run_log import MACHINE_CODE
+from digest_run_log import SHARD_ATTEMPT_EVENTS, SHARD_FAILURE_CODES, diagnostic_events
+from dreaming_run_log import MACHINE_CODE, append_run_event
 from operation_trace import DIGEST_RUN_ID
 from routine_identity import IdentityKey, RoutineDocumentAliases
 from source_profile_contract import SourceProfileError
@@ -36,6 +37,8 @@ BATCH_SCHEMA = "byteworker-dreaming-digest-batch/v1"
 SUCCESS_STATUSES = {"committed", "noop", "observed", "empty_window", "covered"}
 TRANSACTION_SUCCESS_STATUSES = {"committed", "noop"}
 ROUTINE_CADENCES = {"daily", "weekly", "monthly"}
+EXECUTION_REQUIRED = "DREAMING_DIGEST_EXECUTION_REQUIRED"
+BUDGET_DEFERRED = "DIGEST_BUDGET_DEFERRED"
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -454,6 +457,8 @@ def routine_run_accounting(kb: Path, run_id: str) -> dict[str, Any]:
             "source_key": key, "source_type": source.get("source_type", ""),
             "label": source.get("label", ""), "status": status, "kb_operations": changes,
             **({"error_code": source["error_code"]} if source.get("error_code") else {}),
+            **({"failure_evidence": receipt["failure_evidence"]}
+               if isinstance(receipt, Mapping) and receipt.get("failure_evidence") else {}),
         })
     return {
         "routine_batch_recorded": True,
@@ -657,6 +662,73 @@ def record_routine_digest_result(
     return record_routine_digest(kb, token=token, result=_load_result(input_path), now=now)
 
 
+def _prepared_flow(kb: Path, source: Mapping[str, Any]) -> Path | None:
+    run_id = str(source.get("work", {}).get("digest_run_id", ""))
+    if not DIGEST_RUN_ID.fullmatch(run_id):
+        return None
+    path = kb.resolve() / "state" / "digest" / "flows" / run_id / "state.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.resolve() == path else None
+    except (OSError, ValueError):
+        return None
+    if isinstance(state, dict) and state.get("run_id") == run_id and state.get("phase") in {"prepared", "commit_failed"}:
+        return path.parent
+    return None
+
+
+def _failure_evidence(kb: Path, flow: Path, error_code: str) -> dict[str, Any] | None:
+    events, _ = diagnostic_events(kb, run_id=flow.name)
+    if error_code == BUDGET_DEFERRED or error_code in SHARD_FAILURE_CODES:
+        latest = {
+            (event["stage"], event["shard_id"]): event
+            for event in events if event.get("event") in SHARD_ATTEMPT_EVENTS
+        }
+        for (stage, shard_id), event in latest.items():
+            if stage not in {"dependency", "semantic", "conflict"} or not re.fullmatch(rf"{stage}-\d{{3}}", shard_id):
+                continue
+            if error_code == BUDGET_DEFERRED:
+                if event.get("status") != "over_budget":
+                    continue
+            elif event.get("event") != "shard_execution_failed" or event.get("detail_code") != error_code:
+                continue
+            plan_path = flow / stage / f"{stage}-plan.json"
+            try:
+                plan_hash = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+            except OSError:
+                continue
+            if event.get("plan_hash") != plan_hash or (plan_path.parent / "results" / f"{shard_id}.json").is_file():
+                continue
+            return {
+                "digest_run_id": flow.name, "stage": stage, "shard_id": shard_id,
+                "kind": "budget_check" if error_code == BUDGET_DEFERRED else "host_reported_failure",
+                "budget": event["budget"],
+            }
+        return None
+    latest_stages = {
+        event["stage"]: event for event in events
+        if event.get("event") in {"stage_started", "stage_completed", "stage_failed"}
+    }
+    for stage in ("dependency_review", "semantic_analysis", "reduce", "conflict_review",
+                  "candidate_generation", "transaction_validate", "transaction", "finalize"):
+        event = latest_stages.get(stage, {})
+        if event.get("event") == "stage_failed" and event.get("detail_code") == error_code:
+            return {"digest_run_id": flow.name, "stage": stage, "kind": "stage_failure"}
+    return None
+
+
+def _reject_early_completion(
+    kb: Path, lease: Mapping[str, Any], digest_run_id: str, message: str, *, now: datetime,
+    log_settings: Mapping[str, int],
+) -> None:
+    append_run_event(
+        kb, run_id=lease["run_id"], event="source_completion_rejected", job="process",
+        period=lease["period"], owner=lease["owner"], epoch=lease["epoch"],
+        stage="analysis", status="running", error_code=EXECUTION_REQUIRED,
+        digest_run_id=digest_run_id, now=now, **log_settings,
+    )
+    raise DreamingError(EXECUTION_REQUIRED, message, details={"digest_run_id": digest_run_id} if digest_run_id else None)
+
+
 def link_routine_digest(kb: Path, *, token: str, source_key: str, digest_run_id: str) -> dict[str, Any]:
     if not DIGEST_RUN_ID.fullmatch(digest_run_id):
         raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "Digest 运行编号无效。")
@@ -709,6 +781,17 @@ def record_routine_digest(
             if not MACHINE_CODE.fullmatch(error_code):
                 raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "来源失败必须提供固定错误码。")
             verified = {"status": status}
+            flow = _prepared_flow(kb, source)
+            if flow is not None or error_code == BUDGET_DEFERRED or error_code in SHARD_FAILURE_CODES:
+                evidence = _failure_evidence(kb, flow, error_code) if flow is not None else None
+                if evidence is None:
+                    _reject_early_completion(
+                        kb, lease, flow.name if flow is not None else "",
+                        "缺少与当前来源对应的失败证据。继续处理缺失分片，或用 digest-parallel attempt / "
+                        "digest-run stage 记录实际阻塞后再登记。",
+                        now=current, log_settings=state["logging"],
+                    )
+                verified["failure_evidence"] = evidence
         elif source["workflow"] == "wiki_scan_then_digest":
             verified = _verify_wiki_receipt(kb, source, result)
         elif result.get("status") == "empty_window":
@@ -735,6 +818,7 @@ def record_routine_digest(
         "run_id": lease["run_id"],
         "source_key": source_key,
         "status": verified["status"],
+        **({"failure_evidence": verified["failure_evidence"]} if "failure_evidence" in verified else {}),
     }
 
 
@@ -751,6 +835,14 @@ def complete_routine_digest(
         lease = _live_process_lease(state, token=token, now=current)
         run_id = str(lease["run_id"])
         batch = _load_batch(kb, run_id)
+        for source in batch["sources"].values():
+            if source["status"] not in SUCCESS_STATUSES and not source.get("receipt", {}).get("failure_evidence"):
+                flow = _prepared_flow(kb, source)
+                if flow is not None:
+                    _reject_early_completion(
+                        kb, lease, flow.name, "仍有已准备分析的来源缺少完成或失败回执，请先执行并登记来源结果。",
+                        now=current, log_settings=state["logging"],
+                    )
         checkpoints = state.setdefault("source_checkpoints", {})
         for source in batch["sources"].values():
             if source.get("status") == "covered" and not _covers(
@@ -860,3 +952,20 @@ def process_has_complete_routine_digest(
     except DreamingError:
         return False
     return batch.get("status") == "completed"
+
+
+def require_routine_digest_completion(
+    kb: Path, lease: Mapping[str, Any], *, now: datetime, log_settings: Mapping[str, int],
+) -> None:
+    run_id = lease.get("run_id")
+    if not run_id or not _batch_path(kb, run_id).is_file():
+        return
+    batch = _load_batch(kb, run_id)
+    if batch["status"] == "running":
+        for source in batch["sources"].values():
+            flow = _prepared_flow(kb, source)
+            if flow is not None:
+                _reject_early_completion(
+                    kb, lease, flow.name, "请先完成已准备来源的执行或登记实际阻塞，再调用 process digest-complete。",
+                    now=now, log_settings=log_settings,
+                )

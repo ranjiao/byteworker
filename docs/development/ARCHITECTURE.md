@@ -466,6 +466,8 @@ Dreaming 只通过 `bin/byteworker` 公开入口调用 source、query、mutation
 并按调度自动重试。仅任务级授权或数据安全严重错误能阻断相关 job。DigestTxn 回滚失败向
 flow 与 Dreaming 传播固定错误码，防止被当成可重复写入的普通故障。
 旧 `SOURCE_REVIEW_REQUIRED` 结果的私有复核结构仍可读取，诊断和反馈只投影固定原因码。
+已准备分析的来源须完成或登记对应的失败证据才可收尾。Dreaming 从已关联的 Digest 日志核验
+失败证据，拒绝直接用部分完成或普通失败跳过批次收尾。严重状态错误和用户主动停止仍可结束租约。
 
 自动 IM 采集使用 14 天时间上限。collection 负责恢复窗口选择并在访问 provider 前再次核验时间。
 recovery 租约只提供最新的近期 IM 缺口，超龄部分保留为未覆盖历史。调度器淘汰超龄报告依赖，
@@ -513,6 +515,8 @@ conflict planner 仍对新召回结果执行一次。语义 owner、coverage、i
 变化来源再解析其普通 digest 闭包，保留原有权限、依赖、冲突与事务行为。
 独立语义任务共用最多 4 个隔离 worker，按宿主和预算降并发；针对当前 KB 的冲突和写入串行。
 分片回执复用同一校验器，即时保存。跨轮只复用内容指纹、分片和 worker 规则完全匹配的来源内语义结果。
+Digest 分片执行前按计划角色核算单片预算并写入技术日志。预算超限由工具核算，宿主无法执行、
+超时和执行失败由 coordinator 记录固定原因码。缺失 checkpoint 仍进入执行队列。
 Dreaming 的授权、宿主与运行细则只在 dreaming feature 中加载；area/org/person 治理统一由
 `write-rules.md` 承载，并同时属于 digest 与 update 的 required 闭包，不复制进常驻路由器。
 子 Agent、无人值守报告和 Wiki resume 都必须从 manifest 递归展开闭包，不依赖上一 session
