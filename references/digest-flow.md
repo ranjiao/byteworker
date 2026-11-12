@@ -40,8 +40,7 @@ bin/byteworker digest-flow prepare --kb "<KB>" --run-id "<RUN_ID>" \
 群聊 Bundle 若证明分页完整且零消息，准备阶段直接返回 `phase=noop` 和
 `receipt={status: empty_window, digest_run_id: …}`，`next_action=none`。不用分析或提交，
 可用 `digest-flow status` 取回回执。
-幂等命中直接终结为 noop；否则只消费返回的 `next_action`：`dependency_review` 或
-`semantic_analysis`。artifact 路径可用 `digest-flow status` 恢复，不重跑已完成抓取。
+幂等命中返回 noop。按 `next_action` 继续，恢复时用 `digest-flow status` 取 artifact。
 定期批量检查可加 `--check-only`，先做 Bundle 与预检，变化项进入 `checked`。已有 SourceBundle
 时可用 `--bundle` 代替 request。随后只为变化项调用 `digest-flow analyze` 生成分析包和分片计划。
 需要向用户询问依赖范围或冲突时，按 `digest-inline.md` 先记录 `digest-run wait`；答复后

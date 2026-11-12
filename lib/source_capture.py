@@ -33,6 +33,7 @@ INSPECT_SCHEMA = "byteworker-source-inspect/v1"
 CAPTURE_SCHEMA = "byteworker-source-capture/v1"
 SNAPSHOT_SCHEMA = "byteworker-source-snapshot/v1"
 DIFF_SCHEMA = "byteworker-source-diff/v1"
+MEEGO_RECORD_ID_KEYS = ("work_item_id", "workItemId", "id")
 AUTH_SCHEMA = "byteworker-source-auth/v1"
 DEFAULT_MAX_ITEMS = 1000
 MAX_PAGES = 200
@@ -512,6 +513,10 @@ def _canonical_bytes(value: Any) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def meego_record_id(record: Any) -> str:
+    return _stable_id(record, MEEGO_RECORD_ID_KEYS)
 
 
 def _sanitize_url(url: str) -> tuple[str, int]:
@@ -1138,7 +1143,7 @@ def capture_meego(
     sanitized_records, removed_sensitive_parameters = _sanitize_source_value(records)
     ordered = _sort_and_validate_records(
         sanitized_records,
-        id_keys=("work_item_id", "workItemId", "id"),
+        id_keys=MEEGO_RECORD_ID_KEYS,
         provider="Meego",
     )
     source_uid = (
@@ -1154,21 +1159,16 @@ def capture_meego(
     }
     anchors = [
         {
-            "anchor_id": f"workitem:{_stable_id(item, ('work_item_id', 'workItemId', 'id'))}",
+            "anchor_id": f"workitem:{meego_record_id(item)}",
             "kind": "meego_workitem",
             "precision": "exact",
             "locator": {
                 "project_key": coordinates["project_key"],
-                "work_item_id": _stable_id(
-                    item, ("work_item_id", "workItemId", "id")
-                ),
+                "work_item_id": meego_record_id(item),
                 "view_id": coordinates["view_id"],
             },
             "open_url": url,
-            "label": _label(
-                item,
-                _stable_id(item, ("work_item_id", "workItemId", "id")),
-            ),
+            "label": _label(item, meego_record_id(item)),
             **({"source_time": _source_time(item)} if _source_time(item) else {}),
         }
         for item in ordered
@@ -2487,7 +2487,7 @@ def _snapshot_from_capture(value: Mapping[str, Any], *, label: str) -> Mapping[s
 
 def _diff_id_keys(source_type: str) -> tuple[str, ...]:
     if source_type == "meego":
-        return ("work_item_id", "workItemId", "id")
+        return MEEGO_RECORD_ID_KEYS
     if source_type == "feishu_base":
         return ("record_id", "recordId", "id")
     if source_type == "aeolus":
@@ -2513,6 +2513,27 @@ def _changed_paths(before: Any, after: Any, prefix: str = "") -> list[str]:
     if isinstance(before, list) and isinstance(after, list):
         return [prefix or "$"]
     return [prefix or "$"]
+
+
+def _meego_role_order_independent(record: Mapping[str, Any]) -> dict[str, Any]:
+    def normalize_roles(fields: Mapping[str, Any]) -> dict[str, Any]:
+        result = dict(fields)
+        for key in ("role_members", "roleMembers"):
+            roles = fields.get(key)
+            if isinstance(roles, list):
+                result[key] = sorted((
+                    {**role, "members": sorted(role["members"], key=_canonical_bytes)}
+                    if isinstance(role, Mapping) and isinstance(role.get("members"), list)
+                    else role
+                    for role in roles
+                ), key=_canonical_bytes)
+        return result
+
+    comparable = normalize_roles(record)
+    for key in ("work_item_attribute", "workItemAttribute"):
+        if isinstance(record.get(key), Mapping):
+            comparable[key] = normalize_roles(record[key])
+    return comparable
 
 
 def diff_captures(
@@ -2594,18 +2615,24 @@ def diff_captures(
                         "before": before,
                     }
                 )
-            elif before != after:
+            else:
+                before_compare, after_compare = before, after
+                if source_type == "meego" and before != after:
+                    before_compare = _meego_role_order_independent(before)
+                    after_compare = _meego_role_order_independent(after)
+                changed_paths = _changed_paths(before_compare, after_compare)
+                if not changed_paths:
+                    unchanged += 1
+                    continue
                 changes.append(
                     {
                         "change_type": "changed",
                         "record_id": record_id,
-                        "changed_paths": _changed_paths(before, after),
+                        "changed_paths": changed_paths,
                         "before": before,
                         "after": after,
                     }
                 )
-            else:
-                unchanged += 1
 
     counts = {
         key: sum(1 for item in changes if item["change_type"] == key)

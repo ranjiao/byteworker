@@ -410,14 +410,15 @@ def analyze_flow(
     try:
         record_stage(kb, run_id=run_id, stage="analysis_prepare", status="started")
         analysis = prepare_analysis_packet(
-            bundle_path, packet_path, skill_root=skill_root
+            bundle_path, packet_path, skill_root=skill_root,
+            kb=kb if state["preflight_state"] != "resume_failed" else None,
         )
-        dependency_plan = plan_parallel_work(
-            packet_path, work_dir / "dependency", stage="dependency", skill_root=skill_root
-        )
-        semantic_plan = plan_parallel_work(
-            packet_path, work_dir / "semantic", stage="semantic", skill_root=skill_root
-        )
+        plans = {}
+        if "meego_changes" not in analysis or analysis["semantic_item_count"]:
+            for stage in ("dependency", "semantic"):
+                plans[f"{stage}_plan"] = plan_parallel_work(
+                    packet_path, work_dir / stage, stage=stage, skill_root=skill_root,
+                )
         record_stage(
             kb,
             run_id=run_id,
@@ -433,16 +434,13 @@ def analyze_flow(
     except Exception as exc:
         _prepare_failure(kb, run_id, exc, ("analysis_prepare",))
 
-    next_action = (
-        "dependency_review"
-        if int(analysis["dependency_candidate_count"]) > 0
-        else "semantic_analysis"
-    )
+    next_action = "candidate_generation"
+    if plans:
+        next_action = "dependency_review" if analysis["dependency_candidate_count"] else "semantic_analysis"
     artifacts = {
         "bundle": str(bundle_path),
         "analysis_packet": str(packet_path),
-        "dependency_plan": str(dependency_plan["plan_path"]),
-        "semantic_plan": str(semantic_plan["plan_path"]),
+        **{name: str(plan["plan_path"]) for name, plan in plans.items()},
     }
     with _flow_lock(kb):
         state = _load_state(kb, run_id)
@@ -456,8 +454,7 @@ def analyze_flow(
         "phase": "prepared",
         "preflight_state": state["preflight_state"],
         "analysis": analysis,
-        "dependency_plan": dependency_plan,
-        "semantic_plan": semantic_plan,
+        **plans,
         "next_action": next_action,
     }
 

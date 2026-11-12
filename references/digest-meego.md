@@ -83,11 +83,15 @@ bin/byteworker source diff \
 - 首次没有上一份快照时，`source diff` 把所有记录标为 `baseline`，表示建立基线，不等于
   同数量的新增需求。
 - 后续按稳定 `work_item_id` 分类为 `added / changed / left_view`；未变记录只计数、不重复交给
-  语义 digest。`changed_paths` 用于缩小复核范围。
+  语义 digest。角色及角色成员仅改变顺序时计入未变化，成员或其他字段的实质变更仍进入
+  `changed_paths`。
 - `left_view` 只表示离开这个保存视图，禁止写成“已删除 / 已取消”。若要确认真实终态，需另行
   读取权威工作项。
 - diff JSON 位于系统临时目录，是相邻完整快照的可重算派生物；raw 保存当前完整 snapshot，
   不能只存 diff。
+- `digest-flow analyze` 自行复用上一份已提交快照计算差异。只把 baseline、added 和 changed
+  记录及对应依赖、引用交给分析；直接用返回的计划和 `analysis.meego_changes` 计数。
+  `next_action=candidate_generation` 时无记录需要分析，按最小来源元数据更新规则提交完整快照。
 
 ## 4. 交给 digest 事务
 
@@ -148,6 +152,5 @@ added / changed 逐条应用晋升门槛:
 
 用户确认纳入 routine 后，把 `enabled/cadence` 写入该 Meego profile，raw 只记录本次使用的
 profile path/revision，不再充当下一次调度配置。后续加载 profile 重新 capture 完整视图并走
-`digest-txn preflight`。完整快照 hash 相同只记录“已复查、无变化”；不同时让 SnapshotStore
-从 KB 选择上一份已提交完整 raw，再运行 `source diff --kb ... --source-uid ...`，只把差异记录
-交给语义层，raw 仍保存本次全量快照。只有事务 receipt `status=committed` 才表示知识库更新成功。
+`digest-flow prepare`。完整快照 hash 相同只登记 noop；不同时由 flow 生成增量分析包。
+Agent 使用该包和计划，按需定点核对原记录。只有事务 receipt `status=committed` 才表示知识库更新成功。

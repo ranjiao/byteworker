@@ -29,6 +29,8 @@
 用 `workflow-budget resolve --workflow digest --source-type <TYPE>` 加载该来源闭包。
 只补读实际触发的 feature 和未读规则。`resume_failed` 按普通 Digest 的历史 raw 恢复闸门；
 其它已检查来源用 `digest-flow analyze` 消费原 bundle，生成分析包和计划。
+Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，无待分析记录，
+按最小来源元数据更新规则保存完整快照，直接登记事务回执。
 保持普通 Digest 的依赖、语义、冲突、候选、引用和事务规则。
 `changed` 只说明采集 payload 变化，不代表有业务进展。主记录候选也必须执行
 `write-rules.md`「信息增量门槛」；无业务增量按其最小来源元数据更新规则保存快照，

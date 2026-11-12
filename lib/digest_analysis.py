@@ -18,6 +18,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from snapshot_store import diff_current_against_kb
+from source_capture import SourceCaptureError, meego_record_id
 from sources import SourceBundleError, canonical_sha256, load_source_bundle
 
 
@@ -388,6 +390,7 @@ def _receipt(path: Path, packet: Mapping[str, Any], *, cache_hit: bool) -> dict[
         "semantic_item_count": stats["semantic_item_count"],
         "participant_count": stats["participant_count"],
         "anchor_count": stats["anchor_count"],
+        **({"meego_changes": packet["meego_changes"]} if "meego_changes" in packet else {}),
     }
 
 
@@ -396,6 +399,7 @@ def prepare_analysis_packet(
     output_path: Path,
     *,
     skill_root: Path = DEFAULT_SKILL_ROOT,
+    kb: Path | None = None,
 ) -> dict[str, Any]:
     output = _outside_skill(output_path, skill_root=skill_root)
     try:
@@ -433,11 +437,27 @@ def prepare_analysis_packet(
         component_hashes[component.name] = digest
         component_payloads[component.name] = raw
 
+    meego_diff = None
+    meego_snapshot = None
+    if kb is not None and bundle.identity.source_type == "meego":
+        component = next((item for item in bundle.components if item.kind == "records"), None)
+        if component is not None:
+            meego_snapshot = _decode_component(component, component_payloads[component.name])
+            if not isinstance(meego_snapshot, Mapping) or meego_snapshot.get("source_type") != "meego":
+                raise DigestAnalysisError("DIGEST_ANALYSIS_COMPONENT_INVALID", "Meego records component 必须是 Meego 快照。")
+            try:
+                meego_diff = diff_current_against_kb(
+                    {"snapshot": meego_snapshot}, kb, source_uid=bundle.identity.source_uid,
+                )
+            except SourceCaptureError as exc:
+                raise DigestAnalysisError(exc.code, str(exc), hint=exc.hint, details=exc.details) from exc
+
     input_hash = canonical_sha256(
         {
             "analysis_algorithm_version": ANALYSIS_ALGORITHM_VERSION,
             "bundle": bundle.to_dict(),
             "component_hashes": component_hashes,
+            **({"meego_diff_hash": meego_diff["diff_hash"]} if meego_diff is not None else {}),
         }
     )
     existing = _existing_packet(output, input_hash)
@@ -445,23 +465,27 @@ def prepare_analysis_packet(
         os.chmod(output, 0o600)
         return _receipt(output, existing, cache_hit=True)
 
+    selected_meego_ids = (
+        {item["record_id"] for item in meego_diff["changes"] if "after" in item}
+        if meego_diff is not None else None
+    )
     reference_texts: list[str] = []
     body_texts: list[str] = []
     participant_ids: set[str] = set()
     semantic_item_count = 0
     for component in bundle.components:
-        value = _decode_component(component, component_payloads[component.name])
+        is_meego_records = bundle.identity.source_type == "meego" and component.kind == "records"
+        value = meego_snapshot if is_meego_records and meego_diff is not None else _decode_component(
+            component, component_payloads[component.name],
+        )
         size = len(component_payloads[component.name])
-        serialized = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-        reference_texts.append(serialized)
-        participant_ids.update(OPEN_ID_RE.findall(serialized))
         if isinstance(value, str):
             text = _plain_text(value)
             items = [{"path": "$", "text": text}] if text else []
             if component.kind == "body":
                 body_texts.append(value)
         else:
-            if bundle.identity.source_type == "meego" and component.kind == "records":
+            if is_meego_records:
                 if not isinstance(value, Mapping) or not isinstance(value.get("records"), list):
                     raise DigestAnalysisError(
                         "DIGEST_ANALYSIS_COMPONENT_INVALID", "Meego snapshot 必须包含 records 数组。"
@@ -472,12 +496,20 @@ def prepare_analysis_packet(
                         raise DigestAnalysisError(
                             "DIGEST_ANALYSIS_COMPONENT_INVALID", "Meego record 必须是对象。"
                         )
+                    if selected_meego_ids is not None and meego_record_id(record) not in selected_meego_ids:
+                        continue
                     items.append({
                         "path": f"$/records/{index}",
                         "text": json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
                     })
             else:
                 items = _dedupe_items(_walk_text(value))
+        if is_meego_records and selected_meego_ids is not None:
+            serialized = "\n".join(item["text"] for item in items)
+        else:
+            serialized = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        reference_texts.append(serialized)
+        participant_ids.update(OPEN_ID_RE.findall(serialized))
         semantic_item_count += len(items)
         sections.append(
             {
@@ -497,6 +529,7 @@ def prepare_analysis_packet(
             for heading in _headings(body)
         )
     )
+    selected_anchor_ids = {f"workitem:{record_id}" for record_id in selected_meego_ids or ()}
     anchors = [
         {
             key: anchor[key]
@@ -512,6 +545,8 @@ def prepare_analysis_packet(
             if key in anchor
         }
         for anchor in bundle.anchors
+        if selected_meego_ids is None or anchor.get("kind") != "meego_workitem"
+        or anchor.get("anchor_id") in selected_anchor_ids
     ]
     packet = {
         "schema_version": ANALYSIS_PACKET_SCHEMA,
@@ -529,6 +564,7 @@ def prepare_analysis_packet(
         "participant_ids": sorted(participant_ids),
         "sections": sections,
         "anchors": anchors,
+        **({"meego_changes": meego_diff["summary"]} if meego_diff is not None else {}),
         "stats": {
             "component_count": len(bundle.components),
             "input_bytes": total_bytes,
