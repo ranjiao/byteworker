@@ -1,6 +1,8 @@
 # Dreaming Actions
 
 模型只能提出 `byteworker-action-plan/v1`，确定性 policy 和 Ledger 决定是否允许执行。
+提出 `knowledge_candidate` 前，必须加载 `write-rules.md` 并通过「信息增量门槛」；
+archive grant 不是写入运行流水或重复事实的理由。没有知识增量时不创建该 action。
 
 ## 有限动作
 

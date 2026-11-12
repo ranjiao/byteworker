@@ -525,6 +525,8 @@ Digest 运行日志的 `shard_budget_checked` 和 `shard_execution_failed` 记�
 `effective_source_limit`；重分片时 `host_input_limit_source` 区分外部提供、宿主回执和本地试算。
 缩小时保留完成片的编号与结果，给拆开的片分配新编号，最后原子更新计划。无法继续缩片时
 用 `shard_context_retry_exhausted` 关联当前计划、分片和已核验失败编号，记录固定原因码。
+分析包只按 `(path, text)` 去重，结构化记录中相同
+枚举值即使重复出现，也必须保留各自记录的语义路径，避免状态变化因全局文本去重丢失。
 Dreaming 来源回执和私有摘要可带 `failure_evidence`，只保存对应阶段、分片和已核验技术证据。
 提前收尾被拒绝时写入关联 Digest 编号的 `source_completion_rejected` 事件。旧批次和日志仍可读。
 

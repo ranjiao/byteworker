@@ -30,6 +30,9 @@
 只补读实际触发的 feature 和未读规则。`resume_failed` 按普通 Digest 的历史 raw 恢复闸门；
 其它已检查来源用 `digest-flow analyze` 消费原 bundle，生成分析包和计划。
 保持普通 Digest 的依赖、语义、冲突、候选、引用和事务规则。
+`changed` 只说明采集 payload 变化，不代表有业务进展。主记录候选也必须执行
+`write-rules.md`「信息增量门槛」；无业务增量按其最小来源元数据更新规则保存快照，
+不把 digest-scan 计数、分片执行、未晋升说明或覆盖状态复制进知识节点。
 
 ## 无人值守时的处理顺序
 

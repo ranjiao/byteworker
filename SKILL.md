@@ -158,6 +158,8 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 - Agent 不直接执行 temp、INDEX、journal、git add/commit 或失败回滚。
 - mutation 候选与 plan 放系统临时目录或 KB，不得进入 skill 仓库。
 - knowledge mutation 必须按唯一 `conflict-policy.md` 声明 disposition；来源较新不等于可覆盖。
+- 所有知识写入先过 `references/write-rules.md` 的「信息增量门槛」；主记录也不能写运行流水、
+  重复摘要或归档占位说明。保存新快照与新增业务知识分别判断。
 - area/org/person 的范围、目录证据、负责人和关系分型统一按 `references/write-rules.md`；digest
   与 update 的机器路由都必须包含它，不在常驻入口复制细则。
 

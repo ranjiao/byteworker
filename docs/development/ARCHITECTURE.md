@@ -306,6 +306,11 @@ flowchart LR
 ### 2.3 结构化来源的更新流程
 
 Meego、Base 和风神的大视图先保存完整快照。Agent 只复核变化的记录，再判断哪些需要写入知识节点。
+所有入口的候选生成均由 Agent 按 `references/write-rules.md`「信息增量门槛」区分采集变化和
+业务变化，主记录也不承载运行流水。工具只校验确定性契约，不用关键词判断内容是否有价值。
+当前 DigestTxn 要求非空 nodes：已有来源无业务增量时，仍用同源主记录承接新 raw 的来源
+元数据，保留正文及既有 evidence 映射；不刷新未经实际复核的 last_verified，不新增复查段落。
+首次摄取必须完成实质摘要，禁止用“原文已归档”占位提交。schema、事务和依赖方向不变。
 
 ```mermaid
 flowchart TD
@@ -316,7 +321,7 @@ flowchart TD
     D["ChangeSet<br/>baseline / added / changed / left_view"]
     A["Agent 只复核变化记录"]
     G{"是否达到知识晋升门槛？"}
-    R["只保存 raw + provenance"]
+    R["保存 raw + provenance<br/>主记录仅维护必要来源元数据，正文不追加"]
     N["更新 reading 主记录<br/>必要时晋升 project / decision / event / area"]
 
     P --> C --> B
@@ -1175,7 +1180,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_debug.py` | 本地调试页按 run 关联 batch/report 产物，校验 Finding/evidence 一致性并按需投影原文片段 | 只读 `state/dreaming/`，不复制正文到日志 |
 | `lib/dreaming_run_result.py` | 校验每轮结构化摘要、来源说明、检查项与修复明细 | `state/dreaming/run-results/<run_id>.json`，终态日志按 run id 关联，完成回执与本地查询共用 |
 | `lib/dreaming_grants.py` | IM off/monitored/all_visible、persist_finding revision 与降级清理 | grant state、撤销范围内 spool/batch |
-| `lib/dreaming_collectors/feishu_im.py` | user identity 的 queryless discovery 和逐 chat 分页；provider response 规范化 | 否 |
+| `lib/dreaming_collectors/feishu_im.py` | user identity 的 queryless discovery 和逐 chat 分页。出站时间序列化为整秒，返回规范化消息 | 否 |
 | `lib/dreaming_collection.py` | 时间窗口、Profile 选择、message revision 去重、coverage 与时间切片 gap | collected batch |
 | `lib/dreaming_batch.py` | 私密 spool、immutable manifest、stage receipt、commit marker、cursor/recovery、TTL GC | `state/dreaming/{spool,batches}` 与 v2 索引 |
 | `lib/dreaming_analysis.py` | FindingBundle schema、batch/hash、evidence ref 和 grant revision 复验 | 否 |
@@ -1245,7 +1250,7 @@ flowchart LR
 | `byteworker-digest-job/v1` | `digest_jobs.py` | 用户确认页面；小批租约；committed/noop 以事务事实为准 |
 | `byteworker-digest-run-event/v1` | `digest_run_log.py` + Agent/宿主 stage/usage protocol | 固定阶段/metrics/usage/wait reason；waiting 不计 active duration；6 小时无 lifecycle heartbeat 显示 stale；usage 不续活；无业务正文 |
 | `byteworker-digest-flow/v1` | `digest_flow.py` + SourceBundle/analysis/planner/transaction | 私有 phase/artifact checkpoint；确定性阶段自动打点；失败可恢复；只返回固定 next action，不承担语义 |
-| `byteworker-digest-analysis-packet/v1` | `digest_analysis.py` | 私有临时产物；一次读取 Bundle；去除结构噪声但保留 component/path/anchor；不得进入 skill/运行日志 |
+| `byteworker-digest-analysis-packet/v1` | `digest_analysis.py` | 私有临时产物；一次读取 Bundle；去除结构噪声但保留 component/path/anchor；结构化枚举按 path+text 去重，重复记录状态不得被全局文本去重丢弃；不得进入 skill/运行日志 |
 | `byteworker-digest-capture-plan/v1` / `byteworker-digest-capture-receipt/v1` | `digest_capture.py` | 最多 4 个 allowlisted 只读 provider job；输出原子写入；任一失败则 coverage failed |
 | `byteworker-digest-parallel-plan/v1` / `byteworker-digest-parallel-shard/v1` | `digest_parallel.py` | 按阶段计量、最多 4 路并发。超限时核验实际分片大小，原始证据保留供定点回查 |
 | `byteworker-digest-parallel-result/v1` / `byteworker-digest-reduce-packet/v1` | Agent workers + `digest_parallel.py` | 完整 shard coverage 和边界校验；单一 reducer 处理语义重复、跨分片关系和用户闸门 |

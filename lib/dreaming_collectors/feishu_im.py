@@ -8,10 +8,18 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from dreaming_state import DreamingError
+from dreaming_state import DreamingError, parse_time
 
 
 Command = Callable[[list[str]], dict[str, Any]]
+
+
+def _request_time(value: str) -> str:
+    parsed = parse_time(value)
+    if parsed is None:
+        raise DreamingError("DREAMING_WINDOW_INVALID", "飞书 IM 采集时间必须包含时区。")
+    # Feishu rejects fractional seconds in the message search time filter.
+    return parsed.isoformat(timespec="seconds")
 
 
 def _default_command(timeout: int) -> Command:
@@ -254,6 +262,7 @@ class FeishuImCollector:
         start: str,
         end: str,
     ) -> dict[str, Any]:
+        request_start, request_end = _request_time(start), _request_time(end)
         messages: list[dict[str, Any]] = []
         truncated_chats = []
         for chat_id in chat_ids:
@@ -273,9 +282,9 @@ class FeishuImCollector:
                         "--chat-id",
                         chat_id,
                         "--start",
-                        start,
+                        request_start,
                         "--end",
-                        end,
+                        request_end,
                         "--order",
                         "asc",
                         "--no-reactions",
@@ -308,9 +317,9 @@ class FeishuImCollector:
                 "--query",
                 "",
                 "--start",
-                start,
+                _request_time(start),
                 "--end",
-                end,
+                _request_time(end),
                 "--no-reactions",
             ]
         )

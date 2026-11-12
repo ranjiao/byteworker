@@ -56,6 +56,8 @@ byteworker skill 负责报告方法，Codex / Claude / TraeWork 等 harness 负�
    - 必纳入:明确决策、项目状态变化、关键指标明显变化、事故/风险/阻塞、跨团队协作变化、与你本人或团队直接相关的关键交互。
    - 可纳入:重要技术路线、资源 / 排期 / 人力变化、对下周有动作含义的讨论。
    - 排除:纯同步流水、重复摘要、寒暄、无留存价值的低信号消息。
+   - 节点 updated 和新 raw 只用于召回，不证明业务变化。按事实跨批次去重；检查数量、
+     “已归档供报告使用”等运行说明不算重点，也不另建 knowledge 复查汇总节点。
 7. **写报告**
    - 写入前确保 `reports/daily/` 与 `reports/weekly/` 目录存在;老知识库没有这些目录时直接创建。
    - `daily` 复制 `templates/report-daily.md` 的结构,写到 `reports/daily/<YYYY-MM-DD>.md`。
