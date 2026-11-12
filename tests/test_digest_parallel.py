@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,11 +16,14 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from digest_parallel import (  # noqa: E402
     DigestParallelError,
+    attempt_parallel_shard,
     checkpoint_parallel_results,
     merge_parallel_results,
     plan_parallel_work,
+    replan_parallel_work,
 )
-from workflow_budget import estimate_tokens  # noqa: E402
+from digest_run_log import start_run  # noqa: E402
+from workflow_budget import estimate_tokens, inspect_budget  # noqa: E402
 
 
 class DigestParallelTests(unittest.TestCase):
@@ -279,6 +283,123 @@ class DigestParallelTests(unittest.TestCase):
         packet["sections"][0]["text_items"][0]["text"] += " changed"
         self.packet.write_text(json.dumps(packet), encoding="utf-8")
         self.assertEqual([item["shard_id"]], checkpoint_parallel_results(kb, plan(3))["missing_shard_ids"])
+
+    def test_host_replan_splits_pending_shards_and_preserves_completed_results(self):
+        self.write_packet(semantic_items=28, semantic_text_size=1600)
+        kb = self.root / "kb"
+        stage = kb / "state/digest/flows/DG-20261110T010101Z-00000001/semantic"
+        rules = inspect_budget(workflow="digest_semantic_worker")["measurement"]["total_input_tokens"]
+        receipt = plan_parallel_work(self.packet, stage, stage="semantic", host_input_limit=rules + 3000)
+        plan_path = Path(receipt["plan_path"])
+        original = self.load_plan(receipt)
+        self.assertGreater(len(original["shards"]), 1)
+        completed = original["shards"][0]
+        result = self.root / "worker-result.json"
+
+        def save(shard_id):
+            result.write_text(json.dumps({
+                "schema_version": "byteworker-digest-parallel-result/v1", "stage": "semantic",
+                "shard_id": shard_id, "input_hash": original["input_hash"], "records": [],
+            }))
+            return checkpoint_parallel_results(kb, plan_path, result_path=result)["completed"][0]
+
+        saved = save(completed["shard_id"])
+        before = plan_path.read_bytes()
+        with self.assertRaises(DigestParallelError):
+            replan_parallel_work(kb, plan_path, host_input_limit=rules)
+        self.assertEqual(before, plan_path.read_bytes())
+        replacement = replan_parallel_work(kb, plan_path, host_input_limit=rules + 1000)
+        new_plan = self.load_plan(replacement)
+        self.assertEqual(1, new_plan["max_workers"])
+        self.assertEqual(original["input_hash"], new_plan["input_hash"])
+        self.assertEqual(completed, new_plan["shards"][0])
+        progress = checkpoint_parallel_results(kb, plan_path)
+        self.assertEqual([saved], progress["completed"])
+        self.assertGreater(new_plan["shard_count"], original["shard_count"])
+        replaced = original["shards"][1]["shard_id"]
+        with self.assertRaises(DigestParallelError):
+            save(replaced)
+        for entry in new_plan["shards"][1:]:
+            measured = inspect_budget(workflow="digest_semantic_worker", source_packet_path=Path(entry["path"]))
+            self.assertLessEqual(measured["measurement"]["total_input_tokens"], rules + 1000)
+            save(entry["shard_id"])
+        progress = checkpoint_parallel_results(kb, plan_path)
+        self.assertFalse(progress["missing_shard_ids"])
+        original_text = self.packet.read_text()
+        sections = json.loads(original_text)["sections"]
+        expected = {item["path"]: item["text"] for section in sections for item in section["text_items"]}
+        pieces = {key: [] for key in expected}
+        for entry in new_plan["shards"]:
+            shard = json.loads(Path(entry["path"]).read_text())
+            for section in shard["sections"]:
+                for item in section["text_items"]:
+                    pieces[item["path"]].append((item.get("text_range", {}).get("start", 0), item["text"]))
+        self.assertEqual(expected, {key: "".join(text for _, text in sorted(parts)) for key, parts in pieces.items()})
+
+        packet = json.loads(original_text)
+        packet["generated_at"] = "later"
+        self.packet.write_text(json.dumps(packet))
+        second_stage = stage.parent.parent / "DG-20261110T010101Z-00000002/semantic"
+        second = plan_parallel_work(self.packet, second_stage, stage="semantic", host_input_limit=rules + 3000)
+        second_path = Path(second["plan_path"])
+        replan_parallel_work(kb, second_path, host_input_limit=rules + 1000)
+        self.assertFalse(checkpoint_parallel_results(kb, second_path)["missing_shard_ids"])
+
+    def test_context_retry_without_host_capacity_shrinks_repeatedly_and_preserves_progress(self):
+        self.write_packet(semantic_items=24)
+        packet = json.loads(self.packet.read_text())
+        for item in packet["sections"][0]["text_items"]:
+            item["text"] = hashlib.shake_256(item["path"].encode()).hexdigest(600)
+        self.packet.write_text(json.dumps(packet))
+        kb = self.root / "kb"
+        kb.mkdir()
+        subprocess.run(["git", "init", "-q", str(kb)], check=True)
+        run_id = start_run(kb, source_type="feishu_doc")["run_id"]
+        stage = kb / "state/digest/flows" / run_id / "semantic"
+        rules = inspect_budget(workflow="digest_semantic_worker")["measurement"]["total_input_tokens"]
+        plan = plan_parallel_work(self.packet, stage, stage="semantic", host_input_limit=rules + 3600)
+        plan_path = Path(plan["plan_path"])
+        original = self.load_plan(plan)
+        result = self.root / "worker-result.json"
+
+        def save(shard_id):
+            result.write_text(json.dumps({
+                "schema_version": "byteworker-digest-parallel-result/v1", "stage": "semantic",
+                "shard_id": shard_id, "input_hash": original["input_hash"], "records": [],
+            }))
+            return checkpoint_parallel_results(kb, plan_path, result_path=result)
+
+        saved = save(original["shards"][0]["shard_id"])["completed"]
+        for index in range(2):
+            old_limit = plan["host_input_limit"]
+            plan_data = self.load_plan(plan)
+            pending = checkpoint_parallel_results(kb, plan_path)["missing_shard_ids"]
+            shard = max(
+                (entry for entry in plan_data["shards"] if entry["shard_id"] in pending),
+                key=lambda entry: Path(entry["path"]).stat().st_size,
+            )
+            checked = attempt_parallel_shard(kb, plan_path, shard_id=shard["shard_id"])
+            with patch("digest_worker_host.read_host_failure", return_value={
+                "error_code": "DIGEST_HOST_CONTEXT_LIMIT", "host": "doubaowork", "tool": "create_agent",
+                "call_id": f"call-{index}", "provider_code": "context_length_exceeded",
+            }):
+                attempt_parallel_shard(kb, plan_path, shard_id=shard["shard_id"],
+                                       attempt_id=checked["attempt_id"], failure="DIGEST_HOST_CONTEXT_LIMIT")
+            plan = replan_parallel_work(kb, plan_path, failed_attempt_id=checked["attempt_id"])
+            self.assertEqual(("replanned", "context_probe", 1),
+                             (plan["status"], plan["host_input_limit_source"], plan["max_workers"]))
+            self.assertLess(plan["host_input_limit"], old_limit)
+            self.assertGreater(plan["shard_count"], plan_data["shard_count"])
+            self.assertEqual(saved, checkpoint_parallel_results(kb, plan_path)["completed"])
+
+        for shard_id in checkpoint_parallel_results(kb, plan_path)["missing_shard_ids"]:
+            save(shard_id)
+        progress = checkpoint_parallel_results(kb, plan_path)
+        paths = [Path(entry["result_path"]) for entry in progress["completed"]]
+        reducer_rules = inspect_budget(workflow="digest_final_reducer")["measurement"]["total_input_tokens"]
+        self.assertLess(plan["host_input_limit"], reducer_rules)
+        merged = merge_parallel_results(plan_path, paths, self.root / "reduce.json")
+        self.assertEqual(plan["shard_count"], merged["shard_count"])
 
     def test_merge_requires_complete_dependency_coverage(self):
         self.write_packet(dependencies=64, dependency_context_size=2000)

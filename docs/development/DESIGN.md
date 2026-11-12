@@ -518,8 +518,13 @@ state/dreaming/
 Digest flow 增加 `checked`，保存已预检的 Bundle。分片结果保存在各计划目录 `results/`，
 来源内语义结果还可按内容、分片和规则指纹缓存在 `state/digest/shard-results/` 30 天。
 缓存是私有可重建产物。依赖、冲突和提交回执仍在当前运行生成。
-Digest 运行日志增加 `shard_budget_checked` 和 `shard_execution_failed`，记录分片阶段、编号、
-计划校验值、执行角色、预算计数和限额。宿主失败必须关联同片已通过的预算检查。
+Digest 运行日志的 `shard_budget_checked` 和 `shard_execution_failed` 记录分片阶段、编号、
+计划校验值、执行角色、预算计数和限额。执行尝试用 `attempt_id` 关联同片预算检查和宿主轨迹；
+宿主证据保存工具名、调用编号、固定错误码及明确返回的 `available_input_tokens`（若有）。
+旧的自报失败仍可查看，不能作为新收尾证据。分片计划可带 `host_input_limit` 和
+`effective_source_limit`；重分片时 `host_input_limit_source` 区分外部提供、宿主回执和本地试算。
+缩小时保留完成片的编号与结果，给拆开的片分配新编号，最后原子更新计划。无法继续缩片时
+用 `shard_context_retry_exhausted` 关联当前计划、分片和已核验失败编号，记录固定原因码。
 Dreaming 来源回执和私有摘要可带 `failure_evidence`，只保存对应阶段、分片和已核验技术证据。
 提前收尾被拒绝时写入关联 Digest 编号的 `source_completion_rejected` 事件。旧批次和日志仍可读。
 

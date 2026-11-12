@@ -509,14 +509,18 @@ parallel 时加 parallel_execution；恢复/usage 上报加 recovery，加载日
 preflight_state=resume_failed 必须核查历史 pending/failed raw 并人工恢复，不能按新版本继续生成候选或提交。
 失败的 on_error 加载诊断/事务/日志细则。条件触发时保留已选 feature 重新 resolve，只补读未读路径。
 解释性链接不等于额外必读，不允许普通来源沿链接重新加载整个旧闭包。
-flow prepare 已产生 packet 和 dependency/semantic plan，Agent 直接消费，不能重复预处理或规划；
+flow prepare 已产生 packet 和 dependency/semantic plan，Agent 直接消费。宿主输入受限时，
+使用现有计划重分未完成片，保留已核验结果和原始输入标识；
 conflict planner 仍对新召回结果执行一次。语义 owner、coverage、inline/parallel 阈值及成功判定不变。
 大型 worker 和 Wiki resume 保留完整执行手册。Dreaming routine 只预读变化检查与分派规则；
 变化来源再解析其普通 digest 闭包，保留原有权限、依赖、冲突与事务行为。
 独立语义任务共用最多 4 个隔离 worker，按宿主和预算降并发；针对当前 KB 的冲突和写入串行。
 分片回执复用同一校验器，即时保存。跨轮只复用内容指纹、分片和 worker 规则完全匹配的来源内语义结果。
-Digest 分片执行前按计划角色核算单片预算并写入技术日志。预算超限由工具核算，宿主无法执行、
-超时和执行失败由 coordinator 记录固定原因码。缺失 checkpoint 仍进入执行队列。
+Digest 分片执行前按计划角色核算单片预算并登记尝试编号。宿主适配层从本机工具轨迹核验
+执行尝试与返回错误，只投影工具调用标识、固定原因码及明确返回的容量数值。Planner 按当前
+计划的已核验失败自动缩小未完成片，优先使用明确的宿主可用量，否则根据失败片估算逐次降低
+试跑上限。Dreaming coordinator 按新计划逐片执行和保存；只有工具确认无法继续缩片并记录
+对应失败编号后才允许暂缓。缺失 checkpoint 仍进入执行队列。
 Dreaming 的授权、宿主与运行细则只在 dreaming feature 中加载；area/org/person 治理统一由
 `write-rules.md` 承载，并同时属于 digest 与 update 的 required 闭包，不复制进常驻路由器。
 子 Agent、无人值守报告和 Wiki resume 都必须从 manifest 递归展开闭包，不依赖上一 session

@@ -159,7 +159,7 @@ bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 `state/dreaming/run-results/<run_id>.json`，正文仅用于本机查询和宿主本轮结果。
 已准备来源被拒绝提前收尾时，日志记录 `DREAMING_DIGEST_EXECUTION_REQUIRED` 和关联 Digest 编号。
 已登记的来源失败证据保存在 `summary.accounting.routine_sources[].failure_evidence`，可用
-`digest-run show` 按 Digest 编号查看原始分片预算检查与宿主报告的失败。
+`digest-run show` 按 Digest 编号查看分片预算、尝试编号和核验过的宿主错误。
 process 的摘要同时保存 `accounting.performance`，来自本轮租约内已关联的 Digest 事件。
 逐阶段耗时为子运行累加；并发可能超过整轮墙钟。子运行内无已结束阶段的时间和子运行之外的墙钟
 单列，不能推断为模型耗时。宿主实际调用耗时、间隔和 token 仅在上报后汇总，估算与实测分开。
