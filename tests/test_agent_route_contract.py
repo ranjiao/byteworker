@@ -173,7 +173,7 @@ class AgentRouteContractTests(unittest.TestCase):
         self.assertIn("不重新初始化", tutorial)
 
     def test_moved_mutation_policies_remain_in_required_closures(self):
-        for workflow in ("digest", "update"):
+        for workflow in ("digest", "update", "large_digest_worker", "wiki_resume_page", "digest_final_reducer"):
             with self.subTest(workflow=workflow):
                 self.assertIn("references/write-rules.md", self.closure(workflow))
 

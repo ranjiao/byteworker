@@ -25,7 +25,9 @@ Finding 数量和 coverage：
 
 ## 生成与提交
 
-1. 读取 packet、report context 和有限 KB query。
+1. 读取 packet、report context 和有限 KB query。只报告有来源的业务内容，不把节点 updated、
+   raw 数量或抓取 changed 数量当作进展；相同事实跨批次去重。覆盖/失败说明放一次独立的
+   限制说明，不混进重点，不把报告运行摘要反向写成 knowledge 节点。
 2. 一次生成 `byteworker-report-document/v1`；事实按 `references/citations.md` 回到原始
    evidence，`message_summary` 为 300-500 字。
 3. 将候选保存到 KB 外临时文件，调用：

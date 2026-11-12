@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 from digest_analysis import (  # noqa: E402
     ANALYSIS_PACKET_SCHEMA,
     DigestAnalysisError,
+    _dedupe_items,
     prepare_analysis_packet,
 )
 from digest_run_log import show_run, start_run  # noqa: E402
@@ -186,11 +187,68 @@ class DigestAnalysisTests(unittest.TestCase):
         )
         self.assertNotIn("123", json.dumps(whiteboard, ensure_ascii=False))
 
+    def test_meego_packet_preserves_each_record_even_when_status_text_repeats(self):
+        root = Path(self.temp.name) / "meego"
+        root.mkdir()
+        snapshot = root / "snapshot.json"
+        bundle_path = root / "bundle.json"
+        output = root / "analysis.json"
+        snapshot.write_text(json.dumps({
+            "records": [
+                {"work_item_id": "one", "work_item_status": {"name": "执行阶段"}},
+                {"work_item_id": "two", "work_item_status": {"name": "执行阶段"}},
+            ]
+        }), encoding="utf-8")
+        bundle_path.write_text(json.dumps({
+            "schema_version": "byteworker-source-bundle/v2",
+            "identity": {
+                "source_type": "meego",
+                "source_uid": "meego:project:view",
+                "source_url": "https://example.test/view",
+                "title": "Meego view",
+            },
+            "components": [{
+                "name": "snapshot",
+                "kind": "records",
+                "path": str(snapshot),
+                "mode": "canonical-json",
+                "json_pointer": "",
+                "heading": "Meego 视图快照",
+            }],
+            "coverage": {"status": "complete", "components": {"snapshot": "complete"}},
+            "anchors": [],
+            "provider_metadata": {},
+            "snapshot_hash": None,
+            "payload_hash": None,
+        }), encoding="utf-8")
+
+        receipt = prepare_analysis_packet(bundle_path, output)
+        packet = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(2, receipt["semantic_item_count"])
+        self.assertEqual(
+            ["$/records/0", "$/records/1"],
+            [item["path"] for item in packet["sections"][0]["text_items"]],
+        )
+
     def test_prepare_reuses_same_packet_hash(self):
         first = prepare_analysis_packet(self.bundle, self.packet)
         second = prepare_analysis_packet(self.bundle, self.packet)
         self.assertEqual(first["input_hash"], second["input_hash"])
         self.assertTrue(second["cache_hit"])
+
+    def test_dedupe_keeps_repeated_text_at_different_record_paths(self):
+        items = [
+            {"path": "$/records/1/status/name", "text": "执行阶段"},
+            {"path": "$/records/2/status/name", "text": "执行阶段"},
+            {"path": "$/records/2/status/name", "text": "执行阶段"},
+        ]
+        self.assertEqual(
+            [
+                {"path": "$/records/1/status/name", "text": "执行阶段"},
+                {"path": "$/records/2/status/name", "text": "执行阶段"},
+            ],
+            _dedupe_items(items),
+        )
 
     def test_prepare_does_not_truncate_long_semantic_text(self):
         tail = "TAIL-MARKER-MUST-SURVIVE"

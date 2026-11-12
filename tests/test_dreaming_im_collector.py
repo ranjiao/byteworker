@@ -69,8 +69,8 @@ class DreamingImCollectorTests(unittest.TestCase):
         self.assertEqual("user:ou_me", collector.principal())
         result = collector.collect_monitored(
             chat_ids=["oc_test"],
-            start="2026-08-04T00:00:00+08:00",
-            end="2026-08-04T12:00:00+08:00",
+            start="2026-08-04T00:00:00.123456+08:00",
+            end="2026-08-04T12:00:00.654321+08:00",
         )
         self.assertEqual("complete", result["coverage"]["status"])
         self.assertEqual(["om_1", "om_2"], [item["message_id"] for item in result["messages"]])
@@ -78,18 +78,34 @@ class DreamingImCollectorTests(unittest.TestCase):
         self.assertEqual(2, len(message_calls))
         self.assertIn("--page-token", message_calls[1])
         self.assertTrue(all("--as" in call and "user" in call for call in message_calls))
+        for call in message_calls:
+            self.assertEqual("2026-08-03T16:00:00+00:00", call[call.index("--start") + 1])
+            self.assertEqual("2026-08-04T04:00:00+00:00", call[call.index("--end") + 1])
 
     def test_discovery_is_best_effort_and_keeps_p2p(self):
         command = FakeCommand()
-        result = FeishuImCollector(command=command).collect_discovery(
-            start="2026-08-04T00:00:00+08:00",
-            end="2026-08-04T12:00:00+08:00",
-        )
+        start = "2026-08-04T00:00:00.123456+00:00"
+        end = "2026-08-04T12:00:00.654321+00:00"
+        result = FeishuImCollector(command=command).collect_discovery(start=start, end=end)
         self.assertEqual("best_effort", result["coverage"]["status"])
         self.assertEqual("p2p", result["messages"][0]["chat_type"])
         call = next(call for call in command.calls if "+messages-search" in call)
         self.assertIn("", call)
         self.assertNotIn("--exclude-muted", call)
+        self.assertEqual("2026-08-04T00:00:00+00:00", call[call.index("--start") + 1])
+        self.assertEqual("2026-08-04T12:00:00+00:00", call[call.index("--end") + 1])
+
+    def test_discovery_budget_gap_preserves_original_window(self):
+        start = "2026-08-04T00:00:00.123456+00:00"
+        end = "2026-08-04T12:00:00.654321+00:00"
+
+        def command(args):
+            return {"ok": True, "data": {"messages": [message(1)], "has_more": True, "page_token": "next"}}
+
+        result = FeishuImCollector(command=command, max_messages=1).collect_discovery(start=start, end=end)
+        self.assertEqual([{
+            "kind": "window_budget", "start": start, "end": end, "resume": "split_time_window",
+        }], result["coverage"]["gaps"])
 
     def test_budget_truncation_creates_gap_without_persisting_page_token(self):
         command = FakeCommand()

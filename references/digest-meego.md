@@ -131,7 +131,8 @@ Meego adapter 把 capture 转成 `byteworker-source-bundle/v2`。capture 文件�
 ```
 
 然后创建 `digest-plan/v2`，只引用 bundle；plan 不再复制 `source` 或 anchors。
-首次 digest 创建一张代表该视图的 `reading` 主记录；同源新快照更新同一 reading。对 baseline /
+首次 digest 创建一张代表该视图的 `reading` 主记录；同源新快照复用同一 reading，按
+`write-rules.md`「信息增量门槛」决定正文变化或仅维护来源元数据。对 baseline /
 added / changed 逐条应用晋升门槛:
 
 - 普通需求、状态变化、负责人/排期变化 → 仅 raw + provenance；

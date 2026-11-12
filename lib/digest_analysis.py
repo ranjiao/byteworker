@@ -22,7 +22,7 @@ from sources import SourceBundleError, canonical_sha256, load_source_bundle
 
 
 ANALYSIS_PACKET_SCHEMA = "byteworker-digest-analysis-packet/v1"
-ANALYSIS_ALGORITHM_VERSION = 1
+ANALYSIS_ALGORITHM_VERSION = 2
 DEFAULT_SKILL_ROOT = Path(__file__).resolve().parents[1]
 MAX_COMPONENT_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
@@ -237,13 +237,13 @@ def _walk_text(value: Any, path: str = "$") -> Iterable[dict[str, str]]:
 
 
 def _dedupe_items(items: Iterable[dict[str, str]]) -> list[dict[str, str]]:
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     result = []
     for item in items:
-        text = item["text"]
-        if text in seen:
+        key = (item["path"], item["text"])
+        if key in seen:
             continue
-        seen.add(text)
+        seen.add(key)
         result.append(item)
     return result
 
@@ -461,7 +461,23 @@ def prepare_analysis_packet(
             if component.kind == "body":
                 body_texts.append(value)
         else:
-            items = _dedupe_items(_walk_text(value))
+            if bundle.identity.source_type == "meego" and component.kind == "records":
+                if not isinstance(value, Mapping) or not isinstance(value.get("records"), list):
+                    raise DigestAnalysisError(
+                        "DIGEST_ANALYSIS_COMPONENT_INVALID", "Meego snapshot 必须包含 records 数组。"
+                    )
+                items = []
+                for index, record in enumerate(value["records"]):
+                    if not isinstance(record, Mapping):
+                        raise DigestAnalysisError(
+                            "DIGEST_ANALYSIS_COMPONENT_INVALID", "Meego record 必须是对象。"
+                        )
+                    items.append({
+                        "path": f"$/records/{index}",
+                        "text": json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                    })
+            else:
+                items = _dedupe_items(_walk_text(value))
         semantic_item_count += len(items)
         sections.append(
             {

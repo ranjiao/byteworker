@@ -63,6 +63,7 @@ nodes 每项声明 op/path/candidate 和 evidence，新节点至少一条；主�
 更新项附读取时的 base_sha256 和 conflict_disposition，覆盖须附 conflict_evidence；保留既有
 正文、sources、evidence 和双向 links，确需删除须显式 removal 与理由。完整候选不使用文本替换 DSL。
 事务自动拼 raw、digest_targets、primary_source_url 和证据表，Agent 不重复手写。
+无业务增量按 `write-rules.md` 保留正文及 evidence，不为新 raw 编造 E 条目。
 字段拿不准时按 `digest-txn --help` 或错误诊断加载完整 `digest-transaction.md`，不猜字段。
 
 只执行 `digest-flow commit`；它在锁内复验，原子更新与失败回滚。禁止手工 git add/commit、写

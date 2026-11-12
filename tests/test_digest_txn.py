@@ -217,6 +217,43 @@ links: [{links}]
         self.assertEqual(raw_id, after["existing"]["raw_id"])
         self.assertEqual("", run_git(self.kb, "status", "--short"))
 
+    def test_new_payload_can_archive_without_rewriting_existing_knowledge(self):
+        body, comments = self.write_source()
+        source = self.source_manifest(body, comments)
+        old_id = "raw-2026-07-27-test-plan"
+        first = self.write_plan(source, old_id, "first", self.reading_text([old_id]))
+        execute_plan(self.kb, first, ROOT)
+        target = self.kb / "knowledge/readings/reading-test-plan.md"
+        old_text = target.read_text(encoding="utf-8")
+        old_fm, old_body = parse_file(str(target))
+
+        # A capture-only change still needs durable raw/provenance. It must not
+        # force a new knowledge claim or rebind old claims to the new capture.
+        body.write_text(body.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        new_id = "raw-2026-07-28-test-plan"
+        candidate = old_text.replace(f"  - {old_id}\n", f"  - {old_id}\n  - {new_id}\n")
+        second = self.write_plan(source, new_id, "second", candidate,
+                                 op="update", base_sha256=sha256_file(target))
+        plan = json.loads(second.read_text(encoding="utf-8"))
+        plan["nodes"][0]["primary_source"] = old_id
+        plan["nodes"][0]["evidence"] = [
+            {"id": "E1", "raw_id": old_id, "anchor_id": "source"}
+        ]
+        plan["nodes"][0]["conflict_disposition"] = "no_conflict"
+        second.write_text(json.dumps(plan), encoding="utf-8")
+        receipt = execute_plan(self.kb, second, ROOT)
+
+        self.assertEqual("committed", receipt["status"])
+        fm, node_body = parse_file(str(target))
+        self.assertEqual(old_body, node_body)
+        self.assertEqual(old_fm["last_verified"], fm["last_verified"])
+        self.assertEqual(old_id, fm["primary_source"])
+        self.assertIn(new_id, fm["sources"])
+        self.assertTrue((self.kb / "raw_data/second.md").is_file())
+        self.assertTrue((self.kb / "provenance" / f"{new_id}.json").is_file())
+        self.assertEqual("noop", preflight(self.kb, source, second)["state"])
+        self.assertEqual("", run_git(self.kb, "status", "--short"))
+
     def test_digest_plan_v2_uses_bundle_as_single_source_contract(self):
         body, comments = self.write_source("-bundle")
         source = self.source_manifest(body, comments)
