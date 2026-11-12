@@ -277,6 +277,9 @@ SourceBundle 指向的 components，保存 bundle/component hash、来源类型�
 显式依赖候选、按 component + JSON pointer 定位的语义文本、参与者 ID 和既有 anchor 索引；不保存
 provider 坐标/样式噪声，也不判断依赖重要性、事实含义或冲突 disposition。文件原子写入且权限
 `0600`；相同 input hash 和输出路径可直接复用。
+Meego 经 Digest flow 准备时，input hash 同时绑定相邻完整快照的 diff。可选 `meego_changes` 只记录
+ChangeSet 分类计数。分析包的记录、依赖、参与者和记录 anchor 限于 baseline / added / changed，
+记录路径仍指向完整快照的原位置。角色和角色成员数组顺序只在 diff 比较时忽略。
 
 `byteworker-conflict-query/v1` 由 Agent 在语义分析后写入系统临时目录，包含可选 `source_uid` 和最多
 32 条稳定 id + 短 query，不复制全文。`kb_query.py conflict-search` 一次扫描 KB 节点，先经

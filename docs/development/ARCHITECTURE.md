@@ -306,6 +306,9 @@ flowchart LR
 ### 2.3 结构化来源的更新流程
 
 Meego、Base 和风神的大视图先保存完整快照。Agent 只复核变化的记录，再判断哪些需要写入知识节点。
+Meego 差异比较忽略角色及角色成员数组的顺序。Digest flow（包括 Dreaming）复用 SnapshotStore 和
+ChangeSet，在分析准备时只投影新增和变更记录及其引用；无历史时分析基线。离开视图只保留计数，
+没有待分析记录时跳过分片，进入已有的来源元数据提交路径。Bundle 和 raw 仍保存完整快照。
 所有入口的候选生成均由 Agent 按 `references/write-rules.md`「信息增量门槛」区分采集变化和
 业务变化，主记录也不承载运行流水。工具只校验确定性契约，不用关键词判断内容是否有价值。
 当前 DigestTxn 要求非空 nodes：已有来源无业务增量时，仍用同源主记录承接新 raw 的来源

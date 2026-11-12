@@ -1056,6 +1056,29 @@ class CaptureDiffTests(unittest.TestCase):
                 previous=self.capture([], source_uid="meego:p:other"),
             )
 
+    def test_meego_role_order_is_ignored_but_membership_and_other_list_changes_count(self):
+        roles = [{"key": "owner", "members": ["a", "b"]}, {"key": "reviewer", "members": ["c"]}]
+        reordered = [{"key": "reviewer", "members": ["c"]}, {"key": "owner", "members": ["b", "a"]}]
+        replaced = [{"key": "reviewer", "members": ["c"]}, {"key": "owner", "members": ["b", "d"]}]
+
+        def record(record_id, members, nodes):
+            return {"work_item_id": record_id, "work_item_attribute": {"role_members": members},
+                    "work_item_current_node": nodes}
+
+        previous = self.capture([record(i, roles, ["one", "two"]) for i in ("1", "2", "3")])
+        current = self.capture([
+            record("1", reordered, ["one", "two"]),
+            record("2", replaced, ["one", "two"]),
+            record("3", reordered, ["two", "one"]),
+        ])
+        diff = diff_captures(current=current, previous=previous)
+        self.assertEqual(1, diff["summary"]["unchanged"])
+        self.assertEqual(
+            {"2": ["work_item_attribute.role_members"], "3": ["work_item_current_node"]},
+            {item["record_id"]: item["changed_paths"] for item in diff["changes"]},
+        )
+        self.assertEqual(replaced, diff["changes"][0]["after"]["work_item_attribute"]["role_members"])
+
     def test_aeolus_diff_uses_stable_report_record(self):
         previous = {
             "source_type": "aeolus",
