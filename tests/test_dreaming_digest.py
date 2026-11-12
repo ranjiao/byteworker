@@ -23,7 +23,7 @@ from dreaming_digest import (  # noqa: E402
     routine_inventory,
 )
 from digest_flow import flow_status, prepare_flow, start_flow  # noqa: E402
-from digest_parallel import attempt_parallel_shard  # noqa: E402
+from digest_parallel import DigestParallelError, attempt_parallel_shard  # noqa: E402
 from digest_run_log import record_usage, show_run as show_digest_run  # noqa: E402
 from dreaming_digest_scan import _invoke, scan_routine_digest  # noqa: E402
 from dreaming_reports import report_dependency  # noqa: E402
@@ -176,7 +176,7 @@ class DreamingDigestTests(unittest.TestCase):
             attempt = ("digest-parallel", "attempt", "--kb", str(kb), "--plan", plan, "--shard-id", "semantic-001")
             with self.assertRaises(DreamingError) as caught:
                 _invoke(ROOT, *attempt, "--failure", "DIGEST_WORKER_TIMEOUT")
-            self.assertEqual("DIGEST_SHARD_ATTEMPT_REQUIRED", caught.exception.code)
+            self.assertEqual("DIGEST_HOST_EVIDENCE_REQUIRED", caught.exception.code)
 
             checked = _invoke(ROOT, *attempt)
             self.assertEqual("within_budget", checked["status"])
@@ -207,14 +207,72 @@ class DreamingDigestTests(unittest.TestCase):
             self.assertEqual(["source_packet_tokens"], overflow["budget"]["exceeded_limits"])
             self.assertEqual("budget_check", record("DIGEST_BUDGET_DEFERRED")["failure_evidence"]["kind"])
 
-            _invoke(ROOT, *attempt)
-            timeout = _invoke(ROOT, *attempt, "--failure", "DIGEST_WORKER_TIMEOUT")
-            self.assertEqual("shard_execution_failed", timeout["event"])
-            self.assertEqual("DIGEST_WORKER_TIMEOUT", timeout["detail_code"])
-            evidence = record("DIGEST_WORKER_TIMEOUT")["failure_evidence"]
-            self.assertEqual(("host_reported_failure", "semantic", "semantic-001"),
+            trace_root = (Path(temporary) / "host").resolve()
+            trajectory = trace_root / "1234567890123456/agents/m_test/system/trajectory.jsonl"
+            trajectory.parent.mkdir(parents=True)
+
+            def report_context_error(checked, **error_fields):
+                args = dict(shard_id=checked["shard_id"], failure="DIGEST_HOST_CONTEXT_LIMIT",
+                            attempt_id=checked["attempt_id"])
+                shard = next(entry["path"] for entry in json.loads(Path(plan).read_text())["shards"]
+                             if entry["shard_id"] == checked["shard_id"])
+                with patch("digest_worker_host._trace_root", return_value=trace_root):
+                    with self.assertRaises(DigestParallelError) as caught:
+                        attempt_parallel_shard(kb, Path(plan), **args)
+                    self.assertEqual("DIGEST_HOST_EVIDENCE_REQUIRED", caught.exception.code)
+                    trajectory.write_text("\n".join(map(json.dumps, [
+                        {"role": "assistant", "tool_calls": [{
+                            "id": "call-123", "function": {"name": "create_agent", "arguments": json.dumps({
+                                "hint": f"{checked['attempt_id']} {shard}",
+                            })},
+                        }]},
+                        {"role": "tool", "tool_call_id": "call-123", "content": json.dumps({
+                            "error": {
+                                "code": "context_length_exceeded", "message": "Private test document", **error_fields,
+                            },
+                        })},
+                    ])))
+                    return attempt_parallel_shard(kb, Path(plan), **args)
+
+            def auto_replan(checked):
+                return _invoke(ROOT, "digest-parallel", "replan", "--kb", str(kb), "--plan", plan,
+                               "--failed-attempt-id", checked["attempt_id"])
+
+            checked = _invoke(ROOT, *attempt)
+            with self.assertRaises(DreamingError) as caught:
+                auto_replan(checked)
+            self.assertEqual("DIGEST_HOST_EVIDENCE_REQUIRED", caught.exception.code)
+            report_context_error(checked)
+            with self.assertRaisesRegex(DreamingError, "失败证据"):
+                record("DIGEST_HOST_CONTEXT_LIMIT")
+            replanned = auto_replan(checked)
+            self.assertEqual(("replanned", "context_probe", 1),
+                             (replanned["status"], replanned["host_input_limit_source"], replanned["max_workers"]))
+            self.assertLess(replanned["host_input_limit"], checked["budget"]["total_input_tokens"])
+            with self.assertRaises(DreamingError) as caught:
+                auto_replan(checked)
+            self.assertEqual("DIGEST_HOST_EVIDENCE_REQUIRED", caught.exception.code)
+            shard_id = json.loads(Path(plan).read_text())["shards"][0]["shard_id"]
+            checked = _invoke(ROOT, *attempt[:-1], shard_id)
+            self.assertEqual("context_probe", checked["budget"]["host_input_limit_source"])
+            failed = report_context_error(checked, available_input_tokens=100)
+            self.assertEqual("shard_execution_failed", failed["event"])
+            self.assertEqual("DIGEST_HOST_CONTEXT_LIMIT", failed["detail_code"])
+            self.assertEqual(100, failed["host_error"]["available_input_tokens"])
+            with self.assertRaisesRegex(DreamingError, "失败证据"):
+                record("DIGEST_HOST_CONTEXT_LIMIT")
+            before = Path(plan).read_bytes()
+            exhausted = auto_replan(checked)
+            self.assertEqual(("exhausted", "DIGEST_HOST_INPUT_LIMIT_TOO_SMALL"),
+                             (exhausted["status"], exhausted["reason_code"]))
+            self.assertEqual(exhausted, auto_replan(checked))
+            self.assertEqual(before, Path(plan).read_bytes())
+            evidence = record("DIGEST_HOST_CONTEXT_LIMIT")["failure_evidence"]
+            self.assertEqual(("host_verified_failure", "semantic", shard_id),
                              (evidence["kind"], evidence["stage"], evidence["shard_id"]))
+            self.assertEqual("DIGEST_HOST_INPUT_LIMIT_TOO_SMALL", evidence["context_retry_exhausted"])
             self.assertEqual(checked["budget"], evidence["budget"])
+            self.assertEqual("call-123", evidence["host_error"]["call_id"])
             completed = complete_routine_digest(kb, token=token, allow_partial=True)
             self.assertEqual(("partial", 1), (completed["status"], completed["incomplete_count"]))
             complete_run(kb, token=token, run_status="partial", error_code="DREAMING_DIGEST_INCOMPLETE")
@@ -223,7 +281,7 @@ class DreamingDigestTests(unittest.TestCase):
             self.assertIn("source_completion_rejected", [event["event"] for event in logged["events"]])
             digest_log = show_digest_run(kb, run_id=run_id)
             self.assertEqual(
-                ["within_budget", "over_budget", "within_budget", "failed"],
+                ["within_budget", "over_budget", "within_budget", "failed", "within_budget", "failed", "exhausted"],
                 [event["status"] for event in digest_log["events"] if event["event"].startswith("shard_")],
             )
             self.assertNotIn("Private test document", json.dumps(digest_log))

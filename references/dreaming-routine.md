@@ -54,14 +54,22 @@
   工具按实际执行角色核算当前分片，记录预算项、估算方法和限额。预算通过即继续处理该片。
   checkpoint 缺失表示该片仍待执行。即使计划因预算必须分片，也按计划逐片处理。
 - 独立语义工作允许并发。在宿主能启动隔离 worker 且本轮预算允许时，所有来源合计最多 4 路。
-  单包来源保持一个包，不同来源的包可以并行。大输入按 planner 执行。宿主容量不足时减并发，
-  或逐片使用新的有界上下文。用完整 checkpoint 清单归并，覆盖不完整时保留已完成片。
+  并行不可用时使用同一角色闭包逐片执行，每片完成立即保存 checkpoint，之后只跑缺失片。
+  用完整 checkpoint 清单归并。
   依赖范围裁决、冲突核对、候选和事务由 coordinator 按当前知识库顺序执行。
-- 并行派发失败时先尝试顺序处理。宿主实际无法提供执行条件、执行超时或 worker 失败时，
-  在同一 `attempt` 命令追加 `--failure`，分别使用 `DIGEST_WORKER_UNAVAILABLE`、
-  `DIGEST_HOST_CONTEXT_LIMIT`、`DIGEST_WORKER_TIMEOUT` 或 `DIGEST_WORKER_FAILED`。
-  结果校验失败可登记 `DIGEST_PARALLEL_RESULT_INVALID`。用相同原因码暂缓该来源并继续其它来源。
-  依赖裁决、归并、冲突或事务中的其他失败用对应的 Digest stage 失败事件和固定原因码登记。
+- 派发给宿主时，worker 指令带上预算检查返回的 `attempt_id` 和当前分片的绝对路径。
+  豆包工作的 `create_agent` 或 `send_message` 实际返回错误时，调用同一 `attempt` 命令并加
+  `--attempt-id <ID> --failure <CODE>`。工具从本机宿主轨迹核验同一次调用的返回值；
+  指定 `--host-session-id` 可限定到已知会话。日志只保存工具名、调用编号、固定错误码和明确返回的可用 token 数。
+  并行派发不可用时继续顺序执行。上下文错误核验后，等已派发分片返回并保存，调用
+  `digest-parallel replan --kb "<KB>" --plan <plan.json> --failed-attempt-id <ID>`。
+  工具根据宿主回执给出的可用输入或失败分片的估算，自动计算下次试跑大小。返回 `replanned` 时
+  读取新计划，逐片核算、执行并保存，只重做缺失片。再次核验同类错误就继续用该尝试编号重分片。
+  `exhausted` 表示当前预算已无法生成合法的更小分片，或宿主可用输入放不下角色规则。
+  只在有该回执时用 `DIGEST_HOST_CONTEXT_LIMIT` 暂缓该来源，继续其它来源。
+  无需用户填写 token 数。找不到宿主证据时继续执行可处理的分片和来源，保留缺失项。
+  依赖裁决、结果校验、归并、冲突或事务中的其他失败
+  用对应的 Digest stage 失败事件和实际错误码登记。
 - 用 Digest 的 stage 事件记录 capture、dependency_review、semantic_analysis、reduce、
   conflict_review、candidate_generation 等阶段开始和结束。每次模型调用若有真实计数，调用
   `digest-run usage --usage-source measured`，传宿主 call id 和相应计数；若宿主同时提供调用

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from frontmatter import parse_file
-from digest_run_log import SHARD_ATTEMPT_EVENTS, SHARD_FAILURE_CODES, diagnostic_events
+from digest_run_log import SHARD_ATTEMPT_EVENTS, SHARD_CONTEXT_RETRY_EXHAUSTED, SHARD_FAILURE_CODES, diagnostic_events
 from dreaming_run_log import MACHINE_CODE, append_run_event
 from operation_trace import DIGEST_RUN_ID
 from routine_identity import IdentityKey, RoutineDocumentAliases
@@ -683,25 +683,49 @@ def _failure_evidence(kb: Path, flow: Path, error_code: str) -> dict[str, Any] |
             (event["stage"], event["shard_id"]): event
             for event in events if event.get("event") in SHARD_ATTEMPT_EVENTS
         }
+        exhausted = {
+            (event["plan_hash"], event["stage"], event["shard_id"], event["attempt_id"]): event["detail_code"]
+            for event in events if event.get("event") == SHARD_CONTEXT_RETRY_EXHAUSTED
+        }
         for (stage, shard_id), event in latest.items():
-            if stage not in {"dependency", "semantic", "conflict"} or not re.fullmatch(rf"{stage}-\d{{3}}", shard_id):
+            if stage not in {"dependency", "semantic", "conflict"} or not re.fullmatch(
+                rf"{stage}-\d{{3}}(?:-[0-9a-f]{{12}})?", shard_id,
+            ):
                 continue
+            host_error = event.get("host_error")
             if error_code == BUDGET_DEFERRED:
-                if event.get("status") != "over_budget":
+                if event.get("status") != "over_budget" or not (
+                    set(event["budget"]["exceeded_limits"]) - {"host_input_limit"}
+                ):
                     continue
-            elif event.get("event") != "shard_execution_failed" or event.get("detail_code") != error_code:
+            elif (
+                error_code == "DIGEST_WORKER_UNAVAILABLE"
+                or event.get("event") != "shard_execution_failed" or event.get("detail_code") != error_code
+                or not isinstance(host_error, dict) or host_error.get("error_code") != error_code
+            ):
                 continue
             plan_path = flow / stage / f"{stage}-plan.json"
             try:
-                plan_hash = hashlib.sha256(plan_path.read_bytes()).hexdigest()
-            except OSError:
+                plan_bytes = plan_path.read_bytes()
+                plan = json.loads(plan_bytes)
+            except (OSError, ValueError):
                 continue
-            if event.get("plan_hash") != plan_hash or (plan_path.parent / "results" / f"{shard_id}.json").is_file():
+            if (
+                not isinstance(plan, dict) or event.get("plan_hash") != hashlib.sha256(plan_bytes).hexdigest()
+                or (plan_path.parent / "results" / f"{shard_id}.json").is_file()
+            ):
                 continue
+            retry_reason = None
+            if error_code == "DIGEST_HOST_CONTEXT_LIMIT":
+                retry_reason = exhausted.get((event["plan_hash"], stage, shard_id, event["attempt_id"]))
+                if retry_reason is None:
+                    continue
             return {
                 "digest_run_id": flow.name, "stage": stage, "shard_id": shard_id,
-                "kind": "budget_check" if error_code == BUDGET_DEFERRED else "host_reported_failure",
+                "kind": "budget_check" if error_code == BUDGET_DEFERRED else "host_verified_failure",
                 "budget": event["budget"],
+                **({"attempt_id": event["attempt_id"], "host_error": host_error} if host_error else {}),
+                **({"context_retry_exhausted": retry_reason} if retry_reason else {}),
             }
         return None
     latest_stages = {
@@ -836,7 +860,10 @@ def complete_routine_digest(
         run_id = str(lease["run_id"])
         batch = _load_batch(kb, run_id)
         for source in batch["sources"].values():
-            if source["status"] not in SUCCESS_STATUSES and not source.get("receipt", {}).get("failure_evidence"):
+            evidence = source.get("receipt", {}).get("failure_evidence", {})
+            if source["status"] not in SUCCESS_STATUSES and (
+                not evidence or evidence.get("kind") == "host_reported_failure"
+            ):
                 flow = _prepared_flow(kb, source)
                 if flow is not None:
                     _reject_early_completion(

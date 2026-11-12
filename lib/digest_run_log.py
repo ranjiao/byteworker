@@ -83,9 +83,9 @@ SHARD_FAILURE_CODES = {
     "DIGEST_WORKER_TIMEOUT",
     "DIGEST_WORKER_FAILED",
     "DIGEST_HOST_CONTEXT_LIMIT",
-    "DIGEST_PARALLEL_RESULT_INVALID",
 }
 SHARD_ATTEMPT_EVENTS = {"shard_budget_checked", "shard_execution_failed"}
+SHARD_CONTEXT_RETRY_EXHAUSTED = "shard_context_retry_exhausted"
 METRIC_FIELDS = {
     "item_count",
     "component_count",
@@ -429,7 +429,8 @@ def _latest_source_type(events: list[dict[str, Any]]) -> str:
 
 
 def _lifecycle_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [event for event in events if event.get("event") not in SHARD_ATTEMPT_EVENTS | {"usage_recorded"}]
+    diagnostics = SHARD_ATTEMPT_EVENTS | {"usage_recorded", SHARD_CONTEXT_RETRY_EXHAUSTED}
+    return [event for event in events if event.get("event") not in diagnostics]
 
 
 def _is_terminal(event: Mapping[str, Any]) -> bool:
@@ -720,6 +721,8 @@ def record_shard_attempt(
     plan_hash: str,
     budget: Mapping[str, Any] | None = None,
     failure: str = "",
+    attempt_id: str = "",
+    host_error: Mapping[str, str | int] | None = None,
 ) -> dict[str, Any]:
     current = _utc_now()
     with _log_lock(kb) as root:
@@ -731,9 +734,13 @@ def record_shard_attempt(
                  and event.get("stage") == stage and event.get("shard_id") == shard_id),
                 None,
             )
-            if failure not in SHARD_FAILURE_CODES or not previous or previous["status"] != "within_budget":
+            if not previous or previous["status"] != "within_budget" or previous.get("attempt_id") != attempt_id:
                 raise DigestRunError("DIGEST_SHARD_ATTEMPT_REQUIRED", "先对同一计划的分片执行预算检查，再登记宿主失败。")
+            if failure not in SHARD_FAILURE_CODES or not host_error or host_error.get("error_code") != failure:
+                raise DigestRunError("DIGEST_HOST_EVIDENCE_REQUIRED", "宿主失败必须匹配实际工具调用返回的错误。")
             budget = previous["budget"]
+        else:
+            attempt_id = f"DA-{secrets.token_hex(16)}"
         event = {
             "schema_version": RUN_EVENT_SCHEMA,
             "timestamp": _iso(current),
@@ -742,11 +749,33 @@ def record_shard_attempt(
             "stage": stage,
             "shard_id": shard_id,
             "plan_hash": plan_hash,
+            "attempt_id": attempt_id,
             "status": "failed" if failure else budget["status"],
             "detail_code": failure or (
                 "DIGEST_SHARD_OVER_BUDGET" if budget["status"] == "over_budget" else "DIGEST_SHARD_WITHIN_BUDGET"
             ),
             "budget": dict(budget),
+            **({"host_error": dict(host_error)} if host_error else {}),
+        }
+        _append(root, event, now=current)
+    return event
+
+
+def record_context_retry_exhausted(
+    kb: Path, failure: Mapping[str, Any], *, reason: str,
+) -> dict[str, Any]:
+    current = _utc_now()
+    with _log_lock(kb) as root:
+        events = _require_active_run(_read_events_from_root(root), failure["run_id"], now=current)
+        identity = {key: failure[key] for key in ("run_id", "plan_hash", "stage", "shard_id", "attempt_id")}
+        for event in reversed(events):
+            if event.get("event") == SHARD_CONTEXT_RETRY_EXHAUSTED and all(
+                event.get(key) == value for key, value in identity.items()
+            ):
+                return event
+        event = {
+            "schema_version": RUN_EVENT_SCHEMA, "timestamp": _iso(current), **identity,
+            "event": SHARD_CONTEXT_RETRY_EXHAUSTED, "status": "exhausted", "detail_code": reason,
         }
         _append(root, event, now=current)
     return event

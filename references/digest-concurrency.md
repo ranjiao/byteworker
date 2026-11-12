@@ -89,6 +89,13 @@ conflict 少于 16 项保持 inline；即使
 预算或阶段 parallel 总预算任一不满足，也保持 inline。对预算内可单包执行的输入，
 `selection_reason_code=PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM` 表示值得为提速而并发。
 由预算触发的分片也需要执行，按计划和宿主容量决定并发或顺序处理。最大并发为 4，阈值由工具控制。
+已知宿主可用输入量时，首次规划可加 `--host-input-limit <TOKENS>`。已有私有 flow 计划用
+`digest-parallel replan`，保留已校验的结果，仅缩小超限的待执行分片。该上限包含 worker 规则，
+归并时也按同一宿主上限计算。使用 `--max-workers 1` 按顺序执行各片并逐片保存结果。
+已核验上下文错误时可改用 `replan --failed-attempt-id <ID>`。工具优先使用回执明确提供的可用
+输入量。缺少数值时，按被拒资料包的一半试算，若无法完整切分再尝试可用的更宽松上限，
+保留证据并逐片试跑。回执的 `host_input_limit_source=context_probe` 表示当前阶段的本地试算上限。
+自动重分片得到的上限用于当前 worker 阶段，归并按自己的预算执行。
 
 receipt/plan 同时给出 `inline` 与 `parallel_estimate` 的 estimated total tokens/wall time、估算方法、
 阶段 token budget 和 `parallel_budget_remaining_tokens`。没有 tokenizer 时方法明确为版本化保守估算；预算超限必须继续分片或
@@ -149,4 +156,5 @@ merge 校验 input hash、完整 shard coverage、逐项覆盖和 source/candida
 
 宿主不支持并行 worker 时按 shard 顺序处理，仍使用相同 plan/result/merge coverage 契约。不要为了
 并发让 worker 递归创建 worker，也不要在等待期间轮询临时文件或把正文传回主对话。
-预算分片每批都须有足够的上下文余量。宿主无法提供时，按预算复核规则给出下一步选项。
+预算分片每批都须有足够的上下文余量。Dreaming 按 `dreaming-routine.md` 自动试跑；
+前台确需调整工作流预算时，按预算复核规则处理。

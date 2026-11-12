@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import math
@@ -9,6 +10,7 @@ import os
 import re
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -261,6 +263,23 @@ def _wall_time_ms(
     return input_ms + output_ms
 
 
+def _host_packet_limit(workflow: str, input_limit: int, skill_root: Path) -> int:
+    if type(input_limit) is not int or input_limit <= 0:
+        raise DigestParallelError("DIGEST_HOST_INPUT_LIMIT_INVALID", "宿主可用输入 token 数必须是正整数。")
+    receipt = inspect_budget(
+        workflow=workflow, root=skill_root, manifest_path=skill_root / "references" / "workflow-routes.json",
+    )
+    rules = receipt["measurement"]["total_input_tokens"]
+    budget = receipt["budget"]
+    limit = min(budget["source_packet_tokens"], min(input_limit, budget["total_input_tokens"]) - rules)
+    if limit <= 0:
+        raise DigestParallelError(
+            "DIGEST_HOST_INPUT_LIMIT_TOO_SMALL", "当前执行角色的规则已占满宿主可用输入。",
+            details={"workflow": workflow, "host_input_limit": input_limit, "rule_tokens": rules},
+        )
+    return limit
+
+
 def _inline_route(value: Mapping[str, Any], stage: str, source_tokens: int) -> tuple[str, list[str]]:
     identity = value.get("identity", {})
     source_type = str(identity.get("source_type", "")) if isinstance(identity, Mapping) else ""
@@ -499,6 +518,7 @@ def plan_parallel_work(
     *,
     stage: str,
     max_workers: int = MAX_WORKERS,
+    host_input_limit: int | None = None,
     skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> dict[str, Any]:
     """Create private, balanced shards and a coordinator plan."""
@@ -513,6 +533,8 @@ def plan_parallel_work(
     out_dir = _outside_skill(output_dir, skill_root=skill_root)
     if out_dir.is_symlink():
         raise DigestParallelError("DIGEST_PARALLEL_PATH_UNSAFE", "输出目录不能是符号链接。")
+    if host_input_limit is not None and (out_dir / f"{stage}-plan.json").is_file():
+        raise DigestParallelError("DIGEST_PARALLEL_PLAN_EXISTS", "已有计划请用 replan 保留已完成分片。")
     input_bytes = resolved_input.stat().st_size
     work = {
         "dependency": _dependency_work,
@@ -532,6 +554,10 @@ def plan_parallel_work(
         skill_root=skill_root,
     )
     budget_required = decision["source_tokens"] > decision["inline_source_budget"]
+    source_limit = decision["worker_source_budget"]
+    if host_input_limit is not None:
+        source_limit = _host_packet_limit(WORKER_WORKFLOWS[stage], host_input_limit, skill_root)
+        budget_required = True
     buckets = _balanced(work["items"], decision["workers"]) if item_count else [[]]
     if decision["use_parallel"] and not budget_required:
         budget_required = any(
@@ -542,7 +568,7 @@ def plan_parallel_work(
     if budget_required:
         if stage == "semantic":
             shared = {**shared, "anchors": [], "anchors_deferred": True}
-        buckets = _budget_buckets(stage, work["items"], shared, input_hash, decision["worker_source_budget"])
+        buckets = _budget_buckets(stage, work["items"], shared, input_hash, source_limit)
     shard_count = len(buckets)
     shard_entries = []
     for index, bucket in enumerate(buckets, start=1):
@@ -550,10 +576,10 @@ def plan_parallel_work(
         shard_path = out_dir / f"{shard_id}.json"
         shard = _shard_document(stage, bucket, shared, input_hash, index, shard_count)
         shard_tokens = estimate_tokens(_json_text(shard))["tokens"] if budget_required else None
-        if shard_tokens is not None and shard_tokens > decision["worker_source_budget"]:
+        if shard_tokens is not None and shard_tokens > source_limit:
             raise DigestParallelError(
                 "DIGEST_SOURCE_SHARDING_UNAVAILABLE", "分片序列化后超过 worker 输入上限。",
-                details={"stage": stage, "input_tokens": shard_tokens, "source_packet_limit": decision["worker_source_budget"]},
+                details={"stage": stage, "input_tokens": shard_tokens, "source_packet_limit": source_limit},
             )
         _atomic_json(shard_path, shard)
         shard_entries.append(
@@ -566,7 +592,10 @@ def plan_parallel_work(
             }
         )
     plan_path = out_dir / f"{stage}-plan.json"
-    selection_reason = "INPUT_REQUIRES_BUDGET_SHARDS" if budget_required else decision["selection_reason_code"]
+    selection_reason = (
+        "HOST_INPUT_LIMIT" if host_input_limit is not None else
+        "INPUT_REQUIRES_BUDGET_SHARDS" if budget_required else decision["selection_reason_code"]
+    )
     estimates = {
         key: value for key, value in decision.items()
         if key not in {"use_parallel", "workers", "selection_reason_code"}
@@ -586,6 +615,8 @@ def plan_parallel_work(
         "budget_required": budget_required,
         "estimates": estimates,
         "max_workers": max_workers,
+        **({"host_input_limit": host_input_limit, "effective_source_limit": source_limit}
+           if host_input_limit is not None else {}),
         "shard_count": shard_count,
         "work_item_count": item_count,
         "input_bytes": input_bytes,
@@ -605,6 +636,8 @@ def plan_parallel_work(
         "selection_reason_code": plan["selection_reason_code"],
         "budget_required": budget_required,
         "max_workers": max_workers,
+        **({"host_input_limit": host_input_limit, "effective_source_limit": source_limit}
+           if host_input_limit is not None else {}),
         "estimates": plan["estimates"],
         "plan_path": str(plan_path),
         "shard_count": shard_count,
@@ -712,8 +745,13 @@ def _validate_conflict_records(shard: Mapping[str, Any], records: Sequence[Mappi
             )
 
 
-def _reducer_batches(packet: dict[str, Any], output: Path, *, skill_root: Path) -> list[dict[str, Any]]:
-    _, limit = _route_tokens("digest_final_reducer", skill_root=skill_root)
+def _reducer_batches(
+    packet: dict[str, Any], output: Path, *, skill_root: Path, host_input_limit: int | None = None,
+) -> list[dict[str, Any]]:
+    if host_input_limit is None:
+        _, limit = _route_tokens("digest_final_reducer", skill_root=skill_root)
+    else:
+        limit = _host_packet_limit("digest_final_reducer", host_input_limit, skill_root)
     if estimate_tokens(_json_text(packet))["tokens"] <= limit:
         return []
 
@@ -798,10 +836,188 @@ def _plan_run_id(kb: Path, resolved: Path, stage: str) -> str:
     return relative.parts[1]
 
 
-def attempt_parallel_shard(
-    kb: Path, plan_path: Path, *, shard_id: str, failure: str = "", skill_root: Path = DEFAULT_SKILL_ROOT,
+@contextmanager
+def _plan_lock(kb: Path, resolved: Path):
+    _plan_run_id(kb, resolved, resolved.parent.name)
+    fd = os.open(resolved.parent / ".plan.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "rb") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+
+
+def _resize_pending_shards(resolved, plan, pending, stage, limit, *, skill_root):
+    entries = []
+    replacements = []
+    for entry in plan["shards"]:
+        shard_id = entry["shard_id"]
+        if shard_id not in pending:
+            entries.append(entry)
+            continue
+        path, shard = _load_json(Path(entry["path"]), skill_root=skill_root)
+        tokens = estimate_tokens(path.read_text(encoding="utf-8"))["tokens"]
+        if tokens <= limit:
+            entries.append({**entry, "estimated_source_tokens": tokens})
+            continue
+        if stage == "semantic":
+            work = _semantic_work({**shard, "schema_version": ANALYSIS_PACKET_SCHEMA}, 0)
+            work["shared"].update(anchors=[], anchors_deferred=True)
+        elif stage == "dependency":
+            work = _dependency_work({
+                **shard, "schema_version": ANALYSIS_PACKET_SCHEMA, "dependency_candidates": shard["items"],
+            }, 0)
+        else:
+            work = _conflict_work({
+                **shard, "schema_version": CONFLICT_CANDIDATES_SCHEMA, "queries": shard["items"],
+            }, 0)
+        # Replacement IDs carry a 13-character suffix so late results for
+        # the superseded shard cannot match a new shard.
+        buckets = _budget_buckets(stage, work["items"], work["shared"], plan["input_hash"], limit - 16)
+        for bucket in buckets:
+            index = len(entries) + 1
+            replacement = _shard_document(
+                stage, bucket, work["shared"], plan["input_hash"], index, MAX_BUDGET_SHARDS,
+            )
+            suffix = _canonical_hash({
+                "parent": shard_id,
+                "shard": {key: value for key, value in replacement.items() if key != "input_hash"},
+            })[-12:]
+            replacement["shard_id"] = f"{stage}-{index:03d}-{suffix}"
+            output = resolved.parent / f"{replacement['shard_id']}.json"
+            replacements.append((output, replacement))
+            entries.append({
+                "shard_id": replacement["shard_id"], "path": str(output), "item_count": len(bucket),
+                "weight": sum(item["_weight"] for item in bucket),
+            })
+    if len(entries) > MAX_BUDGET_SHARDS:
+        raise DigestParallelError(
+            "DIGEST_SOURCE_SHARDING_UNAVAILABLE", "完整计划超过分片数量上限。",
+            details={"stage": stage, "shard_count": len(entries), "source_packet_limit": limit},
+        )
+    for _, replacement in replacements:
+        replacement["shard_count"] = len(entries)
+        if estimate_tokens(_json_text(replacement))["tokens"] > limit:
+            raise DigestParallelError("DIGEST_SOURCE_SHARDING_UNAVAILABLE", "重新分片后仍超过宿主输入上限。")
+    return entries, replacements
+
+
+def _context_failure(kb, resolved, run_id, stage, pending, attempt_id):
+    from digest_run_log import SHARD_ATTEMPT_EVENTS, diagnostic_events
+
+    events, _ = diagnostic_events(kb, run_id=run_id)
+    plan_hash = hashlib.sha256(resolved.read_bytes()).hexdigest()
+    latest = {
+        event["shard_id"]: event for event in events
+        if event.get("event") in SHARD_ATTEMPT_EVENTS and event.get("plan_hash") == plan_hash
+        and event.get("stage") == stage and event.get("shard_id") in pending
+    }
+    for event in latest.values():
+        if (
+            event.get("attempt_id") == attempt_id and event.get("event") == "shard_execution_failed"
+            and event.get("detail_code") == "DIGEST_HOST_CONTEXT_LIMIT"
+            and event.get("host_error", {}).get("error_code") == "DIGEST_HOST_CONTEXT_LIMIT"
+        ):
+            return event
+    raise DigestParallelError(
+        "DIGEST_HOST_EVIDENCE_REQUIRED", "自动重分片需要当前未完成片的已核验宿主上下文错误。",
+    )
+
+
+def _context_retry_limits(plan, failure, stage, *, skill_root):
+    rules, source_cap = _route_tokens(WORKER_WORKFLOWS[stage], skill_root=skill_root)
+    already_serial = plan["mode"] == "parallel" and plan["max_workers"] == 1
+    source_cap = min(source_cap, failure["budget"]["source_packet_tokens"] - int(already_serial))
+    upper = min(rules + source_cap, plan.get("host_input_limit", rules + source_cap))
+    available = failure["host_error"].get("available_input_tokens")
+    if available is not None:
+        return "host_reported", (min(available, upper),)
+    # Prefer halving. If a record cannot be split that far, try the largest
+    # allowed smaller input before giving up on this stage.
+    return "context_probe", tuple(dict.fromkeys((min(rules + source_cap // 2, upper), upper)))
+
+
+def replan_parallel_work(
+    kb: Path, plan_path: Path, *, host_input_limit: int | None = None, failed_attempt_id: str = "",
+    max_workers: int = 1, skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> dict[str, Any]:
-    """Check the assigned shard's budget or record a failure reported by the host."""
+    """Resize only pending shards. Publish the new plan after its shards are durable."""
+    if type(max_workers) is not int or not 1 <= max_workers <= MAX_WORKERS:
+        raise DigestParallelError("DIGEST_PARALLEL_WORKERS_INVALID", f"max_workers 必须为 1-{MAX_WORKERS}。")
+    if (host_input_limit is not None) == bool(failed_attempt_id) or (failed_attempt_id and max_workers != 1):
+        raise DigestParallelError(
+            "DIGEST_CONTEXT_REPLAN_INVALID", "请选择宿主输入上限或已核验失败编号，自动重分片须逐片执行。",
+        )
+    resolved = _outside_skill(plan_path, skill_root=skill_root)
+    with _plan_lock(kb, resolved):
+        _, plan = _load_json(resolved, skill_root=skill_root)
+        stage, _ = _plan_shards(plan)
+        if resolved.name != f"{stage}-plan.json":
+            raise DigestParallelError("DIGEST_PARALLEL_INPUT_INVALID", "只可调整当前阶段的正式计划。")
+        progress = _checkpoint_parallel_results(kb, resolved, skill_root=skill_root)
+        pending = set(progress["missing_shard_ids"])
+        failure = None
+        limit_source, limits = "provided", (host_input_limit,)
+        if failed_attempt_id:
+            run_id = _plan_run_id(kb, resolved, stage)
+            failure = _context_failure(kb, resolved, run_id, stage, pending, failed_attempt_id)
+            limit_source, limits = _context_retry_limits(plan, failure, stage, skill_root=skill_root)
+
+        for proposed in limits:
+            try:
+                limit = _host_packet_limit(WORKER_WORKFLOWS[stage], proposed, skill_root)
+                entries, replacements = _resize_pending_shards(
+                    resolved, plan, pending, stage, limit, skill_root=skill_root,
+                )
+            except DigestParallelError as exc:
+                if failure is None or exc.code not in {
+                    "DIGEST_HOST_INPUT_LIMIT_TOO_SMALL", "DIGEST_SOURCE_SHARDING_UNAVAILABLE",
+                }:
+                    raise
+                reason = exc.code
+                continue
+            break
+        else:
+            from digest_run_log import record_context_retry_exhausted
+
+            event = record_context_retry_exhausted(kb, failure, reason=reason)
+            return {
+                "status": "exhausted", "stage": stage, "attempt_id": failed_attempt_id,
+                "shard_id": event["shard_id"], "reason_code": event["detail_code"],
+            }
+
+        for path, replacement in replacements:
+            _atomic_json(path, replacement)
+        updated = {
+            **plan, "mode": "parallel", "budget_required": True, "max_workers": max_workers,
+            "selection_reason_code": "HOST_INPUT_LIMIT", "reason_codes": ["HOST_INPUT_LIMIT"],
+            "host_input_limit": proposed, "host_input_limit_source": limit_source,
+            "effective_source_limit": limit, "shard_count": len(entries), "shards": entries,
+        }
+        _atomic_json(resolved, updated)
+    return {
+        "status": "replanned", "stage": stage, "plan_path": str(resolved),
+        "host_input_limit": proposed, "host_input_limit_source": limit_source,
+        "effective_source_limit": limit, "max_workers": max_workers, "shard_count": len(entries),
+        "completed_count": len(progress["completed"]),
+    }
+
+
+def attempt_parallel_shard(
+    kb: Path, plan_path: Path, *, shard_id: str, failure: str = "", attempt_id: str = "",
+    host_session_id: str = "", skill_root: Path = DEFAULT_SKILL_ROOT,
+) -> dict[str, Any]:
+    """Check the shard's budget or verify a failure from the host's tool trajectory."""
+    resolved = _outside_skill(plan_path, skill_root=skill_root)
+    with _plan_lock(kb, resolved):
+        return _attempt_parallel_shard(
+            kb, resolved, shard_id=shard_id, failure=failure, attempt_id=attempt_id,
+            host_session_id=host_session_id, skill_root=skill_root,
+        )
+
+
+def _attempt_parallel_shard(
+    kb: Path, plan_path: Path, *, shard_id: str, failure: str, attempt_id: str,
+    host_session_id: str, skill_root: Path,
+) -> dict[str, Any]:
     from digest_run_log import record_shard_attempt
 
     resolved, plan = _load_json(plan_path, skill_root=skill_root)
@@ -818,7 +1034,19 @@ def attempt_parallel_shard(
         raise DigestParallelError("DIGEST_PARALLEL_INPUT_INVALID", "分片与当前计划不一致。")
 
     budget = None
-    if not failure:
+    host_error = None
+    if failure:
+        from digest_worker_host import read_host_failure
+
+        if not re.fullmatch(r"DA-[0-9a-f]{32}", attempt_id):
+            raise DigestParallelError("DIGEST_HOST_EVIDENCE_REQUIRED", "登记失败时必须提供对应分片的 attempt-id。")
+        host_error = read_host_failure(attempt_id, shard_path, session_id=host_session_id)
+        if not host_error or host_error["error_code"] != failure:
+            raise DigestParallelError(
+                "DIGEST_HOST_EVIDENCE_REQUIRED", "没有找到与此分片执行尝试匹配的宿主工具错误。",
+                details={"attempt_id": attempt_id, "shard_id": shard_id},
+            )
+    else:
         workflow = WORKER_WORKFLOWS[stage]
         source_type, features = "", []
         if plan.get("mode") == "inline":
@@ -831,8 +1059,12 @@ def attempt_parallel_shard(
             root=skill_root, manifest_path=skill_root / "references" / "workflow-routes.json",
         )
         measurement, limits = receipt["measurement"], receipt["budget"]
+        host_limit = plan.get("host_input_limit")
+        exceeded = [name for name, passed in receipt["checks"].items() if not passed]
+        if host_limit is not None and measurement["total_input_tokens"] > host_limit:
+            exceeded.append("host_input_limit")
         budget = {
-            "status": receipt["status"],
+            "status": "over_budget" if exceeded else "within_budget",
             "workflow": workflow,
             "method": measurement["method"],
             "exact": measurement["exact"],
@@ -840,11 +1072,14 @@ def attempt_parallel_shard(
             "source_packet_limit": limits["source_packet_tokens"],
             "total_input_tokens": measurement["total_input_tokens"],
             "total_input_limit": limits["total_input_tokens"],
-            "exceeded_limits": [name for name, passed in receipt["checks"].items() if not passed],
+            "exceeded_limits": exceeded,
+            **({"host_input_limit": host_limit} if host_limit is not None else {}),
+            **({"host_input_limit_source": plan["host_input_limit_source"]} if "host_input_limit_source" in plan else {}),
         }
     return record_shard_attempt(
         kb, run_id=run_id, stage=stage, shard_id=shard_id,
         plan_hash=hashlib.sha256(resolved.read_bytes()).hexdigest(), budget=budget, failure=failure,
+        attempt_id=attempt_id, host_error=host_error,
     )
 
 
@@ -852,6 +1087,14 @@ def checkpoint_parallel_results(
     kb: Path, plan_path: Path, *, result_path: Path | None = None, skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> dict[str, Any]:
     """Save one validated shard or return the completed and missing shards."""
+    resolved = _outside_skill(plan_path, skill_root=skill_root)
+    with _plan_lock(kb, resolved):
+        return _checkpoint_parallel_results(kb, resolved, result_path=result_path, skill_root=skill_root)
+
+
+def _checkpoint_parallel_results(
+    kb: Path, plan_path: Path, *, result_path: Path | None = None, skill_root: Path,
+) -> dict[str, Any]:
     resolved, plan = _load_json(plan_path, skill_root=skill_root)
     stage, expected = _plan_shards(plan)
     _plan_run_id(kb, resolved, stage)
@@ -971,7 +1214,10 @@ def merge_parallel_results(
             "duplicate_dedupe_key_count": len(duplicates),
         },
     }
-    batches = _reducer_batches(packet, output, skill_root=skill_root)
+    # An automatic retry limit applies to that worker. A reducer has a
+    # different rule set and may run in a different context.
+    reducer_limit = plan.get("host_input_limit") if plan.get("host_input_limit_source", "provided") == "provided" else None
+    batches = _reducer_batches(packet, output, skill_root=skill_root, host_input_limit=reducer_limit)
     _atomic_json(output, packet)
     return {
         "schema_version": REDUCE_PACKET_SCHEMA,
