@@ -280,6 +280,10 @@ provider 坐标/样式噪声，也不判断依赖重要性、事实含义或冲�
 Meego 经 Digest flow 准备时，input hash 同时绑定相邻完整快照的 diff。可选 `meego_changes` 只记录
 ChangeSet 分类计数。分析包的记录、依赖、参与者和记录 anchor 限于 baseline / added / changed，
 记录路径仍指向完整快照的原位置。角色和角色成员数组顺序只在 diff 比较时忽略。
+定期飞书文档分析触发外链范围限制时，packet 和 flow 回执带可选 `dependency_scope`，
+其中 `mode=source_only`、`reason_code=DIGEST_DEPENDENCY_SCOPE_LIMITED` 和 `skipped_count`
+描述本轮范围。此时依赖候选为空，flow 只生成语义计划。语义分片保留范围说明，阶段日志
+记录固定原因码和跳过数量。
 
 `byteworker-conflict-query/v1` 由 Agent 在语义分析后写入系统临时目录，包含可选 `source_uid` 和最多
 32 条稳定 id + 短 query，不复制全文。`kb_query.py conflict-search` 一次扫描 KB 节点，先经

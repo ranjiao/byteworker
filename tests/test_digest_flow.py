@@ -23,6 +23,7 @@ from digest_flow import (  # noqa: E402
     start_flow,
 )
 from digest_feedback import feedback_draft  # noqa: E402
+from dreaming_digest_scan import _invoke  # noqa: E402
 from sources import canonical_sha256  # noqa: E402
 from sources.adapters.meego import build_meego_bundle  # noqa: E402
 
@@ -203,6 +204,52 @@ class DigestFlowTests(unittest.TestCase):
         self.assertEqual(1, sum(
             event["stage"] == "analysis_prepare" for event in flow_status(self.kb, run_id=run_id)["run"]["stages"]
         ))
+
+    def test_routine_document_with_many_links_keeps_semantic_plan(self):
+        def prepare(source_uid, link_count, *, routine):
+            run = start_flow(self.kb, source_type="feishu_doc", source_ref=source_uid)
+            work_dir = Path(run["work_dir"])
+            body = work_dir / "body.xml"
+            links = "".join(
+                f'<a href="https://example.test/docx/reference-{index}">Reference {index}</a>'
+                for index in range(link_count)
+            )
+            body.write_text(f"<p>The current decision is recorded here.</p>{links}", encoding="utf-8")
+            request = work_dir / "bundle-request.json"
+            request.write_text(json.dumps({
+                "source_uid": source_uid, "source_url": f"https://example.test/docx/{source_uid}",
+                "title": "Document", "revision": "1", "body": {"path": str(body)},
+            }))
+            prepare_flow(self.kb, run_id=run["run_id"], bundle_request=request, check_only=True)
+            result = _invoke(
+                ROOT, "digest-flow", "analyze", "--kb", str(self.kb), "--run-id", run["run_id"],
+                *(("--routine",) if routine else ()),
+            )
+            return result, work_dir
+
+        result, work_dir = prepare("routine", 33, routine=True)
+        scope = {"mode": "source_only", "reason_code": "DIGEST_DEPENDENCY_SCOPE_LIMITED", "skipped_count": 33}
+        self.assertEqual("semantic_analysis", result["next_action"])
+        self.assertNotIn("dependency_plan", result)
+        self.assertFalse((work_dir / "dependency").exists())
+        self.assertEqual(scope, result["analysis"]["dependency_scope"])
+        status = flow_status(self.kb, run_id=result["run_id"])
+        self.assertEqual(scope, status["dependency_scope"])
+        event = status["run"]["stages"][-1]
+        self.assertEqual("completed", event["status"])
+        self.assertEqual(33, event["metrics"]["skipped_dependency_count"])
+        plan = json.loads(Path(result["semantic_plan"]["plan_path"]).read_text())
+        shard = json.loads(Path(plan["shards"][0]["path"]).read_text())
+        self.assertEqual(scope, shard["dependency_scope"])
+        self.assertIn("The current decision is recorded here.", shard["sections"][0]["text_items"][0]["text"])
+        self.assertIn("Reference 32", shard["sections"][0]["text_items"][0]["text"])
+
+        for source_uid, count, routine in (("foreground", 33, False), ("small", 32, True)):
+            with self.subTest(source_uid=source_uid):
+                result, _ = prepare(source_uid, count, routine=routine)
+                self.assertEqual("dependency_review", result["next_action"])
+                self.assertIn("dependency_plan", result)
+                self.assertEqual(count, result["analysis"]["dependency_candidate_count"])
 
     def test_capture_wraps_stage_and_can_run_multiple_waves(self):
         started = self.start()

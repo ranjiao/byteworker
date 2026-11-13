@@ -224,6 +224,7 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
 - `process prepare` 后的 Agent 分析必须读 `references/dreaming-analysis.md`；Finding 持久与去重
   规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
 - 后台 process 按 `references/dreaming-routine.md` 检查全部启用来源，逐源核验覆盖。
+  外链过多时分析当前文档并登记实际覆盖。
   Meego 按快照差异分析；核验宿主错误后自动缩片并逐片保存。无法继续时暂缓该来源。
   完整报告仍须满足全部覆盖条件。
 - 自动 IM 补跑只看最近 14 天，历史窗口可按需前台处理。

@@ -195,6 +195,7 @@ def _semantic_work(value: Mapping[str, Any], input_bytes: int) -> dict[str, Any]
             "identity": value.get("identity", {}),
             "outline": value.get("outline", []),
             "anchors": value.get("anchors", []),
+            **({"dependency_scope": value["dependency_scope"]} if "dependency_scope" in value else {}),
         },
         "input_bytes": input_bytes,
     }
@@ -424,6 +425,7 @@ def _semantic_shard(bucket: Sequence[dict[str, Any]], shared: Mapping[str, Any])
         "participant_ids": sorted(participant_ids),
         "sections": list(grouped.values()),
         "anchors": anchors,
+        **({"dependency_scope": shared["dependency_scope"]} if "dependency_scope" in shared else {}),
         **({"anchors_deferred": True} if shared.get("anchors_deferred") else {}),
     }
 

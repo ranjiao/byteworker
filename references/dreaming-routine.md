@@ -28,7 +28,7 @@
 
 用 `workflow-budget resolve --workflow digest --source-type <TYPE>` 加载该来源闭包。
 只补读实际触发的 feature 和未读规则。`resume_failed` 按普通 Digest 的历史 raw 恢复闸门；
-其它已检查来源用 `digest-flow analyze` 消费原 bundle，生成分析包和计划。
+其它已检查来源用 `digest-flow analyze --routine` 消费原 bundle，生成分析包和计划。
 Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，无待分析记录，
 按最小来源元数据更新规则保存完整快照，直接登记事务回执。
 保持普通 Digest 的依赖、语义、冲突、候选、引用和事务规则。
@@ -38,6 +38,11 @@ Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，
 
 ## 无人值守时的处理顺序
 
+- 飞书文档的去重链接候选超过 32 条，或候选包超过依赖 worker 的资料包预算时，
+  flow 返回 `dependency_scope.mode=source_only` 和跳过数量，下一步是 `semantic_analysis`。
+  跳过依赖审查和外链抓取，按语义计划处理当前文档的正文、评论和白板。结论只基于这些材料，
+  外链中的事实留待核实。在事务的 `raw.excluded_dependencies` 和运行摘要记下跳过数量。
+  当前文档提交后照常登记覆盖。单独登记为定期来源的文档仍走各自的流程。
 - 依赖未获授权时，记录 `excluded_dependencies`，只摄取已授权的当前对象。继续能独立验证的结论，
   把依赖中的事实留为待核实。已登记的依赖按它自己的来源处理，维持各自的权限与覆盖。
 - 冲突先回查证据和既有基线。可证明的修订或取代走既有事务规则；仍有独立冲突时保留现有知识、

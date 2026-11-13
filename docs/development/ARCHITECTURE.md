@@ -522,6 +522,8 @@ flow prepare 已产生 packet 和 dependency/semantic plan，Agent 直接消费�
 conflict planner 仍对新召回结果执行一次。语义 owner、coverage、inline/parallel 阈值及成功判定不变。
 大型 worker 和 Wiki resume 保留完整执行手册。Dreaming routine 只预读变化检查与分派规则；
 变化来源再解析其普通 digest 闭包，保留原有权限、依赖、冲突与事务行为。
+定期分析以 `digest-flow analyze --routine` 启用外链范围限制。分析准备按去重候选数和依赖
+资料包预算决定是否跳过飞书文档的依赖计划。当前文档仍按语义计划和事务规则完成，已登记来源各自核验覆盖。
 独立语义任务共用最多 4 个隔离 worker，按宿主和预算降并发；针对当前 KB 的冲突和写入串行。
 分片回执复用同一校验器，即时保存。跨轮只复用内容指纹、分片和 worker 规则完全匹配的来源内语义结果。
 Digest 分片执行前按计划角色核算单片预算并登记尝试编号。宿主适配层从本机工具轨迹核验

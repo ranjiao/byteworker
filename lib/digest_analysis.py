@@ -21,6 +21,7 @@ from typing import Any, Iterable, Mapping
 from snapshot_store import diff_current_against_kb
 from source_capture import SourceCaptureError, meego_record_id
 from sources import SourceBundleError, canonical_sha256, load_source_bundle
+from workflow_budget import estimate_tokens, load_manifest
 
 
 ANALYSIS_PACKET_SCHEMA = "byteworker-digest-analysis-packet/v1"
@@ -29,6 +30,7 @@ DEFAULT_SKILL_ROOT = Path(__file__).resolve().parents[1]
 MAX_COMPONENT_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
 MAX_CONTEXT_CHARS = 320
+MAX_ROUTINE_DOCUMENT_DEPENDENCIES = 32
 
 OPEN_ID_RE = re.compile(r"\bou_[0-9a-f]{16,}\b")
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
@@ -391,6 +393,7 @@ def _receipt(path: Path, packet: Mapping[str, Any], *, cache_hit: bool) -> dict[
         "participant_count": stats["participant_count"],
         "anchor_count": stats["anchor_count"],
         **({"meego_changes": packet["meego_changes"]} if "meego_changes" in packet else {}),
+        **({"dependency_scope": packet["dependency_scope"]} if "dependency_scope" in packet else {}),
     }
 
 
@@ -400,6 +403,7 @@ def prepare_analysis_packet(
     *,
     skill_root: Path = DEFAULT_SKILL_ROOT,
     kb: Path | None = None,
+    routine: bool = False,
 ) -> dict[str, Any]:
     output = _outside_skill(output_path, skill_root=skill_root)
     try:
@@ -452,12 +456,19 @@ def prepare_analysis_packet(
             except SourceCaptureError as exc:
                 raise DigestAnalysisError(exc.code, str(exc), hint=exc.hint, details=exc.details) from exc
 
+    dependency_budget = None
+    if routine and bundle.identity.source_type == "feishu_doc":
+        manifest = load_manifest(skill_root / "references" / "workflow-routes.json")
+        dependency_budget = manifest["budgets"]["digest_dependency_worker"]["source_packet_tokens"]
+
     input_hash = canonical_sha256(
         {
             "analysis_algorithm_version": ANALYSIS_ALGORITHM_VERSION,
             "bundle": bundle.to_dict(),
             "component_hashes": component_hashes,
             **({"meego_diff_hash": meego_diff["diff_hash"]} if meego_diff is not None else {}),
+            **({"routine_dependency_limits": [MAX_ROUTINE_DOCUMENT_DEPENDENCIES, dependency_budget]}
+               if dependency_budget is not None else {}),
         }
     )
     existing = _existing_packet(output, input_hash)
@@ -522,6 +533,17 @@ def prepare_analysis_packet(
         )
 
     dependencies = _dependency_candidates(reference_texts)
+    dependency_scope = {}
+    if dependency_budget is not None and (
+        len(dependencies) > MAX_ROUTINE_DOCUMENT_DEPENDENCIES
+        or estimate_tokens(json.dumps(dependencies, ensure_ascii=False, separators=(",", ":")))["tokens"] > dependency_budget
+    ):
+        dependency_scope = {
+            "mode": "source_only",
+            "reason_code": "DIGEST_DEPENDENCY_SCOPE_LIMITED",
+            "skipped_count": len(dependencies),
+        }
+        dependencies = []
     outline = list(
         dict.fromkeys(
             heading
@@ -565,6 +587,7 @@ def prepare_analysis_packet(
         "sections": sections,
         "anchors": anchors,
         **({"meego_changes": meego_diff["summary"]} if meego_diff is not None else {}),
+        **({"dependency_scope": dependency_scope} if dependency_scope else {}),
         "stats": {
             "component_count": len(bundle.components),
             "input_bytes": total_bytes,
