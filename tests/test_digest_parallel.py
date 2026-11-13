@@ -100,14 +100,12 @@ class DigestParallelTests(unittest.TestCase):
         self.assertEqual("parallel", receipt["mode"])
         self.assertIn(receipt["shard_count"], range(2, 5))
         self.assertEqual(
-            "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM",
+            "PARALLEL_SIZE_THRESHOLD",
             receipt["selection_reason_code"],
         )
         self.assertIn("inline", receipt["estimates"])
-        self.assertIn("parallel_estimate", receipt["estimates"])
-        self.assertGreaterEqual(
-            receipt["estimates"]["parallel_budget_remaining_tokens"], 0
-        )
+        self.assertGreater(receipt["estimates"]["source_tokens"], 0)
+        self.assertNotIn("estimated_wall_time_ms", receipt["estimates"]["inline"])
         self.assertEqual(600, sum(item["item_count"] for item in plan["shards"]))
         self.assertLessEqual(
             max(item["item_count"] for item in plan["shards"])
@@ -150,7 +148,7 @@ class DigestParallelTests(unittest.TestCase):
         )
         self.assertEqual("parallel", receipt["mode"])
         self.assertEqual(
-            "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM",
+            "PARALLEL_SIZE_THRESHOLD",
             receipt["selection_reason_code"],
         )
 
@@ -184,7 +182,7 @@ class DigestParallelTests(unittest.TestCase):
         self.assertEqual("parallel", receipt["mode"])
         self.assertLessEqual(receipt["shard_count"], 4)
         self.assertEqual(
-            "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM",
+            "PARALLEL_SIZE_THRESHOLD",
             receipt["selection_reason_code"],
         )
 

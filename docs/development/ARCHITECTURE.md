@@ -221,7 +221,7 @@ sequenceDiagram
         Txn-->>Agent: new_source / new_version
         Agent->>Prep: 一次生成 analysis packet
         Prep-->>Agent: 依赖候选、语义文本、参与者、anchor 索引
-        Agent->>Workers: 仅在 token 预算与墙钟收益同时满足时 fan-out shards
+        Agent->>Workers: 按输入规模与容量限制 fan-out shards
         Workers-->>Agent: 完整 worker results；单一 reducer 归并
         Agent->>Agent: 依赖闸门、语义分析、冲突 query
         Agent->>Prep: 单次 KB 扫描批量召回冲突候选
@@ -231,8 +231,8 @@ sequenceDiagram
         Agent->>Agent: 标题消歧、实体消解
         Agent->>Agent: 生成完整候选节点和 evidence 映射
         Agent->>Txn: DigestPlan v2 execute
-        Txn->>Txn: 写入前 schema / links / baseline / provenance 校验
-        Txn->>KB: 加锁后重新 preflight、validate 和基线校验
+        Txn->>KB: 获取共享写锁
+        Txn->>Txn: 一次读取、preflight 与 schema / links / baseline / provenance 校验
         Txn->>KB: 原子写 raw + provenance + nodes
         Txn->>KB: 重建 INDEX + 追加 journal + 本地 Git commit
         Txn-->>Agent: status=committed receipt
@@ -240,8 +240,10 @@ sequenceDiagram
     end
 ```
 
-`digest-run` 在用户输入到达、分类之前生成稳定 `run_id`，Agent 对 classify/capture/bundle/
-dependency/semantic/conflict/candidate 阶段成对写 `started` 与 `completed|failed`；
+`digest-flow start` 生成稳定 `run_id` 并自动记录确定性阶段；语义阶段的成对耗时打点可选。
+失败和恢复由 `digest-flow fail/resume` 统一关闭阶段、保存重试位置并同步运行日志。
+旧调用直接关闭日志后，flow status 会显示恢复入口；成功和取消的运行不能重新打开。
+
 `digest-analysis.py --run-id` 自动记录 analysis prepare，`bin/digest-txn.py --run-id` 自动记录
 preflight、诊断 validate 和 execute。最终
 committed/noop/failed/cancelled 都写终态，`list/show` 从事件流派生总耗时、当前阶段和最慢阶段。
@@ -312,12 +314,12 @@ flowchart LR
 Meego、Base 和风神的大视图先保存完整快照。Agent 只复核变化的记录，再判断哪些需要写入知识节点。
 Meego 差异比较忽略角色及角色成员数组的顺序。Digest flow（包括 Dreaming）复用 SnapshotStore 和
 ChangeSet，在分析准备时只投影新增和变更记录及其引用；无历史时分析基线。离开视图只保留计数，
-没有待分析记录时跳过分片，进入已有的来源元数据提交路径。Bundle 和 raw 仍保存完整快照。
+没有待分析记录时跳过分片，进入 snapshot_only 归档路径。Bundle 和 raw 仍保存完整快照。
 所有入口的候选生成均由 Agent 按 `references/write-rules.md`「信息增量门槛」区分采集变化和
 业务变化，主记录也不承载运行流水。工具只校验确定性契约，不用关键词判断内容是否有价值。
-当前 DigestTxn 要求非空 nodes：已有来源无业务增量时，仍用同源主记录承接新 raw 的来源
-元数据，保留正文及既有 evidence 映射；不刷新未经实际复核的 last_verified，不新增复查段落。
-首次摄取必须完成实质摘要，禁止用“原文已归档”占位提交。schema、事务和依赖方向不变。
+digest-plan/v2 增加可选 knowledge_effect=snapshot_only，要求 nodes=[]。
+已有来源无业务增量时只写新 raw/provenance，digest_targets 从干净且已提交的同源 raw 继承并核验节点存在；
+不写任何知识节点或刷新验证日期。首次摄取仍须完成实质摘要。默认 update 行为和依赖方向保持不变。
 
 ```mermaid
 flowchart TD
@@ -328,7 +330,7 @@ flowchart TD
     D["ChangeSet<br/>baseline / added / changed / left_view"]
     A["Agent 只复核变化记录"]
     G{"是否达到知识晋升门槛？"}
-    R["保存 raw + provenance<br/>主记录仅维护必要来源元数据，正文不追加"]
+    R["保存 raw + provenance<br/>沿用既有节点关联，知识节点不变"]
     N["更新 reading 主记录<br/>必要时晋升 project / decision / event / area"]
 
     P --> C --> B
@@ -417,8 +419,7 @@ flowchart TB
 
 自动日报和周报的调度归宿主管理，byteworker 不另起常驻服务，也不把系统 cron 当兼容兜底。
 任务必须在知识库目录、宿主 `local` 环境中运行；云端 routine 和隔离 worktree 无法可靠访问或
-写回私有知识库。两类自动报告每次都完整运行已登记且启用来源的 routine digest，不使用
-`.last-routine-digest` 的七天交互提醒阈值跳过；随后完整枚举报告周期内用户主日历中
+写回私有知识库。两类自动报告每次都完整运行已登记且启用来源的 routine digest，不按历史检查日期跳过；随后完整枚举报告周期内用户主日历中
 `self_rsvp_status=accept` 的日程，best-effort 发现纪要、妙记转写和直接关联文档，并把可读取
 产物先经标准 digest transaction 落库再召回。日历发现是报告周期限定的上层编排，不创建
 CaptureProfile、不搜索即时会议、不递归文档依赖。`report_automation` 记录
@@ -534,11 +535,10 @@ conflict planner 仍对新召回结果执行一次。语义 owner、coverage、i
 资料包预算决定是否跳过飞书文档的依赖计划。当前文档仍按语义计划和事务规则完成，已登记来源各自核验覆盖。
 独立语义任务共用最多 4 个隔离 worker，按宿主和预算降并发；针对当前 KB 的冲突和写入串行。
 分片回执复用同一校验器，即时保存。跨轮只复用内容指纹、分片和 worker 规则完全匹配的来源内语义结果。
-Digest 分片执行前按计划角色核算单片预算并登记尝试编号。宿主适配层从本机工具轨迹核验
-执行尝试与返回错误，只投影工具调用标识、固定原因码及明确返回的容量数值。Planner 按当前
-计划的已核验失败自动缩小未完成片，优先使用明确的宿主可用量，否则根据失败片估算逐次降低
-试跑上限。Dreaming coordinator 按新计划逐片执行和保存；只有工具确认无法继续缩片并记录
-对应失败编号后才允许暂缓。缺失 checkpoint 仍进入执行队列。
+Digest 分片执行前核算单片预算并登记 attempt_id。失败可由所有宿主报告；可用的本地轨迹仅增强
+核验，不是停止失败尝试的前提。reported/verified 分开保存，失败均不推进该来源覆盖。
+有已核验上下文错误时可自动缩小未完成片，也允许直接保留缺口并 partial 收尾；不要求穷尽重试。
+可选并行只用阶段项数和来源 token 阈值，不预测墙钟收益。单片及 reducer 容量仍严格核验。
 Dreaming 的授权、宿主与运行细则只在 dreaming feature 中加载；area/org/person 治理统一由
 `write-rules.md` 承载，并同时属于 digest 与 update 的 required 闭包，不复制进常驻路由器。
 子 Agent、无人值守报告和 Wiki resume 都必须从 manifest 递归展开闭包，不依赖上一 session
@@ -885,7 +885,7 @@ flowchart TB
 | `bin/digest-run.py` | 单输入 start/stage/wait/resume/heartbeat/usage/complete/list/show；固定 6 小时 stale 窗口 | 时间线、active duration、waiting/stale 状态、最慢阶段与 token 汇总 |
 | `bin/digest-analysis.py` | SourceBundle components 单次读取、结构去噪、依赖候选/语义文本/参与者/anchor 索引整理；不做语义判断 | 系统临时 `byteworker-digest-analysis-packet/v1` 和无正文 receipt |
 | `bin/digest-capture.py` | 执行最多 4 个显式、独立、只读的 lark/comments capture job；provider 命令构造留在该 adapter，不进入事务 core | `byteworker-digest-capture-receipt/v1` 和显式 `0600` artifact |
-| `bin/digest-parallel.py` | 按阶段投影估算 token 与墙钟，超限时生成逐片核算的有界分片，最多 4 路并发。校验完整覆盖并归并，超限归并结果可分批 | 带选择 reason、预算余量与可执行分批路径的 plan / shard / result / reduce packet |
+| `bin/digest-parallel.py` | 按阶段投影估算输入 token，超限时生成逐片核算的有界分片，最多 4 路并发。校验完整覆盖并归并，超限归并结果可分批 | 带选择 reason、容量限制与可执行分批路径的 plan / shard / result / reduce packet |
 | `bin/source.py` + `lib/source_cli_service.py` + `lib/source_operation_contract.py` | 入口只组合 parser、服务和错误编码；服务处理通用结果持久化，provider 参数由 operation adapter 声明并生成 | request/operation 契约、capture、SourceBundle、profile receipt、ChangeSet |
 | `bin/wiki.py` | 按需 Wiki user-auth / inspect / tree scan / topics / candidates / subtree profile | 有限摘要、树状态、候选文件、profile receipt |
 | `bin/digest-job.py` | 已确认多页 digest 的 create/list/status/lease/mark/reconcile/cancel | 有限批次与进度回执 |
@@ -1126,14 +1126,13 @@ flowchart TD
     PREF["扫描同源 raw<br/>new_source / new_version / noop / resume_failed"]
     VAL["校验节点 schema、sources、links、evidence、base_sha256"]
     LOCK["获取共享 KB 写锁<br/>.git/byteworker-write.lock"]
-    RECHECK["重新 preflight + baseline"]
     WRITE["原子写 raw / provenance / nodes"]
     DERIVE["重建 INDEX + journal"]
     GIT["精确 git add + 本地 commit"]
     REC["receipt"]
     ROLLBACK["恢复文件和 Git index"]
 
-    LOAD --> PAY --> HASH --> PREF --> VAL --> LOCK --> RECHECK --> WRITE --> DERIVE --> GIT --> REC
+    LOAD --> LOCK --> PAY --> HASH --> PREF --> VAL --> WRITE --> DERIVE --> GIT --> REC
     WRITE -->|"任一步失败"| ROLLBACK
     DERIVE -->|"任一步失败"| ROLLBACK
     GIT -->|"任一步失败"| ROLLBACK
@@ -1164,8 +1163,9 @@ postflight 在共享锁内扫描和修复；repair、路径检查、暂存、com
 Git index 和必要的 HEAD ref。事务成功的唯一证明是 `status=committed` 和 commit hash。Agent
 已生成候选、validate 成功或文件看起来存在，都不等于事务完成。
 
-标准 digest 在 plan 完成后调用 `digest-flow commit`，由 flow 委托 execute；execute 在任何写入前完成完整 validate，并在写锁内
-再次复验。独立 validate 保留为失败诊断入口，不是标准成功路径。receipt 之后只允许一次紧凑的
+标准 digest 在 plan 完成后调用 `digest-flow commit`，由 flow 委托 execute。单来源和批量 execute
+在共享写锁内一次读取和完整校验，复用该次 payload 与候选，避免锁前、锁内重复全量扫描和物化。
+基线、暂存区、脏路径、来源绑定和证据均在锁内检查；期间不执行网络抓取或模型调用。独立 validate 保留为失败诊断入口，不是标准成功路径。receipt 之后只允许一次紧凑的
 HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或完整 diff 重新送回 Agent。
 
 ### 4.6 查询、语义校验与维护
@@ -1559,7 +1559,7 @@ coding agent 在修改代码前应先阅读本文件相关章节；完成后必�
 | Dreaming | 默认关闭无状态写、三启用确认、三类 process schedule、next due、enabled/operational 分离、harness tick、run_id/heartbeat/log retention、due/idle/busy、fencing、旧报告 owner 冲突 |
 | End-to-end | 结构化 capture → Bundle、群聊 Profile → Bundle、宿主 artifact → Bundle、会议妙记 + 文档 Bundles → batch 单 commit，以及 Bundle → commit → query/diff 闭环 |
 
-`tests/test_architecture_contract.py` 固化文档入口和核心模块清单；
+`tests/test_architecture_contract.py` 检查模块依赖方向，不绑定文档措辞或图表数量；
 `tests/test_documentation_catalog.py` 固化开发文档目录、生命周期、链接和运行时/归档边界；
 `tests/test_source_architecture.py` 固化 core 不含 provider 分支以及本节最终契约。
 

@@ -73,6 +73,7 @@ DIRECTORY_TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$"
 )
 PROTECTED_RAW_FIELDS = {
+    "knowledge_effect",
     "raw_id",
     "ingested",
     "source_type",
@@ -883,9 +884,9 @@ def _materialize_provenance(
     current_record = _planned_raw_record(result, now)
     current_frontmatter = current_record["frontmatter"]
     try:
-        raw_records = scan_raws(kb)
+        raw_records = scan_raws(kb) if result.nodes else {}
         raw_records[result.raw_id] = current_record
-        existing_provenance = scan_provenance(kb)
+        existing_provenance = scan_provenance(kb) if result.nodes else {}
         configured_anchors = (
             provenance_config.get("anchors", []) if provenance_config else []
         )
@@ -1043,7 +1044,7 @@ def _require_prepared_source(
         raise DigestTxnError("提交计划必须引用本次已准备的 Bundle，来源和组件内容不得变化。")
 
 
-def validate_plan(kb: Path, manifest_path: Path, *, prepared_source: PreparedSource | None = None) -> ValidationResult:
+def _prepare_plan(kb: Path, manifest_path: Path, prepared_source: PreparedSource | None = None):
     kb = kb.resolve()
     manifest_path = manifest_path.resolve()
     configured_plan = load_manifest(manifest_path)
@@ -1057,6 +1058,31 @@ def validate_plan(kb: Path, manifest_path: Path, *, prepared_source: PreparedSou
         _verify_bundle_payload(bundle, payload)
     flight = preflight(kb, source, source_path, payload=payload)
 
+    return plan, source_path, payload, flight
+
+
+def validate_plan(kb: Path, manifest_path: Path, *, prepared_source: PreparedSource | None = None) -> ValidationResult:
+    kb, manifest_path = kb.resolve(), manifest_path.resolve()
+    return _validate_plan_contents(kb, manifest_path, *_prepare_plan(kb, manifest_path, prepared_source))
+
+
+def _snapshot_targets(kb: Path, flight: Dict[str, Any], existing_nodes: Dict[str, Any]) -> List[str]:
+    """Reuse a committed same-source association without rewriting knowledge."""
+    for previous in reversed(flight["matched_raws"]):
+        targets = previous["digest_targets"]
+        if previous["digest_status"] != "digested" or not targets or not all(t in existing_nodes for t in targets):
+            continue
+        path = previous["path"]
+        if (_git(kb, ["cat-file", "-e", f"HEAD:{path}"], check=False).returncode == 0
+                and _git(kb, ["diff", "--quiet", "HEAD", "--", path], check=False).returncode == 0):
+            return list(targets)
+    raise DigestTxnError("snapshot_only 需要已有、干净且已提交的同源 raw 和有效知识节点；首次摄取必须生成摘要")
+
+
+def _validate_plan_contents(
+    kb: Path, manifest_path: Path, plan: Dict[str, Any], source_path: Path,
+    payload: Dict[str, Any], flight: Dict[str, Any], now: datetime | None = None,
+) -> ValidationResult:
     raw = plan.get("raw")
     if not isinstance(raw, dict):
         raise DigestTxnError("plan.raw 必须是对象")
@@ -1079,14 +1105,21 @@ def validate_plan(kb: Path, manifest_path: Path, *, prepared_source: PreparedSou
         raise DigestTxnError(f"raw 目标路径已存在: {raw_path.relative_to(kb)}")
 
     node_configs = plan.get("nodes")
-    if not isinstance(node_configs, list) or not node_configs:
-        raise DigestTxnError("plan.nodes 必须是非空数组")
+    effect = plan.get("knowledge_effect", "update")
+    if effect not in {"update", "snapshot_only"}:
+        raise DigestTxnError("knowledge_effect 必须为 update 或 snapshot_only")
+    if not isinstance(node_configs, list) or (not node_configs and effect != "snapshot_only"):
+        raise DigestTxnError("plan.nodes 必须是非空数组；已有来源仅归档时使用 snapshot_only")
+    if effect == "snapshot_only" and (node_configs or plan["schema_version"] != PLAN_SCHEMA_V2):
+        raise DigestTxnError("snapshot_only 只接受 digest-plan/v2 和空 nodes")
     existing_nodes = _scan_nodes(kb)
     nodes = [
         _validate_node_candidate(kb, item, manifest_path, [raw_id], existing_nodes)
         for item in node_configs
     ]
     node_ids = [item["id"] for item in nodes]
+    if effect == "snapshot_only":
+        node_ids = _snapshot_targets(kb, flight, existing_nodes)
     if len(node_ids) != len(set(node_ids)):
         raise DigestTxnError("plan.nodes 包含重复节点 id")
     paths = [item["path"] for item in nodes]
@@ -1117,13 +1150,9 @@ def validate_plan(kb: Path, manifest_path: Path, *, prepared_source: PreparedSou
         provenance_anchors=[],
         provenance_content="",
     )
-    # Render once during validation so raw metadata errors fail before execute.
-    render_raw(result, datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")))
+    # Provenance renders the raw too, so all metadata is validated before writing.
     _materialize_provenance(
-        kb,
-        result,
-        node_configs,
-        datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
+        kb, result, node_configs, now or datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
     return result
 
@@ -1287,7 +1316,7 @@ def _materialize_batch_provenance(
         raise DigestTxnError(str(exc)) from exc
 
 
-def validate_batch_plan(kb: Path, manifest_path: Path) -> BatchValidationResult:
+def validate_batch_plan(kb: Path, manifest_path: Path, *, now: datetime | None = None) -> BatchValidationResult:
     kb = kb.resolve()
     manifest_path = manifest_path.resolve()
     plan = load_manifest(manifest_path)
@@ -1491,9 +1520,7 @@ def validate_batch_plan(kb: Path, manifest_path: Path) -> BatchValidationResult:
         node_ids=node_ids,
         warnings=_validate_scoped_links(existing_nodes, nodes),
     )
-    validation_time = datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
-    for item in inputs:
-        render_raw(item, validation_time)
+    validation_time = now or datetime(2000, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
     _materialize_batch_provenance(kb, result, validation_time)
     result.warnings = sorted(set(result.warnings))
     return result
@@ -1552,6 +1579,7 @@ def render_raw(result: ValidationResult, now: datetime) -> str:
         ("digest_key", digest_key),
         ("digest_status", "digested"),
         ("digest_targets", result.node_ids),
+        *([("knowledge_effect", "snapshot_only")] if plan.get("knowledge_effect") == "snapshot_only" else []),
         ("excluded_dependencies", raw.get("excluded_dependencies", [])),
     ]
     for key, value in ordered:
@@ -1778,55 +1806,32 @@ def execute_plan(
     skill_root = skill_root.resolve()
     if not (kb / ".git").is_dir():
         raise DigestTxnError("知识库数据目录不是本地 Git 仓库，无法创建 digest 回滚点")
-    manifest = load_manifest(manifest_path)
-    _, source, source_path, bundle = _resolve_plan_source(
-        manifest,
-        manifest_path.resolve(),
-    )
-    payload = compute_payload(source, source_path)
-    _require_prepared_source(bundle, source_path, source, payload, prepared_source)
-    if bundle is not None:
-        _verify_bundle_payload(bundle, payload)
-    early_flight = preflight(kb, source, source_path, payload=payload)
-    if early_flight["state"] == "noop":
-        existing = early_flight.get("existing") or {}
-        return {
-            "status": "noop",
-            "raw_id": existing.get("raw_id", ""),
-            "digest_targets": existing.get("digest_targets", []),
-            "digest_key": existing.get("digest_key") or early_flight["digest_key"],
-            "warnings": ["相同 payload 已完成摄取"],
-        }
-    if early_flight["state"] == "resume_failed":
-        existing = early_flight.get("existing") or {}
-        raise DigestTxnError(
-            "发现相同 payload 的 pending/failed raw，第一版不自动覆盖或续写；"
-            f"请先检查 {existing.get('path', existing.get('raw_id', '历史 raw'))}"
-        )
-
-    result = validate_plan(kb, manifest_path, prepared_source=prepared_source) if prepared_source else validate_plan(kb, manifest_path)
-    if result.preflight["state"] == "noop":
-        existing = result.preflight.get("existing") or {}
-        return {
-            "status": "noop",
-            "raw_id": existing.get("raw_id", ""),
-            "digest_targets": existing.get("digest_targets", []),
-            "digest_key": existing.get("digest_key") or result.preflight["digest_key"],
-            "warnings": result.warnings,
-        }
-
+    manifest_path = manifest_path.resolve()
     if now is None:
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    journal_path = _journal_path(kb, now)
-    index_path = kb / "INDEX.md"
-    target_paths = [result.raw_path, journal_path, index_path] + [
-        node["path"] for node in result.nodes
-    ]
-    if result.provenance_path is not None:
-        target_paths.append(result.provenance_path)
-    relative_paths = [str(path.relative_to(kb)) for path in target_paths]
-
     with kb_write_lock(kb):
+        plan, source_path, payload, flight = _prepare_plan(kb, manifest_path, prepared_source)
+        if flight["state"] == "noop":
+            existing = flight.get("existing") or {}
+            return {
+                "status": "noop", "raw_id": existing.get("raw_id", ""),
+                "digest_targets": existing.get("digest_targets", []),
+                "digest_key": existing.get("digest_key") or flight["digest_key"],
+                "warnings": ["相同 payload 已完成摄取"],
+            }
+        if flight["state"] == "resume_failed":
+            existing = flight.get("existing") or {}
+            raise DigestTxnError(
+                "发现相同 payload 的 pending/failed raw，不自动覆盖或续写；"
+                f"请先检查 {existing.get('path', existing.get('raw_id', '历史 raw'))}"
+            )
+        result = _validate_plan_contents(kb, manifest_path, plan, source_path, payload, flight, now)
+        journal_path = _journal_path(kb, now)
+        index_path = kb / "INDEX.md"
+        target_paths = [result.raw_path, journal_path, index_path] + [node["path"] for node in result.nodes]
+        if result.provenance_path is not None:
+            target_paths.append(result.provenance_path)
+        relative_paths = [str(path.relative_to(kb)) for path in target_paths]
 
         remotes = _git(kb, ["remote"]).stdout.splitlines()
         if remotes:
@@ -1845,9 +1850,6 @@ def execute_plan(
                 "本次目标文件已有未提交变更，需先处理后再执行: " + ", ".join(overlap)
             )
 
-        # Re-validate baselines after acquiring the lock.
-        result = validate_plan(kb, manifest_path, prepared_source=prepared_source) if prepared_source else validate_plan(kb, manifest_path)
-        _materialize_provenance(kb, result, result.plan["nodes"], now)
         snapshots = {
             path: path.read_bytes() if path.exists() else None for path in target_paths
         }
@@ -1919,6 +1921,7 @@ def execute_plan(
     return {
         "status": "committed",
         "source_state": result.preflight["state"],
+        "knowledge_effect": result.plan.get("knowledge_effect", "update"),
         "raw_id": result.raw_id,
         "raw_path": str(result.raw_path.relative_to(kb)),
         "digest_key": result.preflight["digest_key"],
@@ -1949,7 +1952,6 @@ def execute_batch_plan(
     manifest_path = manifest_path.resolve()
     if not (kb / ".git").is_dir():
         raise DigestTxnError("知识库数据目录不是本地 Git 仓库，无法创建 digest 回滚点")
-    result = validate_batch_plan(kb, manifest_path)
     if now is None:
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
     journal_path = _journal_path(kb, now)
@@ -1968,9 +1970,10 @@ def execute_batch_plan(
         )
         return list(dict.fromkeys(ordered))
 
-    target_paths = transaction_paths(result)
-    relative_paths = [str(path.relative_to(kb)) for path in target_paths]
     with kb_write_lock(kb):
+        result = validate_batch_plan(kb, manifest_path, now=now)
+        target_paths = transaction_paths(result)
+        relative_paths = [str(path.relative_to(kb)) for path in target_paths]
         remotes = _git(kb, ["remote"]).stdout.splitlines()
         if remotes:
             raise DigestTxnError(
@@ -1990,11 +1993,6 @@ def execute_batch_plan(
                 + ", ".join(overlap)
             )
 
-        # Optimistic baselines are checked again only after the short write lock.
-        result = validate_batch_plan(kb, manifest_path)
-        _materialize_batch_provenance(kb, result, now)
-        target_paths = transaction_paths(result)
-        relative_paths = [str(path.relative_to(kb)) for path in target_paths]
         snapshots = {
             path: path.read_bytes() if path.exists() else None for path in target_paths
         }

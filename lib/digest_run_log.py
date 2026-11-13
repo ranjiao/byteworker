@@ -737,7 +737,7 @@ def record_shard_attempt(
             )
             if not previous or previous["status"] != "within_budget" or previous.get("attempt_id") != attempt_id:
                 raise DigestRunError("DIGEST_SHARD_ATTEMPT_REQUIRED", "先对同一计划的分片执行预算检查，再登记宿主失败。")
-            if failure not in SHARD_FAILURE_CODES or not host_error or host_error.get("error_code") != failure:
+            if failure not in SHARD_FAILURE_CODES or (host_error and host_error.get("error_code") != failure):
                 raise DigestRunError("DIGEST_HOST_EVIDENCE_REQUIRED", "宿主失败必须匹配实际工具调用返回的错误。")
             budget = previous["budget"]
         else:
@@ -756,6 +756,7 @@ def record_shard_attempt(
                 "DIGEST_SHARD_OVER_BUDGET" if budget["status"] == "over_budget" else "DIGEST_SHARD_WITHIN_BUDGET"
             ),
             "budget": dict(budget),
+            **({"failure_verification": "verified" if host_error else "reported"} if failure else {}),
             **({"host_error": dict(host_error)} if host_error else {}),
         }
         _append(root, event, now=current)
@@ -840,6 +841,7 @@ def resume_run(
     *,
     run_id: str,
     now: datetime | None = None,
+    retry_failed: bool = False,
 ) -> dict[str, Any]:
     current = now or _utc_now()
     with _log_lock(kb) as root:
@@ -850,13 +852,14 @@ def resume_run(
                 "DIGEST_RUN_NOT_FOUND", f"Digest run not found: {run_id}"
             )
         lifecycle = _lifecycle_events(selected)
-        if _is_terminal(lifecycle[-1]):
+        failed = lifecycle[-1].get("event") == "failed" and retry_failed
+        if _is_terminal(lifecycle[-1]) and not failed:
             raise DigestRunError(
                 "DIGEST_RUN_TERMINAL", f"Digest run is already terminal: {run_id}"
             )
         waiting = _is_waiting(lifecycle)
         stale = _is_stale(lifecycle, now=current)
-        if not waiting and not stale:
+        if not waiting and not stale and not failed:
             raise DigestRunError(
                 "DIGEST_RUN_NOT_PAUSED",
                 "Digest run is neither waiting_user nor stale.",
@@ -884,7 +887,7 @@ def resume_run(
             "source_type": _latest_source_type(selected),
             "source_ref_hash": selected[0].get("source_ref_hash", ""),
             "detail_code": "DIGEST_RUN_RESUMED",
-            "resume_from": "waiting_user" if waiting else "stale",
+            "resume_from": "failed" if failed else "waiting_user" if waiting else "stale",
             "duration_ms": _active_duration_ms(selected, now=current),
             "metrics": {},
         }

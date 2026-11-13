@@ -21,7 +21,9 @@ from digest_flow import (  # noqa: E402
     commit_flow,
     document_capture_scope,
     flow_status,
+    fail_flow,
     prepare_flow,
+    resume_flow,
     start_flow,
 )
 from digest_run_log import SOURCE_TYPES  # noqa: E402
@@ -48,7 +50,7 @@ def parser() -> argparse.ArgumentParser:
     scope.add_argument("--body", required=True, type=Path)
     scope.add_argument("--json-pointer", default="")
     scope.add_argument("--outline", action="store_true", help="Return a fetch range from a document outline")
-    for name in ("capture", "prepare", "analyze", "commit", "status"):
+    for name in ("capture", "prepare", "analyze", "commit", "status", "fail", "resume"):
         command = sub.add_parser(name)
         command.add_argument("--kb", default=configured_kb())
         command.add_argument("--run-id", required=True)
@@ -63,6 +65,8 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--source-uid", default="", help="校验 Bundle 与已登记来源一致")
         elif name == "commit":
             command.add_argument("--plan", required=True, type=Path)
+        elif name == "fail":
+            command.add_argument("--error-code", required=True)
         elif name == "analyze":
             command.add_argument("--routine", action="store_true", help="Apply unattended dependency scope limits")
     return result
@@ -93,6 +97,10 @@ def main() -> int:
             result = analyze_flow(kb, run_id=args.run_id, routine=args.routine)
         elif args.command == "commit":
             result = commit_flow(kb, run_id=args.run_id, plan_path=args.plan)
+        elif args.command == "fail":
+            result = fail_flow(kb, run_id=args.run_id, error_code=args.error_code)
+        elif args.command == "resume":
+            result = resume_flow(kb, run_id=args.run_id)
         else:
             result = flow_status(kb, run_id=args.run_id)
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))

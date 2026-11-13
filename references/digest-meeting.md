@@ -142,13 +142,9 @@ bin/byteworker digest-txn preflight \
 不得在 batch v2 复制 `source` 或 `provenance.anchors`。`digest-batch-plan/v1` 只兼容历史
 调用，不用于新会议簇。
 
-### 5. 校验并一次执行
+### 5. 一次执行批量事务（包含校验）
 
 ```bash
-bin/byteworker digest-txn validate \
-  --kb "<知识库目录>" \
-  --plan "$BYTEWORKER_MEETING_TMP/meeting-batch-plan.json"
-
 bin/byteworker digest-txn execute \
   --kb "<知识库目录>" \
   --plan "$BYTEWORKER_MEETING_TMP/meeting-batch-plan.json"

@@ -45,7 +45,9 @@ def _check_source(kb, token, source, invoke):
     run_id = source.get("work", {}).get("digest_run_id")
     if run_id:
         flow = invoke("digest-flow", "status", *scope, "--run-id", run_id)
-        if flow["phase"] in ("checked", "prepared", "noop", "committed"):
+        if flow["phase"] == "failed" or flow.get("run", {}).get("status") == "stale":
+            flow = invoke("digest-flow", "resume", *scope, "--run-id", run_id)
+        if flow["phase"] in ("checked", "prepared", "commit_failed", "noop", "committed"):
             return flow
     else:
         flow = invoke("digest-flow", "start", *scope, "--source-type", source_type, "--source-ref", source_uid)
@@ -74,14 +76,10 @@ def _check_source(kb, token, source, invoke):
             invoke(*capture_stage, "completed")
         return invoke("digest-flow", "prepare", *run_scope, "--bundle", str(bundle_path), "--routine", "--check-only")
     except (DreamingError, SourceBundleError) as exc:
-        for arguments in (
-            (*capture_stage, "failed", "--detail-code", exc.code),
-            ("digest-run", "complete", *run_scope, "--status", "failed", "--error-code", exc.code),
-        ):
-            try:
-                invoke(*arguments)
-            except DreamingError:
-                pass
+        try:
+            invoke("digest-flow", "fail", *run_scope, "--error-code", exc.code)
+        except DreamingError:
+            pass
         raise DreamingError(exc.code, "来源检查失败。") from exc
 
 
@@ -101,12 +99,14 @@ def prepare_manual_source(kb: Path, *, token: str, source_key: str, skill_root: 
     run_id = source.get("work", {}).get("digest_run_id")
     if run_id:
         flow = _invoke(skill_root, "digest-flow", "status", *scope, "--run-id", run_id)
+        if flow["phase"] == "failed" or flow.get("run", {}).get("status") == "stale":
+            flow = _invoke(skill_root, "digest-flow", "resume", *scope, "--run-id", run_id)
     else:
         flow = _invoke(skill_root, "digest-flow", "start", *scope, "--source-type", source["source_type"],
                        "--source-ref", source["source_uid"])
         run_id = flow["run_id"]
         link_routine_digest(kb, token=token, source_key=source_key, digest_run_id=run_id)
-    if (bundle or bundle_request) and flow["phase"] not in {"checked", "prepared", "noop", "committed"}:
+    if (bundle or bundle_request) and flow["phase"] not in {"checked", "prepared", "commit_failed", "noop", "committed", "cancelled"}:
         flag, path = ("--bundle", bundle) if bundle else ("--bundle-request", bundle_request)
         work_dir = flow["work_dir"]
         flow = _invoke(skill_root, "digest-flow", "prepare", *scope, "--run-id", run_id,

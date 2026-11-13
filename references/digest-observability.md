@@ -16,20 +16,11 @@ bin/byteworker digest-flow start --kb "<KB>" \
 若提供只持久化 SHA-256，不保存原值。不得把带凭据或敏感 query 的 URL 放进命令参数。
 flow 自动记录 classify，标准路径不得再为确定性阶段手工成对打点。
 
-只有迁移旧 run 或诊断底层日志时，才直接使用以下命令；此时调用方负责成对状态：
-
-```bash
-bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" \
-  --stage classify --status started
-bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" \
-  --stage classify --status completed --source-type feishu_doc
-```
-
-## 2. Agent 阶段成对记录
+## 2. 可选的 Agent 阶段耗时
 
 `digest-flow` 自动负责 classify/capture/bundle/preflight/analysis_prepare/transaction/finalize。Agent
-只对实际发生的 dependency_review/semantic_analysis/conflict_review/candidate_generation 在动作前记
-`started`，完成后记 `completed`，失败记 `failed`。固定阶段为：
+需要诊断时，可对实际发生的 dependency_review/semantic_analysis/conflict_review/candidate_generation
+在动作前记 `started`，完成后记 `completed`；未打点不阻塞业务。固定阶段为：
 
 | stage | 记录范围 |
 |---|---|
@@ -51,15 +42,7 @@ conflict_review → candidate_generation`。不要在 `dependency_review` 中记
 也不要把评论解析、白板遍历、人员消解、事实抽取或模板加载记入 `conflict_review`。预处理与单扫描
 召回命令见 `references/digest-analysis-pipeline.md`。
 
-示例：
-
-```bash
-bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" \
-  --stage capture --status started --detail-code FETCH_SOURCE_COMPONENTS
-bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" \
-  --stage capture --status completed --detail-code SOURCE_COMPONENTS_READY \
-  --component-count 3 --input-bytes 1048576 --page-count 12 --retry-count 1
-```
+可选阶段使用 `digest-run stage --kb <KB> --run-id <ID> --stage <STAGE> --status started|completed`。
 
 `detail-code` 只能是大写稳定机器码。阶段 metrics 只允许非负整数：`item_count`、
 `component_count`、`input_bytes`、`output_count`、`warning_count`、`retry_count`、`page_count`、
@@ -103,18 +86,12 @@ bin/byteworker digest-flow commit --kb "<KB>" --run-id "<RUN_ID>" \
 ```
 
 不要再手工记录 `analysis_prepare` / `preflight` / `transaction_validate` / `transaction`，否则会形成重复开放阶段。
-以下底层完成命令只用于迁移、恢复或诊断，不是标准路径：
+标准 flow 自动记录幂等终态。失败尝试由 flow 关闭未结束阶段并保留重试位置：
 
 ```bash
-bin/byteworker digest-run complete --kb "<KB>" --run-id "<RUN_ID>" \
-  --status committed --node-count 3 --evidence-count 12 --warning-count 0
-```
-
-幂等命中用 `--status noop`。任一阶段失败时，先把当前阶段记为 `failed`，再用稳定 error code 结束：
-
-```bash
-bin/byteworker digest-run complete --kb "<KB>" --run-id "<RUN_ID>" \
-  --status failed --error-code SOURCE_CAPTURE_FAILED
+bin/byteworker digest-flow fail --kb "<KB>" --run-id "<RUN_ID>" \
+  --error-code SOURCE_CAPTURE_FAILED
+bin/byteworker digest-flow resume --kb "<KB>" --run-id "<RUN_ID>"
 ```
 
 需要用户授权、范围或冲突裁决时，先关闭当前 stage，再显式暂停：
@@ -122,7 +99,7 @@ bin/byteworker digest-run complete --kb "<KB>" --run-id "<RUN_ID>" \
 ```bash
 bin/byteworker digest-run wait --kb "<KB>" --run-id "<RUN_ID>" \
   --reason-code DEPENDENCY_APPROVAL_REQUIRED
-bin/byteworker digest-run resume --kb "<KB>" --run-id "<RUN_ID>"
+bin/byteworker digest-flow resume --kb "<KB>" --run-id "<RUN_ID>"
 ```
 
 `wait` 只接受固定 reason code，等待区间不计入 active duration；收到用户答复后必须 resume，成功终态
@@ -137,7 +114,7 @@ bin/byteworker digest-run show --kb "<KB>" --run-id "<RUN_ID>"
 
 `list` 直接返回 active duration 和最慢阶段；`show` 返回完整阶段时间线。非终态 run 超过固定 6 小时
 没有 lifecycle heartbeat 时显示 `stale`，duration 截止最后 lifecycle event，不再无限增长；恢复工作先
-运行 `digest-run resume`。`usage` 补报不属于 heartbeat，不能把 stale run 伪装为 active。日志位于
+运行 `digest-flow resume`。`usage` 补报不属于 heartbeat，不能把 stale run 伪装为 active。日志位于
 `state/digest/run-logs/<UTC-date>[-NNNN].jsonl`，目录/文件权限为 `0700/0600`，单文件 5 MiB
 轮转，默认保留 30 天，并通过本地 `.git/info/exclude` 的 `/state/` 排除在 KB Git 之外。
 

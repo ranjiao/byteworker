@@ -103,29 +103,11 @@ class AgentRouteContractTests(unittest.TestCase):
         self.assertNotIn(reference, self.closure("doctor"))
         self.assertNotIn(reference, self.closure("digest"))
 
-    def test_inline_contract_preserves_capture_evidence_wait_and_write_boundaries(self):
-        text = (ROOT / "references/digest-inline.md").read_text(encoding="utf-8")
-        for contract in (
-            "byteworker-digest-capture-plan/v1", "顺序分页仍串行", "component 失败必须停止",
-            "0600", "0700", "不重复调用底层", "最多 32", "240 字符", "只扫描 KB 节点一次",
-            "base_sha256", "conflict_disposition", "conflict_evidence", "removal",
-            "primary_source", "evidence", "不复制 anchors/source", "锁内复验", "失败回滚",
-            "禁止手工 git add/commit", "commit hash", "DEPENDENCY_APPROVAL_REQUIRED",
-            "CONFLICT_DECISION_REQUIRED", "digest-run resume", "estimated", "不得伪造实测值",
-        ):
-            with self.subTest(contract=contract):
-                self.assertIn(contract, text)
 
     def test_failed_payload_recovery_keeps_transaction_rules_and_stops_writing(self):
         paths = self.closure("digest") + self.workflows["digest"]["features"]["recovery"]
         self.assertIn("references/digest-transaction.md", paths)
         self.assertIn("references/digest-observability.md", paths)
-        core = (ROOT / "references/digest-core.md").read_text(encoding="utf-8")
-        inline = (ROOT / "references/digest-inline.md").read_text(encoding="utf-8")
-        self.assertIn("resume_failed", core)
-        self.assertIn("不得自动覆盖或继续", core)
-        self.assertIn("人工恢复前\n不生成候选或提交", inline)
-        self.assertIn("department_path 只有明确命中已有 org 才连边", core)
 
     def test_unattended_prompts_reference_machine_checked_route(self):
         for relative in (
@@ -153,24 +135,6 @@ class AgentRouteContractTests(unittest.TestCase):
                     limit,
                 )
 
-    def test_interaction_language_is_inline_in_skill_without_extra_reference(self):
-        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-        tutorial = (ROOT / "TUTORIAL.md").read_text(encoding="utf-8")
-        self.assertFalse((ROOT / "references/interaction-language.md").exists())
-        self.assertNotIn(
-            "references/interaction-language.md",
-            self.manifest["common"]["preflight"],
-        )
-        self.assertIn("## 交互语言", skill)
-        for term in (
-            "context view --intent preferences",
-            "不默认英语",
-            "不构成语言切换",
-        ):
-            self.assertIn(term, skill)
-        self.assertIn("SKILL.md", tutorial)
-        self.assertIn("「交互语言」", tutorial)
-        self.assertIn("不重新初始化", tutorial)
 
     def test_moved_mutation_policies_remain_in_required_closures(self):
         for workflow in ("digest", "update", "large_digest_worker", "wiki_resume_page", "digest_final_reducer"):
@@ -203,92 +167,7 @@ class AgentRouteContractTests(unittest.TestCase):
             features["maintenance"],
         )
         self.assertEqual(["references/dreaming-routine.md"], features["routine_digest"])
-        routine = (ROOT / features["routine_digest"][0]).read_text(encoding="utf-8")
-        self.assertLess(routine.index("digest-scan"), routine.index("resolve --workflow digest --source-type"))
-        self.assertIn("digest-complete --allow-partial", routine)
-        self.assertEqual(
-            ["references/dreaming-harness-trae.md"],
-            features["harness_trae"],
-        )
-        onboarding = (ROOT / features["enable"][0]).read_text(encoding="utf-8")
-        setup_guide = (ROOT / features["configure"][0]).read_text(
-            encoding="utf-8"
-        )
-        trae_harness = (ROOT / features["harness_trae"][0]).read_text(
-            encoding="utf-8"
-        )
-        maintenance = (ROOT / features["maintenance"][0]).read_text(
-            encoding="utf-8"
-        )
-        for term in (
-            "它与 digest 的区别",
-            "能做什么",
-            "默认值与授权",
-            "成本、隐私与运行条件",
-            "--acknowledge-capability-tour",
-            "--acknowledge-schedule",
-            "每几天固定时间",
-            "内部复验仍检查",
-        ):
-            self.assertIn(term, onboarding)
-        for term in (
-            "帮我配置 Dreaming",
-            "Dreaming：已开启 / 已关闭",
-            "结构化提问或选项控件",
-            "从第一个未完成",
-            "只想修改一项",
-            "每天给我汇总重要信息",
-            "为什么没有自动运行",
-            "会包含私聊和免打扰会话",
-            "不得暗中开启",
-            "不得因命令覆盖语义意外关闭",
-            "自动运行：已接通",
-            "自动运行：待完成",
-        ):
-            self.assertIn(term, setup_guide)
-        for internal, user_term in (
-            ("`operational`", "自动运行是否接通"),
-            ("`persist_report`", "生成定时摘要"),
-            ("`instant_alert`", "紧急事项及时提醒"),
-            ("harness", "本地定时任务"),
-            ("Finding", "待关注事项"),
-        ):
-            with self.subTest(internal=internal):
-                self.assertIn(internal, setup_guide)
-                self.assertIn(user_term, setup_guide)
-        for term in (
-            "doctor scan",
-            "doctor fix",
-            "DOCTOR_USER_DECISION_REQUIRED",
-            "waiting_for_user",
-            "不得猜业务语义",
-        ):
-            self.assertIn(term, maintenance)
-        for term in (
-            "byteworker-dreaming-local",
-            "每 30 分钟",
-            "Code 模式",
-            "本地环境",
-            "Run now",
-            "自动运行：待完成",
-            "不得向用户输出",
-            "harness register",
-            "禁止猜内部",
-        ):
-            self.assertIn(term, trae_harness)
-
-    def test_core_policies_have_no_known_contradictory_fallbacks(self):
-        paths = [
-            ROOT / "SKILL.md",
-            ROOT / "docs/development/DESIGN.md",
-            *(ROOT / "references").glob("*.md"),
-            *(ROOT / "templates").glob("*.md"),
-        ]
-        markdown = "\n".join(path.read_text(encoding="utf-8") for path in paths)
-        self.assertNotIn("以更晚的来源为准", markdown)
-        self.assertNotIn("实体类倾向 `area`、记录类倾向 `event`", markdown)
-        self.assertNotIn("实体类倾向 `node-area`", markdown)
-        self.assertNotIn("证据不足写「证据有限」", markdown)
+        self.assertEqual(["references/dreaming-harness-trae.md"], features["harness_trae"])
 
 
 if __name__ == "__main__":

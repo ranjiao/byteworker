@@ -42,10 +42,10 @@
   不进知识正文，不新建“定期来源复查快照”。影响结论的证据缺口说明一次，变化时再更新。
 - 同源保持一个 H1、一个当前 TL;DR，合并对应章节；只为实质业务演变保留日期历史，
   不按运行次数堆摘要、统计、边界或“暂无”条目。删旧章节仍走 conflict/removal 契约。
-- hash 未变接受工具 noop；payload 变但无业务增量仍保存 raw/provenance。事务要求非空 nodes，
-  复用同源主记录作最小来源元数据更新：保留正文及 evidence 映射，只加必要 sources；
-  primary_source 须支持摘要，检查成功不刷新 last_verified。updated 不证明业务变化。
-  不传空 nodes、不伪造 noop、不造归档节点。
+- hash 未变接受工具 noop；已有来源的 payload 变但无业务增量时，使用 digest-plan/v2 的
+  `knowledge_effect: snapshot_only` 和 `nodes: []` 保存 raw/provenance。工具从干净、已提交的
+  同源 raw 继承有效 digest_targets，不改知识正文、sources、primary_source、evidence 或日期。
+  无需生成节点候选；新快照不自动成为既有事实的证据。首次摄取不能使用该模式。
 - 首次摄取必须提炼实际内容，“已归档供周报使用、具体见 raw”不能代替摘要。分析未完成则
   保留私有产物及未完成状态，不提交空壳；确无可入库内容的群聊按 digest-chat 跳过。
 - 取消、拒绝、未达标、持续风险或用户明确跟踪的不变状态可能有用：保留对象、时间、证据和

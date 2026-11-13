@@ -112,7 +112,7 @@ cd "$BYTEWORKER_ROOT"
 | `byteworker-cli.py` | Agent / 自动化 | 统一 JSON 机器协议 facade | 取决于下游工具 |
 | `discover.py` | Agent | status 能力地图；complete 交互收尾；diagnose 只读不推荐原因；feedback 拒绝或延后 | complete/recommend 需 --interactive 才写 KB 已排除的 `state/capability_discovery.json`；diagnose 不写 |
 | `digest-txn.py` | Agent / 维护者 | digest 预检、校验、原子写入 | `execute` 写 KB 并创建本地 commit |
-| `digest-flow.py` | Agent / 维护者 | 自动编排无语义 digest 阶段并保存可恢复 checkpoint | 写 KB 已排除的 `state/digest/flows/`；commit 委派事务 |
+| `digest-flow.py` | Agent / 维护者 | 编排 digest 阶段，fail/resume 统一失败恢复并保留 checkpoint | 写 KB 已排除的 `state/digest/flows/`；commit 委派事务 |
 | `workflow-budget.py` | Agent / 维护者 | 展开完整 workflow 闭包并计算静态/动态 token 预算 | 只读规则与显式输入，返回方法、计数和固定 overflow action |
 | `digest-run.py` | Agent / 维护者 | 单输入全流程阶段、计数和耗时日志 | 写 KB 已排除的 `state/digest/run-logs/` |
 | `digest-analysis.py` | Agent / 维护者 | SourceBundle 单次结构去噪与分析 packet | 只写显式系统临时输出，不写 KB truth |

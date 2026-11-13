@@ -32,7 +32,7 @@ byteworker skill 负责报告方法，Codex / Claude / TraeWork 等 harness 负�
      `.last-routine-digest` 是否到期或七天提醒阈值限制。
    - routine 阶段只重放已登记且启用的来源；除第 4 步固定日历发现外，无人值守运行不得新增
      来源、扩大范围、发起 OAuth 或静默切换身份。routine 授权 / 资源权限未就绪时 fail closed。
-   - 即便没有增量,也要追加 journal,并把当天日期写入 `.last-routine-digest`。
+   - 无增量时保留各来源的 noop 回执；报告事务写 journal，完成后由 report-automation complete 记录结果。Agent 不手写 journal 或 `.last-routine-digest`。
 3. **确定报告范围**
    - 自动日报：执行当天 00:00 到当前时刻；补跑给定 `YYYY-MM-DD` 时取该自然日完整范围。
    - 自动周报：上一完整 ISO 周；补跑给定 `YYYY-Www` 时取对应 ISO 周。

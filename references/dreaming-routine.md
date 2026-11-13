@@ -38,10 +38,10 @@
 只补读实际触发的 feature 和未读规则。`resume_failed` 按普通 Digest 的历史 raw 恢复闸门；
 其它已检查来源用 `digest-flow analyze` 生成分析包和计划，沿用预检保存的定期模式。
 Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，无待分析记录，
-按最小来源元数据更新规则保存完整快照，直接登记事务回执。
+用 snapshot_only 保存完整快照，直接登记事务回执。
 保持普通 Digest 的依赖、语义、冲突、候选、引用和事务规则。
 `changed` 只说明采集 payload 变化，不代表有业务进展。主记录候选也必须执行
-`write-rules.md`「信息增量门槛」；无业务增量按其最小来源元数据更新规则保存快照，
+`write-rules.md`「信息增量门槛」；已有来源无业务增量用 snapshot_only 保存快照，
 不把 digest-scan 计数、分片执行、未晋升说明或覆盖状态复制进知识节点。
 
 ## 无人值守时的处理顺序
@@ -75,20 +75,14 @@ Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，
   并行不可用时使用同一角色闭包逐片执行，每片完成立即保存 checkpoint，之后只跑缺失片。
   用完整 checkpoint 清单归并。
   依赖范围裁决、冲突核对、候选和事务由 coordinator 按当前知识库顺序执行。
-- 派发给宿主时，worker 指令带上预算检查返回的 `attempt_id` 和当前分片的绝对路径。
-  豆包工作的 `create_agent` 或 `send_message` 实际返回错误时，调用同一 `attempt` 命令并加
-  `--attempt-id <ID> --failure <CODE>`。工具从本机宿主轨迹核验同一次调用的返回值；
-  指定 `--host-session-id` 可限定到已知会话。日志只保存工具名、调用编号、固定错误码和明确返回的可用 token 数。
-  并行派发不可用时继续顺序执行。上下文错误核验后，等已派发分片返回并保存，调用
-  `digest-parallel replan --kb "<KB>" --plan <plan.json> --failed-attempt-id <ID>`。
-  工具根据宿主回执给出的可用输入或失败分片的估算，自动计算下次试跑大小。返回 `replanned` 时
-  读取新计划，逐片核算、执行并保存，只重做缺失片。再次核验同类错误就继续用该尝试编号重分片。
-  `exhausted` 表示当前预算已无法生成合法的更小分片，或宿主可用输入放不下角色规则。
-  只在有该回执时用 `DIGEST_HOST_CONTEXT_LIMIT` 暂缓该来源，继续其它来源。
-  无需用户填写 token 数。找不到宿主证据时继续执行可处理的分片和来源，保留缺失项。
-  依赖裁决、结果校验、归并、冲突或事务中的其他失败
-  用对应的 Digest stage 失败事件和实际错误码登记。
-- 用 Digest 的 stage 事件记录 capture、dependency_review、semantic_analysis、reduce、
+- 派发给宿主时，worker 指令带上 attempt_id 和分片绝对路径。实际失败后用同一 attempt 命令加
+  `--attempt-id <ID> --failure <CODE>` 登记。所有宿主均支持；豆包工作可从本地轨迹补充核验。
+  没有轨迹时明确记为 reported，不伪造 verified，也不推进覆盖。失败仍可用 blocked/partial 收尾。
+  并行不可用时可顺序执行；有已核验上下文错误时，可用
+  `digest-parallel replan --kb <KB> --plan <plan.json> --failed-attempt-id <ID>` 自动缩小未完成片。
+  该恢复是可选尝试，不要求穷尽缩片才能记录失败。完成结果立即 checkpoint，后续复用。
+  其它语义或事务失败由 `digest-flow fail --error-code <CODE>` 关闭阶段；继续时用 digest-flow resume。
+- 需要耗时诊断时，可用 Digest 的 stage 事件记录 capture、dependency_review、semantic_analysis、reduce、
   conflict_review、candidate_generation 等阶段开始和结束。每次模型调用若有真实计数，调用
   `digest-run usage --usage-source measured`，传宿主 call id 和相应计数；若宿主同时提供调用
   耗时或距上次调用的间隔，加 `--call-duration-ms` 和 `--call-gap-ms`。只有时序也可以上报。
