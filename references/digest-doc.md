@@ -6,7 +6,7 @@
 
 - **正文与评论必须双路并发读取**:先读 `references/digest-comments.md` 和
   `references/digest-inline.md`，用 `digest-flow capture` 同时启动两条独立只读 job。正文用
-  `lark-doc +fetch --api-version v2 --detail with-ids`;评论用
+  `bin/byteworker lark docs +fetch --doc "<URL>" --detail with-ids`;评论用
   `bin/byteworker run bin/pull_doc_comments.py --url "<URL>"`,固定拉取全部评论(含已解决)、完整回复链与
   relation 锚点。正文 fetch 成功不代表评论已读取;评论状态必须在 raw frontmatter 明示。
   同时按 `references/provenance.md` 把 `with-ids` 的正文 block id、评论 / 回复 id 转成
@@ -26,7 +26,7 @@
   不必另写脚本提取纯文本。
   评论策略关闭或权限不可用时省略 comments component，并明确
   `provider_metadata.comments_status=unavailable`；不得提供空文件伪装完整评论。
-- **文档来源标识与幂等键**:`lark-doc +fetch --api-version v2` 返回的 `document_id` 和
+- **文档来源标识与幂等键**:`docs +fetch` 返回的 `document_id` 和
   `revision_id` 必须写入 raw frontmatter:`source_uid=<document_id>`、`source_revision=<revision_id>`。
   `source_uid` 不添加 `feishu_doc:` 前缀；adapter 会拒绝这种重复命名空间。
   同一文档 URL 可能带不同 query 参数,不得用完整 URL 作为唯一判重依据;URL 只保留在

@@ -11,8 +11,10 @@
 
 ```bash
 bin/byteworker dreaming report prepare \
-  --kb "<KB>" --kind morning|daily|weekly --period "<period>"
+  --kb "<KB>" --kind morning --period "<period>"
 ```
+
+日报或周报将 `--kind` 改成 `daily` 或 `weekly`。
 
 prepare 只读 committed Finding 和 durable KB 引用，不读 spool 或重跑 digest，返回 packet、
 Finding 数量和 coverage：
@@ -47,6 +49,9 @@ bin/byteworker dreaming report complete \
 - `report.html`：详细自包含页面；宿主预览或返回本地链接。
 - `reports/<kind>/<period>.md`：用户可编辑归档快照，重跑时保留“手动补充 / 备注”。
 
+报告类型、周期和活跃租约须一致才会写归档。`report render --kb <KB> --input <report.json>`
+只生成系统临时目录中的私有预览。`report delivery-complete` 只确认宿主渠道回执。
+
 HTML 禁止宿主私有 API 和外部脚本、样式、字体、图片或网络资源。TraeWork、Codex、Claude
 Code 只消费 manifest。
 4. 飞书固定用应用机器人发送 summary；配置入口可接受字母用户名，但必须先通过 user 身份通讯录
@@ -58,6 +63,10 @@ Code 只消费 manifest。
    `summary.txt` 转成可读文本消息，至少包含报告标题、项目符号摘要和完整报告路径，不得直接发送
    一整段未分组长文本。`message_id` 是送达回执。投递失败时 outbox 保持 pending，报告 job 仍可
    成功，因为本地产物已经落地；不得猜收件人，无回执只能说已生成。
+
+已确认收件人后，可用 `dreaming configure --kb <KB> --lark-delivery-enabled true --lark-recipient <用户名或open_id>`
+保存配置。`--lark-recipient-id` 是兼容别名。已入队但投递失败时，维护者可用
+`dreaming report deliver --kb <KB> --outbox-id <ID>` 重试原条目。`report enqueue-delivery` 属底层维护入口。
 
 ## Owner Migration
 

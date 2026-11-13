@@ -197,6 +197,7 @@ def _deliver_lark_bot_summary(
         kb,
         outbox_id=outbox_id,
         delivery_id=delivery_id,
+        channel="lark_bot",
         now=current,
     )
     return {

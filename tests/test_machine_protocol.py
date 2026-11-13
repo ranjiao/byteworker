@@ -134,6 +134,15 @@ class MachineProtocolTests(unittest.TestCase):
         self.assertGreater(payload["data"]["summary"]["error"], 0)
         self.assertEqual("scan", payload["context"]["operation"])
 
+    def test_doctor_rejects_fix_only_and_unknown_scan_options(self):
+        for flag in ("--dry-run", "--not-a-real-option"):
+            result = self.run_cli("doctor", "scan", flag)
+            self.assertEqual(2, result.returncode)
+            payload = json.loads(result.stdout)
+            self.assertEqual("error", payload["status"])
+            self.assertEqual("DOCTOR_INPUT_ERROR", payload["error"]["code"])
+            self.assertIn(flag, payload["error"]["message"])
+
     def test_source_structured_error_code_survives_facade(self):
         result = self.run_cli(
             "source",

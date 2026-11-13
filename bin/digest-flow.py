@@ -60,6 +60,7 @@ def parser() -> argparse.ArgumentParser:
             source.add_argument("--bundle", type=Path)
             command.add_argument("--check-only", action="store_true")
             command.add_argument("--routine", action="store_true")
+            command.add_argument("--source-uid", default="", help="校验 Bundle 与已登记来源一致")
         elif name == "commit":
             command.add_argument("--plan", required=True, type=Path)
         elif name == "analyze":
@@ -86,7 +87,7 @@ def main() -> int:
         elif args.command == "prepare":
             result = prepare_flow(
                 kb, run_id=args.run_id, bundle_request=args.bundle_request,
-                bundle_input=args.bundle, check_only=args.check_only, routine=args.routine,
+                bundle_input=args.bundle, check_only=args.check_only, routine=args.routine, source_uid=args.source_uid,
             )
         elif args.command == "analyze":
             result = analyze_flow(kb, run_id=args.run_id, routine=args.routine)

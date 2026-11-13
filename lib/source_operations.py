@@ -61,6 +61,7 @@ SOURCE_UID = argument("--source-uid", default="", help="KB 中已注册的稳定
 MAX_ITEMS = argument("--max-items", type=positive_int, default=DEFAULT_MAX_ITEMS)
 OUT = argument("--out", help="完整快照输出路径；必须位于临时目录或知识库目录")
 BUNDLE_OUT = argument("--bundle-out", default="", help="同时把完整 capture 转为 SourceBundle v2；必须与 --out 一起使用")
+BUNDLE_ONLY = argument("--bundle-only", action="store_true", help="--out 输出 SourceBundle，所需原始快照保存在同目录下的私有子目录")
 ROUTINE = argument("--routine", choices=("off", "daily", "weekly", "monthly"), default="off")
 REGISTER_URL = argument("--url", required=True)
 REGISTER_KB = argument("--kb", required=True, help="知识库数据目录")
@@ -302,7 +303,7 @@ class AeolusOperations:
     source_type = "aeolus"
     operation_arguments = {
         "auth-status": (TIMEOUT_AUTH,),
-        "inspect": (URL, REPORT_ID, FILTER_MODE, WHERE, TIMEOUT_READ),
+        "inspect": (URL, TIMEOUT_READ),
         "capture": (URL, REPORT_ID, FILTER_MODE, WHERE, KB, SOURCE_UID, MAX_ITEMS, OUT, BUNDLE_OUT, TIMEOUT_READ),
         "register": (REGISTER_URL, REPORT_ID, FILTER_MODE, WHERE, REGISTER_KB, MAX_ITEMS, ROUTINE, TIMEOUT_READ),
     }
@@ -429,7 +430,7 @@ def source_operation_arguments(operation: str) -> tuple[OperationArgument, ...]:
                     f"source operation argument conflict: {operation}.{spec.destination}"
                 )
             by_destination[spec.destination] = spec
-    return tuple(by_destination.values())
+    return (*by_destination.values(), BUNDLE_ONLY) if operation == "capture" else tuple(by_destination.values())
 
 
 def source_operation_runtime(source_type: str, operation: str) -> tuple[str, ...]:
@@ -444,6 +445,12 @@ def source_operation_manifest() -> dict[str, Any]:
         operation: {
             "source_types": list(operation_source_types(operation)),
             "arguments": [spec.to_dict() for spec in source_operation_arguments(operation)],
+            "arguments_by_source_type": {
+                source_type: [spec.to_dict() for spec in _ADAPTERS[source_type].operation_arguments[operation]
+                              if not (source_type == "feishu_chat" and spec.destination == "bundle_out")]
+                + ([BUNDLE_ONLY.to_dict()] if operation == "capture" else [])
+                for source_type in operation_source_types(operation)
+            },
             "runtime": {
                 source_type: list(source_operation_runtime(source_type, operation))
                 for source_type in operation_source_types(operation)

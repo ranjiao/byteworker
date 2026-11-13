@@ -1,5 +1,6 @@
 import json
 import sys
+import subprocess
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -53,6 +54,18 @@ def selection():
 
 
 class DigestJobTests(unittest.TestCase):
+    def commit_raw(self, kb, now, document_id="doc-1"):
+        raw = kb / "raw_data" / f"{document_id}.md"
+        raw.parent.mkdir(exist_ok=True)
+        raw.write_text(
+            f"---\nraw_id: raw-{document_id}\nsource_type: feishu_doc\nsource_uid: {document_id}\n"
+            f"digest_status: digested\ningested: {now.isoformat()}\n---\n# page\n"
+        )
+        for args in (["init", "-q"], ["add", str(raw)],
+                     ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "raw"]):
+            subprocess.run(["git", *args], cwd=kb, check=True)
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=kb, text=True).strip()
+
     def test_error_and_time_helpers_are_safe(self):
         error = DigestJobError(
             "CODE",
@@ -87,13 +100,15 @@ class DigestJobTests(unittest.TestCase):
                 now=now,
             )
             self.assertEqual(["doc-1"], [item["document_id"] for item in first["pages"]])
+            commit = self.commit_raw(kb, now)
             marked = mark_page(
                 kb,
                 created["job_id"],
                 document_id="doc-1",
                 status="committed",
-                raw_id="raw-1",
-                commit="abc123",
+                raw_id="raw-doc-1",
+                commit=commit,
+                lease_token=first["pages"][0]["lease_token"],
                 now=now + timedelta(minutes=1),
             )
             self.assertEqual("ready", marked["job_status"])
@@ -111,7 +126,7 @@ class DigestJobTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             kb = Path(temporary)
             job_id = create_job(kb, selection(), now=now)["job_id"]
-            lease_next(
+            old = lease_next(
                 kb,
                 job_id,
                 limit=1,
@@ -128,22 +143,25 @@ class DigestJobTests(unittest.TestCase):
             )
             self.assertEqual("doc-1", recovered["pages"][0]["document_id"])
             self.assertEqual(2, recovered["pages"][0]["attempt"])
+            for token, expected in ((old["pages"][0]["lease_token"], "DIGEST_JOB_LEASE_MISMATCH"),
+                                    (recovered["pages"][0]["lease_token"], "DIGEST_JOB_RECEIPT_INVALID")):
+                with self.assertRaises(DigestJobError) as caught:
+                    mark_page(kb, job_id, document_id="doc-1", status="committed", lease_token=token,
+                              raw_id="missing", commit="abcdef0", now=now + timedelta(seconds=12))
+                self.assertEqual(expected, caught.exception.code)
+
+    def test_next_defaults_to_the_saved_batch_size(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = Path(temporary)
+            job_id = create_job(kb, selection(), batch_size=1)["job_id"]
+            self.assertEqual(1, lease_next(kb, job_id, lease_owner="session")["leased_count"])
 
     def test_reconcile_recovers_digest_committed_before_job_mark(self):
         now = datetime(2026, 7, 30, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as temporary:
             kb = Path(temporary)
             job_id = create_job(kb, selection(), now=now)["job_id"]
-            raw = kb / "raw_data" / "raw-1.md"
-            raw.parent.mkdir()
-            raw.write_text(
-                "---\n"
-                "id: raw-1\n"
-                "source_uid: doc-1\n"
-                "digest_status: digested\n"
-                "---\n# page\n",
-                encoding="utf-8",
-            )
+            self.commit_raw(kb, now)
             receipt = reconcile_job(kb, job_id, now=now)
             self.assertEqual(1, receipt["reconciled_count"])
             self.assertEqual(1, job_status(kb, job_id)["page_counts"]["committed"])
@@ -241,7 +259,10 @@ class DigestJobTests(unittest.TestCase):
                     document_id="doc-1",
                     status="pending",
                 )
-            mark_page(kb, job_id, document_id="doc-1", status="noop")
+            pages = lease_next(kb, job_id, limit=2, lease_owner="x")["pages"]
+            self.commit_raw(kb, datetime.now(timezone.utc))
+            mark_page(kb, job_id, document_id="doc-1", status="noop", raw_id="raw-doc-1",
+                      lease_token=pages[0]["lease_token"])
             with self.assertRaises(DigestJobError):
                 mark_page(
                     kb,
@@ -254,6 +275,7 @@ class DigestJobTests(unittest.TestCase):
                 job_id,
                 document_id="doc-2",
                 status="permanent_error",
+                lease_token=pages[1]["lease_token"],
             )
             self.assertEqual("failed", job_status(kb, job_id)["status"])
             with self.assertRaises(DigestJobError):
@@ -263,20 +285,23 @@ class DigestJobTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             kb = Path(temporary)
             blocked = create_job(kb, selection())["job_id"]
+            page = lease_next(kb, blocked, limit=1, lease_owner="x")["pages"][0]
             mark_page(
                 kb,
                 blocked,
                 document_id="doc-1",
                 status="blocked_dependency",
+                lease_token=page["lease_token"],
             )
             self.assertEqual("waiting_user", job_status(kb, blocked)["status"])
             completed = create_job(kb, selection())["job_id"]
-            for document_id in ("doc-1", "doc-2"):
+            for page in lease_next(kb, completed, limit=2, lease_owner="x")["pages"]:
                 mark_page(
                     kb,
                     completed,
-                    document_id=document_id,
-                    status="noop",
+                    document_id=page["document_id"],
+                    status="skipped",
+                    lease_token=page["lease_token"],
                 )
             self.assertEqual("completed", job_status(kb, completed)["status"])
             self.assertNotIn(

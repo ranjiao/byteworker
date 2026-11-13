@@ -8,7 +8,7 @@ import uuid
 from collections import Counter
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from report_owner import report_owner_lock
 from dreaming_run_log import (
@@ -1726,6 +1726,7 @@ def complete_run(
     batch_id: str = "",
     result_document: Mapping[str, Any] | None = None,
     report_sources: list[dict[str, Any]] | None = None,
+    publish_report: Callable[[], dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if run_status not in RUN_STATUSES:
@@ -1841,6 +1842,19 @@ def complete_run(
         artifact = _validate_artifact(job_name, artifact_path)
         run_id = _lease_run_id(lease)
         period = str(lease.get("period", ""))
+        if job_name in {"morning", "daily", "weekly"} and run_status == "success" and publish_report is None:
+            raise DreamingError("DREAMING_RUN_RESULT_INVALID", "报告成功须通过 dreaming report complete 归档。")
+        if publish_report is not None:
+            if (
+                not _lease_active(lease, current)
+                or job_name not in {"morning", "daily", "weekly"} or run_status != "success"
+                or result_document is None or result_document.get("job") != job_name
+                or result_document.get("period") != period
+            ):
+                raise DreamingError("DREAMING_LEASE_MISMATCH", "报告类型或周期与当前租约不一致。")
+            rendered = publish_report()
+            artifact = _validate_artifact(job_name, str(rendered["report_path"]))
+            report_sources = rendered["source_distribution"]
         started_at = _parse_time(lease.get("acquired_at"))
         metrics = {
             key: count for key, count in (

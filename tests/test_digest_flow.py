@@ -175,10 +175,11 @@ class DigestFlowTests(unittest.TestCase):
         plan = work_dir / "digest-plan.json"
         plan.write_text("{}\n", encoding="utf-8")
 
-        def execute(kb, plan_path, skill_root):
+        def execute(kb, plan_path, skill_root, *, prepared_source):
             self.assertEqual(self.kb, kb)
             self.assertEqual(plan, plan_path)
             self.assertEqual(ROOT, skill_root)
+            self.assertEqual(work_dir / "source-bundle.json", prepared_source.path)
             return {"status": "committed", "nodes": [{"id": "reading-1"}], "warnings": []}
 
         committed = commit_flow(
@@ -206,6 +207,27 @@ class DigestFlowTests(unittest.TestCase):
         self.assertEqual(1, sum(
             event["stage"] == "analysis_prepare" for event in flow_status(self.kb, run_id=run_id)["run"]["stages"]
         ))
+
+    def test_commit_rejects_unprepared_flow_and_changed_bundle_or_payload(self):
+        started = self.start()
+        run_id = started["run_id"]
+        work = Path(started["work_dir"])
+        plan = work / "plan.json"
+        plan.write_text("{}")
+        with self.assertRaises(DigestFlowError) as caught:
+            commit_flow(self.kb, run_id=run_id, plan_path=plan)
+        self.assertEqual("DIGEST_FLOW_STATE_INVALID", caught.exception.code)
+        prepare_flow(self.kb, run_id=run_id, bundle_request=self.bundle_request(work))
+        bundle = work / "source-bundle.json"
+        other = work / "other-bundle.json"
+        other.write_bytes(bundle.read_bytes())
+        for selected in (other, bundle):
+            plan.write_text(json.dumps({"schema_version": "digest-plan/v2", "source_bundle": str(selected)}))
+            if selected == bundle:
+                self.source.write_text("Changed after preparation.\n")
+            with self.assertRaisesRegex(DigestFlowError, "本次已准备的 Bundle"):
+                commit_flow(self.kb, run_id=run_id, plan_path=plan)
+        self.assertEqual([], list((self.kb / "raw_data").iterdir()))
 
     def test_rolling_document_compares_the_selected_window_and_whiteboard_nodes(self):
         uid = "rolling-doc"
@@ -393,8 +415,9 @@ class DigestFlowTests(unittest.TestCase):
         started = self.start()
         run_id = started["run_id"]
         plan = Path(started["work_dir"]) / "digest-plan.json"
+        prepare_flow(self.kb, run_id=run_id, bundle_request=self.bundle_request(plan.parent))
         plan.write_text("{}\n", encoding="utf-8")
-        def executor(*_):
+        def executor(*_, **_options):
             return {"status": "committed"}
 
         with patch("digest_flow.finish_run", side_effect=OSError("log unavailable")):

@@ -56,7 +56,7 @@ bin/byteworker digest-flow commit --kb "<KB>" --run-id "<RUN_ID>" \
 bin/byteworker digest-flow status --kb "<KB>" --run-id "<RUN_ID>"
 ```
 
-`commit` 自动记录 transaction 并写 committed/noop 终态；事务失败保持 `commit_failed` 供修复后重试。
-事务已成功而收尾日志写入失败时，仍以事务回执为准，回执附 `digest_run_logging=degraded`。
-flow state 只保存 source ref hash、固定 phase 和私有 artifact 路径，不保存正文、标题、URL、凭据或
-语义候选。宿主上报 usage 或恢复/诊断时，加 recovery 按 `digest-observability.md` 处理。
+提交前完成分析准备。计划引用本轮 `work_dir/source-bundle.json`，Bundle 和组件须与预检一致。
+旧运行缺少绑定时重新 prepare。`commit_failed` 可修复后重试。
+事务成功但日志失败时，以事务回执为准，回执附 `digest_run_logging=degraded`。
+私有状态保存 hash、阶段和产物路径。usage 和恢复见 `digest-observability.md`。

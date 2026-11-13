@@ -8,16 +8,25 @@ ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || exit 1
 PYTHON_CACHE="$ROOT/.python-cache.txt"
 REFRESH_RUNTIME="${BYTEWORKER_REFRESH_RUNTIME:-}"
 READ_ONLY_DISCOVERY=0
+COMMAND="${1:-}"
+COMMAND_ARGUMENT="${2:-}"
+if [ "$COMMAND" = "--pretty" ]; then
+  COMMAND="${2:-}"
+  COMMAND_ARGUMENT="${3:-}"
+fi
+if [ "$COMMAND" = "system" ] && { [ "$COMMAND_ARGUMENT" = "preflight" ] || [ "$COMMAND_ARGUMENT" = "deps" ]; }; then
+  COMMAND="$COMMAND_ARGUMENT"
+fi
 for argument in "$@"; do
   if [ "$argument" = "-h" ] || [ "$argument" = "--help" ]; then
     READ_ONLY_DISCOVERY=1
     break
   fi
 done
-if [ "${1:-}" = "commands" ]; then
+if [ "$COMMAND" = "commands" ] || [ "$COMMAND" = "--all" ] || [ -z "$COMMAND" ]; then
   READ_ONLY_DISCOVERY=1
 fi
-if [ "${1:-}" = "deps" ]; then
+if [ "$COMMAND" = "deps" ]; then
   for argument in "$@"; do
     if [ "$argument" = "--refresh" ]; then
       REFRESH_RUNTIME=1
@@ -119,7 +128,7 @@ export BYTEWORKER_PYTHON_BIN="$PYTHON_BIN"
 
 # Preflight updates must finish before Python imports any byteworker module.
 # The following exec therefore loads one coherent version for the whole run.
-if [ "${1:-}" = "preflight" ] && [ "$READ_ONLY_DISCOVERY" -eq 0 ]; then
+if [ "$COMMAND" = "preflight" ] && [ "$READ_ONLY_DISCOVERY" -eq 0 ]; then
   SKIP_UPDATE=0
   for argument in "$@"; do
     if [ "$argument" = "--skip-update" ]; then

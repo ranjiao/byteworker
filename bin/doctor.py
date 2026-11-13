@@ -41,40 +41,35 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         description="检查知识库兼容性，或从本地技术回执生成反馈草稿和诊断包。"
     )
-    result.add_argument(
-        "command", nargs="?", choices=(
-            "scan", "fix", "feedback", "bundle", "trace-start", "trace-finish", "trace-list",
-        ), default="scan"
-    )
-    result.add_argument("--kb", default="", help="知识库目录；默认读取 .kbconfig")
-    result.add_argument("--run-id", help="反馈使用的运行或诊断编号")
-    result.add_argument("--kind", choices=sorted(trace.KINDS - {"dreaming"}))
-    result.add_argument("--result", choices=(
-        "success", "failed", "partial", "insufficient_evidence", "incorrect_result", "no_match",
-    ))
-    result.add_argument(
-        "--format", choices=("text", "json"), default="text", help="报告格式"
-    )
-    result.add_argument(
-        "--only",
-        default="index,links",
-        help="fix 范围，逗号分隔:index,links",
-    )
-    result.add_argument(
-        "--autolink",
-        action="store_true",
-        help="fix links 时把正文提及的已存在节点补进 links",
-    )
-    result.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="预演 fix，不写回",
-    )
+    sub = result.add_subparsers(dest="command", required=True)
+    for name in ("scan", "fix", "feedback", "bundle", "trace-start", "trace-finish", "trace-list"):
+        command = sub.add_parser(name)
+        command.add_argument("--kb", default="", help="知识库目录；默认读取 .kbconfig")
+        command.add_argument("--format", choices=("text", "json"), default="text",
+                             help="报告格式" if name in {"scan", "fix"} else argparse.SUPPRESS)
+        if name in {"feedback", "bundle", "trace-finish"}:
+            command.add_argument("--run-id", required=name == "trace-finish", help="运行或诊断编号")
+        if name in {"trace-start", "trace-list"}:
+            command.add_argument("--kind", choices=sorted(trace.KINDS - {"dreaming"}), required=name == "trace-start")
+        if name == "trace-finish":
+            command.add_argument("--result", required=True, choices=(
+                "success", "failed", "partial", "insufficient_evidence", "incorrect_result", "no_match",
+            ))
+        if name != "fix":
+            continue
+        command.add_argument(
+            "--only", default="index,links", help="fix 范围，逗号分隔:index,links",
+        )
+        command.add_argument("--autolink", action="store_true", help="把正文提及的已存在节点补进 links")
+        command.add_argument("--dry-run", action="store_true", help="预演 fix，不写回")
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    values = list(sys.argv[1:] if argv is None else argv)
+    if not values or (values[0].startswith("-") and not set(values) & {"-h", "--help"}):
+        values.insert(0, "scan")
+    args = parser().parse_args(values)
     if args.command in {"feedback", "bundle", "trace-start", "trace-finish", "trace-list"}:
         try:
             kb = Path(args.kb).expanduser().resolve() if args.kb else None

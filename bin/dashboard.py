@@ -15,11 +15,15 @@ from dashboard_settings import DashboardError  # noqa: E402
 from dashboard_view import dashboard_inputs, dashboard_view  # noqa: E402
 
 
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("command", choices=("view", "inputs"))
+    result.add_argument("--kb", type=Path, required=True)
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("view", "inputs"))
-    parser.add_argument("--kb", type=Path, required=True)
-    args = parser.parse_args(argv)
+    args = parser().parse_args(argv)
     try:
         result = (dashboard_view if args.command == "view" else dashboard_inputs)(args.kb)
     except (OSError, ValueError) as exc:

@@ -15,12 +15,12 @@ bin/byteworker digest-job reconcile \
   --kb "<KB>" --job-id "<job_id>"
 ```
 
-`reconcile` 用已提交且 `digest_status=digested` 的 raw 修复“文档事务已提交、任务状态尚未来得及
-标记”的崩溃窗口。它不修改 raw 或知识节点。
+`reconcile` 用当前任务窗口内、与页面对应且已纳入 Git HEAD 的 raw 修复“文档事务已提交、任务状态
+尚未来得及标记”的崩溃窗口。仍有活跃租约的页面留给持有者。它不修改 raw 或知识节点。
 
 ## 分批执行
 
-每次只租约一个小批次，默认 5 页：
+每次领取一个小批次，默认用创建任务时的批量大小。`--limit` 可覆盖本次：
 
 ```bash
 bin/byteworker digest-job next \
@@ -39,12 +39,13 @@ fresh-context 能力。必须以
 ```bash
 bin/byteworker digest-job mark \
   --kb "<KB>" --job-id "<job_id>" --document-id "<document_id>" \
+  --lease-token "<page.lease_token>" \
   --status committed --raw-id "<raw_id>" --commit "<commit>"
 ```
 
 其他状态：
 
-- `noop`：幂等预检确认同一版本已 digest；
+- `noop`：幂等预检确认同一版本已 digest，传命中归档的 `--raw-id`；
 - `blocked_dependency`：等待用户决定重要依赖；
 - `blocked_conflict`：等待冲突裁决；
 - `retryable_error`：网络、临时限流等可重试错误；
@@ -55,6 +56,7 @@ bin/byteworker digest-job mark \
 `next` 重新领取；不要直接绕过租约写 completed 状态。
 
 租约过期的 `in_progress` 页面可由新 session 重新领取，attempt 会递增。完成页不可倒退为失败。
+旧领取没有 `lease_token` 时，待其到期后重新领取。人工裁决后把 blocked 页面重新排队可省略凭据。
 任务所有页面为 `committed/noop/skipped` 时自动完成；存在依赖或冲突时进入 `waiting_user`。
 
 用户要求取消时：

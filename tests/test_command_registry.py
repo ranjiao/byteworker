@@ -2,6 +2,8 @@ import importlib.util
 import io
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -233,6 +235,76 @@ class CommandRegistryTests(unittest.TestCase):
         value = json.loads(described.stdout)
         self.assertEqual("source.capture", value["command"]["command_path"])
         self.assertEqual("mixed", value["command"]["side_effect"])
+
+    def test_description_follows_actual_nested_parser(self):
+        for path in ("digest.flow.document-scope", "digest.flow.analyze", "digest.internal.parallel.checkpoint",
+                     "digest.internal.parallel.attempt", "digest.internal.parallel.replan"):
+            self.assertTrue(command_description(path)["command"]["arguments"], path)
+        self.assertIsNone(command_description("dreaming.process.not-a-command"))
+        self.assertIsNone(command_description("update-status.get"))
+        leaf = command_description("automation.dreaming.runs.show")["command"]
+        self.assertIn("automation dreaming runs show --help", leaf["preferred_help_command"])
+        self.assertIn("run_id", {item["name"] for item in leaf["arguments"]})
+        inspect = command_description("source.inspect")["command"]["arguments_by_source_type"]
+        self.assertNotIn("--report-id", {flag for item in inspect["aeolus"] for flag in item["flags"]})
+
+    def test_system_preflight_runs_same_bootstrap_as_flat_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "bin"
+            target.mkdir()
+            shell = target / "byteworker"
+            shell.write_bytes(LAUNCHER_PATH.read_bytes())
+            shell.chmod(0o755)
+            update = target / "update-check.sh"
+            update.write_text("#!/bin/sh\necho update-ran\n")
+            update.chmod(0o755)
+            (target / "byteworker-launcher.py").write_text('import os\nprint(os.getenv("BYTEWORKER_UPDATE_NOTICE", ""))\n')
+            for prefix in ([], ["system"], ["--pretty", "system"]):
+                result = subprocess.run([str(shell), *prefix, "preflight", "--unattended"],
+                                        env={**os.environ, "BYTEWORKER_PYTHON_BIN": sys.executable},
+                                        capture_output=True, text=True, check=True)
+                self.assertEqual("update-ran", result.stdout.strip())
+
+    def test_documented_facade_examples_use_current_paths_and_options(self):
+        documents = [ROOT / "bin/README.md", ROOT / "SKILL.md", *ROOT.glob("references/*.md"),
+                     *ROOT.glob("templates/*.md")]
+        checked = 0
+        for file in documents:
+            for block in re.findall(r"^```(?:bash|sh)\n(.*?)^```", file.read_text(), re.M | re.S):
+                for line in block.replace("\\\n", " ").splitlines():
+                    if not line.lstrip().startswith("bin/byteworker "):
+                        continue
+                    lexer = shlex.shlex(line, posix=True, punctuation_chars="|&;")
+                    lexer.whitespace_split = True
+                    argv = []
+                    for token in lexer:
+                        if token in {"|", "&&", "||", ";"}:
+                            break
+                        argv.append(token)
+                    values = argv[1:]
+                    if values[:1] == ["--pretty"]:
+                        values = values[1:]
+                    resolved = resolve_command_alias(values)
+                    spec = next((item for item in command_specs() if resolved and item.name == resolved[0]), None)
+                    if spec is None or spec.execution != "facade" or "--help" in resolved or "..." in resolved:
+                        continue
+                    path = resolved[:1]
+                    for part in resolved[1:]:
+                        current = command_description(".".join(path))["command"]
+                        if not current["subcommands"]:
+                            break
+                        self.assertIn(part, current["subcommands"], f"{file}: {line}")
+                        path.append(part)
+                    desc = command_description(".".join(path))["command"]
+                    args = desc["arguments"]
+                    flags = {flag for arg in args for flag in arg["flags"]}
+                    supplied = {value.partition("=")[0] for value in resolved[len(path):] if value.startswith("--")}
+                    self.assertLessEqual(supplied, flags, f"{file}: {line}")
+                    for arg in args:
+                        if arg["required"] and arg["flags"]:
+                            self.assertTrue(set(arg["flags"]) & supplied, f"{file}: {line} missing {arg['flags']}")
+                    checked += 1
+        self.assertGreater(checked, 50)
 
     def test_facade_context_contains_registry_metadata(self):
         result = self.run_launcher("source", "capabilities")

@@ -9,7 +9,9 @@
 
 - `status=pending` 且有 `check.status=changed` 的来源已完成预检，保留返回的 Digest 编号。
 - `status=covered` 表示同一 Profile 的既有检查点已覆盖本次目标，常见于补跑旧报告；无需重复抓取。
-- 其余来源按 `digest-routine.md` 对应条目抓取。飞书文档先用
+- 手动来源先调用 `dreaming process digest-source --kb <KB> --token <LEASE> --source-key <KEY>`。
+  它打开或恢复该来源的 Digest，返回 `run_id` 和私有 `work_dir`，无需另行关联。
+- 按 `digest-routine.md` 对应条目抓取。飞书文档先用
   `docs +fetch --scope outline --max-depth 1 --detail with-ids` 取目录，再用
   `digest-flow document-scope --outline --run-id <DG> --source-uid <UID> --body <OUTLINE>`。
   JSON 回执加 `--json-pointer /data/document/content`。工具返回 `range` 时，用给定 block ID
@@ -21,12 +23,9 @@
   加 `--json-pointer /data/document/content`。只抓回执列出的白板，正文交给 prepare 裁切。
   评论仍完整复查（含回复、已解决评论）。按需加载 `digest-comments.md` 和 `digest-whiteboard.md`。
   仅凭正文 revision 不足以确认未变化。历史 raw 兼容来源按返回的 `raw_path` 定位。
-- 手动来源先调用 `digest-flow start --source-ref "<source_uid>"`，用
-  `dreaming process digest-link --source-key "<source_key>" --digest-run-id "<DG>"` 关联租约和来源。
-  已有 `work.digest_run_id` 时先用 `digest-flow status` 查进度和产物。捕获后用
-  `digest-flow prepare --routine --check-only --bundle-request <request.json>` 或 `--bundle <bundle.json>`。
-  命令均传 `--kb`，Dreaming 命令传 `--token`，Digest 命令传 `--run-id`。先登记 noop 或
-  empty_window 回执，剩余 `phase=checked` 的来源列入分析队列。
+- 捕获后再次运行 `dreaming process digest-source`，加 `--bundle-request <request.json>` 或
+  `--bundle <bundle.json>`。它按定期规则预检并登记 `noop` 或 `empty_window`。
+  `phase=checked` 的来源进入分析队列。Digest 命令传 `--kb` 和 `--run-id`。
 - Wiki 先按 Profile 完整扫描。需摄取变化页面时，把页面加入分析队列并为每页关联 Digest
   heartbeat。完成原有页面处理要求后再用真实 scan receipt 登记 `observed`。
 
@@ -37,7 +36,7 @@
 
 用 `workflow-budget resolve --workflow digest --source-type <TYPE>` 加载该来源闭包。
 只补读实际触发的 feature 和未读规则。`resume_failed` 按普通 Digest 的历史 raw 恢复闸门；
-其它已检查来源用 `digest-flow analyze --routine` 消费原 bundle，生成分析包和计划。
+其它已检查来源用 `digest-flow analyze` 生成分析包和计划，沿用预检保存的定期模式。
 Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，无待分析记录，
 按最小来源元数据更新规则保存完整快照，直接登记事务回执。
 保持普通 Digest 的依赖、语义、冲突、候选、引用和事务规则。

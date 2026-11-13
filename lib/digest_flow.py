@@ -22,10 +22,10 @@ from digest_run_log import (
     show_run,
     start_run,
 )
-from digest_txn import _component_bytes, execute_plan, preflight_bundle
+from digest_txn import PreparedSource, _component_bytes, execute_plan, preflight_bundle
 from source_bundle_request import build_bundle_from_request
 from source_capture import write_capture
-from sources import SourceBundle, SourceBundleError, load_source_bundle
+from sources import SourceBundle, SourceBundleError, canonical_sha256, load_source_bundle
 from sources.adapters.feishu_doc_scope import (
     document_fetch_scope,
     routine_document_policy,
@@ -362,6 +362,7 @@ def prepare_flow(
     bundle_input: Path | None = None,
     check_only: bool = False,
     routine: bool = False,
+    source_uid: str = "",
     skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> dict[str, Any]:
     if (bundle_request is None) == (bundle_input is None):
@@ -387,6 +388,8 @@ def prepare_flow(
         )
         if bundle.identity.source_type != state["source_type"]:
             raise DigestFlowError("DIGEST_FLOW_INPUT_INVALID", "Bundle 来源类型与 run 不一致。")
+        if source_uid and bundle.identity.source_uid != source_uid:
+            raise DigestFlowError("DIGEST_FLOW_INPUT_INVALID", "Bundle 来源与定期清单不一致。")
         if routine and bundle.identity.source_type == "feishu_doc":
             bundle = _routine_document_bundle(kb, bundle, work_dir, skill_root=skill_root)
         write_capture(bundle_path, bundle.to_dict(), skill_root=skill_root)
@@ -430,7 +433,8 @@ def prepare_flow(
         if flight["state"] == "noop":
             receipt = {
                 "status": "noop", "digest_key": flight["existing"]["digest_key"] or flight["digest_key"],
-                "raw_path": flight["existing"]["path"], "digest_run_id": run_id,
+                "raw_id": flight["existing"]["raw_id"], "raw_path": flight["existing"]["path"],
+                "digest_run_id": run_id,
             }
             finish_run(kb, run_id=run_id, status="noop")
             with _flow_lock(kb):
@@ -456,6 +460,8 @@ def prepare_flow(
                 phase="checked", artifacts={"bundle": str(bundle_path)},
                 preflight_state=flight["state"], next_action="analysis_prepare",
                 routine=routine,
+                prepared_bundle_hash=canonical_sha256(bundle.to_dict()),
+                prepared_digest_key=flight["digest_key"],
             )
             _atomic_state(_state_path(kb, run_id), state)
     except Exception as exc:
@@ -563,9 +569,20 @@ def commit_flow(
 ) -> dict[str, Any]:
     plan = _inside_flow(kb, run_id, plan_path)
     with _flow_lock(kb):
-        state = _load_state(kb, run_id)
+        return _commit_flow_unlocked(kb, run_id, plan, skill_root, executor)
+
+
+def _commit_flow_unlocked(
+    kb: Path, run_id: str, plan: Path, skill_root: Path, executor: Callable[..., dict[str, Any]],
+) -> dict[str, Any]:
+    state = _load_state(kb, run_id)
     if state["phase"] in {"committed", "noop"}:
         raise DigestFlowError("DIGEST_FLOW_TERMINAL", "digest flow 已终态。")
+    bundle_hash = state.get("prepared_bundle_hash")
+    digest_key = state.get("prepared_digest_key")
+    if state["phase"] not in {"prepared", "commit_failed"} or not bundle_hash or not digest_key:
+        raise DigestFlowError("DIGEST_FLOW_STATE_INVALID", "提交前须完成 prepare 和分析准备；旧运行请重新 prepare。")
+    bundle_path = _inside_flow(kb, run_id, _flow_dir(kb, run_id) / "source-bundle.json")
     record_stage(
         kb,
         run_id=run_id,
@@ -574,7 +591,7 @@ def commit_flow(
         detail_code="DIGEST_FLOW_TRANSACTION_STARTED",
     )
     try:
-        receipt = executor(kb, plan, skill_root)
+        receipt = executor(kb, plan, skill_root, prepared_source=PreparedSource(bundle_path, bundle_hash, digest_key))
         status = str(receipt.get("status", ""))
         if status not in {"committed", "noop"}:
             raise DigestFlowError(
@@ -584,10 +601,8 @@ def commit_flow(
         code = str(getattr(exc, "code", "DIGEST_FLOW_COMMIT_FAILED"))
         detail = code if MACHINE_CODE_RE.fullmatch(code) else "DIGEST_FLOW_TRANSACTION_FAILED"
         _record_failure(kb, run_id, "transaction", detail)
-        with _flow_lock(kb):
-            state = _load_state(kb, run_id)
-            state["phase"] = "commit_failed"
-            _atomic_state(_state_path(kb, run_id), state)
+        state["phase"] = "commit_failed"
+        _atomic_state(_state_path(kb, run_id), state)
         raise DigestFlowError(code, str(exc)) from exc
 
     try:
@@ -611,11 +626,8 @@ def commit_flow(
         )
     except Exception:
         receipt = {**receipt, "digest_run_logging": "degraded"}
-    with _flow_lock(kb):
-        state = _load_state(kb, run_id)
-        state["phase"] = status
-        state["plan_path"] = str(plan)
-        _atomic_state(_state_path(kb, run_id), state)
+    state.update(phase=status, plan_path=str(plan), receipt=receipt, next_action="none")
+    _atomic_state(_state_path(kb, run_id), state)
     return {
         "schema_version": FLOW_SCHEMA,
         "run_id": run_id,

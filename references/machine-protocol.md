@@ -39,8 +39,7 @@ bin/byteworker commands list --json
 bin/byteworker commands describe source.capture --json
 ```
 
-协议为 `byteworker-command-manifest/v1` 和 `byteworker-command-description/v1`；
-任意层级 `--help` 都是无 runtime/state 副作用的普通文本。
+`--help` 返回只读文本。`describe` 返回实际参数、子命令及 `source` 的分来源参数。
 
 ## SourceBundle request 快速参考
 
@@ -64,12 +63,12 @@ capture-time，失败只修宿主注入，不本地登录或切 bot。
 
 ## 写入成功判定
 
-- digest：候选完成后直接调用 `digest-txn execute`；它内含完整 validate 与锁内复验。只认
-  `status=committed` receipt；独立 `validate` 仅用于失败诊断。
+- 普通 digest：候选完成后调用 `digest-flow commit`，以内部 `receipt.status` 确认结果。会议簇
+  批量事务按 `references/digest-meeting.md` 调用 `digest-txn execute`。
 - 非 digest：只认 `kb-mutate execute` 的 `status=committed` receipt。
 - 自动报告：报告 mutation committed 后，再以真实结果调用 `report-automation complete`。
-- Dreaming：默认关闭；只有用户确认机器运行要求后才调用 `dreaming enable`。每个宿主 tick
-  通过 `run-due` 领取至多一个 job，并在所有路径调用 `complete`。
+- Dreaming：默认关闭。经用户确认后启用。宿主从 `dreaming tick` 开始。报告成功用
+  `dreaming report complete`，其它终态按 `templates/dreaming-runner.md` 收尾。
 
 直接 `bin/*.py` 入口仅供人工排障和旧调用方。Agent 不手工补做工具已负责的 hash、INDEX、
 journal、暂存、commit 或 rollback。

@@ -1,4 +1,5 @@
 import copy
+from argparse import Namespace
 import json
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from sources import (  # noqa: E402
     validate_source_bundle,
 )
 from digest_txn import compute_payload  # noqa: E402
+from source_cli_service import persist_result  # noqa: E402
 
 
 class SourceBundleTests(unittest.TestCase):
@@ -155,6 +157,16 @@ class SourceBundleTests(unittest.TestCase):
         )
         payload = compute_payload(source, self.root / "plan.json")
         self.assertEqual(capture["content_hash"], payload["component_hashes"]["snapshot"])
+
+    def test_bundle_only_output_keeps_a_reloadable_snapshot(self):
+        capture = self.meego_capture()
+        output = self.root / "bundle.json"
+        args = Namespace(operation="capture", source_type="meego", out=str(output), bundle_out="", bundle_only=True)
+        receipt = persist_result(args, capture, skill_root=ROOT)
+        self.assertEqual(BUNDLE_SCHEMA, receipt["schema_version"])
+        bundle = load_source_bundle(output)
+        source = create_default_registry().to_transaction_source(bundle)
+        self.assertEqual(capture["content_hash"], compute_payload(source, output)["component_hashes"]["snapshot"])
 
     def test_meego_rejects_incomplete_or_tampered_capture(self):
         capture = self.meego_capture()

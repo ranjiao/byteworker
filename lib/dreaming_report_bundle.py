@@ -97,7 +97,7 @@ def _string_list(value: object, field: str, *, maximum: int = 50) -> list[str]:
     return [_text(item, f"{field}[]", maximum=200) for item in value]
 
 
-def _validate_document(value: Mapping[str, Any]) -> dict[str, Any]:
+def validate_report_document(value: Mapping[str, Any]) -> dict[str, Any]:
     if value.get("schema_version") != REPORT_DOCUMENT_SCHEMA:
         raise DreamingError(
             "DREAMING_REPORT_DOCUMENT_INVALID",
@@ -282,7 +282,7 @@ def load_report_document(path: Path, *, skill_root: Path) -> dict[str, Any]:
             "DREAMING_REPORT_DOCUMENT_INVALID",
             "结构化报告顶层必须是 object。",
         )
-    return _validate_document(value)
+    return validate_report_document(value)
 
 
 def _refs(values: Sequence[str]) -> str:
@@ -636,8 +636,9 @@ def render_report_bundle(
     kb: Path,
     *,
     document: Mapping[str, Any],
+    preview: bool = False,
 ) -> dict[str, Any]:
-    normalized = _validate_document(document)
+    normalized = validate_report_document(document)
     archive_path = (
         kb.resolve()
         / "reports"
@@ -657,7 +658,7 @@ def render_report_bundle(
             "DREAMING_REPORT_DOCUMENT_INVALID",
             "正文引用没有对应条目: " + ", ".join(sorted(missing)),
         )
-    directory = secure_path(
+    directory = Path(tempfile.mkdtemp(prefix="byteworker-report-preview-")) if preview else secure_path(
         kb,
         "reports",
         f"{normalized['kind']}-{normalized['period']}",
@@ -671,7 +672,8 @@ def render_report_bundle(
     _write_private(summary_path, normalized["message_summary"] + "\n")
     _write_private(markdown_path, markdown)
     _write_private(html_path, _render_html(normalized))
-    _write_archive(archive_path, markdown)
+    if not preview:
+        _write_archive(archive_path, markdown)
     artifacts = {}
     for name, path, media_type, audience in (
         ("document", document_path, "application/json", "internal"),
@@ -680,7 +682,7 @@ def render_report_bundle(
         ("html", html_path, "text/html", "user"),
     ):
         artifacts[name] = {
-            "path": str(path.relative_to(kb.resolve())),
+            "path": str(path if preview else path.relative_to(kb.resolve())),
             "absolute_path": str(path),
             "media_type": media_type,
             "audience": audience,
@@ -690,7 +692,7 @@ def render_report_bundle(
         "schema_version": REPORT_ARTIFACT_SCHEMA,
         "kind": normalized["kind"],
         "period": normalized["period"],
-        "archive_path": str(archive_path.relative_to(kb.resolve())),
+        "archive_path": "" if preview else str(archive_path.relative_to(kb.resolve())),
         "artifacts": artifacts,
         "host_delivery": {
             "summary": "return_inline",
@@ -709,8 +711,8 @@ def render_report_bundle(
         "status": "rendered",
         "kind": normalized["kind"],
         "period": normalized["period"],
-        "manifest_path": str(manifest_path.relative_to(kb.resolve())),
-        "report_path": str(archive_path.relative_to(kb.resolve())),
+        "manifest_path": str(manifest_path if preview else manifest_path.relative_to(kb.resolve())),
+        "report_path": "" if preview else str(archive_path.relative_to(kb.resolve())),
         "summary": normalized["message_summary"],
         "source_distribution": [
             {"label": source["title"], "source_type": source["type"], "reference_count": reference_counts[source["id"]]}

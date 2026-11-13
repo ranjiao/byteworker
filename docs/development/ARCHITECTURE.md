@@ -264,6 +264,10 @@ provider、SourceBundle 或知识库内容。缺失或部分损坏的日志仍�
 dependency/semantic planner 和 transaction 组织为可恢复状态机。flow 只调用确定性库并返回固定
 `next_action`，不判断依赖重要性、不抽取事实、不裁决冲突、不生成节点候选。私有 checkpoint 位于
 `state/digest/flows/<run_id>/`；Agent 只在语义闸门运行，最终仍由 digest transaction 决定成功。
+标准 flow 只提交已准备的 Bundle。checkpoint 绑定 Bundle 路径、结构哈希和预检 digest key，
+事务在写锁内重算校验。旧 checkpoint 缺少绑定时重新准备，历史独立事务接口仍由自身契约校验。
+Wiki 批次领取为每页签发新的凭据，完成时验证当前租约及 Git 中与该页对应的 raw；reconcile
+仅采用可核验且足够新的已提交 raw，并保留活跃领取。
 
 宿主获得模型 usage 后通过 `digest-run usage` 写入同一事件流。usage 只允许固定 stage/worker role、
 `measured|estimated` 和非负 token 计数；原始 call id 只用于 SHA-256 幂等，不持久化。终态后的最终
@@ -526,7 +530,7 @@ flow prepare 已产生 packet 和 dependency/semantic plan，Agent 直接消费�
 conflict planner 仍对新召回结果执行一次。语义 owner、coverage、inline/parallel 阈值及成功判定不变。
 大型 worker 和 Wiki resume 保留完整执行手册。Dreaming routine 只预读变化检查与分派规则；
 变化来源再解析其普通 digest 闭包，保留原有权限、依赖、冲突与事务行为。
-定期分析以 `digest-flow analyze --routine` 启用外链范围限制。分析准备按去重候选数和依赖
+定期分析沿用预检保存的 routine 模式启用外链范围限制。旧调用仍可显式传 `analyze --routine`。分析准备按去重候选数和依赖
 资料包预算决定是否跳过飞书文档的依赖计划。当前文档仍按语义计划和事务规则完成，已登记来源各自核验覆盖。
 独立语义任务共用最多 4 个隔离 worker，按宿主和预算降并发；针对当前 KB 的冲突和写入串行。
 分片回执复用同一校验器，即时保存。跨轮只复用内容指纹、分片和 worker 规则完全匹配的来源内语义结果。
@@ -870,6 +874,7 @@ flowchart TB
 | `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、自动报告设置与低频能力建议资格；区分 interactive / unattended，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；无人值守不输出能力建议，交互模式默认仅异常或到期建议输出 |
 | `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
 | `lib/command_registry.py` | 命令名、入口、operation、逻辑 namespace、兼容 alias、使用者、可见性、stability、副作用、runtime、协议与文档的唯一真相源 | `byteworker-command-manifest/v1` / `byteworker-command-description/v1`；推荐 namespace 和兼容入口帮助 |
+| `lib/command_parser.py` | 从实际 argparse parser 读取嵌套路径及参数；只在命令发现和契约校验时加载 | 注册表补充入口与操作元数据，`commands describe` 验证完整路径 |
 | `bin/byteworker-cli.py` | registry 中确定性工具的统一 facade；子进程调用直接 CLI；任意层级 `-h/--help` 原样透传到底层 argparse | 普通调用返回 `byteworker-cli/v1` envelope；help 返回底层文本和退出码 |
 | `lib/bounded_process.py` | 并行排空工具 stdout/stderr；小 stdout 有界 inline，越界时才落 `0600` 系统临时文件 | `byteworker-cli-artifact/v1` receipt；stderr 有界摘要输入 |
 | `lib/machine_protocol.py` | 构造 `status/data/error/context`，稳定 error code 和上下文 | 单行或 pretty JSON |
@@ -910,6 +915,9 @@ namespace，原有 `digest-flow`、`kb-query` 等扁平路径是稳定兼容入�
 同一个既有 handler，不复制 parser 或业务实现。manifest 为直接命令返回 `preferred_path`，并单列
 `aliases/namespaces`；description 接受两种路径并在使用 alias 时返回 `alias_target`。仓库调用方尚未
 完成迁移前，不隐藏或删除扁平入口，也不物理移动 `bin/` 执行器。
+需要在 Python import 前运行的 preflight 和 deps 刷新同时识别 system 路径。doctor 的扫描问题回执
+与参数错误在 facade 层分别编码。定期抓取使用统一 Bundle 输出，旧的来源输出参数继续兼容。
+Dreaming 手动来源通过 `process digest-source` 创建或恢复子运行、预检及登记无变化回执。
 
 facade 子进程隔离保留 update-before-import、runtime 环境和异常边界。stdout 由
 `lib/bounded_process.py` 流式收集：1 MiB 内维持既有 inline 语义，超过后不再进入 envelope 内存，
@@ -1363,6 +1371,8 @@ Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `repo
 归档快照，不调用 TraeWork、Codex、Claude Code 等宿主私有预览接口。HTML 必须自包含且不加载
 外部脚本、样式、字体、图片或网络资源；宿主可自行预览，不能预览时返回本地文件链接。飞书发送失败只影响对应 outbox，
 不能删除本地产物或声称已经送达。
+报告完成在 Dreaming 状态锁内验证活跃租约、类型和周期后发布归档；独立 render 仅写私有临时预览。
+宿主确认只能更新 host outbox，飞书条目由机器人 adapter 用实际 message_id 确认。
 
 Dreaming 另有九条边界：缺失状态必须等同关闭；未记录当前版本能力导览、完整运行计划或机器
 运行要求确认时拒绝启用；`enabled=true` 但 harness 未登记时 `operational=false`，不能声称会
