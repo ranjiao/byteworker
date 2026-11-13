@@ -9,13 +9,22 @@
 
 - `status=pending` 且有 `check.status=changed` 的来源已完成预检，保留返回的 Digest 编号。
 - `status=covered` 表示同一 Profile 的既有检查点已覆盖本次目标，常见于补跑旧报告；无需重复抓取。
-- 其余待检查来源按 `digest-routine.md` 的对应来源条目执行捕获。文档仍须核验完整正文、
-  评论（含回复、已解决评论）和白板；按需加载 `digest-comments.md` 和 `digest-whiteboard.md`。
+- 其余来源按 `digest-routine.md` 对应条目抓取。飞书文档先用
+  `docs +fetch --scope outline --max-depth 1 --detail with-ids` 取目录，再用
+  `digest-flow document-scope --outline --run-id <DG> --source-uid <UID> --body <OUTLINE>`。
+  JSON 回执加 `--json-pointer /data/document/content`。工具返回 `range` 时，用给定 block ID
+  执行 `docs +fetch --scope range --start-block-id … --end-block-id … --detail with-ids`，
+  并沿用目录回执的 revision。工具返回 `full`、范围回执只含容器节选，或范围内找不到有效周期时，
+  完整抓取正文后裁切。
+- 正文抓取后调用
+  `digest-flow document-scope --run-id <DG> --source-uid <UID> --body <FILE>`。抓取结果为 JSON 时
+  加 `--json-pointer /data/document/content`。只抓回执列出的白板，正文交给 prepare 裁切。
+  评论仍完整复查（含回复、已解决评论）。按需加载 `digest-comments.md` 和 `digest-whiteboard.md`。
   仅凭正文 revision 不足以确认未变化。历史 raw 兼容来源按返回的 `raw_path` 定位。
 - 手动来源先调用 `digest-flow start --source-ref "<source_uid>"`，用
   `dreaming process digest-link --source-key "<source_key>" --digest-run-id "<DG>"` 关联租约和来源。
   已有 `work.digest_run_id` 时先用 `digest-flow status` 查进度和产物。捕获后用
-  `digest-flow prepare --check-only --bundle-request <request.json>` 或 `--bundle <bundle.json>`。
+  `digest-flow prepare --routine --check-only --bundle-request <request.json>` 或 `--bundle <bundle.json>`。
   命令均传 `--kb`，Dreaming 命令传 `--token`，Digest 命令传 `--run-id`。先登记 noop 或
   empty_window 回执，剩余 `phase=checked` 的来源列入分析队列。
 - Wiki 先按 Profile 完整扫描。需摄取变化页面时，把页面加入分析队列并为每页关联 Digest

@@ -95,6 +95,20 @@ def validate_transaction_source(
         validators[source_type]()
 
 
+def equivalent_source_component(
+    source: Mapping[str, Any], fields: Mapping[str, Any], raw_body: str, components: Sequence[Any], *, kind: str,
+) -> bool:
+    if source.get("type") != "feishu_doc":
+        return False
+    from .adapters.feishu_doc import archived_document_body_matches, archived_whiteboards_match
+
+    if kind == "body" and source.get("comments_status") == "complete":
+        return archived_document_body_matches(fields, raw_body, components, revision=str(source.get("revision", "")))
+    if kind == "whiteboard":
+        return archived_whiteboards_match(fields, raw_body, components)
+    return False
+
+
 def _validate_feishu_doc(
     source: Mapping[str, Any],
     components: Sequence[Any],

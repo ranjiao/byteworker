@@ -430,6 +430,10 @@ Finding/Action 生命周期、维护和退出边界，并配置确认完整运�
 抓取的 Profile，并发复查最多 3 路，限流后串行。其余来源先用各自的采集规则检查变化。
 Digest 检查阶段复用 Bundle 和事务预检，直接返回 `committed/noop` 可回查的未变化证据或完整
 群聊 `empty_window`，有变化时才生成分析包。Wiki 子树保留完整 scan + 变化展示的既有语义。
+飞书文档适配层按 Profile 周期或最近的已摄取历史确定滚动范围。Dreaming 用目录和
+`digest-flow document-scope` 定位正文的 block 范围，再按正文窗口抓白板。prepare 按同一规则
+切出正文并筛选组件后预检。
+白板预检兼容旧归档中顺序不同的等值节点数组，由适配层核验归档组件哈希及节点字段。
 来源进度和下游 run 关联写入批次。单源失败后继续其它独立来源，部分收尾只更新有完成证据的
 source checkpoint，报告仍等待全部相关来源覆盖。全量完成才允许 process 成功。初始启用不
 接管上述自动报告；`daily/weekly` job 默认关闭。后续迁移必须先

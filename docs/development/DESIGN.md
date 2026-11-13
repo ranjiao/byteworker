@@ -280,6 +280,11 @@ provider 坐标/样式噪声，也不判断依赖重要性、事实含义或冲�
 Meego 经 Digest flow 准备时，input hash 同时绑定相邻完整快照的 diff。可选 `meego_changes` 只记录
 ChangeSet 分类计数。分析包的记录、依赖、参与者和记录 anchor 限于 baseline / added / changed，
 记录路径仍指向完整快照的原位置。角色和角色成员数组顺序只在 diff 比较时忽略。
+定期文档正文按日期 H1 切出目标段落，保留其原始文本，Bundle 用 `digest_period` 标记周期。
+白板以节点数组参与新快照哈希。旧白板仅在组件名匹配、归档字节通过哈希校验、节点 ID 唯一
+且各节点字段相等时按等值处理。兼容 noop 回执引用实际命中的归档键。
+正文兼容比对在完整评论快照一致时可忽略 `comment-refs` 和图表预览链接的临时授权码。
+同一正文 revision 的人员引用若只更换 Open ID 命名空间，按首次出现顺序的一对一关系核验。
 定期飞书文档分析触发外链范围限制时，packet 和 flow 回执带可选 `dependency_scope`，
 其中 `mode=source_only`、`reason_code=DIGEST_DEPENDENCY_SCOPE_LIMITED` 和 `skipped_count`
 描述本轮范围。此时依赖候选为空，flow 只生成语义计划。语义分片保留范围说明，阶段日志
