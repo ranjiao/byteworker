@@ -53,6 +53,8 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--check-only", action="store_true")
         elif name == "commit":
             command.add_argument("--plan", required=True, type=Path)
+        elif name == "analyze":
+            command.add_argument("--routine", action="store_true", help="Apply unattended dependency scope limits")
     return result
 
 
@@ -73,7 +75,7 @@ def main() -> int:
                 bundle_input=args.bundle, check_only=args.check_only,
             )
         elif args.command == "analyze":
-            result = analyze_flow(kb, run_id=args.run_id)
+            result = analyze_flow(kb, run_id=args.run_id, routine=args.routine)
         elif args.command == "commit":
             result = commit_flow(kb, run_id=args.run_id, plan_path=args.plan)
         else:

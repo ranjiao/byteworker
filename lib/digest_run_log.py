@@ -87,6 +87,7 @@ SHARD_FAILURE_CODES = {
 SHARD_ATTEMPT_EVENTS = {"shard_budget_checked", "shard_execution_failed"}
 SHARD_CONTEXT_RETRY_EXHAUSTED = "shard_context_retry_exhausted"
 METRIC_FIELDS = {
+    "skipped_dependency_count",
     "item_count",
     "component_count",
     "input_bytes",

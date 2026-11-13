@@ -396,7 +396,7 @@ def _prepare_failure(kb: Path, run_id: str, exc: Exception, stages: tuple[str, .
 
 
 def analyze_flow(
-    kb: Path, *, run_id: str, skill_root: Path = DEFAULT_SKILL_ROOT,
+    kb: Path, *, run_id: str, skill_root: Path = DEFAULT_SKILL_ROOT, routine: bool = False,
 ) -> dict[str, Any]:
     work_dir = _flow_dir(kb, run_id)
     bundle_path = work_dir / "source-bundle.json"
@@ -412,10 +412,13 @@ def analyze_flow(
         analysis = prepare_analysis_packet(
             bundle_path, packet_path, skill_root=skill_root,
             kb=kb if state["preflight_state"] != "resume_failed" else None,
+            routine=routine,
         )
+        dependency_scope = analysis.get("dependency_scope")
         plans = {}
         if "meego_changes" not in analysis or analysis["semantic_item_count"]:
-            for stage in ("dependency", "semantic"):
+            stages = ("semantic",) if dependency_scope else ("dependency", "semantic")
+            for stage in stages:
                 plans[f"{stage}_plan"] = plan_parallel_work(
                     packet_path, work_dir / stage, stage=stage, skill_root=skill_root,
                 )
@@ -424,11 +427,12 @@ def analyze_flow(
             run_id=run_id,
             stage="analysis_prepare",
             status="completed",
-            detail_code="DIGEST_FLOW_ANALYSIS_PREPARED",
+            detail_code=dependency_scope["reason_code"] if dependency_scope else "DIGEST_FLOW_ANALYSIS_PREPARED",
             metrics={
                 "component_count": int(analysis["component_count"]),
                 "input_bytes": int(analysis["input_bytes"]),
                 "output_count": 1,
+                **({"skipped_dependency_count": dependency_scope["skipped_count"]} if dependency_scope else {}),
             },
         )
     except Exception as exc:
@@ -447,6 +451,8 @@ def analyze_flow(
         state["phase"] = "prepared"
         state["artifacts"] = artifacts
         state["next_action"] = next_action
+        if dependency_scope:
+            state["dependency_scope"] = dependency_scope
         _atomic_state(_state_path(kb, run_id), state)
     return {
         "schema_version": FLOW_SCHEMA,
@@ -542,6 +548,7 @@ def flow_status(kb: Path, *, run_id: str) -> dict[str, Any]:
         "artifacts": state.get("artifacts", {}),
         **({"preflight_state": state["preflight_state"]} if "preflight_state" in state else {}),
         **({"receipt": state["receipt"]} if "receipt" in state else {}),
+        **({"dependency_scope": state["dependency_scope"]} if "dependency_scope" in state else {}),
         "next_action": state.get("next_action", "none"),
         "run": show_run(kb, run_id=run_id)["summary"],
     }
