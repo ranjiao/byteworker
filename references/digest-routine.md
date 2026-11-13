@@ -18,7 +18,7 @@
   - 开始时先告知用户本次会复查 INDEX「定期摄取清单」里的多少个来源;逐源处理时用短状态说明当前来源、是否在拉取 / 比对 / digest / 跳过。来源较多或单源处理超过约 30-60 秒时,按 `SKILL.md`「长流程状态输出」发 heartbeat,不要等全部来源处理完才第一次汇报。
   1. 读 INDEX「定期摄取清单」,逐源处理 ——
      - 滚动周会文档:优先从 `byteworker-source-profile/v2` 读取 document identity、周期、
-       评论/白板策略，再重新 `lark-doc +fetch --api-version v2 --detail with-ids`,并按
+       评论/白板策略，再用 `bin/byteworker lark docs +fetch --doc "<URL>" --detail with-ids`，并按
        `references/digest-comments.md` **独立复查评论**(含已解决和完整回复),正文有白板时按
        `references/digest-whiteboard.md` 复查。把顶层最新周期按 docs/development/DESIGN.md §2.1 规范化后,将本
        周期正文、评论、白板等 component 交给 `digest-txn preflight`,与最近 raw 做兼容幂等

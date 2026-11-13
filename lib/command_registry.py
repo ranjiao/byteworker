@@ -99,7 +99,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
         "update-status", "读取自动更新状态", "system", "facade-special", "agent",
         "public", "stable", "none", "byteworker-cli/v1",
-        "references/session-preflight.md", operations=("get",),
+        "references/session-preflight.md",
         usage="byteworker update-status",
     ),
     CommandSpec(
@@ -120,7 +120,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "digest-flow", "执行可恢复的标准 digest 生命周期", "digest", "facade",
         "agent", "public", "stable", "mixed", "byteworker-cli/v1",
         "references/digest-flow.md", entrypoint="digest-flow.py",
-        operations=("start", "capture", "prepare", "commit", "status"),
+        operations=("start", "document-scope", "capture", "prepare", "analyze", "commit", "status"),
     ),
     CommandSpec(
         "digest-job", "管理已确认的多页 digest 批次", "digest", "facade",
@@ -156,7 +156,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "digest-parallel", "规划和归并有界 digest workers", "digest", "facade",
         "agent", "advanced", "stable", "temp-write", "byteworker-cli/v1",
         "references/digest-concurrency.md", entrypoint="digest-parallel.py",
-        operations=("plan", "merge"),
+        operations=("plan", "replan", "merge", "checkpoint", "attempt"),
     ),
     CommandSpec(
         "workflow-budget", "检查完整 workflow token 预算", "digest", "facade",
@@ -285,6 +285,23 @@ _ALIAS_BY_PATH = {alias.path: alias for alias in COMMAND_ALIASES}
 if len(_ALIAS_BY_PATH) != len(COMMAND_ALIASES):
     raise RuntimeError("duplicate Byteworker command alias")
 
+LEAF_METADATA = {
+    ("doctor", "scan"): {"side_effect": "none"},
+    ("doctor", "fix"): {"side_effect": "kb-write"},
+    ("doctor", "feedback"): {"side_effect": "none", "docs": "references/digest-feedback.md"},
+    ("doctor", "bundle"): {"side_effect": "temp-write", "docs": "references/digest-feedback.md"},
+    ("digest-flow", "document-scope"): {"docs": "references/dreaming-routine.md"},
+    ("digest-flow", "commit"): {"side_effect": "kb-write"},
+    ("dreaming", "diagnose"): {"side_effect": "none"},
+    ("dreaming", "process", "digest-prepare"): {"visibility": "advanced", "stability": "compatibility"},
+    ("dreaming", "process", "digest-source"): {"side_effect": "state-write", "docs": "references/dreaming-routine.md"},
+    ("dreaming", "report", "render"): {"visibility": "advanced", "side_effect": "temp-write", "docs": "references/dreaming-reports.md"},
+    ("dreaming", "report", "complete"): {"side_effect": "mixed", "docs": "references/dreaming-reports.md"},
+    ("dreaming", "report", "enqueue-delivery"): {"visibility": "advanced", "side_effect": "state-write", "docs": "references/dreaming-reports.md"},
+    ("dreaming", "report", "deliver"): {"visibility": "advanced", "side_effect": "external", "docs": "references/dreaming-reports.md"},
+    ("dreaming", "report", "delivery-complete"): {"visibility": "advanced", "side_effect": "state-write", "docs": "references/dreaming-reports.md"},
+}
+
 
 def command_aliases() -> tuple[CommandAlias, ...]:
     return COMMAND_ALIASES
@@ -377,10 +394,9 @@ def attention_exit_codes() -> dict[str, set[int]]:
 
 def resolve_operation(spec: CommandSpec, args: Sequence[str]) -> str:
     values = [value for value in args if value != "--"]
-    for value in values:
-        if value in spec.operations:
-            return value
-    return ""
+    if values[:1] == ["--pretty"]:
+        values = values[1:]
+    return values[0] if values and values[0] in spec.operations else ""
 
 
 def _argument_value(args: Sequence[str], name: str) -> str:
@@ -424,9 +440,15 @@ def command_description(path: str) -> dict[str, object] | None:
     if spec is None:
         return None
     operation = resolved[1] if len(resolved) > 1 else ""
-    if operation and operation not in spec.operations:
+    paths = _command_paths(spec)
+    if resolved[1:] not in paths:
         return None
     result = spec.to_dict(operation=operation)
+    preferred = preferred_path_for(resolved)
+    result["preferred_path"] = ".".join(preferred)
+    result["preferred_help_command"] = "bin/byteworker " + " ".join(preferred) + " --help"
+    result["arguments"] = paths[resolved[1:]]
+    result["subcommands"] = [key[-1] for key in paths if len(key) == len(resolved) and key[:-1] == resolved[1:]]
     if len(resolved) > 2:
         result["nested_path"] = list(resolved[1:])
     if alias is not None:
@@ -436,14 +458,49 @@ def command_description(path: str) -> dict[str, object] | None:
     elif len(parts) > 2:
         result["command_path"] = ".".join(parts)
         result["help_command"] = "bin/byteworker " + " ".join(parts) + " --help"
+    if resolved[0] == "source" and operation in spec.runtime_operations + ("register",):
+        from source_operations import source_operation_manifest
+
+        result["arguments_by_source_type"] = source_operation_manifest()[operation]["arguments_by_source_type"]
+    metadata = LEAF_METADATA.get(resolved)
+    if metadata:
+        result.update(metadata)
     return {"schema_version": DESCRIPTION_VERSION, "command": result}
+
+
+def _command_paths(spec: CommandSpec) -> dict[tuple[str, ...], list[dict[str, object]]]:
+    if not spec.entrypoint:
+        return {(): [], **{(operation,): [] for operation in spec.operations}}
+    from command_parser import argument_description, parser_paths
+
+    return {
+        path: [argument_description(action) for action in actions]
+        for path, actions in parser_paths(spec.entrypoint).items()
+    }
+
+
+def operation_metadata(tool: str, args: Sequence[str]) -> tuple[str, dict[str, str]]:
+    spec = command_spec(tool)
+    if spec is None:
+        return "", {}
+    operation = resolve_operation(spec, args)
+    values = [value for value in args if value not in {"--", "--pretty"}]
+    if tool == "doctor" and (not values or values[0].startswith("-")):
+        operation = "scan"
+    for path in LEAF_METADATA:
+        if path[0] == tool and len(path) > 2 and tuple(values[:len(path) - 1]) == path[1:]:
+            return ".".join(path[1:]), LEAF_METADATA[path]
+    return operation, LEAF_METADATA.get((tool, operation), {})
 
 
 def command_manifest(*, include_hidden: bool = False) -> dict[str, object]:
     specs = command_specs(include_hidden=include_hidden)
     return {
         "schema_version": MANIFEST_VERSION,
-        "commands": [spec.to_dict() for spec in specs],
+        "commands": [
+            {**spec.to_dict(), "paths": [".".join((spec.name, *path)) for path in _command_paths(spec)]}
+            for spec in specs
+        ],
         "aliases": [alias.to_dict() for alias in command_aliases()],
         "namespaces": list(namespace_names()),
         "output_policy": output_policy(),
@@ -456,7 +513,7 @@ def search_commands(query: str, *, include_hidden: bool = False) -> dict[str, ob
     matches = []
     for spec in command_specs(include_hidden=include_hidden):
         haystack = " ".join(
-            (spec.name, spec.summary, spec.category, spec.docs, *spec.operations)
+            (spec.name, spec.summary, spec.category, spec.docs, *(" ".join(path) for path in _command_paths(spec)))
         ).casefold()
         if all(term in haystack for term in terms):
             matches.append(spec.to_dict())
@@ -566,6 +623,8 @@ def validate_registry() -> list[str]:
             errors.append(f"{spec.name}: missing summary")
         if not spec.docs.strip():
             errors.append(f"{spec.name}: missing docs")
+        if spec.entrypoint and set(spec.operations) != {path[0] for path in _command_paths(spec) if len(path) == 1}:
+            errors.append(f"{spec.name}: operations differ from parser")
     for alias in COMMAND_ALIASES:
         spec = command_spec(alias.target[0])
         if spec is None:

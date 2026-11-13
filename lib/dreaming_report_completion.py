@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
 from dreaming_delivery_lark import deliver_lark_bot_summary
-from dreaming_report_bundle import render_report_bundle
+from dreaming_report_bundle import render_report_bundle, validate_report_document
 from dreaming_reports import enqueue_delivery
 from dreaming_run_result import RESULT_SCHEMA
 from dreaming_scheduler import complete_run, status
@@ -22,21 +23,28 @@ def complete_report_run(
     finding_count: int | None = None,
     gap_count: int | None = None,
     delivery_binary: str | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
-    rendered = render_report_bundle(kb, document=document)
+    normalized = validate_report_document(document)
+    rendered = {}
+
+    def publish() -> dict[str, Any]:
+        rendered.update(render_report_bundle(kb, document=normalized))
+        return rendered
+
     run = complete_run(
         kb,
         token=token,
         run_status="success",
-        artifact_path=str(rendered["report_path"]),
         item_count=item_count,
         finding_count=finding_count,
         gap_count=gap_count,
         result_document={
-            "schema_version": RESULT_SCHEMA, "job": rendered["kind"],
-            "period": rendered["period"], "summary": rendered["summary"],
+            "schema_version": RESULT_SCHEMA, "job": normalized["kind"],
+            "period": normalized["period"], "summary": normalized["message_summary"],
         },
-        report_sources=rendered["source_distribution"],
+        publish_report=publish,
+        now=now,
     )
     delivery = _deliver_if_enabled(
         kb,

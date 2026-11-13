@@ -428,8 +428,8 @@ bin/byteworker source inspect \
 - 通用：`--source-type`、`--url`、`--timeout`
 - Meego：`--project-key`、`--view-id`、可重复 `--field`；空间主页返回
   `SOURCE_SELECTION_REQUIRED`
-- Base：`--base-token`、`--table-id`、`--view-id`、可重复 `--field`
-- Aeolus：可重复 `--report-id`、`--filter-mode`、可重复 `--where`
+- Base：`--base-token`、`--table-id`、`--view-id`
+- Aeolus：用 `--url` 检查 dashboard。报表和筛选选项留给 `capture` / `register`。
 
 ### `capture`
 
@@ -455,6 +455,9 @@ Meego/Base/Aeolus 的 `--bundle-out` 必须与 `--out` 同时使用：前者保�
 
 `--out` 必须位于系统临时目录或知识库目录。未提供时结构化命令返回 capture JSON；大快照建议
 总是提供输出文件。
+需要统一的 Digest 输入时用 `source capture --bundle-only --out <bundle.json>`。各来源都返回
+Bundle，仍需保留其旁边的私有材料目录。按来源支持的参数见 `source capabilities` 的
+`arguments_by_source_type`，也可用 `commands describe source.capture --json` 查看。
 
 ### `bundle`
 
@@ -941,7 +944,8 @@ Dreaming 启用前先用 `configure` 选择 process 的 `interval`、`daily_time
 `runs list/show/tail` 查询私有结构化日志。日志不保存消息或 Finding 正文。完整协议见
 `references/dreaming.md`。
 
-`process digest-prepare/digest-record/digest-complete` 把全部已启用定期来源接入后台：
+`process digest-scan` 先检查已启用定期来源，手动来源由 `process digest-source` 打开和预检。
+`process digest-prepare` 是只准备清单的兼容入口。完成后使用 `process digest-record/digest-complete`：
 runner 仍逐源执行普通 digest，Dreaming 只快照来源、核验 `committed/noop` 或 Wiki 完整扫描
 回执，并在全部完成后推进报告 coverage checkpoint。
 

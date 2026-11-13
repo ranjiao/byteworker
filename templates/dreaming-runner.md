@@ -19,8 +19,8 @@
    `job=maintenance` 时额外加载 workflow manifest 的 `features.maintenance`。
    `job=process` 时加载 `features.routine_digest`，先调用 `dreaming process digest-scan`。
    按定期摄取细则完成全部来源的变化检查，再对有变化的来源解析普通 Digest。
-   文档先用 `digest-flow document-scope` 确定白板范围，再用 `digest-flow prepare --routine --check-only` 核验窗口。
-   用 `digest-flow analyze --routine` 准备分析。返回 `source_only` 时跳过依赖审查，继续分析并提交当前文档。
+   手动来源用 `dreaming process digest-source` 打开和预检。文档用 `digest-flow document-scope` 确定白板范围。
+   用 `digest-flow analyze` 准备分析。返回 `source_only` 时跳过依赖审查，继续分析并提交当前文档。
    逐来源关联 Digest，按计划检查并执行缺失分片，逐片保存结果。实际遇到阻塞时先记录原因，
    再登记暂缓并完成其它独立来源。收尾返回 `DREAMING_DIGEST_EXECUTION_REQUIRED` 时继续处理所指来源。
    宿主返回上下文错误时，按定期摄取细则核验回执并自动重分未完成片，逐片试跑和保存。

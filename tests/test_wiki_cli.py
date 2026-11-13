@@ -265,7 +265,7 @@ class DigestJobCliTests(unittest.TestCase):
                     )["jobs"]
                 ),
             )
-            DIGEST_JOB_CLI._run(
+            leased = DIGEST_JOB_CLI._run(
                 SimpleNamespace(
                     operation="next",
                     kb=kb,
@@ -281,9 +281,10 @@ class DigestJobCliTests(unittest.TestCase):
                     kb=kb,
                     job_id=job_id,
                     document_id="doc-1",
-                    status="committed",
-                    raw_id="raw-1",
-                    commit="abc",
+                    status="skipped",
+                    lease_token=leased["pages"][0]["lease_token"],
+                    raw_id="",
+                    commit="",
                     error="",
                 )
             )

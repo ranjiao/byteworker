@@ -285,6 +285,9 @@ ChangeSet 分类计数。分析包的记录、依赖、参与者和记录 anchor
 且各节点字段相等时按等值处理。兼容 noop 回执引用实际命中的归档键。
 正文兼容比对在完整评论快照一致时可忽略 `comment-refs` 和图表预览链接的临时授权码。
 同一正文 revision 的人员引用若只更换 Open ID 命名空间，按首次出现顺序的一对一关系核验。
+Digest flow checkpoint 保存私有 `prepared_bundle_hash` 和 `prepared_digest_key`，提交只接受
+准备阶段的 Bundle 路径、结构和组件内容。Wiki 领取回执的 `lease_token` 每次领取重发，仅由
+当前持有者提交页面结果。历史领取缺少 token 时，按原到期时间重新领取。
 定期飞书文档分析触发外链范围限制时，packet 和 flow 回执带可选 `dependency_scope`，
 其中 `mode=source_only`、`reason_code=DIGEST_DEPENDENCY_SCOPE_LIMITED` 和 `skipped_count`
 描述本轮范围。此时依赖候选为空，flow 只生成语义计划。语义分片保留范围说明，阶段日志

@@ -7,13 +7,15 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import tempfile
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from frontmatter import parse_file
+from frontmatter import parse_file, parse_frontmatter
 
 
 JOB_SCHEMA = "byteworker-digest-job/v1"
@@ -377,12 +379,12 @@ def lease_next(
     kb: Path,
     job_id: str,
     *,
-    limit: int,
+    limit: int | None = None,
     lease_owner: str,
     lease_seconds: int = 1800,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    if limit <= 0 or limit > 50:
+    if limit is not None and not 1 <= limit <= 50:
         raise DigestJobError(
             "DIGEST_JOB_INVALID_ARGUMENT",
             "limit 必须在 1..50 之间。",
@@ -400,6 +402,8 @@ def lease_next(
     with open(root / ".lock", "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         job = _load_path(path)
+        if limit is None:
+            limit = job.get("budget", {}).get("batch_size", 5)
         if job.get("status") in TERMINAL_JOB_STATES:
             raise DigestJobError(
                 "DIGEST_JOB_TERMINAL",
@@ -410,8 +414,8 @@ def lease_next(
             status = page.get("status")
             lease = page.get("lease")
             expired = False
-            if status == "in_progress" and isinstance(lease, Mapping):
-                expires_at = _parse_time(lease.get("expires_at"))
+            if status == "in_progress":
+                expires_at = _parse_time(lease.get("expires_at")) if isinstance(lease, Mapping) else None
                 expired = expires_at is None or expires_at <= now
             if status not in RETRYABLE_PAGE_STATES and not expired:
                 continue
@@ -419,6 +423,7 @@ def lease_next(
             page["attempts"] = int(page.get("attempts", 0)) + 1
             page["lease"] = {
                 "owner": lease_owner.strip(),
+                "token": uuid.uuid4().hex,
                 "leased_at": _iso(now),
                 "expires_at": _iso(now + timedelta(seconds=lease_seconds)),
             }
@@ -432,6 +437,7 @@ def lease_next(
                     "updated_at": page.get("updated_at", ""),
                     "attempt": page["attempts"],
                     "lease_expires_at": page["lease"]["expires_at"],
+                    "lease_token": page["lease"]["token"],
                 }
             )
             if len(selected) >= limit:
@@ -448,17 +454,41 @@ def lease_next(
     }
 
 
+def _git(kb: Path, *args: str) -> str:
+    result = subprocess.run(["git", *args], cwd=kb, capture_output=True, text=True, check=False)
+    return result.stdout if result.returncode == 0 else ""
+
+
+def _verified_page_raw(kb: Path, path: Path, document_id: str, commit: str = "") -> tuple[str, str] | None:
+    if path.is_symlink():
+        return None
+    relative = path.relative_to(kb).as_posix()
+    archived = _git(kb, "show", f"HEAD:{relative}")
+    if not archived or archived != path.read_text(encoding="utf-8"):
+        return None
+    fields, _ = parse_frontmatter(archived)
+    raw_id = str(fields.get("raw_id") or fields.get("id") or "")
+    if not raw_id or fields.get("source_type") != "feishu_doc" or fields.get("source_uid") != document_id or fields.get("digest_status") != "digested":
+        return None
+    actual_commit = _git(kb, "log", "-1", "--format=%H", "HEAD", "--", relative).strip()
+    if not actual_commit or (commit and (not re.fullmatch(r"[0-9a-f]{7,64}", commit) or not actual_commit.startswith(commit))):
+        return None
+    return raw_id, actual_commit
+
+
 def mark_page(
     kb: Path,
     job_id: str,
     *,
     document_id: str,
     status: str,
+    lease_token: str = "",
     raw_id: str = "",
     commit: str = "",
     error: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    kb = kb.resolve()
     if status not in PAGE_STATES - {"pending", "in_progress"}:
         raise DigestJobError(
             "DIGEST_JOB_INVALID_ARGUMENT",
@@ -490,11 +520,31 @@ def mark_page(
                 "DIGEST_JOB_INVALID_TRANSITION",
                 f"已完成页面不能从 {page['status']} 改为 {status}。",
             )
-        if status == "committed" and (not raw_id.strip() or not commit.strip()):
-            raise DigestJobError(
-                "DIGEST_JOB_INVALID_ARGUMENT",
-                "mark committed 时必须提供 raw_id 和 commit。",
-            )
+        requeue = not lease_token and page["status"] in {"blocked_dependency", "blocked_conflict"} and status == "retryable_error"
+        if not requeue:
+            lease = page.get("lease") or {}
+            expires = _parse_time(lease.get("expires_at"))
+            if not lease_token or lease.get("token") != lease_token or expires is None or expires <= now:
+                raise DigestJobError("DIGEST_JOB_LEASE_MISMATCH", "请用 next 返回的当前页面租约凭据登记结果。")
+        if status in {"committed", "noop"}:
+            if not raw_id.strip() or (status == "committed" and not commit.strip()):
+                raise DigestJobError("DIGEST_JOB_INVALID_ARGUMENT", "完成页面须提供 raw_id，committed 还须提供 commit。")
+            matches = []
+            for candidate in (kb / "raw_data").glob("*.md"):
+                if candidate.is_symlink():
+                    continue
+                try:
+                    fields, _ = parse_file(str(candidate))
+                    if (fields.get("raw_id") or fields.get("id")) != raw_id.strip():
+                        continue
+                    evidence = _verified_page_raw(kb, candidate, document_id, commit.strip())
+                except (OSError, UnicodeError):
+                    continue
+                if evidence:
+                    matches.append(evidence)
+            if len(matches) != 1:
+                raise DigestJobError("DIGEST_JOB_RECEIPT_INVALID", "找不到与当前页面和提交一致的已提交 raw。")
+            raw_id, commit = matches[0]
         page["status"] = status
         page["lease"] = None
         page["raw_id"] = raw_id.strip()
@@ -519,36 +569,41 @@ def reconcile_job(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    kb = kb.resolve()
     path = _job_path(kb, job_id)
     root = _jobs_root(kb)
     if not path.is_file():
         _load_path(path)
     raw_root = kb.resolve() / "raw_data"
-    completed: dict[str, tuple[str, str]] = {}
-    if raw_root.is_dir():
-        for raw_path in raw_root.rglob("*.md"):
-            try:
-                frontmatter, _ = parse_file(str(raw_path))
-            except OSError:
+    completed: dict[str, list[tuple[datetime, tuple[str, str]]]] = {}
+    for raw_path in sorted(raw_root.glob("*.md")):
+        try:
+            fields, _ = parse_file(str(raw_path))
+            source_uid = str(fields.get("source_uid", "")).strip()
+            ingested = _parse_time(fields.get("ingested"))
+            if not source_uid or ingested is None:
                 continue
-            source_uid = str(frontmatter.get("source_uid", "")).strip()
-            if (
-                source_uid
-                and str(frontmatter.get("digest_status", "")).strip() == "digested"
-            ):
-                completed[source_uid] = (
-                    str(frontmatter.get("id", "")).strip() or raw_path.stem,
-                    str(frontmatter.get("commit", "")).strip(),
-                )
+            evidence = _verified_page_raw(kb.resolve(), raw_path, source_uid)
+        except (OSError, UnicodeError):
+            continue
+        if evidence:
+            completed.setdefault(source_uid, []).append((ingested, evidence))
     now = now or _utc_now()
     changed = 0
     with open(root / ".lock", "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         job = _load_path(path)
         for page in job["pages"]:
-            match = completed.get(str(page.get("document_id", "")))
-            if not match or page.get("status") in SUCCESS_PAGE_STATES:
+            lease = page.get("lease") or {}
+            expires = _parse_time(lease.get("expires_at"))
+            if page.get("status") in SUCCESS_PAGE_STATES or (expires and expires > now):
                 continue
+            since = _parse_time(page.get("updated_at"))
+            candidates = completed.get(str(page.get("document_id", "")), [])
+            eligible = [item for item in candidates if since is not None and item[0] >= since]
+            if not eligible:
+                continue
+            _, match = max(eligible)
             page["status"] = "committed"
             page["lease"] = None
             page["raw_id"], page["commit"] = match

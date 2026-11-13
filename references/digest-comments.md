@@ -5,7 +5,7 @@
 
 ## 读取范围与完整性
 
-1. 正文用 `lark-doc +fetch --api-version v2 --detail with-ids` 拉取;评论单独运行:
+1. 正文用 `bin/byteworker lark docs +fetch --doc "<URL>" --detail with-ids` 拉取;评论单独运行:
 
    ```bash
    bin/byteworker run bin/pull_doc_comments.py --url "<飞书文档 URL>" --pretty > <临时 JSON>
@@ -14,7 +14,7 @@
    临时文件只能放系统临时目录或知识库数据目录,**不得写进 skill 仓库**。脚本固定请求
    `solved_status=all`、`comment_scope=all` 和 docx relation,自动翻完评论分页;某条评论的
    `has_more=true` 时继续翻完回复分页。评论列表及单链分页保持串行，同一页的独立回复链由脚本最多
-   3 路并发。不能用 `lark-doc +fetch` 的成功替代这一步。
+   3 路并发。不能用 `docs +fetch` 的成功替代这一步。
 2. **已解决评论也必须读**:解决只表示评论卡片被关闭,不表示其中的指令、否决理由或历史判断
    已失去证据价值。保留 `is_solved`、`solved_time`、`solver_user_id` 及完整回复演进。
 3. raw 正文先放文档原文,再以 `## 文档评论原始快照` 附加脚本输出的 `comments` canonical JSON;
@@ -27,7 +27,7 @@
 ## 正文锚点与滚动文档
 
 - 局部评论优先解析 relation 中的关联对象 / block 标识,对齐
-  `lark-doc +fetch --detail with-ids` 返回的正文 block。不同文档版本的 relation JSON 形态可能
+  `docs +fetch --detail with-ids` 返回的正文 block。不同文档版本的 relation JSON 形态可能
   不同,保留原始 relation 后再匹配,不要假定只有一种固定字段。引用时记录 `comment_id` /
   `reply_id` 与能确认的 block id;若只有 `quote` 可做弱文本匹配,必须标“按引用片段推定位置”。
 - 全文评论(`is_whole=true`)没有局部 block,按全文意见处理,不得臆造锚点。

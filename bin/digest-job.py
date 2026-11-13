@@ -42,7 +42,7 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--kb", required=True, type=Path)
     create.add_argument("--selection", required=True, type=Path)
     create.add_argument("--title", default="")
-    create.add_argument("--organization-node-id", default="")
+    create.add_argument("--organization-node-id", default="", help=argparse.SUPPRESS)
     create.add_argument("--batch-size", type=_positive, default=5)
 
     listing = sub.add_parser("list")
@@ -57,7 +57,7 @@ def parser() -> argparse.ArgumentParser:
     next_batch = sub.add_parser("next")
     next_batch.add_argument("--kb", required=True, type=Path)
     next_batch.add_argument("--job-id", required=True)
-    next_batch.add_argument("--limit", type=_positive, default=5)
+    next_batch.add_argument("--limit", type=_positive, help="覆盖创建任务时保存的批量大小")
     next_batch.add_argument("--lease-owner", required=True)
     next_batch.add_argument("--lease-seconds", type=_positive, default=1800)
 
@@ -79,6 +79,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     mark.add_argument("--raw-id", default="")
+    mark.add_argument("--lease-token", default="", help="next 返回的页面租约凭据；人工裁决后的重新排队可省略")
     mark.add_argument("--commit", default="")
     mark.add_argument("--error", default="")
 
@@ -157,6 +158,7 @@ def _run(args: argparse.Namespace) -> object:
             args.job_id,
             document_id=args.document_id,
             status=args.status,
+            lease_token=args.lease_token,
             raw_id=args.raw_id,
             commit=args.commit,
             error=args.error,

@@ -77,7 +77,7 @@ class ByteworkerCliDirectTests(unittest.TestCase):
 
         attention = CapturedProcess(
             returncode=2,
-            stdout='{"findings":[]}\n',
+            stdout='{"findings":[],"summary":{"warning":1}}\n',
             stderr="",
         )
         output = io.StringIO()

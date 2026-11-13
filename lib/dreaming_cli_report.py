@@ -19,10 +19,12 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     prepare.add_argument("--kind", required=True, choices=("morning", "daily", "weekly"))
     prepare.add_argument("--period", required=True)
     prepare.set_defaults(_handler=lambda args, kb, root: prepare_report_packet(kb, kind=args.kind, period=args.period))
-    render = report_sub.add_parser("render", help="Render report artifacts from a document")
+    render = report_sub.add_parser("render", help="Render private temporary preview artifacts")
     render.add_argument("--kb", required=True, type=Path)
     render.add_argument("--input", required=True, type=Path)
-    render.set_defaults(_handler=lambda args, kb, root: render_report_bundle(kb, document=load_report_document(args.input, skill_root=root)))
+    render.set_defaults(_handler=lambda args, kb, root: render_report_bundle(
+        kb, document=load_report_document(args.input, skill_root=root), preview=True,
+    ))
     complete = report_sub.add_parser("complete", help="Commit a report and complete its leased run")
     complete.add_argument("--kb", required=True, type=Path)
     complete.add_argument("--token", required=True)

@@ -38,9 +38,9 @@ def _private_request(path: Path) -> dict:
     return value
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="byteworker deterministic KB query")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="byteworker deterministic KB query")
+    subparsers = result.add_subparsers(dest="command", required=True)
 
     search_parser = subparsers.add_parser("search")
     search_parser.add_argument("--kb", required=True, type=Path)
@@ -89,7 +89,11 @@ def main() -> int:
         help="同时检索历史快照；默认每个 source_uid 只查最新版本",
     )
 
-    args = parser.parse_args()
+    return result
+
+
+def main() -> int:
+    args = parser().parse_args()
     try:
         if args.command == "search":
             output = search(

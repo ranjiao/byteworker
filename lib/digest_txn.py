@@ -50,6 +50,7 @@ from sources import (
     SourceBundleError,
     SourceRegistryError,
     SourceTransactionError,
+    canonical_sha256,
     create_default_registry,
     load_source_bundle,
     raw_source_fields,
@@ -405,11 +406,12 @@ def _legacy_payload_matches(
     return bool(payload.get("body_hash") or payload.get("comment_hash"))
 
 
-def preflight(kb: Path, source: Dict[str, Any], manifest_path: Path) -> Dict[str, Any]:
+def preflight(kb: Path, source: Dict[str, Any], manifest_path: Path, *, payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
     kb = kb.resolve()
     if not (kb / "knowledge").is_dir() or not (kb / "raw_data").is_dir():
         raise DigestTxnError(f"不是有效的 byteworker 知识库目录: {kb}")
-    payload = compute_payload(source, manifest_path)
+    if payload is None:
+        payload = compute_payload(source, manifest_path)
     digest_key = build_digest_key(source, payload)
     matches = []
     exact = []
@@ -573,7 +575,7 @@ def preflight_bundle(kb: Path, bundle_path: Path) -> Dict[str, Any]:
     bundle, source = _load_bundle_source(bundle_path)
     payload = compute_payload(source, bundle_path)
     _verify_bundle_payload(bundle, payload)
-    return preflight(kb, source, bundle_path)
+    return preflight(kb, source, bundle_path, payload=payload)
 
 
 def _safe_relative_path(kb: Path, value: str, allowed_prefixes: Sequence[str]) -> Path:
@@ -1020,7 +1022,28 @@ def _materialize_provenance(
         raise DigestTxnError(str(exc)) from exc
 
 
-def validate_plan(kb: Path, manifest_path: Path) -> ValidationResult:
+@dataclass(frozen=True)
+class PreparedSource:
+    path: Path
+    bundle_hash: str
+    digest_key: str
+
+
+def _require_prepared_source(
+    bundle: SourceBundle | None, source_path: Path, source: Dict[str, Any],
+    payload: Dict[str, Any], prepared_source: PreparedSource | None,
+) -> None:
+    if prepared_source is None:
+        return
+    if (
+        bundle is None or source_path != prepared_source.path
+        or canonical_sha256(bundle.to_dict()) != prepared_source.bundle_hash
+        or build_digest_key(source, payload) != prepared_source.digest_key
+    ):
+        raise DigestTxnError("提交计划必须引用本次已准备的 Bundle，来源和组件内容不得变化。")
+
+
+def validate_plan(kb: Path, manifest_path: Path, *, prepared_source: PreparedSource | None = None) -> ValidationResult:
     kb = kb.resolve()
     manifest_path = manifest_path.resolve()
     configured_plan = load_manifest(manifest_path)
@@ -1029,9 +1052,10 @@ def validate_plan(kb: Path, manifest_path: Path) -> ValidationResult:
         manifest_path,
     )
     payload = compute_payload(source, source_path)
+    _require_prepared_source(bundle, source_path, source, payload, prepared_source)
     if bundle is not None:
         _verify_bundle_payload(bundle, payload)
-    flight = preflight(kb, source, source_path)
+    flight = preflight(kb, source, source_path, payload=payload)
 
     raw = plan.get("raw")
     if not isinstance(raw, dict):
@@ -1747,6 +1771,8 @@ def execute_plan(
     manifest_path: Path,
     skill_root: Path,
     now: Optional[datetime] = None,
+    *,
+    prepared_source: PreparedSource | None = None,
 ) -> Dict[str, Any]:
     kb = kb.resolve()
     skill_root = skill_root.resolve()
@@ -1757,9 +1783,11 @@ def execute_plan(
         manifest,
         manifest_path.resolve(),
     )
+    payload = compute_payload(source, source_path)
+    _require_prepared_source(bundle, source_path, source, payload, prepared_source)
     if bundle is not None:
-        _verify_bundle_payload(bundle, compute_payload(source, source_path))
-    early_flight = preflight(kb, source, source_path)
+        _verify_bundle_payload(bundle, payload)
+    early_flight = preflight(kb, source, source_path, payload=payload)
     if early_flight["state"] == "noop":
         existing = early_flight.get("existing") or {}
         return {
@@ -1776,7 +1804,7 @@ def execute_plan(
             f"请先检查 {existing.get('path', existing.get('raw_id', '历史 raw'))}"
         )
 
-    result = validate_plan(kb, manifest_path)
+    result = validate_plan(kb, manifest_path, prepared_source=prepared_source) if prepared_source else validate_plan(kb, manifest_path)
     if result.preflight["state"] == "noop":
         existing = result.preflight.get("existing") or {}
         return {
@@ -1818,7 +1846,7 @@ def execute_plan(
             )
 
         # Re-validate baselines after acquiring the lock.
-        result = validate_plan(kb, manifest_path)
+        result = validate_plan(kb, manifest_path, prepared_source=prepared_source) if prepared_source else validate_plan(kb, manifest_path)
         _materialize_provenance(kb, result, result.plan["nodes"], now)
         snapshots = {
             path: path.read_bytes() if path.exists() else None for path in target_paths

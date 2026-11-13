@@ -474,6 +474,7 @@ class DreamingDigestTests(unittest.TestCase):
             def fake_capture(root, *arguments):
                 if arguments[:2] != ("source", "capture"):
                     return _invoke(root, *arguments)
+                self.assertIn("--bundle-only", arguments)
                 captures.wait()
                 kind = arguments[arguments.index("--source-type") + 1]
                 if kind == "meego":
@@ -505,6 +506,21 @@ class DreamingDigestTests(unittest.TestCase):
             self.assertEqual("empty_window", sources["feishu_chat"]["status"])
             self.assertEqual("failed", sources["meego"]["status"])
             self.assertEqual("pending", sources["feishu_doc"]["status"])
+            (kb / "knowledge").mkdir(exist_ok=True)
+            (kb / "raw_data").mkdir(exist_ok=True)
+            manual_args = ("dreaming", "process", "digest-source", "--kb", str(kb), "--token", token,
+                           "--source-key", sources["feishu_doc"]["source_key"])
+            manual = _invoke(ROOT, *manual_args)
+            self.assertEqual("classified", manual["phase"])
+            work = Path(manual["work_dir"])
+            body = work / "body.xml"
+            body.write_text("<p>New content for a synthetic document.</p>")
+            bundle_request = work / "manual-request.json"
+            bundle_request.write_text(json.dumps({"source_uid": manual["source_uid"],
+                "source_url": "https://example.test/docx/synthetic", "title": "Synthetic", "revision": "1",
+                "body": {"path": str(body)}}))
+            checked = _invoke(ROOT, *manual_args, "--bundle-request", str(bundle_request))
+            self.assertEqual((manual["run_id"], "checked"), (checked["run_id"], checked["phase"]))
             child = sources["feishu_chat"]["work"]["digest_run_id"]
             flow = flow_status(kb, run_id=child)
             self.assertNotIn("analysis_packet", flow["artifacts"])

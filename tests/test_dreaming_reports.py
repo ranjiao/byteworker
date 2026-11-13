@@ -217,6 +217,27 @@ class DreamingReportTests(unittest.TestCase):
                 now=now,
             )
             self.assertEqual("delivered", delivered["status"])
+            lark = enqueue_delivery(kb, kind="morning", period="2026-08-04",
+                                    report_path="reports/morning/2026-08-04.md", commit="abc",
+                                    channel="lark_bot", artifact="summary", recipient_id="ou_test", now=now)
+            with self.assertRaises(DreamingError) as caught:
+                complete_delivery(kb, outbox_id=lark["outbox_id"], delivery_id="invented", now=now)
+            self.assertEqual("DREAMING_DELIVERY_INVALID", caught.exception.code)
+
+    def test_report_preview_and_invalid_lease_preserve_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            now = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), now)
+            archive = kb / "reports/morning/2026-08-04.md"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("original\n")
+            with self.assertRaises(DreamingError) as caught:
+                complete_report_run(kb, token="invalid", document=self.report_document(), now=now)
+            self.assertEqual("DREAMING_LEASE_MISMATCH", caught.exception.code)
+            preview = render_report_bundle(kb, document=self.report_document(), preview=True)
+            self.assertFalse(preview["report_path"])
+            self.assertTrue(Path(preview["html_path"]).is_file())
+            self.assertEqual("original\n", archive.read_text())
 
     def test_render_bundle_is_host_neutral_and_escapes_html(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
@@ -315,6 +336,16 @@ class DreamingReportTests(unittest.TestCase):
             due_at = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
             leased = run_due(kb, owner="host", now=due_at)
             self.assertEqual("morning", leased["job"])
+            archive = kb / "reports/morning/2026-08-04.md"
+            for document, attempted_at in (
+                ({**self.report_document(), "period": "2026-08-05"}, due_at),
+                (self.report_document(), due_at + timedelta(hours=2)),
+            ):
+                with self.assertRaises(DreamingError) as caught:
+                    complete_report_run(kb, token=leased["lease"]["token"], document=document, now=attempted_at)
+                self.assertEqual("DREAMING_LEASE_MISMATCH", caught.exception.code)
+                self.assertFalse(archive.exists())
+                self.assertFalse(archive.with_name("2026-08-05.md").exists())
 
             completed = complete_report_run(
                 kb,
@@ -323,6 +354,7 @@ class DreamingReportTests(unittest.TestCase):
                 item_count=1,
                 finding_count=1,
                 gap_count=0,
+                now=due_at,
             )
 
             self.assertEqual("completed", completed["status"])
@@ -372,6 +404,7 @@ class DreamingReportTests(unittest.TestCase):
                 finding_count=1,
                 gap_count=0,
                 delivery_binary="lark-cli",
+                now=due_at,
             )
 
             self.assertEqual("delivered", completed["delivery"]["status"])

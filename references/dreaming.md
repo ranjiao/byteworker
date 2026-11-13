@@ -94,6 +94,7 @@ bin/byteworker dreaming retry-job --kb "<知识库绝对路径>" --job maintenan
 - `operational` 只有 enabled 且宿主任务已登记时为 true。
 - 有活跃租约时禁用失败；等待完成或租约过期后重试。
 - 禁用不删除 findings、receipt、报告，也不修改旧 `report-automation` 配置。
+- 宿主任务已在宿主侧删除后，用 `dreaming harness unregister --kb <KB>` 清理本地登记。
 - Dreaming 状态损坏只影响 Dreaming；不要转而修改或阻塞既有命令。
 
 ## 宿主 tick

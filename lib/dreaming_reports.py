@@ -435,6 +435,7 @@ def complete_delivery(
     *,
     outbox_id: str,
     delivery_id: str,
+    channel: str = "host",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
@@ -445,6 +446,12 @@ def complete_delivery(
         item = state.setdefault("outbox", {}).get(outbox_id)
         if not isinstance(item, dict):
             raise DreamingError("DREAMING_DELIVERY_NOT_FOUND", "outbox 不存在。")
+        if item.get("channel") != channel:
+            raise DreamingError("DREAMING_DELIVERY_INVALID", "投递回执与 outbox 渠道不一致。")
+        if item.get("status") == "delivered":
+            if item.get("delivery_id") != delivery_id.strip():
+                raise DreamingError("DREAMING_DELIVERY_INVALID", "该投递已有不同的回执。")
+            return {"outbox_id": outbox_id, "status": "delivered"}
         item["status"] = "delivered"
         item["delivery_id"] = delivery_id.strip()
         item["delivered_at"] = utc_iso(current)

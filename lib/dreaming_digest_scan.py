@@ -30,14 +30,15 @@ def _invoke(skill_root: Path, *arguments: str) -> dict[str, Any]:
     if process.returncode or not isinstance(data, dict) or response.get("error"):
         error = response.get("error") if isinstance(response, dict) else None
         code = str(error.get("code", "")) if isinstance(error, dict) else ""
+        message = error.get("message") if isinstance(error, dict) else None
         raise DreamingError(
             code if MACHINE_CODE.fullmatch(code) else "DREAMING_SOURCE_CHECK_FAILED",
-            "来源检查命令失败。",
+            message if isinstance(message, str) and message else "来源检查命令失败。",
         )
     return data
 
 
-def _check_source(kb, token, source, invoke, direct_bundle):
+def _check_source(kb, token, source, invoke):
     scope = ("--kb", str(kb))
     source_type = source["source_type"]
     source_uid = source["source_uid"]
@@ -54,9 +55,7 @@ def _check_source(kb, token, source, invoke, direct_bundle):
     capture_stage = ("digest-run", "stage", *run_scope, "--stage", "capture", "--status")
     work = Path(flow["work_dir"])
     bundle_path = work / "capture-bundle.json"
-    output = ("--out", str(bundle_path)) if direct_bundle else (
-        "--out", str(work / "capture.json"), "--bundle-out", str(bundle_path),
-    )
+    output = ("--bundle-only", "--out", str(bundle_path))
     started = "capture" in flow.get("run", {}).get("open_stages", [])
     try:
         if not bundle_path.is_file():
@@ -73,7 +72,7 @@ def _check_source(kb, token, source, invoke, direct_bundle):
             raise DreamingError("DREAMING_DIGEST_INVENTORY_CHANGED", "抓取期间来源或配置发生变化。")
         if started:
             invoke(*capture_stage, "completed")
-        return invoke("digest-flow", "prepare", *run_scope, "--bundle", str(bundle_path), "--check-only")
+        return invoke("digest-flow", "prepare", *run_scope, "--bundle", str(bundle_path), "--routine", "--check-only")
     except (DreamingError, SourceBundleError) as exc:
         for arguments in (
             (*capture_stage, "failed", "--detail-code", exc.code),
@@ -86,6 +85,39 @@ def _check_source(kb, token, source, invoke, direct_bundle):
         raise DreamingError(exc.code, "来源检查失败。") from exc
 
 
+def prepare_manual_source(kb: Path, *, token: str, source_key: str, skill_root: Path,
+                          bundle: Path | None = None, bundle_request: Path | None = None) -> dict[str, Any]:
+    batch = prepare_routine_digest(kb, token=token)
+    source = next((row for row in batch["sources"] if row["source_key"] == source_key), None)
+    if source is None or source["workflow"] == "wiki_scan_then_digest":
+        raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "请选择本轮尚未完成的普通 Digest 来源。")
+    if source["status"] != "pending":
+        if source["status"] in {"noop", "empty_window", "committed"}:
+            return {"phase": "committed" if source["status"] == "committed" else "noop",
+                    "receipt": source["receipt"], "source_key": source_key, "source_uid": source["source_uid"],
+                    "run_id": source.get("work", {}).get("digest_run_id", ""), "next_action": "none"}
+        raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "请选择本轮尚未完成的普通 Digest 来源。")
+    scope = ("--kb", str(kb))
+    run_id = source.get("work", {}).get("digest_run_id")
+    if run_id:
+        flow = _invoke(skill_root, "digest-flow", "status", *scope, "--run-id", run_id)
+    else:
+        flow = _invoke(skill_root, "digest-flow", "start", *scope, "--source-type", source["source_type"],
+                       "--source-ref", source["source_uid"])
+        run_id = flow["run_id"]
+        link_routine_digest(kb, token=token, source_key=source_key, digest_run_id=run_id)
+    if (bundle or bundle_request) and flow["phase"] not in {"checked", "prepared", "noop", "committed"}:
+        flag, path = ("--bundle", bundle) if bundle else ("--bundle-request", bundle_request)
+        work_dir = flow["work_dir"]
+        flow = _invoke(skill_root, "digest-flow", "prepare", *scope, "--run-id", run_id,
+                       "--routine", "--check-only", "--source-uid", source["source_uid"], flag, str(path))
+        flow["work_dir"] = work_dir
+    receipt = flow.get("receipt")
+    if receipt and receipt.get("status") in {"noop", "empty_window", "committed"}:
+        record_routine_digest(kb, token=token, result={**source, "status": receipt["status"], "receipt": receipt})
+    return {**flow, "source_key": source_key, "source_uid": source["source_uid"]}
+
+
 def scan_routine_digest(kb: Path, *, token: str, skill_root: Path, max_workers: int = 3) -> dict[str, Any]:
     if max_workers not in (1, 2, 3):
         raise DreamingError("DREAMING_SOURCE_CHECK_FAILED", "来源检查并发必须是 1..3。")
@@ -95,7 +127,6 @@ def scan_routine_digest(kb: Path, *, token: str, skill_root: Path, max_workers: 
     checks = {}
     if pending:
         capture = invoke("source", "capabilities")["operation_contracts"]["capture"]
-        direct = capture["direct_bundle_source_types"]
         automatic = [
             source for source in pending
             if source["origin"] == "profile" and source["source_type"] in capture["source_types"]
@@ -105,7 +136,7 @@ def scan_routine_digest(kb: Path, *, token: str, skill_root: Path, max_workers: 
             while automatic:
                 wave, automatic = automatic[:workers], automatic[workers:]
                 futures = {
-                    pool.submit(_check_source, kb, token, source, invoke, source["source_type"] in direct): source
+                    pool.submit(_check_source, kb, token, source, invoke): source
                     for source in wave
                 }
                 for future in as_completed(futures):

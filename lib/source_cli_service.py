@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import tempfile
 from pathlib import Path
 
 from snapshot_store import diff_current_against_kb
 from source_bundle_request import build_bundle_from_request
-from source_capture import SourceCaptureError, diff_captures, read_capture, write_capture, write_capture_pair
+from source_capture import (
+    SourceCaptureError, diff_captures, read_capture, validate_capture_output_path, write_capture, write_capture_pair,
+)
 from source_operations import run_source_operation, source_operation_manifest, source_operation_types
 from source_profiles import (
     PROFILE_SOURCE_TYPES,
@@ -39,8 +43,11 @@ def run(args: argparse.Namespace, *, skill_root: Path) -> dict:
             Path(args.request),
             skill_root=skill_root,
         ).to_dict()
-    if args.operation == "capture" and args.bundle_out and not args.out:
-        raise SourceCaptureError("SOURCE_ARGUMENT_INVALID", "--bundle-out 必须与 --out 一起使用")
+    if args.operation == "capture":
+        if args.bundle_only and (not args.out or args.bundle_out):
+            raise SourceCaptureError("SOURCE_ARGUMENT_INVALID", "--bundle-only 要求 --out，且不可与 --bundle-out 同用")
+        if args.bundle_out and not args.out:
+            raise SourceCaptureError("SOURCE_ARGUMENT_INVALID", "--bundle-out 必须与 --out 一起使用")
     if args.operation == "diff":
         return _diff(args)
     if args.operation == "profile":
@@ -103,6 +110,21 @@ def persist_result(
             )
         write_capture(output, result, skill_root=skill_root)
         return _bundle_receipt(result, output)
+
+    if args.bundle_only:
+        output = validate_capture_output_path(output, skill_root=skill_root)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        directory = Path(tempfile.mkdtemp(prefix=".byteworker-capture-", dir=output.parent))
+        capture_path = directory / "capture.json"
+        try:
+            bundle = create_default_registry().build_bundle(
+                args.source_type, capture=result, capture_path=capture_path, skill_root=skill_root,
+            )
+            write_capture_pair(capture_path, result, output, bundle.to_dict(), skill_root=skill_root)
+        except Exception:
+            shutil.rmtree(directory, ignore_errors=True)
+            raise
+        return _bundle_receipt(bundle.to_dict(), output)
 
     bundle_output = ""
     if args.bundle_out:

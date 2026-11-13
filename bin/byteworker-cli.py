@@ -22,6 +22,7 @@ from command_registry import (  # noqa: E402
     attention_exit_codes,
     command_spec,
     facade_entrypoints,
+    operation_metadata,
     resolve_operation,
 )
 from bounded_process import run_bounded_output  # noqa: E402
@@ -156,14 +157,14 @@ def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
     elapsed = round((time.monotonic() - start) * 1000)
     data = completed.artifact or _parse_json(completed.stdout)
     spec = command_spec(tool)
-    operation = _operation(tool, forwarded)
+    operation, metadata = operation_metadata(tool, forwarded)
     context_value = context(
         tool=tool,
         operation=operation,
         execution_time_ms=elapsed,
         command_path=f"{tool}.{operation}" if operation else tool,
-        stability=spec.stability if spec is not None else "",
-        side_effect=spec.side_effect if spec is not None else "",
+        stability=metadata.get("stability", spec.stability if spec is not None else ""),
+        side_effect=metadata.get("side_effect", spec.side_effect if spec is not None else ""),
     )
     if completed.returncode == 0:
         payload = envelope(
@@ -172,8 +173,10 @@ def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
             error=None,
             context_value=context_value,
         )
-    elif completed.returncode in ATTENTION_EXIT_CODES.get(tool, set()) and not isinstance(
-        data, str
+    elif (
+        completed.returncode in ATTENTION_EXIT_CODES.get(tool, set())
+        and isinstance(data, dict) and isinstance(data.get("summary"), dict)
+        and operation in {"scan", "fix"}
     ):
         payload = envelope(
             status="attention",
@@ -203,9 +206,10 @@ def _run_tool(tool: str, args: list[str], *, pretty: bool) -> int:
             context_value=context_value,
         )
     trace_id = os.environ.get(trace.TRACE_ENV)
-    if trace_id and operation in trace.COMMANDS.get(tool, ()):
+    trace_operation = operation.partition(".")[0]
+    if trace_id and trace_operation in trace.COMMANDS.get(tool, ()):
         try:
-            trace.record_result(trace_id, tool, operation, payload, elapsed)
+            trace.record_result(trace_id, tool, trace_operation, payload, elapsed)
             payload["context"]["trace_id"] = trace_id
         except (OSError, ValueError, KeyError, TypeError):
             payload["context"]["trace_recording"] = "degraded"
