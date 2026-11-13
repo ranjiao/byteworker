@@ -29,18 +29,6 @@ MAX_BUDGET_SHARDS = 128
 MIN_PARALLEL_ITEMS = {"dependency": 32, "semantic": 200, "conflict": 16}
 SOURCE_TOKEN_FLOOR = {"dependency": 12_000, "semantic": 64_000, "conflict": 24_000}
 TARGET_SHARD_TOKENS = {"dependency": 16_000, "semantic": 64_000, "conflict": 24_000}
-PARALLEL_TOTAL_TOKEN_BUDGET = {
-    "dependency": 128_000,
-    "semantic": 512_000,
-    "conflict": 192_000,
-}
-OUTPUT_TOKENS_PER_ITEM = {"dependency": 40, "semantic": 120, "conflict": 80}
-INPUT_TOKENS_PER_SECOND = {"dependency": 1_000, "semantic": 800, "conflict": 800}
-OUTPUT_TOKENS_PER_SECOND = 50
-WORKER_STARTUP_MS = 8_000
-REDUCER_OVERHEAD_MS = 10_000
-MIN_WALL_SAVINGS_MS = 30_000
-MIN_WALL_SAVINGS_RATIO = 0.25
 WORKER_WORKFLOWS = {
     "dependency": "digest_dependency_worker",
     "semantic": "digest_semantic_worker",
@@ -252,18 +240,6 @@ def _route_tokens(
     return tokens, source_budget
 
 
-def _wall_time_ms(
-    *, stage: str, source_tokens: int, output_tokens: int, workers: int
-) -> int:
-    input_ms = math.ceil(
-        source_tokens / INPUT_TOKENS_PER_SECOND[stage] * 1000 / max(1, workers)
-    )
-    output_ms = math.ceil(
-        output_tokens / OUTPUT_TOKENS_PER_SECOND * 1000 / max(1, workers)
-    )
-    return input_ms + output_ms
-
-
 def _host_packet_limit(workflow: str, input_limit: int, skill_root: Path) -> int:
     if type(input_limit) is not int or input_limit <= 0:
         raise DigestParallelError("DIGEST_HOST_INPUT_LIMIT_INVALID", "宿主可用输入 token 数必须是正整数。")
@@ -310,76 +286,24 @@ def _plan_mode(
 ) -> dict[str, Any]:
     source_estimate = estimate_tokens(source_text)
     source_tokens = int(source_estimate["tokens"])
-    output_tokens = item_count * OUTPUT_TOKENS_PER_ITEM[stage]
     source_type, features = _inline_route(value, stage, source_tokens)
     inline_rules, inline_source_budget = _route_tokens(
-        "digest",
-        skill_root=skill_root,
-        source_type=source_type,
-        features=features,
+        "digest", skill_root=skill_root, source_type=source_type, features=features,
     )
-    worker_rules, worker_source_budget = _route_tokens(
-        WORKER_WORKFLOWS[stage], skill_root=skill_root
-    )
-    reducer_rules, reducer_source_budget = _route_tokens(
-        "digest_final_reducer", skill_root=skill_root
-    )
-    proposed_workers = min(
-        max_workers,
-        MAX_WORKERS,
-        max(1, item_count),
-        max(2, math.ceil(source_tokens / TARGET_SHARD_TOKENS[stage])),
-    )
-    if max_workers == 1 or item_count < 2:
-        proposed_workers = 1
-    result_tokens = output_tokens
-    inline_total = inline_rules + source_tokens + output_tokens
-    parallel_total = (
-        proposed_workers * worker_rules
-        + source_tokens
-        + output_tokens
-        + reducer_rules
-        + result_tokens
-        + output_tokens
-    )
-    inline_wall = _wall_time_ms(
-        stage=stage, source_tokens=source_tokens, output_tokens=output_tokens, workers=1
-    )
-    parallel_wall = (
-        WORKER_STARTUP_MS
-        + _wall_time_ms(
-            stage=stage,
-            source_tokens=source_tokens,
-            output_tokens=output_tokens,
-            workers=proposed_workers,
-        )
-        + REDUCER_OVERHEAD_MS
-        + math.ceil(result_tokens / INPUT_TOKENS_PER_SECOND[stage] * 1000)
-    )
-    wall_savings = inline_wall - parallel_wall
-    savings_ratio = wall_savings / inline_wall if inline_wall else 0.0
-    max_shard_source_tokens = math.ceil(source_tokens / max(1, proposed_workers))
-    parallel_budget = PARALLEL_TOTAL_TOKEN_BUDGET[stage]
+    worker_rules, worker_source_budget = _route_tokens(WORKER_WORKFLOWS[stage], skill_root=skill_root)
     if max_workers == 1:
         reason = "MAX_WORKERS_ONE"
     elif item_count < MIN_PARALLEL_ITEMS[stage]:
         reason = "INSUFFICIENT_WORK_ITEMS"
     elif source_tokens < SOURCE_TOKEN_FLOOR[stage]:
         reason = "SOURCE_TOKENS_BELOW_PARALLEL_FLOOR"
-    elif max_shard_source_tokens > worker_source_budget:
-        reason = "WORKER_SOURCE_BUDGET_EXCEEDED"
-    elif result_tokens > reducer_source_budget:
-        reason = "REDUCER_SOURCE_BUDGET_EXCEEDED"
-    elif parallel_total > parallel_budget:
-        reason = "PARALLEL_TOTAL_TOKEN_BUDGET_EXCEEDED"
-    elif wall_savings < MIN_WALL_SAVINGS_MS or savings_ratio < MIN_WALL_SAVINGS_RATIO:
-        reason = "WALL_TIME_SAVINGS_BELOW_MINIMUM"
     else:
-        reason = "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM"
-    parallel = reason == "PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM"
+        reason = "PARALLEL_SIZE_THRESHOLD"
+    parallel = reason == "PARALLEL_SIZE_THRESHOLD"
+    workers = min(max_workers, item_count, max(2, math.ceil(source_tokens / TARGET_SHARD_TOKENS[stage]))) if parallel else 1
     return {
         "use_parallel": parallel,
-        "workers": proposed_workers if parallel else 1,
+        "workers": workers,
         "selection_reason_code": reason,
         "estimator_method": source_estimate["method"],
         "estimator_exact": source_estimate["exact"],
@@ -387,20 +311,8 @@ def _plan_mode(
         "inline_source_budget": inline_source_budget,
         "worker_source_budget": worker_source_budget,
         "worker_rule_tokens": worker_rules,
-        "inline": {
-            "estimated_total_tokens": inline_total,
-            "estimated_wall_time_ms": inline_wall,
-        },
-        "parallel_estimate": {
-            "estimated_total_tokens": parallel_total,
-            "estimated_wall_time_ms": parallel_wall,
-            "proposed_workers": proposed_workers,
-            "estimated_max_shard_source_tokens": max_shard_source_tokens,
-        },
-        "parallel_token_budget": parallel_budget,
-        "parallel_budget_remaining_tokens": max(0, parallel_budget - parallel_total),
-        "estimated_wall_savings_ms": wall_savings,
-        "estimated_wall_savings_ratio_millis": round(savings_ratio * 1000),
+        "inline": {"estimated_input_tokens": inline_rules + source_tokens},
+        "worker_inputs": {"estimated_input_tokens": workers * worker_rules + source_tokens},
     }
 
 
@@ -1043,9 +955,9 @@ def _attempt_parallel_shard(
         if not re.fullmatch(r"DA-[0-9a-f]{32}", attempt_id):
             raise DigestParallelError("DIGEST_HOST_EVIDENCE_REQUIRED", "登记失败时必须提供对应分片的 attempt-id。")
         host_error = read_host_failure(attempt_id, shard_path, session_id=host_session_id)
-        if not host_error or host_error["error_code"] != failure:
+        if host_error and host_error["error_code"] != failure:
             raise DigestParallelError(
-                "DIGEST_HOST_EVIDENCE_REQUIRED", "没有找到与此分片执行尝试匹配的宿主工具错误。",
+                "DIGEST_HOST_EVIDENCE_REQUIRED", "宿主工具错误与本次报告不一致。",
                 details={"attempt_id": attempt_id, "shard_id": shard_id},
             )
     else:

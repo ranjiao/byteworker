@@ -186,7 +186,8 @@ class ByteworkerLauncherTests(unittest.TestCase):
                 encoding="utf-8",
             )
             env = {
-                **os.environ,
+                **{key: value for key, value in os.environ.items()
+                   if key not in {"VIRTUAL_ENV", "BYTEWORKER_PYTHON_BIN", "BYTEWORKER_REFRESH_RUNTIME"}},
                 "HOME": str(root),
                 "PATH": "/usr/bin:/bin",
                 "BYTEWORKER_TEST_MARKER": str(marker),
@@ -236,7 +237,8 @@ class ByteworkerLauncherTests(unittest.TestCase):
                 encoding="utf-8",
             )
             env = {
-                **os.environ,
+                **{key: value for key, value in os.environ.items()
+                   if key not in {"VIRTUAL_ENV", "BYTEWORKER_PYTHON_BIN", "BYTEWORKER_REFRESH_RUNTIME"}},
                 "HOME": str(root),
                 "PATH": f"{tools}:/usr/bin:/bin",
                 "BYTEWORKER_TEST_MARKER": str(marker),

@@ -91,7 +91,7 @@ launcher 只解决本机 runtime 发现与一致执行，不下载依赖、不�
 | `settings.md` | 用户维护的长期关注与看板提醒 | 仅显式维护时写入 | 随知识库 Git 回滚 |
 | `context.md` | 格式化全局工作上下文 —— 身份 / 职责 / 重点 / 约束 / 提醒偏好 / 背景 | 用户通过 agent 维护 | 手维护 |
 | `todo.md`（仅历史 KB 可存在） | 已退役的个人待办记录 | 仅保留已有文件 | 不初始化、迁移或删除 |
-| `.last-routine-digest` | 上次「定期摄取」例程运行日期(一行 `YYYY-MM-DD`)—— 到期提醒据此判断 | skill 写入 | 每次定期摄取覆盖 |
+| `.last-routine-digest` | 退役的历史标记，保留已有文件 | 无 writer | 不再读取或更新 |
 | `state/wiki/` | 可重新扫描得到的 Wiki baseline / 子树目录状态；完整 JSON 不进入 Agent context | `wiki scan` 按需原子写入 | 无 TTL；仅显式扫描替换 |
 | `state/viewer.json` | 本地 viewer 偏好，例如是否要求本次访问口令 | 设置页通过 `lib/settings.py` 写入 | 显式重配时更新 |
 | `state/digest_jobs/` | 用户已确认页面的批量 digest 运行 checkpoint、租约与逐页 receipt 定位 | `digest-job` 按需原子写入 | 跨 session 更新；可由 raw 部分 reconcile |
@@ -265,7 +265,9 @@ Dreaming heartbeat 可选 `digest_run_id` 显式关联子运行，outbox 可选 
 
 `state/digest/flows/<run_id>/state.json` 使用 `byteworker-digest-flow/v1`，只保存 source type、source
 ref hash、固定 phase、capture 次数和私有 artifact 路径。phase 为 classified/captured、可恢复的
-capture_failed/prepare_failed/commit_failed、prepared 或终态 committed/noop。request、Bundle、packet、
+capture_failed/prepare_failed/commit_failed、checked/prepared，失败暂停 failed 和终态 committed/noop/cancelled。
+failed 保存 resume_phase；flow fail 关闭未结束阶段，flow resume 恢复阶段及日志，复用原产物。
+旧调用只将日志关闭为 failed 时，flow status 同样给出 resume；成功和取消不可恢复。request、Bundle、packet、
 shard、result 和 DigestPlan 与 state 同目录且权限为 `0600`；目录为 `0700`。flow 不保存业务标题、
 正文、URL、凭据或语义候选，不替代 SourceBundle、DigestPlan 或 transaction receipt。
 
@@ -308,7 +310,8 @@ Digest flow checkpoint 保存私有 `prepared_bundle_hash` 和 `prepared_digest_
 任一失败则整体 coverage failed。顺序 page token/offset 不因该协议变成可并发。
 
 `byteworker-digest-parallel-plan/v1` 保存 stage、输入 hash、inline/parallel 决定、稳定 reason code、
-私密 shard 路径及 item/weight 计数。可选提速并行保持原有项数、墙钟和总预算门槛。
+私密 shard 路径及 item/weight 计数。可选并行按阶段项数和 token 阈值选择；
+不再产生预测墙钟或输出 token 的字段。旧计划仍可读取，结果身份与覆盖校验不变。
 超限时 `budget_required=true`，可生成超过 4 个分片，同时最多执行 4 个。回执包含分片累计
 输入估算。语义条目切分保留原 path 与 `text_range`，延后使用的 anchor 索引留在原私有包。
 
@@ -351,7 +354,7 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
   `due/complete/busy/disabled + should_run`。旧状态没有 `last_success` 时，最近成功
   `last_run` 作为兼容值；不得仅凭报告文件存在推断成功。
 - 自动日报和自动周报每次都必须先完整执行所有已登记且启用来源的 routine digest，再生成报告；
-  这条执行契约不受 `.last-routine-digest` 的七天交互提醒阈值限制。
+  每次运行均检查全部已登记且启用来源。
 - routine 完成后必须按报告时区完整枚举目标 period 的主日历，只选择
   `self_rsvp_status=accept` 的日程实例。Calendar 枚举是报告固定发现通道，不写 Profile / raw；
   其直接会议纪要 / 共享文档按 `feishu_doc`、妙记 transcript 按 `feishu_minutes` 进入标准
@@ -536,13 +539,15 @@ Digest flow 增加 `checked`，保存已预检的 Bundle。分片结果保存在
 Digest 运行日志的 `shard_budget_checked` 和 `shard_execution_failed` 记录分片阶段、编号、
 计划校验值、执行角色、预算计数和限额。执行尝试用 `attempt_id` 关联同片预算检查和宿主轨迹；
 宿主证据保存工具名、调用编号、固定错误码及明确返回的 `available_input_tokens`（若有）。
-旧的自报失败仍可查看，不能作为新收尾证据。分片计划可带 `host_input_limit` 和
+failure_verification=reported/verified 区分自报与轨迹核验。没有宿主轨迹也可结束失败尝试；
+只有成功来源可推进覆盖。flow fail 的固定错误事件也可形成 flow_reported_failure 收尾记录。分片计划可带 `host_input_limit` 和
 `effective_source_limit`；重分片时 `host_input_limit_source` 区分外部提供、宿主回执和本地试算。
 缩小时保留完成片的编号与结果，给拆开的片分配新编号，最后原子更新计划。无法继续缩片时
 用 `shard_context_retry_exhausted` 关联当前计划、分片和已核验失败编号，记录固定原因码。
 分析包只按 `(path, text)` 去重，结构化记录中相同
 枚举值即使重复出现，也必须保留各自记录的语义路径，避免状态变化因全局文本去重丢失。
-Dreaming 来源回执和私有摘要可带 `failure_evidence`，只保存对应阶段、分片和已核验技术证据。
+Dreaming 来源回执和私有摘要可带 `failure_evidence`，保存关联阶段、分片与验证类别；
+host_reported_failure 明确未获轨迹核验，host_verified_failure 表示已核验，均不是成功证据。
 提前收尾被拒绝时写入关联 Digest 编号的 `source_completion_rejected` 事件。旧批次和日志仍可读。
 
 - `process prepare` 采集并提交 `collected` manifest，只向机器输出 batch id、相对 manifest path、
@@ -738,7 +743,7 @@ I6 foreground/review/shadow：
 
 | 场景 | 格式 | 示例 | 说明 |
 |------|------|------|------|
-| 日期 | `YYYY-MM-DD` | `2026-05-21` | 默认格式;节点 frontmatter 的 `created` / `updated` / `last_verified`、正文条目日期、`.last-routine-digest` 均用它 |
+| 日期 | `YYYY-MM-DD` | `2026-05-21` | 默认格式;节点 frontmatter 的 `created` / `updated` / `last_verified`、正文条目日期均用它 |
 | 带本地时间 | `YYYY-MM-DD HH:MM` | `2026-05-21 19:00` | 面向人读的正文 / journal / report 生成时间;默认 Asia/Shanghai,不写秒 |
 | 完整时间戳 | `YYYY-MM-DDTHH:MM:SS+08:00` | `2026-05-21T19:00:41+08:00` | 机器边界字段,如 `raw_data.ingested`、`source_window`、群聊高水位;必须带时区 |
 | 时间范围(人读) | `<start> .. <end>` | `2026-05-21 19:00 .. 20:31` | 同日范围可省略结束日期;跨日写完整日期 |
@@ -874,6 +879,11 @@ anchors；`digest-batch-plan/v1` 保持只读兼容。batch
 不引入事务数据库：仍用 `base_sha256` 乐观基线 + Git 内短时写锁，拿锁后复验，一次重建 INDEX
 并生成一个本地 commit。标准事务强制 provenance；update 默认保留既有来源、证据和正文语义，
 有意删除必须在临时 plan 中显式授权并说明理由。新 raw 禁止重复 frontmatter 字段和空正文。
+单来源 digest-plan/v2 可设置 knowledge_effect=snapshot_only 和 nodes=[]；默认值 update。
+该模式只用于已有知识的同源新版本：工具验证历史 raw 已提交且干净、关联节点存在，继承 digest_targets，
+写新 raw/provenance/INDEX/journal 并提交，知识节点逐字保持。新 raw 记录 knowledge_effect=snapshot_only。
+节点 sources、evidence、primary_source 和日期不更新，不能将新快照当作旧事实的新证据。
+首次摄取及批量合并仍要求实质节点候选；不用空节点绕过初次摘要。
 节点写入拒绝新引入的 frontmatter 结构错误，报告写入拒绝新引入的缺失引用条目。
 
 `SourceBundle` 不定义统一正文 AST，也不要求飞书文档、群聊、妙记、Web、本地资料、
@@ -1345,9 +1355,8 @@ code 与证据，请用户确认。
    同名)+ INDEX 人员表一列。撤销曾短暂采用的「id ≡ feishu_id」方案 —— 后者在 `feishu_id`
    初始不可知、或永久为 `?` 时,被迫走「临时拼音 slug → 改名级联」,易漏错;解耦后全库再无
    任何 node 需要改名。见 §2、§4.1、§6。
-13. **定期摄取到期判断改用状态文件** — 「到期提醒」不再扫 journal 散文找上次运行日期,
-   改读数据目录的 `.last-routine-digest`(§1.B)。定期摄取例程每次运行后写当天日期 ——
-   **空手而归也写**(「复查过」≠「有新增」);journal 行降为纯审计。见 §1.B、SKILL.md。
+13. **定期检查以工具回执为准** — 各源由 flow 的 committed/noop 记录检查结果；Dreaming
+   使用 source_checkpoints，报告使用 report-automation 完成记录。Agent 不维护额外日期文件或 journal。
 14. **报告归档快照** — 当前 writer 只生成 `reports/daily/`、`reports/weekly/` 与 Dreaming
    `reports/morning/`。报告不进入 INDEX,但每条事实必须回溯到原始 evidence；同周期再次生成
    可覆盖,但保留用户手动备注。I7 已移除 Inbox writer；历史 `reports/im/` 保持只读且不参与
@@ -1521,7 +1530,7 @@ reports/
 - **生成来源**:
   - 自动日报 / 周报或自然语言补跑:先完整运行全部已登记且启用来源的 routine digest，再召回
     范围内 `journal/`、`raw_data/` frontmatter、`knowledge/` 节点及其 links。自动运行不受
-    `.last-routine-digest` 七天交互提醒阈值限制。
+    历史交互提醒阈值限制。
   - Dreaming morning/daily/weekly：只消费 process 已提交的普通 digest、committed Finding
     projection、coverage 与 durable KB 查询指针，不读取 spool，也不在报告 job 内重跑 digest；
     必须通过 include_report Action claim 提交。

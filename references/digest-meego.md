@@ -91,7 +91,7 @@ bin/byteworker source diff \
   不能只存 diff。
 - `digest-flow analyze` 自行复用上一份已提交快照计算差异。只把 baseline、added 和 changed
   记录及对应依赖、引用交给分析；直接用返回的计划和 `analysis.meego_changes` 计数。
-  `next_action=candidate_generation` 时无记录需要分析，按最小来源元数据更新规则提交完整快照。
+  `next_action=candidate_generation` 时无记录需要分析，用 snapshot_only 提交完整快照并保持知识节点不变。
 
 ## 4. 交给 digest 事务
 
@@ -136,7 +136,7 @@ Meego adapter 把 capture 转成 `byteworker-source-bundle/v2`。capture 文件�
 
 然后创建 `digest-plan/v2`，只引用 bundle；plan 不再复制 `source` 或 anchors。
 首次 digest 创建一张代表该视图的 `reading` 主记录；同源新快照复用同一 reading，按
-`write-rules.md`「信息增量门槛」决定正文变化或仅维护来源元数据。对 baseline /
+`write-rules.md`「信息增量门槛」决定正文变化或仅归档快照。对 baseline /
 added / changed 逐条应用晋升门槛:
 
 - 普通需求、状态变化、负责人/排期变化 → 仅 raw + provenance；

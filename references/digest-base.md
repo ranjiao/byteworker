@@ -94,7 +94,7 @@ bin/byteworker source diff \
 capture adapter 把 `anchors[]` 和 source anchor 写入 SourceBundle；`digest-plan/v2` 只引用该
 Bundle，顶层 provenance 只允许 `enrichment`，不得复制 anchors。
 首次 digest 创建代表该视图的 `reading` 主记录；同源新快照复用同一 reading，按
-`write-rules.md`「信息增量门槛」决定正文变化或仅维护来源元数据。普通记录变化只留
+`write-rules.md`「信息增量门槛」决定正文变化或仅归档快照。普通记录变化只留
 raw + provenance；只有长期项目、明确生效决策、时间事件或跨记录稳定主题达到晋升门槛时才更新
 `project / decision / event / area`，不要一行一个节点或因负责人列自动创建 person。
 

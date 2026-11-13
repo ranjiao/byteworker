@@ -19,11 +19,15 @@ from digest_flow import (  # noqa: E402
     capture_flow,
     commit_flow,
     flow_status,
+    fail_flow,
     prepare_flow,
+    resume_flow,
     start_flow,
 )
 from digest_feedback import feedback_draft  # noqa: E402
 from digest_txn import compute_payload  # noqa: E402
+from digest_run_log import finish_run, record_stage  # noqa: E402
+from frontmatter import parse_file  # noqa: E402
 from dreaming_digest_scan import _invoke  # noqa: E402
 from dreaming_state import DreamingError  # noqa: E402
 from sources import canonical_sha256  # noqa: E402
@@ -146,6 +150,75 @@ class DigestFlowTests(unittest.TestCase):
             encoding="utf-8",
         )
         return request
+
+    def real_plan(self, work: Path, suffix: str, *, snapshot=False) -> Path:
+        raw_id = f"raw-local-{suffix}"
+        candidate = work / "candidate.md"
+        candidate.write_text(
+            "---\nid: reading-local\ntitle: Local\ntype: reading\nstatus: current\ntags: []\n"
+            "created: 2026-11-13\nupdated: 2026-11-13\nlast_verified: 2026-11-13\n"
+            f"sources: [{raw_id}]\nlinks: []\n---\n\n# Local\n\n> **TL;DR:** Local fact.\n\nFact. [E1]\n"
+        )
+        plan = work / "plan.json"
+        plan.write_text(json.dumps({
+            "schema_version": "digest-plan/v2", "source_bundle": str(work / "source-bundle.json"),
+            "raw": {"raw_id": raw_id, "path": f"raw_data/{raw_id}.md"}, "provenance": {},
+            "knowledge_effect": "snapshot_only" if snapshot else "update",
+            "nodes": [] if snapshot else [{"op": "create", "path": "knowledge/readings/reading-local.md",
+                "candidate": str(candidate), "primary_source": raw_id,
+                "evidence": [{"id": "E1", "anchor_id": "source"}]}],
+            "journal": {"summary": "Local input"}, "commit": {"message": "digest local"},
+        }))
+        for key, value in (("user.name", "Test"), ("user.email", "test@example.test")):
+            subprocess.run(["git", "config", key, value], cwd=self.kb, check=True)
+        return plan
+
+    def test_failed_attempt_can_resume_and_commit_through_flow(self):
+        started = self.start()
+        run_id, work = started["run_id"], Path(started["work_dir"])
+        prepare_flow(self.kb, run_id=run_id, bundle_request=self.bundle_request(work))
+        plan = work / "plan.json"
+        plan.write_text("{}")
+        with self.assertRaises(DigestFlowError):
+            commit_flow(self.kb, run_id=run_id, plan_path=plan)
+        # Compatibility with agents following the old close-on-failure instructions.
+        finish_run(self.kb, run_id=run_id, status="failed", error_code="INVALID_CANDIDATE")
+        self.assertEqual("resume", flow_status(self.kb, run_id=run_id)["next_action"])
+        self.assertEqual("commit", resume_flow(self.kb, run_id=run_id)["next_action"])
+        record_stage(self.kb, run_id=run_id, stage="candidate_generation", status="started")
+        failed = fail_flow(self.kb, run_id=run_id, error_code="INVALID_CANDIDATE")
+        self.assertEqual(("failed", []), (failed["phase"], failed["run"]["open_stages"]))
+        with self.assertRaises(DigestFlowError):
+            prepare_flow(self.kb, run_id=run_id, bundle_request=self.bundle_request(work))
+        self.assertEqual("failed", flow_status(self.kb, run_id=run_id)["phase"])
+        resume_flow(self.kb, run_id=run_id)
+        result = commit_flow(self.kb, run_id=run_id, plan_path=self.real_plan(work, "retry"))
+        self.assertEqual("committed", result["receipt"]["status"])
+        with self.assertRaises(DigestFlowError):
+            resume_flow(self.kb, run_id=run_id)
+
+    def test_snapshot_only_preserves_knowledge_and_still_archives_and_deduplicates(self):
+        started = self.start()
+        run_id, work = started["run_id"], Path(started["work_dir"])
+        prepare_flow(self.kb, run_id=run_id, bundle_request=self.bundle_request(work))
+        with self.assertRaisesRegex(DigestFlowError, "首次摄取"):
+            commit_flow(self.kb, run_id=run_id, plan_path=self.real_plan(work, "first", snapshot=True))
+        commit_flow(self.kb, run_id=run_id, plan_path=self.real_plan(work, "first"))
+        before = {path: path.read_bytes() for path in (self.kb / "knowledge").rglob("*.md")}
+        self.source.write_text(self.source.read_text() + "\n")
+        second = self.start()
+        work = Path(second["work_dir"])
+        prepare_flow(self.kb, run_id=second["run_id"], bundle_request=self.bundle_request(work))
+        receipt = commit_flow(self.kb, run_id=second["run_id"], plan_path=self.real_plan(work, "second", snapshot=True))["receipt"]
+        self.assertEqual(("committed", [], []), (receipt["status"], receipt["created"], receipt["updated"]))
+        self.assertEqual(before, {path: path.read_bytes() for path in (self.kb / "knowledge").rglob("*.md")})
+        raw = parse_file(str(self.kb / receipt["raw_path"]))[0]
+        self.assertEqual(["reading-local"], raw["digest_targets"])
+        self.assertEqual("snapshot_only", raw["knowledge_effect"])
+        self.assertTrue((self.kb / receipt["provenance"]).is_file())
+        third = self.start()
+        self.assertEqual("noop", prepare_flow(self.kb, run_id=third["run_id"],
+            bundle_request=self.bundle_request(Path(third["work_dir"])))["phase"])
 
     def test_start_prepare_status_and_commit_close_deterministic_stages(self):
         started = self.start()

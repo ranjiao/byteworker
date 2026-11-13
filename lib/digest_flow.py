@@ -19,6 +19,7 @@ from digest_run_log import (
     MACHINE_CODE_RE,
     finish_run,
     record_stage,
+    resume_run,
     show_run,
     start_run,
 )
@@ -48,6 +49,8 @@ FLOW_PHASES = {
     "commit_failed",
     "committed",
     "noop",
+    "failed",
+    "cancelled",
 }
 
 
@@ -225,8 +228,8 @@ def capture_flow(
     request = _inside_flow(kb, run_id, request_path)
     with _flow_lock(kb):
         state = _load_state(kb, run_id)
-    if state["phase"] in {"committed", "noop"}:
-        raise DigestFlowError("DIGEST_FLOW_TERMINAL", "digest flow 已终态。")
+    if state["phase"] in {"committed", "noop", "failed", "cancelled"}:
+        raise DigestFlowError("DIGEST_FLOW_TERMINAL", "digest flow 已结束；failed 需先 resume。")
     record_stage(
         kb,
         run_id=run_id,
@@ -372,8 +375,8 @@ def prepare_flow(
     bundle_path = work_dir / "source-bundle.json"
     with _flow_lock(kb):
         state = _load_state(kb, run_id)
-    if state["phase"] in {"committed", "noop"}:
-        raise DigestFlowError("DIGEST_FLOW_TERMINAL", "digest flow 已终态。")
+    if state["phase"] in {"committed", "noop", "failed", "cancelled"}:
+        raise DigestFlowError("DIGEST_FLOW_TERMINAL", "digest flow 已结束；failed 需先 resume。")
     try:
         record_stage(
             kb,
@@ -640,15 +643,67 @@ def _commit_flow_unlocked(
 def flow_status(kb: Path, *, run_id: str) -> dict[str, Any]:
     with _flow_lock(kb):
         state = _load_state(kb, run_id)
+    summary = show_run(kb, run_id=run_id)["summary"]
+    phase = state["phase"]
+    # Older callers closed the log directly. Expose that pause through the flow too.
+    if phase not in {"committed", "noop"} and summary["status"] in {"failed", "cancelled"}:
+        phase = summary["status"]
+    next_action = {
+        "classified": "capture_or_prepare", "captured": "capture_or_prepare",
+        "capture_failed": "capture", "prepare_failed": "prepare", "checked": "analysis_prepare",
+        "commit_failed": "commit", "failed": "resume", "cancelled": "none",
+        "committed": "none", "noop": "none",
+    }.get(phase, state.get("next_action", "none"))
+    if summary["status"] in {"waiting_user", "stale"}:
+        next_action = "resume"
     return {
         "schema_version": FLOW_SCHEMA,
         "run_id": run_id,
-        "phase": state["phase"],
+        "phase": phase,
         "work_dir": str(_flow_dir(kb, run_id)),
         "artifacts": state.get("artifacts", {}),
         **({"preflight_state": state["preflight_state"]} if "preflight_state" in state else {}),
         **({"receipt": state["receipt"]} if "receipt" in state else {}),
         **({"dependency_scope": state["dependency_scope"]} if "dependency_scope" in state else {}),
-        "next_action": state.get("next_action", "none"),
-        "run": show_run(kb, run_id=run_id)["summary"],
+        "next_action": next_action,
+        "run": summary,
     }
+
+
+def fail_flow(kb: Path, *, run_id: str, error_code: str) -> dict[str, Any]:
+    """Pause an unsuccessful attempt, retaining its artifacts and retry phase."""
+    if not MACHINE_CODE_RE.fullmatch(error_code):
+        raise DigestFlowError("DIGEST_FLOW_INPUT_INVALID", "失败必须提供固定错误码。")
+    with _flow_lock(kb):
+        state = _load_state(kb, run_id)
+        if state["phase"] in {"committed", "noop", "cancelled"}:
+            raise DigestFlowError("DIGEST_FLOW_TERMINAL", "digest flow 已终态。")
+        summary = show_run(kb, run_id=run_id)["summary"]
+        if summary["status"] not in {"failed", "cancelled"}:
+            if summary["status"] == "stale":
+                resume_run(kb, run_id=run_id)
+            for stage in summary["open_stages"]:
+                record_stage(kb, run_id=run_id, stage=stage, status="failed", detail_code=error_code)
+            finish_run(kb, run_id=run_id, status="failed", error_code=error_code)
+        elif summary["status"] == "cancelled":
+            raise DigestFlowError("DIGEST_FLOW_TERMINAL", "digest flow 已取消。")
+        if state["phase"] != "failed":
+            state["resume_phase"] = state["phase"]
+        state["phase"] = "failed"
+        _atomic_state(_state_path(kb, run_id), state)
+    return flow_status(kb, run_id=run_id)
+
+
+def resume_flow(kb: Path, *, run_id: str) -> dict[str, Any]:
+    """Resume the existing work, including runs closed by the legacy log CLI."""
+    with _flow_lock(kb):
+        state = _load_state(kb, run_id)
+        summary = show_run(kb, run_id=run_id)["summary"]
+        if state["phase"] in {"committed", "noop", "cancelled"} or summary["status"] in {"committed", "noop", "cancelled"}:
+            raise DigestFlowError("DIGEST_FLOW_TERMINAL", "成功或取消的 flow 不能恢复。")
+        if summary["status"] in {"failed", "waiting_user", "stale"}:
+            resume_run(kb, run_id=run_id, retry_failed=True)
+        if state["phase"] == "failed":
+            state["phase"] = state.pop("resume_phase")
+            _atomic_state(_state_path(kb, run_id), state)
+    return flow_status(kb, run_id=run_id)

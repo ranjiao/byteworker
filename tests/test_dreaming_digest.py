@@ -22,7 +22,7 @@ from dreaming_digest import (  # noqa: E402
     record_routine_digest_result,
     routine_inventory,
 )
-from digest_flow import flow_status, prepare_flow, start_flow  # noqa: E402
+from digest_flow import fail_flow, flow_status, prepare_flow, start_flow  # noqa: E402
 from digest_parallel import DigestParallelError, attempt_parallel_shard  # noqa: E402
 from digest_run_log import record_usage, show_run as show_digest_run  # noqa: E402
 from dreaming_digest_scan import _invoke, scan_routine_digest  # noqa: E402
@@ -141,150 +141,54 @@ class DreamingDigestTests(unittest.TestCase):
                 )
             self.assertEqual("DREAMING_DIGEST_INCOMPLETE", caught.exception.code)
 
-    def test_prepared_source_needs_failure_evidence_before_partial_close(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            acquired = datetime.now(timezone.utc)
-            kb = self.make_kb(Path(temporary), acquired - timedelta(hours=4))
-            (kb / "knowledge").mkdir()
-            profile = feishu_doc_profile()
-            self.save_profile(kb, profile)
-            lease = run_due(kb, owner="host", now=acquired)["lease"]
-            token = lease["token"]
-            source = prepare_routine_digest(kb, token=token)["sources"][0]
-            result_path = Path(temporary) / "result.json"
-            result = {**source, "schema_version": RESULT_SCHEMA, "status": "blocked"}
-
-            def record(code):
-                result_path.write_text(json.dumps({**result, "error_code": code}))
-                return record_routine_digest_result(kb, token=token, input_path=result_path)
-
-            with self.assertRaisesRegex(DreamingError, "失败证据"):
-                record("DIGEST_BUDGET_DEFERRED")
-            flow = start_flow(kb, source_type="feishu_doc", source_ref=profile["source_uid"])
-            run_id = flow["run_id"]
-            link_routine_digest(kb, token=token, source_key=source["source_key"], digest_run_id=run_id)
-            work_dir = Path(flow["work_dir"])
-            body = work_dir / "body.xml"
-            body.write_text("<p>Private test document</p>")
-            request = work_dir / "bundle-request.json"
-            request.write_text(json.dumps({
-                "source_uid": profile["source_uid"], "source_url": profile["source_url"],
-                "title": profile["title"], "revision": "1", "body": {"path": str(body)},
-            }))
-            prepared = prepare_flow(kb, run_id=run_id, bundle_request=request)
-            plan = prepared["semantic_plan"]["plan_path"]
-            attempt = ("digest-parallel", "attempt", "--kb", str(kb), "--plan", plan, "--shard-id", "semantic-001")
-            with self.assertRaises(DreamingError) as caught:
-                _invoke(ROOT, *attempt, "--failure", "DIGEST_WORKER_TIMEOUT")
-            self.assertEqual("DIGEST_HOST_EVIDENCE_REQUIRED", caught.exception.code)
-
-            checked = _invoke(ROOT, *attempt)
-            self.assertEqual("within_budget", checked["status"])
-            self.assertEqual("digest", checked["budget"]["workflow"])
-            for code in ("DIGEST_BUDGET_DEFERRED", "DIGEST_WORKER_TIMEOUT", "SOURCE_AUTH_REQUIRED"):
-                with self.subTest(code=code), self.assertRaises(DreamingError) as caught:
-                    record(code)
-                self.assertEqual("DREAMING_DIGEST_EXECUTION_REQUIRED", caught.exception.code)
-            with self.assertRaises(DreamingError) as caught:
-                complete_routine_digest(kb, token=token, allow_partial=True)
-            self.assertEqual("DREAMING_DIGEST_EXECUTION_REQUIRED", caught.exception.code)
-            for status in ("partial", "failed"):
-                with self.assertRaises(DreamingError) as caught:
-                    complete_run(kb, token=token, run_status=status, error_code="DREAMING_DIGEST_INCOMPLETE")
-                self.assertEqual("DREAMING_DIGEST_EXECUTION_REQUIRED", caught.exception.code)
-
-            manifest = json.loads((ROOT / "references" / "workflow-routes.json").read_text())
-            manifest["budgets"]["digest"]["source_packet_tokens"] = 1
-            manifest_path = Path(temporary) / "workflow-routes.json"
-            manifest_path.write_text(json.dumps(manifest))
-
-            def inspect_with_small_budget(**arguments):
-                return inspect_budget(**{**arguments, "manifest_path": manifest_path})
-
-            with patch("digest_parallel.inspect_budget", side_effect=inspect_with_small_budget):
-                overflow = attempt_parallel_shard(kb, Path(plan), shard_id="semantic-001")
-            self.assertEqual("over_budget", overflow["status"])
-            self.assertEqual(["source_packet_tokens"], overflow["budget"]["exceeded_limits"])
-            self.assertEqual("budget_check", record("DIGEST_BUDGET_DEFERRED")["failure_evidence"]["kind"])
-
-            trace_root = (Path(temporary) / "host").resolve()
-            trajectory = trace_root / "1234567890123456/agents/m_test/system/trajectory.jsonl"
-            trajectory.parent.mkdir(parents=True)
-
-            def report_context_error(checked, **error_fields):
-                args = dict(shard_id=checked["shard_id"], failure="DIGEST_HOST_CONTEXT_LIMIT",
-                            attempt_id=checked["attempt_id"])
-                shard = next(entry["path"] for entry in json.loads(Path(plan).read_text())["shards"]
-                             if entry["shard_id"] == checked["shard_id"])
-                with patch("digest_worker_host._trace_root", return_value=trace_root):
-                    with self.assertRaises(DigestParallelError) as caught:
-                        attempt_parallel_shard(kb, Path(plan), **args)
-                    self.assertEqual("DIGEST_HOST_EVIDENCE_REQUIRED", caught.exception.code)
-                    trajectory.write_text("\n".join(map(json.dumps, [
-                        {"role": "assistant", "tool_calls": [{
-                            "id": "call-123", "function": {"name": "create_agent", "arguments": json.dumps({
-                                "hint": f"{checked['attempt_id']} {shard}",
-                            })},
-                        }]},
-                        {"role": "tool", "tool_call_id": "call-123", "content": json.dumps({
-                            "error": {
-                                "code": "context_length_exceeded", "message": "Private test document", **error_fields,
-                            },
-                        })},
-                    ])))
-                    return attempt_parallel_shard(kb, Path(plan), **args)
-
-            def auto_replan(checked):
-                return _invoke(ROOT, "digest-parallel", "replan", "--kb", str(kb), "--plan", plan,
-                               "--failed-attempt-id", checked["attempt_id"])
-
-            checked = _invoke(ROOT, *attempt)
-            with self.assertRaises(DreamingError) as caught:
-                auto_replan(checked)
-            self.assertEqual("DIGEST_HOST_EVIDENCE_REQUIRED", caught.exception.code)
-            report_context_error(checked)
-            with self.assertRaisesRegex(DreamingError, "失败证据"):
-                record("DIGEST_HOST_CONTEXT_LIMIT")
-            replanned = auto_replan(checked)
-            self.assertEqual(("replanned", "context_probe", 1),
-                             (replanned["status"], replanned["host_input_limit_source"], replanned["max_workers"]))
-            self.assertLess(replanned["host_input_limit"], checked["budget"]["total_input_tokens"])
-            with self.assertRaises(DreamingError) as caught:
-                auto_replan(checked)
-            self.assertEqual("DIGEST_HOST_EVIDENCE_REQUIRED", caught.exception.code)
-            shard_id = json.loads(Path(plan).read_text())["shards"][0]["shard_id"]
-            checked = _invoke(ROOT, *attempt[:-1], shard_id)
-            self.assertEqual("context_probe", checked["budget"]["host_input_limit_source"])
-            failed = report_context_error(checked, available_input_tokens=100)
-            self.assertEqual("shard_execution_failed", failed["event"])
-            self.assertEqual("DIGEST_HOST_CONTEXT_LIMIT", failed["detail_code"])
-            self.assertEqual(100, failed["host_error"]["available_input_tokens"])
-            with self.assertRaisesRegex(DreamingError, "失败证据"):
-                record("DIGEST_HOST_CONTEXT_LIMIT")
-            before = Path(plan).read_bytes()
-            exhausted = auto_replan(checked)
-            self.assertEqual(("exhausted", "DIGEST_HOST_INPUT_LIMIT_TOO_SMALL"),
-                             (exhausted["status"], exhausted["reason_code"]))
-            self.assertEqual(exhausted, auto_replan(checked))
-            self.assertEqual(before, Path(plan).read_bytes())
-            evidence = record("DIGEST_HOST_CONTEXT_LIMIT")["failure_evidence"]
-            self.assertEqual(("host_verified_failure", "semantic", shard_id),
-                             (evidence["kind"], evidence["stage"], evidence["shard_id"]))
-            self.assertEqual("DIGEST_HOST_INPUT_LIMIT_TOO_SMALL", evidence["context_retry_exhausted"])
-            self.assertEqual(checked["budget"], evidence["budget"])
-            self.assertEqual("call-123", evidence["host_error"]["call_id"])
-            completed = complete_routine_digest(kb, token=token, allow_partial=True)
-            self.assertEqual(("partial", 1), (completed["status"], completed["incomplete_count"]))
-            complete_run(kb, token=token, run_status="partial", error_code="DREAMING_DIGEST_INCOMPLETE")
-            logged = show_run(kb, run_id=lease["run_id"])
-            self.assertEqual(evidence, logged["summary"]["accounting"]["routine_sources"][0]["failure_evidence"])
-            self.assertIn("source_completion_rejected", [event["event"] for event in logged["events"]])
-            digest_log = show_digest_run(kb, run_id=run_id)
-            self.assertEqual(
-                ["within_budget", "over_budget", "within_budget", "failed", "within_budget", "failed", "exhausted"],
-                [event["status"] for event in digest_log["events"] if event["event"].startswith("shard_")],
-            )
-            self.assertNotIn("Private test document", json.dumps(digest_log))
+    def test_reported_worker_failure_closes_partial_without_advancing_coverage(self):
+        for kind in ("host_reported_failure", "host_verified_failure", "flow_reported_failure"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                acquired = datetime.now(timezone.utc)
+                kb = self.make_kb(Path(temporary), acquired - timedelta(hours=4))
+                (kb / "knowledge").mkdir()
+                profile = feishu_doc_profile()
+                self.save_profile(kb, profile)
+                lease = run_due(kb, owner="host", now=acquired)["lease"]
+                token = lease["token"]
+                source = prepare_routine_digest(kb, token=token)["sources"][0]
+                flow = start_flow(kb, source_type="feishu_doc", source_ref=profile["source_uid"])
+                run_id = flow["run_id"]
+                link_routine_digest(kb, token=token, source_key=source["source_key"], digest_run_id=run_id)
+                work = Path(flow["work_dir"])
+                body = work / "body.xml"
+                body.write_text("<p>Private test document</p>")
+                request = work / "bundle-request.json"
+                request.write_text(json.dumps({
+                    "source_uid": profile["source_uid"], "source_url": profile["source_url"],
+                    "title": profile["title"], "revision": "1", "body": {"path": str(body)},
+                }))
+                prepared = prepare_flow(kb, run_id=run_id, bundle_request=request)
+                plan = Path(prepared["semantic_plan"]["plan_path"])
+                checked = attempt_parallel_shard(kb, plan, shard_id="semantic-001")
+                error = "DIGEST_HOST_CONTEXT_LIMIT"
+                result = work / "failure.json"
+                result.write_text(json.dumps({**source, "schema_version": RESULT_SCHEMA,
+                                              "status": "blocked", "error_code": error}))
+                with self.assertRaises(DreamingError):
+                    record_routine_digest_result(kb, token=token, input_path=result)
+                host_error = {"error_code": error, "host": "doubaowork", "tool": "create_agent",
+                              "call_id": "call-1", "provider_code": "context_length_exceeded"} if kind == "host_verified_failure" else None
+                if kind == "flow_reported_failure":
+                    fail_flow(kb, run_id=run_id, error_code=error)
+                else:
+                    with patch("digest_worker_host.read_host_failure", return_value=host_error):
+                        attempt_parallel_shard(kb, plan, shard_id="semantic-001",
+                                               attempt_id=checked["attempt_id"], failure=error)
+                recorded = record_routine_digest_result(kb, token=token, input_path=result)
+                self.assertEqual(kind, recorded["failure_evidence"]["kind"])
+                self.assertEqual("partial", complete_routine_digest(kb, token=token, allow_partial=True)["status"])
+                with self.assertRaises(DreamingError):
+                    complete_run(kb, token=token, run_status="success")
+                complete_run(kb, token=token, run_status="partial", error_code="DREAMING_DIGEST_INCOMPLETE")
+                state = load_state_unlocked(kb, datetime.now(timezone.utc))
+                self.assertNotIn(source["source_key"], state.get("source_checkpoints", {}))
+                self.assertNotIn("Private test document", json.dumps(show_digest_run(kb, run_id=run_id)))
 
     def test_observed_status_is_rejected_for_ordinary_digest(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

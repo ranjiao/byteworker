@@ -120,7 +120,7 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "digest-flow", "执行可恢复的标准 digest 生命周期", "digest", "facade",
         "agent", "public", "stable", "mixed", "byteworker-cli/v1",
         "references/digest-flow.md", entrypoint="digest-flow.py",
-        operations=("start", "document-scope", "capture", "prepare", "analyze", "commit", "status"),
+        operations=("start", "document-scope", "capture", "prepare", "analyze", "commit", "status", "fail", "resume"),
     ),
     CommandSpec(
         "digest-job", "管理已确认的多页 digest 批次", "digest", "facade",

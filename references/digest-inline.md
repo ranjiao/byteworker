@@ -63,7 +63,8 @@ nodes 每项声明 op/path/candidate 和 evidence，新节点至少一条；主�
 更新项附读取时的 base_sha256 和 conflict_disposition，覆盖须附 conflict_evidence；保留既有
 正文、sources、evidence 和双向 links，确需删除须显式 removal 与理由。完整候选不使用文本替换 DSL。
 事务自动拼 raw、digest_targets、primary_source_url 和证据表，Agent 不重复手写。
-无业务增量按 `write-rules.md` 保留正文及 evidence，不为新 raw 编造 E 条目。
+已有来源无业务增量时用 `knowledge_effect: snapshot_only`、`nodes: []`，省去节点候选；
+工具保留已有节点，仅归档新 raw/provenance。首次摄取仍须生成有实质摘要的主记录。
 字段拿不准时按 `digest-txn --help` 或错误诊断加载完整 `digest-transaction.md`，不猜字段。
 
 只执行 `digest-flow commit`；它在锁内复验，原子更新与失败回滚。禁止手工 git add/commit、写
@@ -72,17 +73,10 @@ INDEX/journal、改旧 raw 或绕过错误。只认 committed + commit hash；no
 ## 日常阶段日志
 
 flow 自动记录 classify/capture/bundle/preflight/analysis_prepare/transaction/finalize。
-Agent 只为 dependency_review、semantic_analysis、conflict_review、candidate_generation 成对记录：
-
-```bash
-bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" --stage semantic_analysis --status started
-bin/byteworker digest-run stage --kb "<KB>" --run-id "<RUN_ID>" --stage semantic_analysis --status completed
-```
-
-失败记录 failed，并用 `digest-run complete --status failed --error-code <CODE>` 关闭 run。
-等待用户先关闭当前 stage，再 `digest-run wait --reason-code DEPENDENCY_APPROVAL_REQUIRED`（依赖）
-或 CONFLICT_DECISION_REQUIRED（冲突）；答复后 `digest-run resume`，取消用 complete --status cancelled。
-命令均带同一 kb/run-id。日志只含固定阶段、detail code 与非负计数，禁止业务正文、标题、人员、
-URL、凭据、argv 或自由文本。宿主有模型 usage 时加 recovery 读完整日志协议，区分 measured 与
-estimated；不得伪造实测值。恢复、stale 或日志诊断同样加 recovery；健康 preflight 不读
-`session-preflight.md`。
+语义阶段打点可选，按 recovery 的日志协议执行。
+失败用 `digest-flow fail --error-code <CODE>` 关闭阶段并保留产物；继续用 `digest-flow resume`，按 next_action 重试。
+等待用户先关闭可选 stage，再 `digest-run wait --reason-code DEPENDENCY_APPROVAL_REQUIRED`（依赖）
+或 CONFLICT_DECISION_REQUIRED（冲突）；答复后 `digest-flow resume`。取消用 digest-run complete --status cancelled。
+命令均带同一 kb/run-id。日志只含固定枚举和非负计数，禁止业务内容、URL、凭据或自由文本。
+恢复、stale、usage 或日志诊断加 recovery；usage 区分 measured/estimated，不伪造实测值。
+健康 preflight 不读 `session-preflight.md`。

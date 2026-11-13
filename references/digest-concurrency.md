@@ -13,7 +13,7 @@
 - worker 只读自己的 shard 和明确的规则闭包，不读取其它 shard、完整输入、KB 全库或依赖正文，不向
   用户提问，也不写 KB。任何 worker 失败都视为该阶段 coverage 不完整，不用部分结果继续。
 - 所有 fan-out 后必须 fan-in 到一个 reducer；重复、跨章节关系、独立来源冲突和用户闸门由 reducer
-  统一处理。最终仍只调用一次 `digest-txn execute`。
+  统一处理。最终仍只调用一次 `digest-flow commit`（多来源原子批次按 batch 事务入口）。
 
 ## 2. 来源抓取
 
@@ -82,13 +82,11 @@ bin/byteworker digest-parallel plan \
   --stage conflict --input "<CONFLICT_CANDIDATES>" --out-dir "<SYSTEM_TMP>/conflict"
 ```
 
-planner 使用固定 token/墙钟策略：先估算 inline 与 parallel 的总 token、worker 启动成本、最长 shard
-和 reducer 时间。对可在预算内单包执行的输入，dependency 少于 32 项、semantic 少于 200 项、
-conflict 少于 16 项保持 inline；即使
-超过项数，来源 token 未达到阶段 floor、预计至少节省 30 秒且比例达到 25%、worker/reducer packet
-预算或阶段 parallel 总预算任一不满足，也保持 inline。对预算内可单包执行的输入，
-`selection_reason_code=PARALLEL_WALL_TIME_JUSTIFIES_TOKEN_PREMIUM` 表示值得为提速而并发。
-由预算触发的分片也需要执行，按计划和宿主容量决定并发或顺序处理。最大并发为 4，阈值由工具控制。
+planner 按输入规模选择并行：dependency 至少 32 项且 12k 来源 token，semantic 至少 200 项且
+64k token，conflict 至少 16 项且 24k token。两项门槛都达到才选可选并行，原因码为
+`PARALLEL_SIZE_THRESHOLD`。最多 4 路，`--max-workers 1` 可强制顺序执行。
+容量超限则无论项数多少都无损分片，按实际序列化大小检查单片预算。归并时单独检查 reducer 容量。
+不预测宿主速度或节省秒数。回执只报告输入 token 估算、计数和容量限制。
 已知宿主可用输入量时，首次规划可加 `--host-input-limit <TOKENS>`。已有私有 flow 计划用
 `digest-parallel replan`，保留已校验的结果，仅缩小超限的待执行分片。该上限包含 worker 规则，
 归并时也按同一宿主上限计算。使用 `--max-workers 1` 按顺序执行各片并逐片保存结果。
@@ -97,9 +95,8 @@ conflict 少于 16 项保持 inline；即使
 保留证据并逐片试跑。回执的 `host_input_limit_source=context_probe` 表示当前阶段的本地试算上限。
 自动重分片得到的上限用于当前 worker 阶段，归并按自己的预算执行。
 
-receipt/plan 同时给出 `inline` 与 `parallel_estimate` 的 estimated total tokens/wall time、估算方法、
-阶段 token budget 和 `parallel_budget_remaining_tokens`。没有 tokenizer 时方法明确为版本化保守估算；预算超限必须继续分片或
-复核可用输入，不静默截断 item/evidence。每个阶段只估算它实际消费的投影。
+估算无 tokenizer 时明确标为保守估算。分片累计输入包含每片规则开销，
+不等于宿主实际 usage；不得以节省时间的估计绕过容量检查或截断 evidence。
 
 超过 inline 来源上限，或拟用的并行 shard 实测超限时，planner 返回
 `budget_required=true`，按实际序列化 token 生成可跨多批执行的 shards，同时最多运行 4 个

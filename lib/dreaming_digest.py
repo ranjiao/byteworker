@@ -671,13 +671,19 @@ def _prepared_flow(kb: Path, source: Mapping[str, Any]) -> Path | None:
         state = json.loads(path.read_text(encoding="utf-8")) if path.resolve() == path else None
     except (OSError, ValueError):
         return None
-    if isinstance(state, dict) and state.get("run_id") == run_id and state.get("phase") in {"prepared", "commit_failed"}:
+    if isinstance(state, dict) and state.get("run_id") == run_id and (
+        state.get("phase") in {"prepared", "commit_failed"}
+        or (state.get("phase") == "failed" and state.get("resume_phase") in {"prepared", "commit_failed"})
+    ):
         return path.parent
     return None
 
 
 def _failure_evidence(kb: Path, flow: Path, error_code: str) -> dict[str, Any] | None:
     events, _ = diagnostic_events(kb, run_id=flow.name)
+    lifecycle = [event for event in events if event.get("event") != "usage_recorded"]
+    if lifecycle and lifecycle[-1].get("event") == "failed" and lifecycle[-1].get("detail_code") == error_code:
+        return {"digest_run_id": flow.name, "kind": "flow_reported_failure"}
     if error_code == BUDGET_DEFERRED or error_code in SHARD_FAILURE_CODES:
         latest = {
             (event["stage"], event["shard_id"]): event
@@ -699,9 +705,7 @@ def _failure_evidence(kb: Path, flow: Path, error_code: str) -> dict[str, Any] |
                 ):
                     continue
             elif (
-                error_code == "DIGEST_WORKER_UNAVAILABLE"
-                or event.get("event") != "shard_execution_failed" or event.get("detail_code") != error_code
-                or not isinstance(host_error, dict) or host_error.get("error_code") != error_code
+                event.get("event") != "shard_execution_failed" or event.get("detail_code") != error_code
             ):
                 continue
             plan_path = flow / stage / f"{stage}-plan.json"
@@ -716,15 +720,16 @@ def _failure_evidence(kb: Path, flow: Path, error_code: str) -> dict[str, Any] |
             ):
                 continue
             retry_reason = None
-            if error_code == "DIGEST_HOST_CONTEXT_LIMIT":
+            if error_code == "DIGEST_HOST_CONTEXT_LIMIT" and host_error:
                 retry_reason = exhausted.get((event["plan_hash"], stage, shard_id, event["attempt_id"]))
-                if retry_reason is None:
-                    continue
             return {
                 "digest_run_id": flow.name, "stage": stage, "shard_id": shard_id,
-                "kind": "budget_check" if error_code == BUDGET_DEFERRED else "host_verified_failure",
+                "kind": "budget_check" if error_code == BUDGET_DEFERRED else (
+                    "host_verified_failure" if host_error else "host_reported_failure"
+                ),
                 "budget": event["budget"],
-                **({"attempt_id": event["attempt_id"], "host_error": host_error} if host_error else {}),
+                "attempt_id": event["attempt_id"],
+                **({"host_error": host_error} if host_error else {}),
                 **({"context_retry_exhausted": retry_reason} if retry_reason else {}),
             }
         return None
@@ -812,7 +817,7 @@ def record_routine_digest(
                     _reject_early_completion(
                         kb, lease, flow.name if flow is not None else "",
                         "缺少与当前来源对应的失败证据。继续处理缺失分片，或用 digest-parallel attempt / "
-                        "digest-run stage 记录实际阻塞后再登记。",
+                        "digest-flow fail 记录实际阻塞后再登记。",
                         now=current, log_settings=state["logging"],
                     )
                 verified["failure_evidence"] = evidence
@@ -861,9 +866,7 @@ def complete_routine_digest(
         batch = _load_batch(kb, run_id)
         for source in batch["sources"].values():
             evidence = source.get("receipt", {}).get("failure_evidence", {})
-            if source["status"] not in SUCCESS_STATUSES and (
-                not evidence or evidence.get("kind") == "host_reported_failure"
-            ):
+            if source["status"] not in SUCCESS_STATUSES and not evidence:
                 flow = _prepared_flow(kb, source)
                 if flow is not None:
                     _reject_early_completion(

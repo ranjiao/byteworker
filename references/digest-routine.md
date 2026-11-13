@@ -53,12 +53,12 @@
        `wiki scan --kb ... --source-uid ...` 原样重放 Profile；发现变化先展示，不自动创建
        批量 digest 任务。细则见
        `references/digest-wiki-space.md`。
-     - 各源增量 digest 走标准扇出，在 `preflight` 后通过 `digest-txn execute` 写入；独立
+     - 各源增量 digest 走标准扇出，通过 `digest-flow prepare` 和 `digest-flow commit` 写入；独立
        `validate` 仅用于失败诊断。群聊/会议等时间流
        有实质内容时可产新 `event`；Meego / Base / 风神保存视图复用同一 `reading`，普通记录/数字变化只留 raw +
        provenance，达到晋升门槛才更新 `project` / `decision` / `event` / `area`。
-       所有主记录仍须过 `write-rules.md`「信息增量门槛」；无业务增量只作必要来源元数据更新，
+       所有主记录仍须过 `write-rules.md`「信息增量门槛」；已有来源无业务增量用 snapshot_only 仅归档，
        不追加复查章节，不新建跨来源的运行汇总 reading。检查覆盖由真实回执证明。
   2. **汇报**:逐源说明有无增量、digest 了哪个新周期 / 窗口、触达哪些节点。
-  3. journal 追加一行「定期摄取」运行记录(审计用);并把当天日期(`YYYY-MM-DD`)原子写入数据目录的 `.last-routine-digest` —— 到期提醒据此判断(见 `SKILL.md`「操作前必读」)。INDEX「上次摄取」同步使用规范化日期 / ISO 周 / 群聊高水位。**即便本次各源都无增量也要写** —— 「复查过」与「有新增」是两回事。
+  3. 检查结果由各源 flow 的 committed/noop 回执记录；Dreaming 由 digest-complete 汇总覆盖，报告由报告完成入口记录。journal 仅由事务写入，不再维护 `.last-routine-digest`。
 - **到期提醒**:见 `SKILL.md`「操作前必读」—— 清单非空且距上次运行 ≥7 天时,skill 被使用时顺带提醒。byteworker 是 skill、不能自行定时,「到期提醒」是其可移植的 routine 实现。

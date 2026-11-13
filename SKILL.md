@@ -132,7 +132,7 @@ planner 选择 parallel 才加 parallel_execution，读 `digest-analysis-pipelin
 多来源用 `digest-batch-plan/v2`。Agent 负责语义判断、冲突分类，事务负责确定性写入和回滚。
 仅 `status=committed` 表示写入成功。
 
-flow 自动记录确定性阶段与终态；语义打点和等待按 inline。恢复、诊断或 usage 上报加 recovery
+flow 自动记录确定性阶段与终态；失败和恢复统一用 digest-flow fail/resume，语义耗时打点可选；等待按 inline。恢复、诊断或 usage 上报加 recovery
 读取 `references/digest-observability.md`。
 
 事实 `[E1]` 绑 raw，主记录设 `primary_source`。raw / Bundle 的 `source_title`
@@ -159,7 +159,7 @@ Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终�
 - mutation 候选与 plan 放系统临时目录或 KB，不得进入 skill 仓库。
 - knowledge mutation 必须按唯一 `conflict-policy.md` 声明 disposition；来源较新不等于可覆盖。
 - 所有知识写入先过 `references/write-rules.md` 的「信息增量门槛」；主记录也不能写运行流水、
-  重复摘要或归档占位说明。保存新快照与新增业务知识分别判断。
+  重复摘要或归档占位说明。已有来源无业务增量用 snapshot_only 仅归档，节点保持不变。
 - area/org/person 的范围、目录证据、负责人和关系分型统一按 `references/write-rules.md`；digest
   与 update 的机器路由都必须包含它，不在常驻入口复制细则。
 

@@ -40,7 +40,7 @@
 
 - 有可入库内容时必产一个主记录：会议、群聊窗口用 event；外部读物和内部路线思考/方法论/调研/白皮书用
   reading；结构化视图也只产一张同源 reading。会议簇不按物件拆主记录。
-  无增量按 write-rules 维护来源元数据；无有效内容的群聊按 digest-chat 跳过。
+  已有来源无增量时按 write-rules 仅归档快照；无有效内容的群聊按 digest-chat 跳过。
 - 同一 source_uid + digest_period/source_window 更新已有主记录，不因新版本重复建节点；决策按
   同一事实去重，结论改变走冲突或 supersede。结构化普通记录留 raw/provenance，晋升只按
   `semantic-policy.md` 的 reason 和最低证据；left_view 不表示删除。
