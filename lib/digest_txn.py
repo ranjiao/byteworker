@@ -55,6 +55,7 @@ from sources import (
     raw_source_fields,
     validate_transaction_source,
 )
+from sources.transaction_bridge import equivalent_source_component
 
 
 PLAN_SCHEMA = "digest-plan/v1"
@@ -377,7 +378,9 @@ def _raw_source_matches(fm: Dict[str, Any], source: Dict[str, Any]) -> bool:
     return old_period == period
 
 
-def _legacy_payload_matches(fm: Dict[str, Any], payload: Dict[str, Any]) -> bool:
+def _legacy_payload_matches(
+    fm: Dict[str, Any], payload: Dict[str, Any], *, source: Dict[str, Any], raw_body: str,
+) -> bool:
     compatibility = payload.get("compatibility_hashes", {})
     content_hashes = set(compatibility.get("content_hashes", [payload["content_hash"]]))
     if str(fm.get("content_hash", "")) in content_hashes:
@@ -390,10 +393,14 @@ def _legacy_payload_matches(fm: Dict[str, Any], payload: Dict[str, Any]) -> bool
         "comment_hash": set(compatibility.get("comment_hashes", [])),
         "whiteboard_hash": set(compatibility.get("whiteboard_hashes", [])),
     }
-    for field in compatibility_fields:
+    for field, kind in (("comment_hash", "comments"), ("body_hash", "body"), ("whiteboard_hash", "whiteboard")):
         new_value = payload.get(field)
         accepted = compatibility_fields[field] or ({new_value} if new_value else set())
         if new_value and str(fm.get(field, "")) not in accepted:
+            if equivalent_source_component(source, fm, raw_body, payload["components"], kind=kind):
+                continue
+            return False
+        if not new_value and fm.get(field):
             return False
     return bool(payload.get("body_hash") or payload.get("comment_hash"))
 
@@ -407,7 +414,7 @@ def preflight(kb: Path, source: Dict[str, Any], manifest_path: Path) -> Dict[str
     matches = []
     exact = []
     for path in sorted((kb / "raw_data").glob("*.md")):
-        fm, _ = parse_file(str(path))
+        fm, raw_body = parse_file(str(path))
         if not fm or not _raw_source_matches(fm, source):
             continue
         item = {
@@ -417,9 +424,10 @@ def preflight(kb: Path, source: Dict[str, Any], manifest_path: Path) -> Dict[str
             "digest_targets": _list_value(fm.get("digest_targets")),
             "source_revision": str(fm.get("source_revision", "")),
             "content_hash": str(fm.get("content_hash", "")),
+            "digest_key": str(fm.get("digest_key", "")),
         }
         matches.append(item)
-        if str(fm.get("digest_key", "")) == digest_key or _legacy_payload_matches(fm, payload):
+        if item["digest_key"] == digest_key or _legacy_payload_matches(fm, payload, source=source, raw_body=raw_body):
             exact.append(item)
 
     if exact:
@@ -1758,7 +1766,7 @@ def execute_plan(
             "status": "noop",
             "raw_id": existing.get("raw_id", ""),
             "digest_targets": existing.get("digest_targets", []),
-            "digest_key": early_flight["digest_key"],
+            "digest_key": existing.get("digest_key") or early_flight["digest_key"],
             "warnings": ["相同 payload 已完成摄取"],
         }
     if early_flight["state"] == "resume_failed":
@@ -1775,7 +1783,7 @@ def execute_plan(
             "status": "noop",
             "raw_id": existing.get("raw_id", ""),
             "digest_targets": existing.get("digest_targets", []),
-            "digest_key": result.preflight["digest_key"],
+            "digest_key": existing.get("digest_key") or result.preflight["digest_key"],
             "warnings": result.warnings,
         }
 

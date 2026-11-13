@@ -7,8 +7,10 @@ import json
 import os
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
+from zoneinfo import ZoneInfo
 
 from digest_analysis import prepare_analysis_packet
 from digest_capture import DigestCaptureError, execute_capture_plan
@@ -20,10 +22,17 @@ from digest_run_log import (
     show_run,
     start_run,
 )
-from digest_txn import execute_plan, preflight_bundle
+from digest_txn import _component_bytes, execute_plan, preflight_bundle
 from source_bundle_request import build_bundle_from_request
 from source_capture import write_capture
-from sources import load_source_bundle
+from sources import SourceBundle, SourceBundleError, load_source_bundle
+from sources.adapters.feishu_doc_scope import (
+    document_fetch_scope,
+    routine_document_policy,
+    routine_document_window,
+    scoped_document_anchors,
+    whiteboard_tokens,
+)
 from sources.adapters.text import empty_chat_window
 
 
@@ -272,6 +281,79 @@ def capture_flow(
     }
 
 
+def _scope_document(kb: Path, source_uid: str, body: str, *, declared_period: str = "") -> tuple[str, str]:
+    return routine_document_window(
+        kb, source_uid, body, declared_period=declared_period, today=datetime.now(ZoneInfo("Asia/Shanghai")).date(),
+    )
+
+
+def document_capture_scope(
+    kb: Path, *, run_id: str, source_uid: str, body_path: Path, json_pointer: str = "", outline: bool = False,
+) -> dict[str, Any]:
+    path = _inside_flow(kb, run_id, body_path)
+    with _flow_lock(kb):
+        state = _load_state(kb, run_id)
+    if state["source_type"] != "feishu_doc":
+        raise DigestFlowError("DIGEST_FLOW_INPUT_INVALID", "仅飞书文档可查询定期摄取窗口。")
+    component = {"path": str(path), "mode": "verbatim", "json_pointer": json_pointer}
+    body = _component_bytes(component, path).decode()
+    if outline:
+        return document_fetch_scope(
+            body, policy=routine_document_policy(kb, source_uid), reference=datetime.now(ZoneInfo("Asia/Shanghai")).date(),
+        )
+    try:
+        period, body = _scope_document(kb, source_uid, body)
+    except SourceBundleError as exc:
+        raise DigestFlowError(exc.code, str(exc)) from exc
+    return {"digest_period": period, "whiteboard_tokens": sorted(whiteboard_tokens(body))}
+
+
+def _routine_document_bundle(
+    kb: Path, bundle: SourceBundle, work_dir: Path, *, skill_root: Path,
+) -> SourceBundle:
+    value = bundle.to_dict()
+    body_component = next(item for item in value["components"] if item["kind"] == "body")
+    body = _component_bytes(body_component, work_dir / "source-bundle.json").decode()
+    metadata = value["provider_metadata"]
+    period, selected = _scope_document(
+        kb, bundle.identity.source_uid, body,
+        declared_period=str(metadata.get("digest_period") or metadata.get("period") or ""),
+    )
+    if not period:
+        return bundle
+    if selected != body:
+        path = work_dir / "routine-document-body.json"
+        write_capture(path, {"content": selected}, skill_root=skill_root)
+        body_component.update(path=str(path), mode="verbatim", json_pointer="/content")
+    tokens = whiteboard_tokens(selected)
+    components = [
+        item for item in value["components"]
+        if item["kind"] != "whiteboard" or item.get("uid") in tokens
+        or item["name"].removeprefix("whiteboard:") in tokens
+    ]
+    names = {item["name"] for item in components}
+    removed = {item.name for item in bundle.components} - names
+    coverage = {key: status for key, status in value["coverage"]["components"].items() if key not in removed}
+    states = {status for status in coverage.values() if status != "not_applicable"}
+    value["coverage"].update(components=coverage, status=(
+        "complete" if states <= {"complete"} else "unavailable" if states == {"unavailable"} else "partial"
+    ))
+    metadata["digest_period"] = period
+    metadata["whiteboard_count"] = sum(item["kind"] == "whiteboard" for item in components)
+    if tokens or metadata["whiteboard_count"]:
+        metadata["whiteboards_status"] = (
+            "complete" if metadata["whiteboard_count"] == len(tokens)
+            and all(coverage[item["name"]] == "complete" for item in components if item["kind"] == "whiteboard")
+            else "partial"
+        )
+    else:
+        metadata.pop("whiteboards_status", None)
+    value.update(components=components, anchors=scoped_document_anchors(value["anchors"], selected, names))
+    if selected != body or len(components) != len(bundle.components):
+        value["payload_hash"] = None
+    return SourceBundle.from_dict(value, skill_root=skill_root)
+
+
 def prepare_flow(
     kb: Path,
     *,
@@ -279,6 +361,7 @@ def prepare_flow(
     bundle_request: Path | None = None,
     bundle_input: Path | None = None,
     check_only: bool = False,
+    routine: bool = False,
     skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> dict[str, Any]:
     if (bundle_request is None) == (bundle_input is None):
@@ -304,6 +387,8 @@ def prepare_flow(
         )
         if bundle.identity.source_type != state["source_type"]:
             raise DigestFlowError("DIGEST_FLOW_INPUT_INVALID", "Bundle 来源类型与 run 不一致。")
+        if routine and bundle.identity.source_type == "feishu_doc":
+            bundle = _routine_document_bundle(kb, bundle, work_dir, skill_root=skill_root)
         write_capture(bundle_path, bundle.to_dict(), skill_root=skill_root)
         record_stage(
             kb,
@@ -344,7 +429,7 @@ def prepare_flow(
         )
         if flight["state"] == "noop":
             receipt = {
-                "status": "noop", "digest_key": flight["digest_key"],
+                "status": "noop", "digest_key": flight["existing"]["digest_key"] or flight["digest_key"],
                 "raw_path": flight["existing"]["path"], "digest_run_id": run_id,
             }
             finish_run(kb, run_id=run_id, status="noop")
@@ -370,6 +455,7 @@ def prepare_flow(
             state.update(
                 phase="checked", artifacts={"bundle": str(bundle_path)},
                 preflight_state=flight["state"], next_action="analysis_prepare",
+                routine=routine,
             )
             _atomic_state(_state_path(kb, run_id), state)
     except Exception as exc:
@@ -379,6 +465,8 @@ def prepare_flow(
         return {
             "schema_version": FLOW_SCHEMA, "run_id": run_id, "phase": "checked",
             "preflight_state": flight["state"], "next_action": "analysis_prepare",
+            **({"digest_period": bundle.provider_metadata["digest_period"]}
+               if bundle.provider_metadata.get("digest_period") else {}),
         }
     return analyze_flow(kb, run_id=run_id, skill_root=skill_root)
 
@@ -412,7 +500,7 @@ def analyze_flow(
         analysis = prepare_analysis_packet(
             bundle_path, packet_path, skill_root=skill_root,
             kb=kb if state["preflight_state"] != "resume_failed" else None,
-            routine=routine,
+            routine=routine or state.get("routine", False),
         )
         dependency_scope = analysis.get("dependency_scope")
         plans = {}

@@ -23,7 +23,9 @@ from digest_flow import (  # noqa: E402
     start_flow,
 )
 from digest_feedback import feedback_draft  # noqa: E402
+from digest_txn import compute_payload  # noqa: E402
 from dreaming_digest_scan import _invoke  # noqa: E402
+from dreaming_state import DreamingError  # noqa: E402
 from sources import canonical_sha256  # noqa: E402
 from sources.adapters.meego import build_meego_bundle  # noqa: E402
 
@@ -204,6 +206,94 @@ class DigestFlowTests(unittest.TestCase):
         self.assertEqual(1, sum(
             event["stage"] == "analysis_prepare" for event in flow_status(self.kb, run_id=run_id)["run"]["stages"]
         ))
+
+    def test_rolling_document_compares_the_selected_window_and_whiteboard_nodes(self):
+        uid = "rolling-doc"
+        window = '<h1 id="current">20261106</h1><p id="p">Current decision</p><whiteboard token="current-board"/>'
+        older = '<h1 id="older">10-30</h1><p>Old decision</p><whiteboard token="older-board"/>'
+        stored_nodes = [{"id": "b", "text": "Two", "z_index": 2}, {"id": "a", "text": "One", "visible": True}]
+        old_body = self.root / "stored-body.xml"
+        old_body.write_text(window)
+        old_board = self.root / "stored-board.json"
+        old_board.write_text(json.dumps(stored_nodes))
+        old_payload = compute_payload({
+            "type": "feishu_doc", "uid": uid, "url": f"https://example.test/docx/{uid}", "title": "Rolling doc",
+            "revision": "1", "comments_status": "unavailable", "whiteboards_status": "complete",
+            "components": [
+                {"path": str(old_body), "name": "body", "kind": "body", "mode": "verbatim"},
+                {"path": str(old_board), "name": "whiteboard:current-board", "kind": "whiteboard",
+                 "mode": "canonical-json"},
+            ],
+        }, old_body)
+        stored_key = f"feishu_doc:{uid}:2026-11-06:{old_payload['content_hash']}"
+        raw_path = self.kb / "raw_data" / "stored.md"
+        board_hash = old_payload["component_hashes"]["whiteboard:current-board"]
+        raw_path.write_text(
+            f"---\nraw_id: stored\nsource_type: feishu_doc\nsource_uid: {uid}\n"
+            f"ingested: 2026-11-06T10:00:00+08:00\ndigest_period: 2026-11-06\n"
+            f"digest_status: digested\ndigest_key: {stored_key}\n"
+            f"body_hash: {old_payload['body_hash']}\nwhiteboard_hash: {old_payload['whiteboard_hash']}\n"
+            f"payload_components:\n  - whiteboard:current-board|whiteboard|{board_hash}\n---\n"
+            f"{window}\n\n## Archived whiteboard\n\n```json\n"
+            f"{old_payload['components'][1].data.decode()}\n```\n"
+        )
+
+        def prepare(body, nodes):
+            started = start_flow(self.kb, source_type="feishu_doc", source_ref=uid)
+            work = Path(started["work_dir"])
+            body_path = work / "capture.xml"
+            body_path.write_text(body)
+            outline_path = work / "outline.xml"
+            outline_path.write_text(window.split("</h1>")[0] + "</h1><h1 id=\"older\">10-30</h1>")
+            fetch_scope = _invoke(
+                ROOT, "digest-flow", "document-scope", "--kb", str(self.kb), "--run-id", started["run_id"],
+                "--source-uid", uid, "--body", str(outline_path), "--outline",
+            )
+            self.assertEqual(
+                {"scope": "range", "digest_period": "2026-11-06", "start_block_id": "current", "end_block_id": "older"},
+                fetch_scope,
+            )
+            board_path = work / "board.json"
+            board_path.write_text(json.dumps({"ok": True, "data": {"nodes": nodes}}))
+            scope = _invoke(ROOT, "digest-flow", "document-scope", "--kb", str(self.kb),
+                            "--run-id", started["run_id"], "--source-uid", uid, "--body", str(body_path))
+            self.assertEqual(["current-board"], scope["whiteboard_tokens"])
+            request = work / "request.json"
+            request.write_text(json.dumps({
+                "source_uid": uid, "source_url": f"https://example.test/docx/{uid}", "title": "Rolling doc",
+                "revision": "2", "body": {"path": str(body_path)},
+                "whiteboards": [{"name": f"whiteboard:{token}", "uid": token, "path": str(board_path)}
+                                for token in ("current-board", "older-board")],
+            }))
+            result = _invoke(ROOT, "digest-flow", "prepare", "--kb", str(self.kb), "--run-id", started["run_id"],
+                             "--routine", "--check-only", "--bundle-request", str(request))
+            bundle = json.loads((work / "source-bundle.json").read_text())
+            self.assertEqual(["body", "whiteboard:current-board"], [c["name"] for c in bundle["components"]])
+            self.assertEqual("/data/nodes", bundle["components"][1]["json_pointer"])
+            return result, scope, work
+
+        unchanged, scope, work = prepare(window + older, list(reversed(stored_nodes)))
+        self.assertEqual("2026-11-06", scope["digest_period"])
+        self.assertEqual("noop", unchanged["phase"])
+        self.assertEqual(stored_key, unchanged["receipt"]["digest_key"])
+        self.assertFalse((work / "analysis-packet.json").exists())
+        ranged, _, _ = prepare(f'<fragment mode="range">{window}</fragment>', list(reversed(stored_nodes)))
+        self.assertEqual("noop", ranged["phase"])
+        with self.assertRaises(DreamingError) as caught:
+            prepare(f'<fragment mode="range">{window}<excerpt>Partial</excerpt></fragment>', stored_nodes)
+        self.assertEqual("SOURCE_DOCUMENT_WINDOW_INCOMPLETE", caught.exception.code)
+
+        modified, _, _ = prepare(window + older, [{**stored_nodes[0], "text": "Changed"}, stored_nodes[1]])
+        self.assertEqual("new_version", modified["preflight_state"])
+        modified_type, _, _ = prepare(window + older, [stored_nodes[0], {**stored_nodes[1], "visible": 1}])
+        self.assertEqual("new_version", modified_type["preflight_state"])
+        new_window, scope, work = prepare(window.replace("20261106", "20261113") + window + older, stored_nodes)
+        self.assertEqual("2026-11-13", scope["digest_period"])
+        self.assertEqual("new_source", new_window["preflight_state"])
+        analyzed = analyze_flow(self.kb, run_id=new_window["run_id"])
+        packet = json.loads(Path(analyzed["analysis"]["packet_path"]).read_text())
+        self.assertNotIn("Old decision", json.dumps(packet))
+        self.assertNotIn("20261106", json.dumps(packet))
 
     def test_routine_document_with_many_links_keeps_semantic_plan(self):
         def prepare(source_uid, link_count, *, routine):

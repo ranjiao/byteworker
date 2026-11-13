@@ -19,6 +19,7 @@ from digest_flow import (  # noqa: E402
     analyze_flow,
     capture_flow,
     commit_flow,
+    document_capture_scope,
     flow_status,
     prepare_flow,
     start_flow,
@@ -40,6 +41,13 @@ def parser() -> argparse.ArgumentParser:
     start.add_argument("--kb", default=configured_kb())
     start.add_argument("--source-type", required=True, choices=sorted(SOURCE_TYPES - {"unknown"}))
     start.add_argument("--source-ref", default="")
+    scope = sub.add_parser("document-scope")
+    scope.add_argument("--kb", default=configured_kb())
+    scope.add_argument("--run-id", required=True)
+    scope.add_argument("--source-uid", required=True)
+    scope.add_argument("--body", required=True, type=Path)
+    scope.add_argument("--json-pointer", default="")
+    scope.add_argument("--outline", action="store_true", help="Return a fetch range from a document outline")
     for name in ("capture", "prepare", "analyze", "commit", "status"):
         command = sub.add_parser(name)
         command.add_argument("--kb", default=configured_kb())
@@ -51,6 +59,7 @@ def parser() -> argparse.ArgumentParser:
             source.add_argument("--bundle-request", type=Path)
             source.add_argument("--bundle", type=Path)
             command.add_argument("--check-only", action="store_true")
+            command.add_argument("--routine", action="store_true")
         elif name == "commit":
             command.add_argument("--plan", required=True, type=Path)
         elif name == "analyze":
@@ -67,12 +76,17 @@ def main() -> int:
     try:
         if args.command == "start":
             result = start_flow(kb, source_type=args.source_type, source_ref=args.source_ref)
+        elif args.command == "document-scope":
+            result = document_capture_scope(
+                kb, run_id=args.run_id, source_uid=args.source_uid, body_path=args.body, json_pointer=args.json_pointer,
+                outline=args.outline,
+            )
         elif args.command == "capture":
             result = capture_flow(kb, run_id=args.run_id, request_path=args.request)
         elif args.command == "prepare":
             result = prepare_flow(
                 kb, run_id=args.run_id, bundle_request=args.bundle_request,
-                bundle_input=args.bundle, check_only=args.check_only,
+                bundle_input=args.bundle, check_only=args.check_only, routine=args.routine,
             )
         elif args.command == "analyze":
             result = analyze_flow(kb, run_id=args.run_id, routine=args.routine)

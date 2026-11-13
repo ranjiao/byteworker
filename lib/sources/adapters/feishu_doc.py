@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit
 
 from .base import Capabilities
 from ..models import (
@@ -11,6 +15,7 @@ from ..models import (
     DEFAULT_SKILL_ROOT,
     SourceBundle,
     SourceBundleError,
+    canonical_sha256,
 )
 
 
@@ -29,6 +34,119 @@ def _component(
     description.setdefault("mode", default_mode)
     description.setdefault("heading", default_heading)
     return description, coverage
+
+
+def whiteboard_nodes(value: Any) -> Any:
+    """Unwrap successful transport envelopes and retain the full node objects."""
+    if isinstance(value, Mapping) and value.get("ok") is not False:
+        data = value.get("data", value)
+        if isinstance(data, Mapping) and isinstance(data.get("nodes"), list):
+            return data["nodes"]
+    return value
+
+
+def _node_hashes(value: Any) -> dict[str, str] | None:
+    value = whiteboard_nodes(value)
+    if not isinstance(value, list):
+        return None
+    nodes = {}
+    for node in value:
+        node_id = node.get("id") if isinstance(node, dict) else None
+        if not isinstance(node_id, str) or not node_id or node_id in nodes:
+            return None
+        nodes[node_id] = canonical_sha256(node)
+    return nodes
+
+
+def archived_whiteboards_match(
+    fields: Mapping[str, Any], raw_body: str, components: Sequence[Any],
+) -> bool:
+    """Compare node arrays against the archived, hash-verified component bytes."""
+    boards = {item.name: item for item in components if item.kind == "whiteboard"}
+    stored = {}
+    for entry in fields.get("payload_components", []):
+        parts = str(entry).split("|")
+        if len(parts) == 3 and parts[1] == "whiteboard":
+            stored[parts[0]] = parts[2]
+    if not boards or boards.keys() != stored.keys():
+        return False
+    stored_hashes = set(stored.values())
+    archived = {}
+    for block in re.finditer(r"^(`{3,})json[ \t]*\n(.*?)\n\1[ \t]*$", raw_body, re.M | re.S):
+        content = block[2]
+        for text in (content, content + "\n"):
+            digest = "sha256:" + hashlib.sha256(text.encode()).hexdigest()
+            if digest in stored_hashes:
+                try:
+                    archived[digest] = _node_hashes(json.loads(text))
+                except ValueError:
+                    return False
+    for name, board in boards.items():
+        if board.digest == stored[name]:
+            continue
+        previous = archived.get(stored[name])
+        try:
+            current = _node_hashes(json.loads(board.data))
+        except ValueError:
+            return False
+        if previous is None or previous != current:
+            return False
+    return True
+
+
+_RAW_COMPONENT = re.compile(r"^## [^\n]+\n\n`{3,}json[ \t]*$", re.M)
+_BODY_TAG = re.compile(r"<[A-Za-z][^<>]*>")
+_COMMENT_REFS = re.compile(r"""\s+comment-refs=(?:"[^"]*"|'[^']*')""")
+_CHART_PREVIEW = re.compile(r"""(\s+thumbnail-url=")([^"]+)(")""")
+_USER_CITE = re.compile(r"""(<cite\b[^<>]*?\buser-id=")(ou_[A-Za-z0-9]+)(")""")
+
+
+def _stable_body(body: str, *, same_revision: bool) -> str:
+    def normalize_preview(match: re.Match[str]) -> str:
+        try:
+            url = urlsplit(match[2])
+        except ValueError:
+            return match[0]
+        if url.query.startswith("code=") and "&" not in url.query:
+            return match[1] + url._replace(query="").geturl() + match[3]
+        return match[0]
+
+    def normalize_tag(match: re.Match[str]) -> str:
+        tag = _COMMENT_REFS.sub("", match[0])
+        if tag.startswith("<chart-refer-host-perm "):
+            tag = _CHART_PREVIEW.sub(normalize_preview, tag)
+        return tag
+
+    body = _BODY_TAG.sub(normalize_tag, body)
+    if same_revision:
+        aliases: dict[str, int] = {}
+        body = _USER_CITE.sub(
+            lambda match: f"{match[1]}{aliases.setdefault(match[2], len(aliases))}{match[3]}", body,
+        )
+    return body
+
+
+def archived_document_body_matches(
+    fields: Mapping[str, Any], raw_body: str, components: Sequence[Any], *, revision: str,
+) -> bool:
+    """Use full comment snapshots to compare markup with transport metadata removed."""
+    if not any(item.kind == "comments" and item.coverage in ("", "complete") for item in components):
+        return False
+    if fields.get("comments_status") != "complete":
+        return False
+    section = _RAW_COMPONENT.search(raw_body)
+    if section is None:
+        return False
+    stored = raw_body[:section.start()].rstrip("\n")
+    for body in (stored, stored + "\n"):
+        if "sha256:" + hashlib.sha256(body.encode()).hexdigest() == fields.get("body_hash"):
+            current = next(item.data.decode() for item in components if item.kind == "body")
+            same_revision = bool(revision and fields.get("source_revision") == revision)
+            return (
+                _stable_body(body, same_revision=same_revision)
+                == _stable_body(current, same_revision=same_revision)
+            )
+    return False
 
 
 def build_feishu_document_bundle(
@@ -63,6 +181,7 @@ def build_feishu_document_bundle(
     )
     components = [body_component]
     coverage = {body_component["name"]: body_coverage}
+    root = skill_root.resolve()
     comments_coverage = "unavailable"
     if comments is not None:
         comments_component, comments_coverage = _component(
@@ -88,6 +207,15 @@ def build_feishu_document_bundle(
             default_mode="canonical-json",
             default_heading=f"白板 {index}",
         )
+        if component["mode"] == "canonical-json" and not component.get("json_pointer"):
+            path = Path(str(component.get("path", ""))).expanduser()
+            if path.is_absolute() and not path.resolve().is_relative_to(root) and path.is_file():
+                try:
+                    envelope = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    envelope = None
+                if isinstance(whiteboard_nodes(envelope), list) and isinstance(envelope, dict):
+                    component["json_pointer"] = "/data/nodes" if "data" in envelope else "/nodes"
         components.append(component)
         coverage[component["name"]] = status
 

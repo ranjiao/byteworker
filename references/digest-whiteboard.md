@@ -13,6 +13,7 @@
   截断则写 `partial`，列出缺口。完整性只表示全部结构 JSON 已取得，不表示视觉外观已复核。
 - 白板结构 JSON 作为 `kind=whiteboard` component 进入 digest plan，name 固定建议为
   `whiteboard:<token>`，`uid=<token>`，`mode=canonical-json`。
+  直接保存节点数组。若使用抓取响应文件，指定指向节点数组的 `json_pointer`。
 
 ## 理解与证据语义
 
