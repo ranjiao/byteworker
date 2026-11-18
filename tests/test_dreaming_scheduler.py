@@ -447,6 +447,62 @@ class DreamingSchedulerTests(unittest.TestCase):
             }, lease["im_recovery"])
             self.assertEqual(state["gaps"], status(kb, now=now)["gaps"])
 
+    def test_noon_skips_blocked_morning_and_preserves_recent_digest_and_daily(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            noon = datetime(2026, 8, 7, 4, tzinfo=timezone.utc)  # Friday noon in Shanghai
+            state = self.enable_at(kb, noon - timedelta(days=2))
+            for name, job in state["jobs"].items():
+                job["enabled"] = name in {"morning", "process", "daily"}
+            state["grants"]["im"]["mode"] = "monitored"
+            atomic_write_json(state_path(kb), state)
+            catchup = run_due(kb, owner="host", now=noon - timedelta(minutes=1))
+            self.assertEqual("process", catchup["job"])
+            self.assertIn("morning:2026-08-07", status(kb, now=noon)["report_dependencies"])
+            complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=noon)
+            state = json.loads(state_path(kb).read_text())
+            state["cursors"]["im:monitored"] = {"through": noon.isoformat()}
+            atomic_write_json(state_path(kb), state)
+
+            report = run_due(kb, owner="host", followup_after_run_id=catchup["lease"]["run_id"], now=noon)
+            self.assertEqual(("daily", "2026-08-06"), (report["job"], report["period"]))
+            state = status(kb, now=noon)
+            self.assertFalse(state["jobs"]["morning"]["blocked_by"])
+            self.assertNotIn("morning:2026-08-07", state["report_dependencies"])
+            self.assertEqual("2026-08-10T00:30:00+00:00", state["jobs"]["morning"]["next_due_at"])
+
+            complete_run(
+                kb, token=report["lease"]["token"], run_status="success", now=noon,
+                result_document={
+                    "schema_version": "byteworker-dreaming-run-result/v1", "job": "daily",
+                    "period": report["period"], "summary": "示例日报。",
+                },
+                publish_report=lambda: {"report_path": "reports/daily/2026-08-06.md", "source_distribution": []},
+            )
+            later = noon + timedelta(hours=4)
+            ordinary = run_due(kb, owner="host", now=later)
+            self.assertEqual("process", ordinary["job"])
+            self.assertFalse(ordinary["period"].startswith("catchup:"))
+            self.assertIn("recent_start", ordinary["lease"])
+
+    def test_morning_window_does_not_carry_into_next_day(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            now = datetime(2026, 8, 10, 0, tzinfo=timezone.utc)  # Monday before the scheduled time
+            state = self.enable_at(kb, now - timedelta(days=4))
+            for name, job in state["jobs"].items():
+                job["enabled"] = name == "morning"
+            atomic_write_json(state_path(kb), state)
+            self.assertEqual("idle", run_due(kb, owner="host", now=now)["status"])
+            before_noon = now + timedelta(hours=4, seconds=-1)
+            report = run_due(kb, owner="host", now=before_noon)
+            self.assertEqual(("morning", "2026-08-10"), (report["job"], report["period"]))
+            renewed = renew_lease(kb, token=report["lease"]["token"], now=before_noon)
+            self.assertEqual("2026-08-10T04:00:00+00:00", renewed["expires_at"])
+            noon = now + timedelta(hours=4)
+            self.assertEqual("idle", run_due(kb, owner="host", now=noon)["status"])
+            self.assertEqual("skipped", status(kb, now=noon)["jobs"]["morning"]["last_attempt"]["status"])
+
     def test_expired_report_dependency_does_not_block_current_period(self):
         with tempfile.TemporaryDirectory() as temporary:
             kb = self.make_kb(Path(temporary))

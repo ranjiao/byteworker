@@ -122,7 +122,7 @@ def _project_attempt(value: object, now: datetime) -> dict | None:
         return None
     result = {
         "run_id": run_id,
-        "status": value.get("status") if value.get("status") in ("running", "success", "partial", "failed") else "unknown",
+        "status": value.get("status") if value.get("status") in ("running", "success", "partial", "failed", "skipped") else "unknown",
         "started_at": _time(value.get("started_at", value.get("acquired_at"))),
         "finished_at": _time(value.get("finished_at")),
         "last_heartbeat_at": _time(value.get("last_heartbeat_at")),
@@ -228,7 +228,7 @@ def diagnose(kb: Path, *, job: str = "", tick_id: str = "", run_id: str = "") ->
         events[0].get("job") if events else None,
     )
     if run_id and attempt and (
-        not events or (attempt["status"] in {"success", "failed", "partial"} and events[-1]["status"] != attempt["status"])
+        not events or (attempt["status"] in {"success", "failed", "partial", "skipped"} and events[-1]["status"] != attempt["status"])
     ):
         gaps.add("RUN_STATE_WITHOUT_MATCHING_LOG")
     run_status = attempt["status"] if attempt else events[-1]["status"] if events else "unknown"
@@ -239,13 +239,15 @@ def diagnose(kb: Path, *, job: str = "", tick_id: str = "", run_id: str = "") ->
         receipts = [
             item for item in current.get("outbox", {}).values()
             if isinstance(item, dict) and item.get("commit") == run_id
-            and item.get("status") in ("pending", "delivered")
+            and item.get("status") in ("pending", "delivered", "skipped")
         ]
         receipt = next((item for item in receipts if item["status"] == "delivered"), receipts[-1] if receipts else {})
         delivery = receipt.get("status", "not_recorded")
         delivery_at = _time(receipt.get("delivered_at") or receipt.get("last_attempt_at") or receipt.get("created_at"))
         code = receipt.get("last_error_code")
-        if delivery == "pending" and isinstance(code, str) and code in trace.CODES:
+        if delivery == "skipped" and receipt.get("reason") == "morning_cutoff":
+            delivery_code = "DREAMING_MORNING_CUTOFF"
+        elif delivery == "pending" and isinstance(code, str) and code in trace.CODES:
             delivery_code = code
     harness = current.get("harness", {})
     return {

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from dreaming_reports import complete_delivery
+from dreaming_reports import complete_delivery, morning_cutoff
 from dreaming_state import DreamingError, load_state_unlocked, save_state_unlocked, state_lock, utc_iso
 
 
@@ -116,6 +116,8 @@ def _deliver_lark_bot_summary(
                 "status": "delivered",
                 "delivery_id": str(item.get("delivery_id", "")),
             }
+        if item.get("status") == "skipped":
+            return {"outbox_id": outbox_id, "status": "skipped", "reason": item["reason"]}
         if (
             item.get("status") != "pending"
             or item.get("channel") != "lark_bot"
@@ -125,6 +127,11 @@ def _deliver_lark_bot_summary(
                 "DREAMING_DELIVERY_INVALID",
                 "outbox 不是待发送的飞书摘要。",
             )
+        if item["kind"] == "morning" and current >= morning_cutoff(item["period"], state["timezone"]):
+            item.update(status="skipped", reason="morning_cutoff")
+            state["updated_at"] = utc_iso(current)
+            save_state_unlocked(kb, state)
+            return {"outbox_id": outbox_id, "status": "skipped", "reason": "morning_cutoff"}
         recipient_id = str(item.get("recipient_id", ""))
         if not recipient_id.startswith("ou_"):
             raise DreamingError(

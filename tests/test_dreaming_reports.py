@@ -481,6 +481,12 @@ class DreamingReportTests(unittest.TestCase):
             leased = run_due(kb, owner="host", now=due_at)
             self.assertEqual("morning", leased["job"])
             archive = kb / "reports/morning/2026-08-04.md"
+            # Older installations issued leases past noon. The upgraded publisher
+            # must fence those too, even if no scheduler wake has happened yet.
+            with state_lock(kb):
+                state = load_state_unlocked(kb, due_at)
+                state["active_lease"]["expires_at"] = (due_at + timedelta(hours=4)).isoformat()
+                save_state_unlocked(kb, state)
             for document, attempted_at in (
                 ({**self.report_document(), "period": "2026-08-05"}, due_at),
                 (self.report_document(), due_at + timedelta(hours=2)),
@@ -742,6 +748,20 @@ class DreamingReportTests(unittest.TestCase):
             )
             self.assertEqual("om_test", repeated["delivery_id"])
             self.assertEqual(1, run.call_count)
+
+    @mock.patch("dreaming_delivery_lark.subprocess.run")
+    def test_pending_morning_delivery_skipped_at_noon_including_retry(self, send):
+        with tempfile.TemporaryDirectory() as temporary:
+            start = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), start)
+            queued = enqueue_delivery(
+                kb, kind="morning", period="2026-08-04", report_path="reports/morning/2026-08-04.md",
+                commit="test", channel="lark_bot", artifact="summary", recipient_id="ou_test", now=start,
+            )
+            for delay in (2, 24):
+                receipt = deliver_lark_bot_summary(kb, outbox_id=queued["outbox_id"], now=start + timedelta(hours=delay))
+                self.assertEqual(("skipped", "morning_cutoff"), (receipt["status"], receipt["reason"]))
+            send.assert_not_called()
 
     def test_lark_summary_message_is_structured_text(self):
         message = format_lark_summary_message(

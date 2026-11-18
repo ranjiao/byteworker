@@ -29,7 +29,7 @@ def _projection(kb: Path | None, run_id: str, root: Path) -> tuple[dict, list[di
         gaps = diagnosis["diagnostic_gaps"]
         delivery = run.get("delivery")
         status = run.get("status")
-        if run.get("job") and delivery in ("pending", "delivered"):
+        if run.get("job") and delivery in ("pending", "delivered", "skipped"):
             timeline.append({
                 "timestamp": run.get("delivery_at"),
                 "stage": "delivery", "status": delivery, "job": run["job"],

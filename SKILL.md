@@ -229,7 +229,7 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
 - 自动 IM 补跑只看最近 14 天，历史窗口可按需前台处理。
 - 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
-- morning/daily/weekly 由唯一 owner 按 `references/dreaming-reports.md` 运行。优先摄取今天和昨天的信息并生成到期日报，之后回补历史。
+- morning/daily/weekly 由唯一 owner 按 `references/dreaming-reports.md` 运行。晨报只在本地工作日 12:00 前生成和发送。错过就跳过，优先摄取今天和昨天的信息并生成到期日报，之后回补历史。
   报告复核覆盖，只用已提交的 digest、Finding 和 KB。
 - maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行获准的
   确定性修复。人工待办逐项保留，只汇总新增或变化项，后续扫描继续运行。

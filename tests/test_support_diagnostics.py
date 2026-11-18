@@ -48,8 +48,8 @@ class SupportDiagnosticsTests(unittest.TestCase):
         self.assertTrue(completed.stdout, completed.stderr)
         return completed.returncode, json.loads(completed.stdout)
 
-    def activate(self, *, minutes_ago):
-        now = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    def activate(self, *, minutes_ago, as_of=None):
+        now = (as_of or datetime.now(timezone.utc)) - timedelta(minutes=minutes_ago)
         result = enable(
             self.kb, harness="trae", timezone_name="Asia/Shanghai",
             acknowledge_capability_tour=True, acknowledge_machine_runtime=True,
@@ -211,14 +211,17 @@ class SupportDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_REVIEW", contents + draft["body"] + json.dumps(report))
 
     def test_morning_wake_records_actual_dependency_block(self):
-        self.activate(minutes_ago=24 * 60)
+        morning = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+        self.activate(minutes_ago=24 * 60, as_of=morning)
         state = json.loads(state_path(self.kb).read_text())
         state["jobs"]["process"]["enabled"] = False
         state["jobs"]["morning"]["enabled"] = True
         atomic_write_json(state_path(self.kb), state)
         tick_id = trace.start("dreaming", self.kb)
         dependency = {"status": "blocked", "blockers": [{"key": "PRIVATE_SOURCE_HASH"}]}
-        with patch("dreaming_reports.report_dependency_from_state", return_value=dependency):
+        with patch("dreaming_scheduler._now", return_value=morning), patch(
+            "dreaming_reports.report_dependency_from_state", return_value=dependency,
+        ):
             result = observed_run_due(self.kb, owner="task", lease_seconds=100, followup="", tick_id=tick_id)
         self.assertEqual("idle", result["status"])
         report = diagnose(self.kb, tick_id=tick_id)
@@ -244,7 +247,8 @@ class SupportDiagnosticsTests(unittest.TestCase):
             commit=run_id, channel="lark_bot", artifact="summary", recipient_id="ou_PRIVATE_USER",
         )
         with self.assertRaises(DreamingError):
-            deliver_lark_bot_summary(self.kb, outbox_id=queued["outbox_id"])
+            deliver_lark_bot_summary(self.kb, outbox_id=queued["outbox_id"],
+                                     now=datetime(2026, 11, 10, 2, tzinfo=timezone.utc))
         report = diagnose(self.kb, run_id=run_id)
         self.assertEqual("success", report["run"]["status"])
         self.assertEqual("pending", report["run"]["delivery"])

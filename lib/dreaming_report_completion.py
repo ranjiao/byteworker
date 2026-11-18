@@ -53,6 +53,7 @@ def complete_report_run(
         report_path=str(rendered["report_path"]),
         run_id=str(run["run_id"]),
         binary=delivery_binary,
+        now=now,
     )
     return {
         "status": "completed",
@@ -72,8 +73,9 @@ def _deliver_if_enabled(
     report_path: str,
     run_id: str,
     binary: str | None,
+    now: datetime | None,
 ) -> dict[str, Any]:
-    current = status(kb)
+    current = status(kb, now=now)
     lark = current.get("report_delivery", {}).get("lark_bot", {})
     if not isinstance(lark, Mapping) or not lark.get("enabled"):
         return {"status": "skipped", "reason": "lark_delivery_disabled"}
@@ -89,12 +91,14 @@ def _deliver_if_enabled(
         channel="lark_bot",
         artifact="summary",
         recipient_id=recipient_id,
+        now=now,
     )
     try:
         delivered = deliver_lark_bot_summary(
             kb,
             outbox_id=str(queued["outbox_id"]),
             binary=binary,
+            now=now,
         )
     except DreamingError as exc:
         return {
@@ -102,6 +106,8 @@ def _deliver_if_enabled(
             "outbox_id": queued["outbox_id"],
             "error": exc.as_dict(),
         }
+    if delivered.get("status") == "skipped":
+        return delivered
     return {
         "status": "delivered",
         "outbox_id": queued["outbox_id"],

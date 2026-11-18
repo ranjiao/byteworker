@@ -656,11 +656,11 @@ reports/<kind>/<period>.md
   不识别 TraeWork、Codex 或 Claude Code；宿主只按 manifest 回显摘要，并自行选择直接预览 HTML
   或返回本地文件链接。
 - `report complete` 必须在完成 lease 时写入 `artifact_path=reports/<kind>/<period>.md`。归档快照
-  重跑时保留“手动补充 / 备注”；delivery outbox 独立维护 pending/delivered，不以报告落地冒充
+  重跑时保留“手动补充 / 备注”；delivery outbox 独立维护 pending/delivered/skipped，不以报告落地冒充
   送达。
 - outbox 每项保存 `channel/artifact/recipient_id`。飞书通道只接受 summary 和明确的用户 open ID，
   使用 outbox id 作为幂等键；仅应用机器人返回真实 `message_id` 后标记 delivered。投递失败保持
-  pending，不删除本地产物、不回滚报告 commit。
+  pending。晨报到本地 12:00 后再次投递时转为 skipped，reason 为 morning_cutoff，保留已有归档。
 - legacy owner 迁移先由 `report-automation release-owner` 保存 schedule/task/history snapshot 并
   禁用旧状态，再由 Dreaming 写 `report_owner.owner=dreaming` 和 migration epoch。回滚顺序相反：
   先关闭 Dreaming report jobs，宿主恢复旧任务后再 `restore-owner`。

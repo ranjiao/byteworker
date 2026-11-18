@@ -10,6 +10,7 @@ from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from dreaming_reports import MORNING_CUTOFF, morning_cutoff
 from report_owner import report_owner_lock
 from dreaming_run_log import (
     BATCH_ID,
@@ -90,7 +91,20 @@ def _empty_state(now: datetime) -> dict[str, Any]:
 
 
 def _load_unlocked(kb: Path, now: datetime) -> dict[str, Any]:
-    return load_state_unlocked(kb, now)
+    state = load_state_unlocked(kb, now)
+    lease = state.get("active_lease")
+    if isinstance(lease, dict):
+        # Older installations can still have a morning run extending past noon.
+        _limit_morning_lease(lease, state["timezone"])
+    return state
+
+
+def _limit_morning_lease(lease: dict[str, Any], timezone_name: str) -> None:
+    if lease["job"] == "morning":
+        cutoff = morning_cutoff(lease["period"], timezone_name)
+        expiry = _parse_time(lease.get("expires_at"))
+        if expiry is not None and expiry > cutoff:
+            lease["expires_at"] = _iso(cutoff)
 
 
 def _atomic_write(path: Path, value: Mapping[str, Any]) -> None:
@@ -474,6 +488,8 @@ def enable(
             if recovery_interval_minutes is not None
             else int(recovery_schedule.get("minutes", 240))
         )
+        if morning_time is not None and _clock(morning_time) >= MORNING_CUTOFF:
+            raise DreamingError("DREAMING_CONFIG_INVALID", "晨报的计划时间必须早于本地 12:00。")
         for clock_value in (
             resolved_morning_time,
             resolved_daily_time,
@@ -732,7 +748,8 @@ def configure(
                 job["configured_enabled"] = requested
                 job["enabled"] = bool(value.get("enabled")) and requested
         if morning_time is not None:
-            _clock(morning_time)
+            if _clock(morning_time) >= MORNING_CUTOFF:
+                raise DreamingError("DREAMING_CONFIG_INVALID", "晨报的计划时间必须早于本地 12:00。")
             jobs["morning"]["schedule"] = {
                 "kind": "weekday_time",
                 "time": morning_time,
@@ -1199,6 +1216,8 @@ def _candidate(
             "DREAMING_STATE_INVALID",
             f"Dreaming schedule kind 无效: {name}",
         )
+    if name == "morning" and (target.date() != local_now.date() or local_now.time() >= MORNING_CUTOFF):
+        return None
     if name in {"daily", "weekly"} and period <= job.get("scheduled_through", ""):
         pending = job["pending_periods"]
         if not pending:
@@ -1252,6 +1271,19 @@ def _next_due(
         return None
     if job.get("waiting_for_user"):
         return None
+    if name == "morning":
+        clock = _clock(job["schedule"]["time"])
+        if clock >= MORNING_CUTOFF:
+            return None
+        retry = _parse_time(job.get("next_attempt_at"))
+        earliest = max(local_now, retry.astimezone(local_now.tzinfo)) if retry else local_now
+        target = datetime.combine(earliest.date(), clock, local_now.tzinfo)
+        if earliest.time() >= MORNING_CUTOFF:
+            target += timedelta(days=1)
+        while target.weekday() >= 5:
+            target += timedelta(days=1)
+        if target > local_now:
+            return {"at": _iso(max(target, earliest)), "due": False}
     blocked_by = job.get("blocked_by")
     if isinstance(blocked_by, list) and blocked_by:
         return None
@@ -1339,10 +1371,15 @@ def _expire_lease(kb: Path, value: dict[str, Any], now: datetime) -> None:
     run_id = _lease_run_id(lease)
     jobs = value.get("jobs")
     job = jobs.get(job_name) if isinstance(jobs, Mapping) else None
+    morning_ended = job_name == "morning" and (
+        _parse_time(lease.get("expires_at")) == morning_cutoff(lease["period"], value["timezone"])
+    )
+    status = "skipped" if morning_ended else "failed"
+    error_code = "DREAMING_MORNING_CUTOFF" if morning_ended else "DREAMING_LEASE_EXPIRED"
     if isinstance(job, dict):
         run = {
             "run_id": run_id,
-            "status": "failed",
+            "status": status,
             "period": lease.get("period", ""),
             "owner": lease.get("owner", ""),
             "epoch": lease.get("epoch"),
@@ -1350,7 +1387,7 @@ def _expire_lease(kb: Path, value: dict[str, Any], now: datetime) -> None:
             "finished_at": _iso(now),
             "artifact_path": "",
             "coverage_checkpoint": "",
-            "error_code": "DREAMING_LEASE_EXPIRED",
+            "error_code": error_code,
         }
         job["last_attempt"] = run
         job["last_run"] = run
@@ -1364,8 +1401,8 @@ def _expire_lease(kb: Path, value: dict[str, Any], now: datetime) -> None:
         owner=str(lease.get("owner", "")),
         epoch=int(lease.get("epoch", 0)),
         stage=str(lease.get("stage", "scheduled")),
-        status="failed",
-        error_code="DREAMING_LEASE_EXPIRED",
+        status=status,
+        error_code=error_code,
         retention_days=log_settings["retention_days"],
         max_file_bytes=log_settings["max_file_bytes"],
         now=now,
@@ -1599,6 +1636,7 @@ def run_due(
             "stage": "scheduled",
             "last_heartbeat_at": _iso(current),
         }
+        _limit_morning_lease(lease, timezone_name)
         if selected.get("dependency"):
             lease["dependency"] = selected["dependency"]
         if job_name == "recovery":
@@ -1676,6 +1714,7 @@ def renew_lease(
                 "Dreaming 租约不存在、已过期或 token 不匹配。",
             )
         lease["expires_at"] = _iso(current + timedelta(seconds=lease_seconds))
+        _limit_morning_lease(lease, value["timezone"])
         lease["last_heartbeat_at"] = _iso(current)
         jobs = value.get("jobs")
         job = jobs.get(lease.get("job")) if isinstance(jobs, Mapping) else None

@@ -23,6 +23,7 @@ from dreaming_state import (
 from dreaming_digest import routine_inventory, source_covers_window
 
 
+MORNING_CUTOFF = time(12)
 REPORT_KINDS = {"morning", "daily", "weekly"}
 WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
 
@@ -36,6 +37,14 @@ def _zone(name: str) -> ZoneInfo:
         return ZoneInfo(name or "Asia/Shanghai")
     except ZoneInfoNotFoundError as exc:
         raise DreamingError("DREAMING_REPORT_INVALID", f"无效 timezone: {name}") from exc
+
+
+def morning_cutoff(period: str, timezone_name: str) -> datetime:
+    try:
+        day = date.fromisoformat(period)
+    except ValueError as exc:
+        raise DreamingError("DREAMING_REPORT_INVALID", "晨报日期必须是 YYYY-MM-DD。") from exc
+    return datetime.combine(day, MORNING_CUTOFF, _zone(timezone_name))
 
 
 def report_window(
@@ -311,7 +320,13 @@ def expire_report_dependencies(state: dict[str, Any], now: datetime) -> None:
         if not isinstance(window, Mapping):
             continue
         end = parse_time(window.get("end"))
-        if end is None or end > cutoff:
+        if end is None:
+            continue
+        if window.get("kind") == "morning":
+            local_end = end.astimezone(_zone(state["timezone"]))
+            if now < datetime.combine(local_end.date(), MORNING_CUTOFF, local_end.tzinfo):
+                continue
+        elif end > cutoff:
             continue
         dependencies.pop(key)
         kind = window.get("kind")
