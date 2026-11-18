@@ -41,16 +41,13 @@
 
 安装前检查 `TARGET`，按实际情况处理。
 
-- **局部安装且 `TARGET` 是符号链接**(旧式 symlink 安装)→ `rm "$TARGET"` 删掉链接本身
-  (不动它指向的真实目录)。继续。
+- **局部安装且 `TARGET` 是符号链接**：若它指向合法的 Byteworker 克隆，在链接指向的源目录执行「同步旧安装」，共用此安装的工具会一起更新。若链接已悬空，删除链接本身后按首次安装处理。
 - **全局安装且 `TARGET` 是符号链接** → 不要把源目录建立在符号链接上。先问用户是否换一个真实
   `SOURCE_DIR`；只有用户明确同意删除该链接时才 `rm "$TARGET"`。
 - **`TARGET` 是目录、且是合法 byteworker 克隆**(同时存在 `TARGET/.git` 与 `TARGET/SKILL.md`)
-  → 已装过,更新即可:
+  → 必须按下面的「同步旧安装」拉到最新 `origin/master`，成功后再复用目录。
   - 若 `git -C "$TARGET" remote get-url origin` 没有 origin →
     `git -C "$TARGET" remote add origin https://github.com/ranjiao/byteworker.git`
-  - `git -C "$TARGET" pull --ff-only`(失败不致命,跳过)
-  - 直接跳到第 3 步；按第 3 步说明跳过 clone，并在全局安装时创建 / 刷新软链接。
 - **`TARGET` 是目录、但不是合法克隆**(缺 `.git` 或缺 `SKILL.md`,即半成品 / 空目录)
   → 残留。**先保住用户数据**:若存在 `TARGET/.kbconfig`,复制到临时处;
   然后 `rm -rf "$TARGET"`,继续第 3 步重装,装完把 `.kbconfig` 放回 `TARGET/`。
@@ -62,6 +59,31 @@
     `TARGET`；用户同意后再迁移或删除，不能静默覆盖。
   - 若是非符号链接目录且不是合法克隆 → 按半成品残留处理，先保住 `.kbconfig` 再清理。
 - 检查旧式安装路径 `~/byteworker`。合法克隆可作为全局安装的默认来源。不完整的目录按上面的残留规则清理。
+
+#### 同步旧安装
+
+远端重写历史后，旧版自动更新会提示“版本已分叉”，即使工作区干净也会停在旧版。安装助手和手动更新都应在实际安装目录执行下面这段命令。先确认 `origin` 指向本页的官方仓库。使用过风神的安装请在同一终端保留 `OLD_HEAD`，供第 5 步恢复原地址。
+
+```bash
+OLD_HEAD=$(git -C "$TARGET" rev-parse HEAD)
+(
+  set -eu
+  cd "${TARGET:?请先设置安装目录 TARGET}"
+  test "$(git branch --show-current)" = master || { echo "请先核对当前分支"; exit 1; }
+  changes=$(git status --porcelain)
+  test -z "$changes" || { echo "请先保存安装目录的本地改动"; exit 1; }
+  git fetch --force origin refs/heads/master:refs/remotes/origin/master
+  if ! git merge-base --is-ancestor "$OLD_HEAD" origin/master; then
+    # 分叉时，只自动迁移本机曾从 origin/master 拉取过的版本。
+    test "$(git merge-base --fork-point origin/master "$OLD_HEAD")" = "$OLD_HEAD" ||
+      { echo "无法确认当前提交来自官方 master，请先核对并保存本地提交"; exit 1; }
+  fi
+  git reset --keep origin/master
+  test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
+)
+```
+
+强制拉取刷新远端引用，`reset --keep` 将安装目录切换到该版本，同时保留被 Git 忽略的 `.kbconfig`。命令失败时停止安装，处理提示后重试；只有两个提交一致才继续第 3 步。已有风神来源的用户还须完成第 5 步的地址检查。
 
 ### 3. 克隆或复用仓库
 
@@ -117,12 +139,12 @@ Python 未启动时，先查看宿主的本地错误或任务历史。
 "$TARGET/bin/byteworker" source auth-status --source-type aeolus
 ```
 
-命令返回 `status=success` 后，看 `data.ready` 判断授权是否就绪。只要有一个所选来源未就绪，就先询问用户。
+命令返回 `status=success` 后，看 `data.ready` 判断授权是否就绪。已启用的风神来源若报地址配置错误，直接按下方步骤修复。首次启用来源时先询问用户。
 
 > 是否现在启用 Meego / 多维表格 / 风神定期摄取？它们需要用户授权。可以选择任意来源，
 > 或“稍后再说”；跳过不影响 byteworker 其它能力。
 
-只为用户选中的来源继续:
+只处理已启用或本次选中的来源。
 
 - **Meego** 使用独立的 `meegle` OAuth。先从用户给的资源 URL 确定 host；没有 URL 就问
   `project.feishu.cn`、`meegle.com` 还是自定义域名。然后执行
@@ -144,9 +166,10 @@ Python 未启动时，先查看宿主的本地错误或任务历史。
   `"$TARGET/bin/byteworker" lark auth login --device-code <本次流程返回的 device_code>` 收尾,再运行
   `source auth-status` 验证。URL / device code 只用于这一次进行中的授权,不得写入
   skill 仓库或知识库。
-- 风神服务地址保存在本机 `~/.config/byteworker/aeolus-endpoints.json`。
-  填写实际看板站点的 HTTPS 根地址。使用 ByteCloud JWT 时另填换取 Passport 的完整 HTTPS 地址。
-  可通过 `BYTEWORKER_AEOLUS_CONFIG` 指定配置文件路径。以下保留域名仅用于举例：
+- **风神地址配置与旧版修复**。本次启用风神、已有风神定期来源或凭据的安装，都要检查生效的地址文件。默认路径为 `~/.config/byteworker/aeolus-endpoints.json`；设有 `BYTEWORKER_AEOLUS_CONFIG` 时使用它指定的路径。若上面的检查返回 `SOURCE_CONFIG_INVALID`（`AEOLUS_ENDPOINTS_INVALID`），先修复地址文件，再检查授权。
+
+  1. 从用户已确认的风神看板链接取 HTTPS 根地址（含自定义端口），填入 `dashboard_origin`。仅在使用 ByteCloud JWT 时，另填可信的 Passport 交换地址 `passport_endpoint`。旧安装可从第 2 步保存的 `OLD_HEAD` 对应的 `lib/aeolus_client.py` 中，在本机读取常量 `CN_HOSTS` 和 `CN_TITAN_PASSPORT_ENDPOINT` 恢复原值。若只有示例域名或无法确认地址，向用户索取实际值。安装助手应在本机将值直接写入配置，避免将地址输出到会话或日志。
+  2. 文件缺失时，在仓库和知识库之外创建父目录及 JSON 文件，设置文件权限为 `600`。文件存在时保留有效字段，只修复缺失、格式错误或与看板站点不符的值。既有凭据继续使用原来的 `aeolus-auth.json`。下例只展示字段结构，两个示例地址都需要换成实际值，非 JWT 用户可省略第二项。
 
   ```json
   {
@@ -154,6 +177,8 @@ Python 未启动时，先查看宿主的本地错误或任务历史。
     "passport_endpoint": "https://passport.example.test/example/exchange"
   }
   ```
+
+  3. 在运行 skill 的同一环境执行 `"$TARGET/bin/byteworker" source auth-status --source-type aeolus`。以 `data.ready=true` 确认地址和凭据均可用。仍报地址错误时核对实际生效的配置路径及字段；提示缺少凭据或权限时按下一条处理。
 
 - **风神** 使用 byteworker 原生只读客户端，不依赖其它 CLI。凭据按以下优先级选择一种：
   `BYTEWORKER_AEOLUS_TITAN_PASSPORT`（当前用户态会话）、
@@ -346,7 +371,7 @@ OpenClaw 或新开 session**,并确认每个 agent 都能列出 / 调用 bytewor
 
 ## 人工安装
 
-先选择一种方式。
+已有克隆请先将 `TARGET` 设为实际安装目录，按[同步旧安装](#同步旧安装)更新；已使用风神的用户接着按[第 5 步](#5-询问可选来源授权)修复本机地址配置。首次安装选择以下一种方式。
 
 ### 全局安装：本机多个工具共用
 
