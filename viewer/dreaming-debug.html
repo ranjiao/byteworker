@@ -322,7 +322,7 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
     </div>
     <div class="panel">
       <div class="panel-head">
-        <span>阶段详情</span>
+        <span>运行简报</span>
         <div class="actions">
           <span id="event-count" class="panel-meta"></span>
           <button id="run-draft" type="button" disabled>生成反馈草稿</button>
@@ -679,7 +679,8 @@ function restoreFindingState(openIds) {
 
 function renderRunSummary(document) {
   const accounting = document?.accounting;
-  if (!accounting) return "";
+  if (!document) return "";
+  if (!accounting) return `<div class="report-summary">${esc(document.brief || document.summary)}</div>`;
   const operations = accounting.kb_operations;
   const operationLabels = {
     digest_commits: "摄取提交", files_changed: "文件变更", nodes_created: "新增节点",
@@ -716,15 +717,18 @@ function renderRunSummary(document) {
     <ol>${review.options.map(option => `<li><strong>${esc(option.action)}</strong> · ${esc(option.effect)}</li>`).join("")}</ol>`
     : accounting.error_code === "SOURCE_REVIEW_REQUIRED" ? "<p>这次运行没有记录具体的复核问题。</p>" : "";
   return `<section class="result-section">
-    <div class="section-title">本轮摘要</div>
-    <div class="report-summary">${esc(document.summary)}</div>
+    <div class="section-title">本轮简报</div>
+    <div class="report-summary">${esc(document.brief || document.summary)}</div>
     ${reviewDetail}
+    <details><summary>查看核算明细</summary>
     ${renderRunPerformance(accounting.performance)}
     ${counts ? `<p>${esc(counts)}</p>` : ""}
     ${operations ? `<p>已核验的知识库变更 · ${esc(formatOperations(operations))}</p>` : ""}
     ${accounting.unaccounted_sources ? `<p>${esc(accounting.unaccounted_sources)} 个来源的变更未核算</p>` : ""}
     ${accounting.reported_repairs != null ? `<p>维护回执记录 ${esc(accounting.reported_repairs)} 项修复</p>` : ""}
-    ${sources.length ? `<details open><summary>各来源处理情况</summary><ul>${sources.join("")}</ul></details>` : ""}
+    ${sources.length ? `<ul>${sources.join("")}</ul>` : ""}
+    ${document.brief !== document.summary ? `<p>${esc(document.summary)}</p>` : ""}
+    </details>
   </section>`;
 }
 
@@ -766,6 +770,9 @@ function renderDetail(openIds = new Set()) {
   const last = events[events.length - 1];
   const run = state.runDiagnosis?.run;
   el("detail").innerHTML = `
+    ${renderRunSummary(state.detail.summary)}
+    ${state.detail.result?.kind === "report" ? renderResult(state.detail.result) : ""}
+    <details ${state.detail.summary ? "" : "open"}><summary>运行详情</summary>
     <div class="detail-title">
       <strong>${esc(first.job || "unknown")}</strong>
       <span class="badge ${statusClass(last.status)}">${esc(last.status || "unknown")}</span>
@@ -778,7 +785,6 @@ function renderDetail(openIds = new Set()) {
       <div class="fact"><div class="fact-label">总耗时</div><div class="fact-value">${esc(duration(events, state.detail.summary?.accounting?.metrics?.duration_ms))}</div></div>
       <div class="fact"><div class="fact-label">Owner</div><div class="fact-value">${esc(first.owner || "—")}</div></div>
     </div>
-    ${renderRunSummary(state.detail.summary)}
     <div class="timeline">
       ${events.map(event => `
         <div class="event">
@@ -794,7 +800,8 @@ function renderDetail(openIds = new Set()) {
         </div>
       `).join("")}
     </div>
-    ${renderResult(state.detail.result)}
+    ${state.detail.result?.kind !== "report" ? renderResult(state.detail.result) : ""}
+    </details>
   `;
   restoreFindingState(openIds);
 }

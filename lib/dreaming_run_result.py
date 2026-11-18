@@ -7,6 +7,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
+from dreaming_run_brief import run_brief
 from dreaming_state import DreamingError, atomic_write_json, secure_path, utc_iso
 
 
@@ -187,5 +188,5 @@ def read_run_result(kb: Path, run_id: str) -> dict[str, Any] | None:
     except (DreamingError, OSError, ValueError):
         return None
     if isinstance(value, dict) and value.get("schema_version") == RESULT_SCHEMA and value.get("run_id") == run_id:
-        return value
+        return {**value, "brief": run_brief(kb, value)}
     return None

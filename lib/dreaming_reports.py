@@ -20,7 +20,7 @@ from dreaming_state import (
     state_lock,
     utc_iso,
 )
-from dreaming_digest import routine_inventory
+from dreaming_digest import routine_inventory, source_covers_window
 
 
 REPORT_KINDS = {"morning", "daily", "weekly"}
@@ -176,13 +176,7 @@ def report_dependency_from_state(
         source_type = str(source["source_type"])
         source_key = str(source["source_key"])
         checkpoint = checkpoints.get(source_key)
-        through = (
-            parse_time(checkpoint.get("through"))
-            if isinstance(checkpoint, Mapping)
-            and checkpoint.get("profile_revision") == source["profile_revision"]
-            else None
-        )
-        if through is None or through < end:
+        if not source_covers_window(checkpoint, source, start, end):
             blockers.append(
                 {
                     "kind": "process",
@@ -355,14 +349,7 @@ def refresh_report_dependencies(
                     checkpoint = state.get("source_checkpoints", {}).get(
                         blocker.get("source_key")
                     )
-                    through = (
-                        parse_time(checkpoint.get("through"))
-                        if isinstance(checkpoint, Mapping)
-                        and checkpoint.get("profile_revision")
-                        == blocker.get("profile_revision")
-                        else None
-                    )
-                    if end is None or through is None or through < end:
+                    if start is None or end is None or not source_covers_window(checkpoint, blocker, start, end):
                         unresolved.append(blocker)
                     continue
                 if blocker.get("source") != "im":

@@ -247,6 +247,7 @@ def _job(
         "last_attempt": old.get("last_attempt"),
         "last_run": old.get("last_run"),
         "last_success": old.get("last_success"),
+        **{key: old[key] for key in ("pending_periods", "scheduled_through") if key in old},
         "next_attempt_at": old.get("next_attempt_at"),
         "consecutive_failures": int(old.get("consecutive_failures", 0)),
         "deadline_at": old.get("deadline_at"),

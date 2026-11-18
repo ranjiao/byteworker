@@ -23,6 +23,7 @@ from source_profiles import (
 )
 from source_operation_contract import argument, positive_int
 from sources import create_default_registry
+from sources.adapters.text import chat_window
 
 
 def _lark_runner(timeout: int) -> CommandRunner:
@@ -224,6 +225,7 @@ class FeishuChatOperations:
             argument("--timeout", type=positive_int, default=180, help="单次来源读取超时秒数"),
         ),
         "capture": (
+            argument("--chat-window", default="", help="按起止时间 START..END 抓取开放式增量群聊的一个窗口"),
             argument("--kb", default="", help="知识库数据目录；和 --source-uid 一起按已保存 profile 抓取"),
             argument("--source-uid", default="", help="KB 中已注册的稳定数据源 ID"),
             argument("--out", help="完整快照输出路径；必须位于临时目录或知识库目录"),
@@ -249,6 +251,10 @@ class FeishuChatOperations:
                 "SOURCE_PROFILE_IDENTITY_MISMATCH",
                 "source profile 的 source_type 与 --source-type 不一致",
             )
+        window = getattr(args, "chat_window", "")
+        policy = profile["capture_policy"]
+        if window and (not chat_window(window) or not policy["since_last"] or policy["end"] or not profile["routine"]["enabled"]):
+            raise SourceCaptureError("SOURCE_ARGUMENT_INVALID", "仅开放式增量群聊支持带时区的起止窗口。")
         output = Path(args.out).expanduser().resolve()
         root = skill_root.resolve()
         if output == root or root in output.parents:
@@ -265,7 +271,6 @@ class FeishuChatOperations:
         )
         transcript = artifact_root / "transcript.txt"
         locators = artifact_root / "locators.json"
-        policy = profile["capture_policy"]
         command = self._command(
             args,
             skill_root=skill_root,
@@ -390,7 +395,11 @@ class FeishuChatOperations:
             "--overlap-seconds",
             str(policy["overlap_seconds"]),
         ]
-        if policy["since_last"]:
+        window = getattr(args, "chat_window", "")
+        if window:
+            start, end = window.split("..")
+            command.extend(["--start", start.strip(), "--end", end.strip()])
+        elif policy["since_last"]:
             command.append("--since-last")
             if policy["end"]:
                 command.extend(["--end", policy["end"]])

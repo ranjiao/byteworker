@@ -485,6 +485,7 @@ artifacts 和 evidence spool；正文只在用户主动打开本机调试页时�
 `state/dreaming/run-results/<run_id>.json`。新增可选 `accounting`，含租约耗时、来源结果、
 已核验的提交和文件/节点变更、持久化动作回执数、IM 会话消息数或报告条目引用分布。未核验的来源单列，
 维护修复数来自结果回执。终态事件只保存相对路径，`runs show` 和 Viewer 关联同一份私有摘要。
+完成回执和本地查询的 `summary.brief` 按来源类型、状态及业务说明展示结果。可选的 `accounting.changed_nodes` 记录经 Digest 提交核验的动作、相对路径和该版本的节点标题。恢复任务可关联匹配时段的 `accounting.message_batch`；旧记录仅在明确引用唯一批次并核对本轮提交时间后读取当时的发现。查询不改写历史文件。
 process 的 `accounting.performance` 可记录租约内关联 Digest 的阶段累计时长、分来源阶段、
 未覆盖墙钟、缺失日志数及上报的调用间隔、耗时和 token。未上报的模型实际用量字段缺省。
 Digest usage 事件可带 `call_timing_ms`，只保存宿主提供的非负耗时和间隔。
@@ -634,7 +635,12 @@ reports/<kind>/<period>.md
   catch-up lease；process commit 清除已覆盖 gap 并刷新 dependency 后，runner 可用该 catch-up
   `run_id` 做一次受限 follow-up 领取报告。follow-up 只考虑 morning/daily/weekly，不参与普通
   process/recovery/maintenance 竞争，也不得循环领取。
-- 每次调度都复核最近到期报告的覆盖，替换同类报告过往周期的依赖。相同缺口的重试按普通到期顺序竞争。
+- daily/weekly job 以 `scheduled_through` 记录已枚举周期，`pending_periods` 保存未归档周期及其计划时间。
+  首次枚举从启用或接管时起，跳过现有归档和已成功周期。近期 process 租约新增 `im_window`，
+  `recent_start` 也是增量群聊的近期下界。群聊 checkpoint 的 `covered_windows` 合并已核验区间，
+  `legacy_through` 继承原版本已确认的进度；历史回补只填对应区间。
+  `im_window` 空值表示无需采集消息。跳过的消息区间进入原有 lane 的 gaps，消费近期窗口时保留历史缺口。
+- 每次调度都复核所选报告的覆盖，替换同类报告过往周期的依赖。相同缺口的重试按普通到期顺序竞争。
 - all_visible discovery 即使追平也只能标 partial/best_effort。所有合法定期 Profile 和普通
   digest 兼容历史来源都必须进入 process；Profile 无效时迁移和报告 fail closed，不允许按
   provider 类型静默忽略。

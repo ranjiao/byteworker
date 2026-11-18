@@ -17,6 +17,7 @@ from dreaming_grants import (
 from dreaming_state import (
     DreamingError,
     parse_time,
+    read_state_for_diagnostics,
     utc_iso,
 )
 from source_profiles import list_profiles
@@ -49,6 +50,53 @@ def plan_im_recovery(state: Mapping[str, Any], now: datetime) -> dict[str, Any]:
         "expired_windows": expired,
         "window": {"start": utc_iso(selected[1]), "end": utc_iso(selected[0])} if selected else None,
     }
+
+
+def plan_recent_im_window(state: dict, recent_start: datetime, now: datetime) -> dict | None:
+    """Reserve the skipped prefix as recovery work before a recent cursor can advance."""
+    mode = state["grants"]["im"]["mode"]
+    if mode == "off":
+        return None
+    lane = "discovery" if mode == "all_visible" else "monitored"
+    cursor = state["cursors"].get(f"im:{lane}")
+    through = parse_time(cursor.get("through")) if isinstance(cursor, Mapping) else None
+    if through is None:
+        # An initial cursor proves nothing about earlier reports. Include the
+        # full week preceding the first possible weekly deadline, even if the
+        # first collection was delayed for longer than automatic recovery allows.
+        enabled = parse_time(state.get("enabled_at")) or now
+        local_enabled = enabled.astimezone(recent_start.tzinfo)
+        first_monday = local_enabled.replace(hour=0, minute=0, second=0, microsecond=0)
+        through = first_monday - timedelta(days=local_enabled.weekday() + 7)
+    if through < recent_start:
+        gap_key = f"deferred:{lane}:{utc_iso(through)}..{utc_iso(recent_start)}"
+        state["gaps"].setdefault(gap_key, {
+            "source_type": "feishu_chat", "lane": lane, "created_at": utc_iso(now),
+            "windows": [{"start": utc_iso(through), "end": utc_iso(recent_start), "reason": "recent_first"}],
+        })
+    start = min(now, max(through, recent_start))
+    # Respect earlier budget splits. Join neither adjacent gaps nor a gap and
+    # the unscanned tail into the same oversized retry.
+    gaps = []
+    for gap in state["gaps"].values():
+        if not isinstance(gap, Mapping) or gap.get("lane") != lane:
+            continue
+        for window in gap.get("windows", []):
+            if not isinstance(window, Mapping):
+                continue
+            left, right = parse_time(window.get("start")), parse_time(window.get("end"))
+            if left is not None and right is not None and max(recent_start, left) < min(now, right):
+                gaps.append((max(recent_start, left), min(now, right)))
+    end = now
+    if gaps:
+        left, right = min(gaps)
+        if left <= start:
+            start, end = left, right
+        else:
+            end = left
+    if start >= end:
+        return None
+    return {"start": utc_iso(start), "end": utc_iso(end)}
 
 
 def _window(start: str, end: str) -> tuple[datetime, datetime]:
@@ -97,14 +145,29 @@ def _dedupe(messages: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
 def prepare_im_batch(
     kb: Path,
     *,
-    start: str,
-    end: str,
+    start: str = "",
+    end: str = "",
     collector: FeishuImCollector | None = None,
     foreground_token: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    start_at, end_at = _window(start, end)
     current = now or datetime.now(timezone.utc)
+    if not foreground_token:
+        state = read_state_for_diagnostics(kb, current)
+        lease = state.get("active_lease") or {}
+        if (lease.get("job") == "process" and "im_window" in lease
+                and (parse_time(lease.get("expires_at")) or current) > current):
+            planned = lease["im_window"]
+            if not planned:
+                raise DreamingError("DREAMING_WINDOW_INVALID", "本轮没有待采集的近期 IM 窗口。")
+            if start or end:
+                requested_start, requested_end = _window(start, end)
+                if requested_start > parse_time(planned["start"]) or requested_end < parse_time(planned["end"]):
+                    raise DreamingError(
+                        "DREAMING_WINDOW_INVALID", "本轮按租约采集，请省略 --start/--end 使用 im_window。",
+                    )
+            start, end = planned["start"], planned["end"]
+    start_at, end_at = _window(start, end)
     if end_at > current:
         raise DreamingError(
             "DREAMING_WINDOW_INVALID",

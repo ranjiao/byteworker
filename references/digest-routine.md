@@ -28,7 +28,7 @@
      - 群聊:从 KB `sources/` 加载 v2 Profile，运行
        `source capture --source-type feishu_chat --kb ... --source-uid ... --out <bundle>`；
        operation adapter 会把 `pull-chat.sh --since-last`、KB 高水位、overlap、逐字稿和
-       locator 统一为 Bundle。有新消息则按 `references/digest-chat.md` digest 新窗口，否则跳过。
+       locator 统一为 Bundle。Dreaming 对开放式增量群聊使用租约给定的 --chat-window，按实际窗口核验回执。有新消息则按 `references/digest-chat.md` digest 新窗口，否则跳过。
      - Meego 保存视图:从 KB `sources/` 加载 `byteworker-source-profile/v2`，按
        `source capture --source-type meego --kb ... --source-uid ...` 重放已确认坐标、字段与上限。
        不从最近 raw 拼接配置，也不接受同次 CLI 覆盖。完整快照 hash 不变则跳过；不同时用

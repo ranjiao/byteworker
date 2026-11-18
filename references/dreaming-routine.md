@@ -8,6 +8,7 @@
 它也记录单个抓取失败，成功的其它来源继续。先处理返回的所有检查，再加载语义规则。
 
 - `status=pending` 且有 `check.status=changed` 的来源已完成预检，保留返回的 Digest 编号。
+- 近期 process 的定期来源检查点以本次领取时间为目标；开放式增量群聊按批次的 `capture_window` 抓取并校验完整区间。其余来源按已登记 Profile 做增量或快照检查。
 - `status=covered` 表示同一 Profile 的既有检查点已覆盖本次目标，常见于补跑旧报告；无需重复抓取。
 - 手动来源先调用 `dreaming process digest-source --kb <KB> --token <LEASE> --source-key <KEY>`。
   它打开或恢复该来源的 Digest，返回 `run_id` 和私有 `work_dir`，无需另行关联。

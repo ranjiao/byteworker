@@ -475,6 +475,8 @@ class DreamingSchedulerTests(unittest.TestCase):
                 for name, job in state["jobs"].items():
                     job["enabled"] = name in {kind, "maintenance", "process", "recovery"}
                 state["grants"]["im"]["mode"] = "monitored"
+                # Isolate report catch-up from the independent recent digest schedule.
+                state["jobs"]["process"]["schedule"] = {"kind": "interval", "minutes": 60 * 24 * 30}
                 atomic_write_json(state_path(kb), state)
                 old = run_due(kb, owner="host", now=old_wake)
                 self.assertEqual("process", old["job"])

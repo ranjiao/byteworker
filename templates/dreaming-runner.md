@@ -5,11 +5,7 @@
 1. 首个命令调用 `bin/byteworker dreaming tick --kb "<KB>" --owner "<TASK_ID>"`，保存 `tick_id`。
    该入口先记唤醒，再执行一次 `preflight --unattended` 和 `run-due`。无人值守不展示能力 Tip，
    不调用 `discover recommend`。不要重复启动检查或领取。
-2. 领取到任务或启动失败时，取得编号后就在宿主任务的用户可见输出中回显。最终结果首行保留
-   状态、唤醒编号 `DT-…`、已取得的运行编号 `DR-…`。失败、部分完成或待投递时附上已记录的阶段和固定原因码。
-   例如 `后台分析失败 · DT-… · DR-… · DIGEST_FLOW_COMMIT_FAILED`。只有最终输出的宿主也遵循此格式。
-   `preflight_failed/scheduler_failed` 回显已取得的 `DT-…` 和失败阶段后结束。若未取得编号，写明编号未生成。
-   这行仅含技术信息，不拼接知识库正文、路径、凭据或原始命令输出，也不为此另发通知。
+2. 启动失败时说明哪项工作没能开始及已知原因。诊断编号、阶段和错误码保存在本地日志，按需排查。
 3. `disabled/idle/busy` 时安静结束。
 4. `leased` 后从 `references/workflow-routes.json` 解析 `dreaming` 并读取 required 闭包。
    无人值守时在已授权范围内做可验证的决定。普通缺口记入本轮摘要，继续独立工作；
@@ -28,6 +24,8 @@
    用 `process digest-complete --allow-partial` 汇总实际覆盖，只有全量完成才可成功。
    收尾列出仍缺的来源、已尝试的处理和下次自动检查的范围；普通缺口使用
    `DREAMING_DIGEST_INCOMPLETE`。预算、单源权限或冲突只暂停受影响的来源。
+   近期 process 按租约 `im_window` 采集消息，调用 `process prepare --source im` 时省略起止参数。
+   窗口为空时只处理定期来源。历史补采使用 dependency 的起止时间。
    `job=recovery` 补 IM 缺口时只用 `lease.im_recovery.window`。窗口为空时继续检查其它恢复项，
    没有可恢复项就成功结束。若窗口在执行时到期，记为跳过并继续其它恢复项。
 6. 保存 lease 的 `run_id`。进入 collection/analysis/consolidation/action/report/maintenance/
@@ -40,11 +38,14 @@
    morning / daily / weekly 只有在报告生成前失败或只能 partial 时才调用通用
    `dreaming complete`；报告成功路径不得调用它。`partial/failed` 提供稳定错误码。已知时传
    `--item-count/--finding-count/--gap-count`，不得用字符串 checkpoint 代替可结构化计数。
-   process 已生成 EvidenceBatch 时还必须传 `--batch-id "<EB-...>"`，供运行审计关联本轮输入、
+   process 或 recovery 已采集本轮消息时还必须传 `--batch-id "<EB-...>"`，供运行审计关联本轮输入、
    FindingBundle 和 evidence。
    每个由通用 `complete` 结束的任务都要把本轮主要信息写入 KB 外临时 JSON，并传 `--result-input`。
-   只总结有证据的发现、变化和阻塞。process 可用 `source_notes` 为已登记来源补充简短发现，
-   每项含 `source_key` 和 `summary`。没有完成的来源不得概括为「无新增」。结果结构为：
+   `summary` 写给知识库主人：用一两句说清哪件事有了什么新信息、涉及谁或什么决定、还有什么没核实。
+   历史消息写原消息日期。只有消息时写消息条数和实际发现，区分消息提到的文档与亲自读过的文档。
+   `source_notes` 可按 source_key 写各来源的重要变化，失败或暂缓写具体原因及影响。
+   文档数量、逐项状态和已修改的节点由系统按回执补齐。只从实际改动说明节点补充了什么。
+   内部执行步骤、工具名、诊断编号和未执行的动作留在技术记录。结果结构为：
    `{"schema_version":"byteworker-dreaming-run-result/v1","job":"<job>",`
    `"period":"<period>","summary":"本轮做了什么及结论",`
    `"checks":[{"name":"<检查项>","status":"pass|warning|fail|noop","detail":"<结果>"}],`
@@ -61,11 +62,8 @@
     `reports/<kind>/<period>.md` 归档快照，完成 lease，并按配置投递摘要；它是报告成功路径唯一
     的完成调用，之后禁止再调用通用 `dreaming complete`。不要再分开调用
     `report render`、`complete`、`enqueue-delivery` 和 `report deliver`。
-11. 将完成回执中的 `summary`（报告为 `run.summary`）用自然语言返回给用户。首行按步骤 2，
-    随后给出主要信息、各来源分布、实际耗时、已核验的知识库变更和仍未覆盖的范围。
-    普通缺口只做状态说明。区分本轮运行摘要与后续定期报告。
-    有 performance 时回显主要阶段、间隔和实际用量。对未知数值标记未核算。同一次唤醒续跑报告时，按执行顺序返回各任务摘要，
-    以同一 DT 编号关联。报告结果另外提供 HTML 文件链接与投递状态；宿主支持本地预览时可预览。
+11. 向用户返回完成回执的 `summary.brief`（报告为 `run.summary.brief`）。先写具体发现，再写文档成败、
+    节点变更和剩余缺口。若续跑报告，附报告结论、HTML 链接和投递状态。
 12. 不循环领取，不创建飞书任务，不 push。除已配置的报告摘要和 maintenance 按规则
     提交的有限 doctor 决策摘要外，不发送外部消息。
 

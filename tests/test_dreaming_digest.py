@@ -236,7 +236,7 @@ class DreamingDigestTests(unittest.TestCase):
 
     def test_noop_digest_advances_source_checkpoint_and_unblocks_report(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
-            enabled_at = datetime(2026, 8, 3, 23, tzinfo=timezone.utc)
+            enabled_at = datetime(2026, 8, 4, 0, tzinfo=timezone.utc)
             kb = self.make_kb(Path(temporary), enabled_at)
             profile = self.profile()
             self.save_profile(kb, profile)
@@ -312,7 +312,7 @@ class DreamingDigestTests(unittest.TestCase):
             transcript = work_dir / "transcript.txt"
             transcript.touch()
             end = acquired + timedelta(seconds=30)
-            window = f"{enabled_at.isoformat()} .. {end.isoformat()}"
+            window = f"{source['capture_window'].split('..')[0]} .. {end.isoformat()}"
             request = work_dir / "bundle-request.json"
             request.write_text(json.dumps({
                 "source_uid": source["source_uid"],
@@ -361,6 +361,23 @@ class DreamingDigestTests(unittest.TestCase):
             self.assertEqual("covered", report_dependency(kb, kind="morning", period="2026-08-04")["status"])
             self.assertEqual([], list((kb / "raw_data").iterdir()))
 
+    def test_chat_backfill_merges_only_verified_intervals(self):
+        from dreaming_digest import _record_chat_window, source_covers_window
+
+        source = {"profile_revision": "r1"}
+        first = {**source, "through": "2026-11-13T00:00:00+00:00"}
+        recent = {**source, "through": "2026-11-18T00:00:00+00:00"}
+        _record_chat_window(first, recent, "2026-11-17T00:00:00+00:00..2026-11-18T00:00:00+00:00")
+        start = datetime(2026, 11, 11, tzinfo=timezone.utc)
+        end = start + timedelta(days=7)
+        self.assertFalse(source_covers_window(recent, source, start, end))
+        self.assertTrue(source_covers_window(recent, source, end - timedelta(days=1), end))
+        history = {**source, "through": "2026-11-17T00:00:00+00:00"}
+        _record_chat_window(recent, history, "2026-11-13T00:00:00+00:00..2026-11-17T00:00:00+00:00")
+        self.assertTrue(source_covers_window(history, source, start, end))
+        self.assertEqual(recent["through"], history["through"])
+        self.assertFalse(source_covers_window(history, {"profile_revision": "r2"}, start, end))
+
     def test_batch_scan_is_concurrent_and_partial_coverage_excludes_failed_source(self):
         with tempfile.TemporaryDirectory() as temporary:
             acquired = datetime.now(timezone.utc)
@@ -372,7 +389,6 @@ class DreamingDigestTests(unittest.TestCase):
             token = lease["token"]
             batch = prepare_routine_digest(kb, token=token)
             by_type = {row["source_type"]: row for row in batch["sources"]}
-            window_start = min(acquired, datetime.fromisoformat(batch["target_through"])) - timedelta(minutes=5)
             captures = threading.Barrier(2, timeout=8)
 
             def fake_capture(root, *arguments):
@@ -386,7 +402,8 @@ class DreamingDigestTests(unittest.TestCase):
                 out = Path(arguments[arguments.index("--out") + 1])
                 transcript = out.with_name("chat.txt")
                 transcript.touch()
-                window = f"{window_start.isoformat()} .. {datetime.now(timezone.utc).isoformat()}"
+                window = arguments[arguments.index("--chat-window") + 1]
+                self.assertEqual(by_type[kind]["capture_window"], window)
                 request = out.with_name("request.json")
                 request.write_text(json.dumps({
                     "source_uid": chat["source_uid"], "title": chat["title"], "source_window": window,
@@ -491,7 +508,7 @@ class DreamingDigestTests(unittest.TestCase):
 
             digest_key = "meego:meego:fixture:view-42:-:abc123"
             self.write_noop_raw(kb, digest_key)
-            existing.write_text("After\n")
+            existing.write_text("---\ntitle: 样例图形\n---\nAfter\n")
             (kb / "knowledge" / "reading-new.md").write_text("New\n")
             git("add", "knowledge", "raw_data")
             git("commit", "-qm", "digest")
@@ -516,6 +533,12 @@ class DreamingDigestTests(unittest.TestCase):
             logged = show_run(kb, run_id=lease["run_id"])
             self.assertEqual(completed["summary"], logged["summary"])
             self.assertEqual(summary, logged["summary"]["summary"])
+            brief = logged["summary"]["brief"]
+            self.assertIn("本次完成 1 个", brief)
+            self.assertIn("尚未完成", brief)
+            self.assertIn("《样例图形》", brief)
+            self.assertIn("《reading-new》", brief)
+            self.assertNotIn("duration_ms", brief)
             accounting = logged["summary"]["accounting"]
             self.assertEqual(180_000, accounting["metrics"]["duration_ms"])
             self.assertEqual(1, accounting["unaccounted_sources"])

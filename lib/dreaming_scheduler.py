@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import uuid
 from collections import Counter
 from datetime import datetime, time, timedelta, timezone
@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from report_owner import report_owner_lock
 from dreaming_run_log import (
+    BATCH_ID,
     DEFAULT_MAX_FILE_BYTES,
     DEFAULT_RETENTION_DAYS,
     STAGES,
@@ -944,6 +945,8 @@ def set_report_management(
                         "error_code": "",
                     }
             if not enabled:
+                jobs[name].pop("scheduled_through", None)
+                jobs[name].pop("pending_periods", None)
                 jobs[name]["blocked_by"] = []
                 for dependency_key in list(value.get("report_dependencies", {})):
                     if dependency_key.startswith(f"{name}:"):
@@ -1075,6 +1078,40 @@ def _every_n_days_target(
     return target
 
 
+def _report_period(name: str, target: datetime) -> str:
+    if name == "weekly":
+        year, week, _ = (target.date() - timedelta(days=7)).isocalendar()
+        return f"{year}-W{week:02d}"
+    return target.date().isoformat()
+
+
+def _queue_report_periods(
+    kb: Path, name: str, job: dict[str, Any], local_now: datetime, enabled_at: datetime,
+) -> None:
+    """Discover unpublished periods once; a newer success must not erase older debt."""
+    schedule = job["schedule"]
+    clock = _clock(schedule["time"])
+    if name == "weekly":
+        latest = _latest_weekly_target(local_now, weekday=schedule["weekday"], clock=clock)
+        step = timedelta(days=7)
+    else:
+        latest = _latest_weekday_target(local_now, clock)
+        step = timedelta(days=1)
+    last_success = _last_success(job) or {}
+    seen = job.get("scheduled_through", "")
+    pending = job.setdefault("pending_periods", {})
+    target = latest
+    while target >= enabled_at:
+        period = _report_period(name, target)
+        if period <= seen:
+            break
+        archive = kb / "reports" / name / f"{period}.md"
+        if (name == "weekly" or target.weekday() < 5) and period != last_success.get("period") and not archive.is_file():
+            pending[period] = _iso(target)
+        target -= step
+    job["scheduled_through"] = max(seen, _report_period(name, latest))
+
+
 def _job_gate(job: Mapping[str, Any], now: datetime) -> str:
     if not job.get("enabled"):
         return "disabled"
@@ -1097,8 +1134,6 @@ def _candidate(
     local_now: datetime,
     enabled_at: datetime,
 ) -> dict[str, str] | None:
-    if _job_gate(job, now):
-        return None
     schedule = job.get("schedule")
     if not isinstance(schedule, Mapping):
         raise DreamingError(
@@ -1145,7 +1180,8 @@ def _candidate(
             return None
         period = target.date().isoformat()
     elif kind == "weekday_time":
-        target = _latest_weekday_target(local_now, _clock(str(schedule.get("time", ""))))
+        clock = _clock(str(schedule.get("time", "")))
+        target = _latest_weekday_target(local_now, clock)
         if target.astimezone(timezone.utc) < enabled_at:
             return None
         period = target.date().isoformat()
@@ -1157,13 +1193,20 @@ def _candidate(
         )
         if target.astimezone(timezone.utc) < enabled_at:
             return None
-        previous_week = (target.date() - timedelta(days=7)).isocalendar()
-        period = f"{previous_week.year}-W{previous_week.week:02d}"
+        period = _report_period(name, target)
     else:
         raise DreamingError(
             "DREAMING_STATE_INVALID",
             f"Dreaming schedule kind 无效: {name}",
         )
+    if name in {"daily", "weekly"} and period <= job.get("scheduled_through", ""):
+        pending = job["pending_periods"]
+        if not pending:
+            return None
+        period = max(pending)
+        target = _parse_time(pending[period])
+        if target is None:
+            raise DreamingError("DREAMING_STATE_INVALID", "待补报告的计划时间无效。")
     if success is not None and success.get("period") == period:
         return None
     return {
@@ -1172,6 +1215,29 @@ def _candidate(
         "ready_since": _iso(target.astimezone(timezone.utc)),
         "deadline_at": _iso(target.astimezone(timezone.utc)),
     }
+
+
+def _report_candidate(kb, state, candidate, job, current, yesterday):
+    from dreaming_reports import report_dependency_from_state
+
+    def coverage(item):
+        return report_dependency_from_state(
+            kb, state=state, kind=item["job"], period=item["period"],
+            now=current, scheduled_at=_parse_time(item["deadline_at"]),
+        )
+
+    dependency = coverage(candidate)
+    # At the evening cutoff both dailies can be due. Publish a covered
+    # yesterday even if today still needs input.
+    pending = job.get("pending_periods", {})
+    if (candidate["job"] == "daily" and dependency["status"] == "blocked"
+            and candidate["period"] > yesterday.isoformat() and yesterday.isoformat() in pending):
+        at = pending[yesterday.isoformat()]
+        previous = {**candidate, "period": yesterday.isoformat(), "ready_since": at, "deadline_at": at}
+        previous_coverage = coverage(previous)
+        if previous_coverage["status"] != "blocked":
+            return previous, previous_coverage
+    return candidate, dependency
 
 
 def _next_due(
@@ -1255,7 +1321,9 @@ def _candidate_key(candidate: Mapping[str, Any], now: datetime) -> tuple[Any, ..
     overdue = deadline is not None and deadline <= now
     ready_since = _parse_time(candidate.get("ready_since")) or now
     return (
-        -1 if candidate.get("prioritize_dependency") else 0,
+        0 if candidate.get("recent_report") else 1,
+        0 if candidate.get("job") == "daily" and candidate.get("recent_report") else 1,
+        -1 if candidate.get("prioritize_dependency") or candidate.get("recent_digest") else 0,
         0 if overdue else 1,
         deadline or datetime.max.replace(tzinfo=timezone.utc),
         ready_since,
@@ -1322,7 +1390,8 @@ def run_due(
     current = now or _now()
     decisions = observation.setdefault("jobs", {}) if observation is not None else None
     from dreaming_grants import expire_foreground_sessions
-    from dreaming_reports import REPORT_KINDS, expire_report_dependencies, report_dependency_from_state
+    from dreaming_collection import IM_BACKFILL_LOOKBACK, plan_im_recovery, plan_recent_im_window
+    from dreaming_reports import REPORT_KINDS, expire_report_dependencies
 
     expire_foreground_sessions(kb, now=current)
     with _state_lock(kb):
@@ -1390,8 +1459,15 @@ def run_due(
                     "lease": None,
                 }
             followup_reports_only = True
+        local_now = current.astimezone(zone)
+        yesterday = (local_now - timedelta(days=1)).date()
+        recent_start = datetime.combine(yesterday, time.min, zone)
+        recent_periods = {yesterday.isoformat(), local_now.date().isoformat()}
+        recent_due = False
         candidates: list[dict[str, Any]] = []
-        report_blockers: list[dict[str, Any]] = []
+        recent_blockers: list[dict[str, Any]] = []
+        history_blockers: list[dict[str, Any]] = []
+        recovery = None
         for name in JOBS:
             if followup_reports_only and name not in REPORT_KINDS:
                 continue
@@ -1403,26 +1479,47 @@ def run_due(
                 )
             # Report blockers describe the last evaluated window. Check the schedule
             # first, then derive fresh blockers for its latest due period.
+            if not job.get("enabled"):
+                if decisions is not None:
+                    decisions[name] = "disabled"
+                continue
+            if name in {"daily", "weekly"}:
+                migrated = _parse_time(value.get("report_owner", {}).get("migrated_at"))
+                _queue_report_periods(kb, name, job, local_now, max(enabled_at, migrated or enabled_at))
             candidate_job = {**job, "blocked_by": []} if name in REPORT_KINDS else job
             candidate = _candidate(
                 name,
                 candidate_job,
                 now=current,
-                local_now=current.astimezone(zone),
+                local_now=local_now,
                 enabled_at=enabled_at,
             )
+            gate = _job_gate(candidate_job, current)
             if decisions is not None:
-                decisions[name] = "due" if candidate else _job_gate(candidate_job, current) or "not_due"
+                decisions[name] = gate or ("due" if candidate else "not_due")
             if candidate is not None:
+                recent_report = (
+                    name == "daily" and candidate["period"] in recent_periods
+                    or name == "morning" and candidate["period"] == local_now.date().isoformat()
+                )
+                if name == "process" or recent_report:
+                    recent_due = True
+                if name == "process":
+                    candidate["recent_digest"] = True
+                if gate:
+                    continue
+                if recent_report:
+                    candidate["recent_report"] = True
+                if name == "recovery":
+                    recovery = plan_im_recovery(value, current)
+                    window = recovery["window"]
+                    if window and _parse_time(window["end"]) > recent_start:
+                        recent_due = True
+                        window["start"] = _iso(max(_parse_time(window["start"]), recent_start))
+                    candidate["historical"] = bool(window and _parse_time(window["end"]) <= recent_start)
                 if name in REPORT_KINDS:
-                    dependency = report_dependency_from_state(
-                        kb,
-                        state=value,
-                        kind=name,
-                        period=candidate["period"],
-                        now=current,
-                        scheduled_at=_parse_time(candidate.get("deadline_at")),
-                    )
+                    candidate["historical"] = not recent_report
+                    candidate, dependency = _report_candidate(kb, value, candidate, job, current, yesterday)
                     dependency_key = f"{name}:{candidate['period']}"
                     dependencies = value["report_dependencies"]
                     for key in list(dependencies):
@@ -1432,7 +1529,15 @@ def run_due(
                         blockers = dependency["blockers"]
                         job["blocked_by"] = [item["key"] for item in blockers]
                         dependencies[dependency_key] = dependency
-                        report_blockers.extend(blockers)
+                        if recent_report:
+                            recent_blockers.extend(blockers)
+                        else:
+                            # Keep the report pending if its only missing evidence
+                            # is outside automatic IM recovery.
+                            history_blockers.extend(
+                                item for item in blockers if item.get("source") != "im"
+                                or _parse_time(item["end"]) > current - IM_BACKFILL_LOOKBACK
+                            )
                         if decisions is not None:
                             decisions[name] = "blocked_by_dependency"
                         continue
@@ -1443,6 +1548,9 @@ def run_due(
                     job["ready_since"] = candidate["ready_since"]
                 if candidate.get("deadline_at") and not job.get("deadline_at"):
                     job["deadline_at"] = candidate["deadline_at"]
+        if recent_due:
+            candidates = [item for item in candidates if not item.get("historical")]
+        report_blockers = recent_blockers if recent_due else history_blockers
         if report_blockers and not followup_reports_only:
             process = jobs.get("process")
             if isinstance(process, Mapping) and not _job_gate(process, current):
@@ -1460,6 +1568,7 @@ def run_due(
                         "ready_since": (last_attempt.get("finished_at") if retry else None) or _iso(current),
                         "deadline_at": "",
                         "dependency": blocker,
+                        "historical": not recent_due,
                     }
                 )
         if not candidates:
@@ -1493,9 +1602,10 @@ def run_due(
         if selected.get("dependency"):
             lease["dependency"] = selected["dependency"]
         if job_name == "recovery":
-            from dreaming_collection import plan_im_recovery
-
-            lease["im_recovery"] = plan_im_recovery(value, current)
+            lease["im_recovery"] = recovery
+        if job_name == "process" and not selected.get("historical"):
+            lease["recent_start"] = _iso(recent_start)
+            lease["im_window"] = plan_recent_im_window(value, recent_start, current)
         job["lease_epoch"] = epoch
         job["last_attempt"] = {
             "run_id": run_id,
@@ -1825,7 +1935,8 @@ def complete_run(
             )
             acquired_at = _parse_time(lease.get("acquired_at"))
             if (
-                job_name != "process"
+                job_name not in {"process", "recovery"}
+                or not BATCH_ID.fullmatch(normalized_batch_id)
                 or not manifest.is_file()
                 or manifest_value.get("batch_id") != normalized_batch_id
                 or created_at is None
@@ -1835,8 +1946,17 @@ def complete_run(
             ):
                 raise DreamingError(
                     "DREAMING_RUN_RESULT_INVALID",
-                    "batch_id 只接受当前 process 产出的 EvidenceBatch。",
+                    "batch_id 只接受当前采集或恢复任务产出的 EvidenceBatch。",
                 )
+            if job_name == "recovery":
+                planned = (lease.get("im_recovery") or {}).get("window") or {}
+                window = manifest_value.get("window") or {}
+                lane = {"monitored": "monitored", "all_visible": "discovery"}.get(value["grants"]["im"]["mode"])
+                start = _parse_time(window.get("requested_start"))
+                if (not planned or not lane or not start or manifest_value.get("source", {}).get("lane") != lane
+                        or window.get("requested_end") != planned["end"]
+                        or not _parse_time(planned["start"]) <= start < _parse_time(planned["end"])):
+                    raise DreamingError("DREAMING_RUN_RESULT_INVALID", "消息批次与本次恢复的来源或时段不符。")
         artifact = _validate_artifact(job_name, artifact_path)
         run_id = _lease_run_id(lease)
         period = str(lease.get("period", ""))
@@ -1864,19 +1984,20 @@ def complete_run(
         accounting = {"status": run_status, "error_code": error_code, "metrics": metrics}
         if job_name == "process":
             from dreaming_digest import routine_run_accounting
-            from dreaming_action_ledger import count_run_kb_actions
+            from dreaming_action_ledger import run_kb_action_commits
 
-            accounting.update(routine_run_accounting(kb, run_id))
+            action_commits = run_kb_action_commits(
+                kb, value["actions"], lease_token=token, started_at=started_at,
+            )
+            accounting.update(routine_run_accounting(kb, run_id, action_commits=action_commits))
             if started_at is not None:
                 accounting["performance"] = run_performance(
                     kb, run_id=run_id, started_at=started_at, finished_at=current,
                 )
-            action_count = count_run_kb_actions(
-                kb, value["actions"], lease_token=token, started_at=started_at,
-            )
-            if action_count:
-                accounting.setdefault("kb_operations", {})["durable_actions"] = action_count
+            if action_commits:
+                accounting.setdefault("kb_operations", {})["durable_actions"] = len(action_commits)
         if normalized_batch_id:
+            accounting["message_batch"] = normalized_batch_id
             by_chat = Counter(
                 item["chat_id"] for item in manifest_value.get("items", [])
                 if isinstance(item, Mapping) and isinstance(item.get("chat_id"), str)
@@ -1917,6 +2038,8 @@ def complete_run(
         job["last_attempt"] = run
         job["last_run"] = run
         if run_status == "success":
+            if job_name in {"daily", "weekly"}:
+                job.get("pending_periods", {}).pop(period, None)
             job["last_success"] = run
             job["consecutive_failures"] = 0
             job["next_attempt_at"] = None

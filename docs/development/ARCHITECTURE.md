@@ -474,7 +474,11 @@ cron/launchd 冒充 Agent task。TraeWork 网页版的云端任务不能访问�
   → 若本轮 process 是 catch-up 且成功，最多一次受限 follow-up 领取被解锁的报告 job
 ```
 
-报告依赖按最近到期周期派生。普通领取和补采后的续跑都在状态锁内核对当前覆盖，替换同类报告的旧周期依赖。
+调度器优先核验本地今天、昨天的到期日报、当日晨报和到期的定期摄取，再选历史报告与旧消息缺口。
+日报、周报各自记录已发现和待发布的周期，成功归档后移除对应日期。
+近期 process 租约固定消息窗口，定期来源检查以领取时间为目标；历史 process 沿用报告补采目标。
+开放式增量群聊由 source adapter 按批次窗口抓取。Digest 回执核验完整起止，分段检查点供报告复核历史缺口。
+消息游标落后于昨天零点时，租约和暂缓的历史缺口在同一状态锁内落盘。报告依赖按所选周期派生。普通领取和补采后的续跑都在状态锁内核对当前覆盖，替换同类报告的旧周期依赖。
 新缺口的补采优先；同一缺口的重复尝试遵守 process 退避并参与普通排序，让其它到期任务有机会运行。
 日报准备阶段复用领取时的窗口。当日领取时覆盖至计划出报时间，跨日补跑时覆盖完整自然日。
 
@@ -1199,7 +1203,7 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/operation_trace.py` | 本机技术回执，字段与取值白名单、独立锁、有界保留 | 用户私有状态目录；与 KB 写锁和 Git 事务分离 |
 | `lib/support_feedback.py` | 从一个 BW、DT 或 DR 编号重建白名单摘要；不使用本地业务调试详情 | 草稿或本地 ZIP，复用 Digest 的呈现层 |
 | `lib/dreaming_debug.py` | 本地调试页按 run 关联 batch/report 产物，校验 Finding/evidence 一致性并按需投影原文片段 | 只读 `state/dreaming/`，不复制正文到日志 |
-| `lib/dreaming_run_result.py` | 校验每轮结构化摘要、来源说明、检查项与修复明细 | `state/dreaming/run-results/<run_id>.json`，终态日志按 run id 关联，完成回执与本地查询共用 |
+| `lib/dreaming_run_result.py`、`lib/dreaming_run_brief.py` | 校验私有结果，按来源回执与已核验的节点改动生成读者简报；恢复任务可从本轮已提交消息对应的发现还原具体结论 | `state/dreaming/run-results/<run_id>.json`，终态日志按 run id 关联，完成回执与本地查询共用 |
 | `lib/dreaming_grants.py` | IM off/monitored/all_visible、persist_finding revision 与降级清理 | grant state、撤销范围内 spool/batch |
 | `lib/dreaming_collectors/feishu_im.py` | user identity 的 queryless discovery 和逐 chat 分页。出站时间序列化为整秒，返回规范化消息 | 否 |
 | `lib/dreaming_collection.py` | 时间窗口、Profile 选择、message revision 去重、coverage 与时间切片 gap | collected batch |

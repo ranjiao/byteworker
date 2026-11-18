@@ -267,6 +267,20 @@ class SourceOperationIntegrationTests(unittest.TestCase):
                 },
             )
             bundle = json.loads(output.read_text(encoding="utf-8"))
+            window = "2026-07-29T09:00:00+08:00..2026-07-29T11:00:00+08:00"
+            command = [*completed.args, "--chat-window", window]
+            env = {**os.environ, "BYTEWORKER_LARK_CLI_BIN": str(fake_lark)}
+            rejected = subprocess.run(command, env=env, capture_output=True)
+            self.assertNotEqual(0, rejected.returncode)
+            profile["capture_policy"] = {"since_last": True, "page_size": 20, "overlap_seconds": 0}
+            profile["routine"] = {"enabled": True, "cadence": "daily"}
+            profile_path.write_text(json.dumps(validate_profile(profile)))
+            scoped = subprocess.run(command, env=env, capture_output=True)
+            self.assertEqual(0, scoped.returncode, scoped.stdout)
+            captured = json.loads(output.read_text())["provider_metadata"]
+            self.assertEqual("explicit", captured["capture_mode"])
+            self.assertEqual(window, captured["source_window"].replace(" ", ""))
+
 
         self.assertEqual(0, completed.returncode, completed.stdout)
         self.assertEqual("byteworker-source-bundle/v2", bundle["schema_version"])

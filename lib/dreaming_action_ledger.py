@@ -60,11 +60,11 @@ def _write_action(kb: Path, value: Mapping[str, Any]) -> None:
     atomic_write_json(_action_path(kb, str(value["action_id"])), value)
 
 
-def count_run_kb_actions(
+def run_kb_action_commits(
     kb: Path, actions: Mapping[str, Any], *, lease_token: str, started_at: datetime | None,
-) -> int:
-    """Count durable actions with verified receipts for this lease only."""
-    count = 0
+) -> list[str]:
+    """Return committed action receipts attributed to this run."""
+    commits = []
     for action_id, index in actions.items():
         if not isinstance(index, Mapping) or index.get("status") != "committed":
             continue
@@ -81,8 +81,8 @@ def count_run_kb_actions(
             and isinstance(downstream, Mapping) and downstream.get("status") == "committed"
             and downstream.get("commit")
         ):
-            count += 1
-    return count
+            commits.append(downstream["commit"])
+    return commits
 
 
 def _require_supported_kind(action: Mapping[str, Any]) -> None:

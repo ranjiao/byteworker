@@ -6,11 +6,11 @@ import hashlib
 import json
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from frontmatter import parse_file
+from frontmatter import parse_file, parse_frontmatter
 from digest_run_log import SHARD_ATTEMPT_EVENTS, SHARD_CONTEXT_RETRY_EXHAUSTED, SHARD_FAILURE_CODES, diagnostic_events
 from dreaming_run_log import MACHINE_CODE, append_run_event
 from operation_trace import DIGEST_RUN_ID
@@ -118,6 +118,9 @@ def routine_inventory(kb: Path) -> list[dict[str, Any]]:
                     else "ordinary_digest"
                 ),
                 "origin": "profile",
+                **({"chat_overlap_seconds": profile["capture_policy"]["overlap_seconds"]}
+                   if source_type == "feishu_chat" and profile["capture_policy"]["since_last"]
+                   and not profile["capture_policy"]["end"] else {}),
             }
         )
     identity_uids: dict[tuple[str, str, str], list[tuple[datetime | None, str]]] = {}
@@ -268,15 +271,50 @@ def _load_batch(kb: Path, run_id: str) -> dict[str, Any]:
     return value
 
 
-def _covers(checkpoint: object, source: Mapping[str, Any], target: str) -> bool:
-    if not isinstance(checkpoint, Mapping):
-        return False
-    through = parse_time(checkpoint.get("through"))
-    boundary = parse_time(target)
-    return (
-        checkpoint.get("profile_revision") == source["profile_revision"]
-        and through is not None and boundary is not None and through >= boundary
-    )
+def _covered_until(checkpoint, revision, start):
+    if not revision or not isinstance(checkpoint, Mapping) or checkpoint.get("profile_revision") != revision:
+        return None
+    if "covered_windows" not in checkpoint:
+        return parse_time(checkpoint.get("through"))
+    through = parse_time(checkpoint.get("legacy_through"))
+    for window in checkpoint["covered_windows"]:
+        left, right = chat_window(window)
+        if left <= max(start, through or start):
+            through = max(right, through or right)
+    return through
+
+
+def source_covers_window(checkpoint, source, start, end):
+    through = _covered_until(checkpoint, source.get("profile_revision"), start)
+    return through is not None and through >= end
+
+
+def _batch_source(source, checkpoint, start, end):
+    covered = source_covers_window(checkpoint, source, start, end)
+    row = {**source, "status": "covered" if covered else "pending", "receipt": {}, "error_code": ""}
+    if not covered and "chat_overlap_seconds" in source and start < end:
+        through = _covered_until(checkpoint, source["profile_revision"], start)
+        overlap = timedelta(seconds=source["chat_overlap_seconds"])
+        left = max(start, through - overlap) if through else start
+        row["capture_window"] = f"{utc_iso(left.replace(microsecond=0))}..{utc_iso(end)}"
+    return row
+
+
+def _record_chat_window(previous, checkpoint, window):
+    """Keep verified disjoint intervals when newer chat messages were digested first."""
+    old = previous if previous.get("profile_revision") == checkpoint["profile_revision"] else {}
+    windows = [chat_window(item) for item in old.get("covered_windows", [])]
+    windows.append(chat_window(window))
+    merged = []
+    for left, right in sorted(windows):
+        if merged and left <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], right))
+        else:
+            merged.append((left, right))
+    checkpoint["covered_windows"] = [f"{utc_iso(left)}..{utc_iso(right)}" for left, right in merged]
+    checkpoint["legacy_through"] = old.get("legacy_through") if "covered_windows" in old else old.get("through")
+    times = [merged[-1][1], parse_time(checkpoint["through"]), parse_time(old.get("through"))]
+    checkpoint["through"] = utc_iso(max(value for value in times if value is not None))
 
 
 def prepare_routine_digest(
@@ -290,15 +328,13 @@ def prepare_routine_digest(
         state = load_state_unlocked(kb, current)
         lease = _live_process_lease(state, token=token, now=current)
         run_id = str(lease["run_id"])
-        target_through = str(
-            (
-                lease.get("dependency")
-                if isinstance(lease.get("dependency"), Mapping)
-                else {}
-            ).get("end")
-            or lease.get("acquired_at")
-            or utc_iso(current)
-        )
+        target_through = lease.get("acquired_at") or utc_iso(current)
+        dependency = lease.get("dependency")
+        if "im_window" not in lease and isinstance(dependency, Mapping):
+            target_through = dependency.get("end") or target_through
+        if lease.get("recent_start"):
+            target_through = utc_iso(parse_time(target_through).replace(microsecond=0))
+        target_start = lease.get("recent_start") or (dependency or {}).get("start") or target_through
         path = _batch_path(kb, run_id)
         if path.is_file():
             batch = _load_batch(kb, run_id)
@@ -310,17 +346,13 @@ def prepare_routine_digest(
                 "run_id": run_id,
                 "lease_epoch": lease["epoch"],
                 "target_through": target_through,
+                "target_start": target_start,
                 "prepared_at": utc_iso(current),
                 "status": "running",
                 "sources": {
-                    item["source_key"]: {
-                        **item,
-                        "status": "covered" if _covers(
-                            checkpoints.get(item["source_key"], {}), item, target_through,
-                        ) else "pending",
-                        "receipt": {},
-                        "error_code": "",
-                    }
+                    item["source_key"]: _batch_source(
+                        item, checkpoints.get(item["source_key"]), parse_time(target_start), parse_time(target_through),
+                    )
                     for item in inventory
                 },
             }
@@ -337,7 +369,7 @@ def prepare_routine_digest(
                     "cadence", "workflow", "origin", "status",
                 )},
                 "label": item.get("label", ""),
-                **{key: item[key] for key in ("work", "raw_path", "error_code") if item.get(key)},
+                **{key: item[key] for key in ("work", "raw_path", "error_code", "capture_window") if item.get(key)},
             }
             for item in batch["sources"].values()
         ],
@@ -390,8 +422,9 @@ def _verify_git_commit(kb: Path, commit: str) -> None:
         )
 
 
-def _commit_changes(kb: Path, receipt: Mapping[str, Any]) -> dict[str, int] | None:
-    commit = str(receipt.get("commit", ""))
+def _commit_changes(
+    kb: Path, commit: str, raw_receipt: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, int], list[dict[str, str]]] | None:
     if not re.fullmatch(r"(?:[a-f0-9]{40}|[a-f0-9]{64})", commit):
         return None
     try:
@@ -402,43 +435,56 @@ def _commit_changes(kb: Path, receipt: Mapping[str, Any]) -> dict[str, int] | No
         )
         fields = result.stdout.decode("utf-8", errors="replace").split("\0")
         changes = list(zip(fields[::2], fields[1::2]))
-        matched_raw = False
-        for _, path in changes:
-            if not path.startswith("raw_data/") or not path.endswith(".md"):
-                continue
-            raw = kb / path
-            if raw.resolve().parent != (kb / "raw_data").resolve() or not raw.is_file():
-                continue
-            frontmatter, _ = parse_file(str(raw))
-            if (frontmatter.get("raw_id") == receipt.get("raw_id")
-                    and frontmatter.get("digest_key") == receipt.get("digest_key")):
-                matched_raw = True
-                break
+        if raw_receipt is not None:
+            for _, path in changes:
+                if not path.startswith("raw_data/") or not path.endswith(".md"):
+                    continue
+                raw = kb / path
+                if raw.resolve().parent != (kb / "raw_data").resolve() or not raw.is_file():
+                    continue
+                frontmatter, _ = parse_file(str(raw))
+                if (frontmatter.get("raw_id") == raw_receipt.get("raw_id")
+                        and frontmatter.get("digest_key") == raw_receipt.get("digest_key")):
+                    break
+            else:
+                return None
     except (OSError, UnicodeError, subprocess.CalledProcessError):
         return None
-    if not matched_raw:
-        return None
-    nodes = [status for status, path in changes if path.startswith("knowledge/") and path.endswith(".md")]
+    nodes = []
+    actions = {"A": "新增", "M": "更新", "D": "删除"}
+    for status, path in changes:
+        if status not in actions or not path.startswith("knowledge/") or not path.endswith(".md"):
+            continue
+        revision = f"{commit}^" if status == "D" else commit
+        blob = subprocess.run(["git", "cat-file", "blob", f"{revision}:{path}"], cwd=kb, capture_output=True)
+        title = ""
+        if blob.returncode == 0:
+            meta, _ = parse_frontmatter(blob.stdout.decode("utf-8", errors="replace"))
+            title = str(meta.get("title") or "")
+        nodes.append({"action": actions[status], "path": path, "title": title or Path(path).stem})
     return {
-        "digest_commits": 1,
+        "digest_commits": int(raw_receipt is not None),
         "files_changed": len(changes),
-        "nodes_created": nodes.count("A"),
-        "nodes_updated": nodes.count("M"),
-        "nodes_deleted": nodes.count("D"),
-    }
+        "nodes_created": sum(node["action"] == "新增" for node in nodes),
+        "nodes_updated": sum(node["action"] == "更新" for node in nodes),
+        "nodes_deleted": sum(node["action"] == "删除" for node in nodes),
+    }, nodes
 
 
-def routine_run_accounting(kb: Path, run_id: str) -> dict[str, Any]:
+def routine_run_accounting(kb: Path, run_id: str, *, action_commits: list[str] | None = None) -> dict[str, Any]:
     """Summarize recorded receipts without claiming writes from unfinished sources."""
     try:
         batch = _load_batch(kb, run_id)
     except DreamingError:
-        return {"routine_batch_recorded": False}
+        if not action_commits:
+            return {"routine_batch_recorded": False}
+        batch = None
     totals = dict.fromkeys(("digest_commits", "files_changed", "nodes_created", "nodes_updated", "nodes_deleted"), 0)
     seen_commits = set()
+    changed_nodes = {}
     sources = []
     unaccounted = 0
-    for key, source in batch["sources"].items():
+    for key, source in (batch["sources"] if batch else {}).items():
         if not isinstance(source, Mapping):
             unaccounted += 1
             continue
@@ -446,7 +492,11 @@ def routine_run_accounting(kb: Path, run_id: str) -> dict[str, Any]:
         receipt = source.get("receipt")
         changes = dict.fromkeys(totals, 0) if status in {"noop", "empty_window", "covered"} else None
         if status == "committed" and isinstance(receipt, Mapping):
-            changes = _commit_changes(kb, receipt)
+            verified = _commit_changes(kb, str(receipt.get("commit", "")), receipt)
+            if verified is not None:
+                changes, nodes = verified
+                for node in nodes:
+                    changed_nodes[(node["action"], node["path"])] = node
         if changes is None:
             unaccounted += 1
         elif status == "committed" and receipt["commit"] not in seen_commits:
@@ -460,9 +510,22 @@ def routine_run_accounting(kb: Path, run_id: str) -> dict[str, Any]:
             **({"failure_evidence": receipt["failure_evidence"]}
                if isinstance(receipt, Mapping) and receipt.get("failure_evidence") else {}),
         })
+    unknown_action_changes = 0
+    for commit in sorted(set(action_commits or []) - seen_commits):
+        verified = _commit_changes(kb, commit)
+        if verified is None:
+            unknown_action_changes += 1
+            continue
+        changes, nodes = verified
+        for name, count in changes.items():
+            totals[name] += count
+        for node in nodes:
+            changed_nodes[(node["action"], node["path"])] = node
     return {
-        "routine_batch_recorded": True,
+        "routine_batch_recorded": batch is not None,
+        "unknown_action_changes": unknown_action_changes,
         "routine_sources": sources,
+        "changed_nodes": list(changed_nodes.values()),
         "unaccounted_sources": unaccounted,
         "kb_operations": totals,
     }
@@ -531,9 +594,12 @@ def _verify_transaction_receipt(
         )
     if status == "committed":
         _verify_git_commit(kb, str(receipt.get("commit", "")))
+    window = None
     if source["source_type"] == "feishu_chat":
-        _verify_chat_coverage(chat_window(frontmatter.get("source_window")), target_through, acquired_at, now)
+        window = chat_window(frontmatter.get("source_window"))
+        _verify_chat_coverage(window, target_through, acquired_at, now, source)
     return {
+        **({"window_start": utc_iso(window[0]), "window_end": utc_iso(window[1])} if window else {}),
         "status": status,
         "digest_key": digest_key,
         "raw_id": str(frontmatter.get("raw_id", "")),
@@ -596,7 +662,12 @@ def _verify_wiki_receipt(
     }
 
 
-def _verify_chat_coverage(window, target_through: str, acquired_at: str, now: datetime) -> None:
+def _verify_chat_coverage(window, target_through: str, acquired_at: str, now: datetime, source) -> None:
+    if source.get("capture_window"):
+        needed = chat_window(source["capture_window"])
+        if window and needed and window[0] <= needed[0] and needed[1] <= window[1] <= now:
+            return
+        raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "群聊窗口未覆盖租约范围，或不是本轮抓取。")
     target = parse_time(target_through)
     acquired = parse_time(acquired_at)
     if (
@@ -637,13 +708,13 @@ def _verify_empty_chat_receipt(
         window is None
         or source["source_type"] != "feishu_chat"
         or bundle.identity.source_uid != source["source_uid"]
-        or metadata.get("capture_mode") != "since-last"
+        or metadata.get("capture_mode") not in ({"since-last", "explicit"} if source.get("capture_window") else {"since-last"})
         or not isinstance(profile, Mapping)
         or profile.get("revision") != source["profile_revision"]
     ):
         raise DreamingError(invalid, "群聊空窗口与本轮来源或配置版本不符。")
     start, end = window
-    _verify_chat_coverage(window, target_through, acquired_at, now)
+    _verify_chat_coverage(window, target_through, acquired_at, now, source)
     return {
         "status": "empty_window",
         "digest_run_id": run_id,
@@ -864,6 +935,8 @@ def complete_routine_digest(
         lease = _live_process_lease(state, token=token, now=current)
         run_id = str(lease["run_id"])
         batch = _load_batch(kb, run_id)
+        start = parse_time(batch.get("target_start") or batch["target_through"])
+        end = parse_time(batch["target_through"])
         for source in batch["sources"].values():
             evidence = source.get("receipt", {}).get("failure_evidence", {})
             if source["status"] not in SUCCESS_STATUSES and not evidence:
@@ -875,8 +948,8 @@ def complete_routine_digest(
                     )
         checkpoints = state.setdefault("source_checkpoints", {})
         for source in batch["sources"].values():
-            if source.get("status") == "covered" and not _covers(
-                checkpoints.get(source["source_key"]), source, batch["target_through"],
+            if source.get("status") == "covered" and not source_covers_window(
+                checkpoints.get(source["source_key"]), source, start, end,
             ):
                 source["status"] = "pending"
         pending = [
@@ -917,7 +990,8 @@ def complete_routine_digest(
         for key, source in batch["sources"].items():
             if source["status"] == "covered" or source["status"] not in SUCCESS_STATUSES:
                 continue
-            if _covers(checkpoints.get(key, {}), source, batch["target_through"]):
+            previous = checkpoints.get(key, {})
+            if source_covers_window(previous, source, start, end):
                 continue
             checkpoints[key] = {
                 "source_type": source["source_type"],
@@ -928,6 +1002,9 @@ def complete_routine_digest(
                 "result_status": source["status"],
                 "updated_at": utc_iso(current),
             }
+            receipt = source["receipt"]
+            if source.get("capture_window") or (previous.get("covered_windows") and receipt.get("window_start")):
+                _record_chat_window(previous, checkpoints[key], f"{receipt['window_start']}..{receipt['window_end']}")
             if source["status"] == "empty_window":
                 checkpoints[key]["digest_run_id"] = source["receipt"]["digest_run_id"]
             elif source["workflow"] == "ordinary_digest":

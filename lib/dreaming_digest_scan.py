@@ -64,7 +64,8 @@ def _check_source(kb, token, source, invoke):
             if not started:
                 invoke(*capture_stage, "started")
                 started = True
-            invoke("source", "capture", *scope, "--source-type", source_type, "--source-uid", source_uid, *output)
+            window = ("--chat-window", source["capture_window"]) if source.get("capture_window") else ()
+            invoke("source", "capture", *scope, "--source-type", source_type, "--source-uid", source_uid, *window, *output)
         bundle = load_source_bundle(bundle_path)
         profile = bundle.provider_metadata.get("source_profile", {})
         if (

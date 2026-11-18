@@ -211,11 +211,10 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
   当前会话没有 Schedule 工具时，提示用户在 TRAE 任务面板创建本地 Code 定时任务、每 30 分钟
   执行 runner，并先 Run now；没有真实任务和首次触发证据时保持 harness pending，禁止猜私有
   API、改 TRAE 配置或用 cron/launchd 冒充 Agent task。
-- 每次 lease 都有稳定 `run_id`。runner 在采集、分析、整合、动作、报告、维护和恢复等长阶段
-  调用 `dreaming heartbeat`，最终 `complete`；用户可用 `dreaming runs list/show/tail` 查询
-  `0600` 结构化运行日志。日志只含阶段、耗时、计数、error code 和 artifact path，不含 IM 正文。
-- 宿主回显诊断编号和摘要。后台先自动处理，普通缺口不等待答复。异常按
-  `references/dreaming.md` 查最近唤醒和运行，不要求用户提供编号。
+- 每轮有稳定 `run_id`。长阶段调用 `dreaming heartbeat`，收尾用 `complete`。
+  `dreaming runs list/show/tail` 查询私有运行日志，技术事件只含元数据。
+- 宿主简报写具体发现、文档成败和实际修改的节点。普通缺口自动处理。异常按
+  `references/dreaming.md` 查最近运行，无需要求用户提供编号。
 - 启用默认不接管现有日报/周报；接管需要单独确认旧 scheduler owner 已释放。
 - Dreaming local state 使用 `byteworker-dreaming/v2`；读取已有 v1 时由确定性状态层先写本地私密
   备份再迁移。迁移失败保持 Dreaming 关闭，不得阻塞其它命令或让 Agent 手改 state JSON。
@@ -230,8 +229,8 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
 - 自动 IM 补跑只看最近 14 天，历史窗口可按需前台处理。
 - 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
-- morning/daily/weekly 由唯一 owner 按 `references/dreaming-reports.md` 运行。按最近到期周期复核覆盖，
-  报告只用已提交的 digest、Finding 和 KB。
+- morning/daily/weekly 由唯一 owner 按 `references/dreaming-reports.md` 运行。优先摄取今天和昨天的信息并生成到期日报，之后回补历史。
+  报告复核覆盖，只用已提交的 digest、Finding 和 KB。
 - maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行获准的
   确定性修复。人工待办逐项保留，只汇总新增或变化项，后续扫描继续运行。
 - 前台单次处理、Finding review/explain/feedback 和私有 shadow 评估按

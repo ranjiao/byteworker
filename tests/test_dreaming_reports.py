@@ -178,6 +178,134 @@ class DreamingReportTests(unittest.TestCase):
             )
             self.assertEqual("morning", next_run["job"])
 
+    def test_recent_digest_and_both_dailies_precede_weekly_backfill(self):
+        from dreaming_batch import commit_batch, write_stage_receipt
+        from dreaming_collection import prepare_im_batch
+        from dreaming_digest import prepare_routine_digest
+
+        with tempfile.TemporaryDirectory() as temporary:
+            wake = datetime(2026, 11, 18, 13, tzinfo=timezone.utc)  # Wednesday 21:00 Shanghai
+            kb = self.make_kb(Path(temporary), wake - timedelta(days=10))
+            with state_lock(kb):
+                state = load_state_unlocked(kb, wake)
+                for name, job in state["jobs"].items():
+                    job["enabled"] = name in {"process", "daily", "weekly", "recovery"}
+                state["grants"]["im"]["mode"] = "all_visible"
+                state["cursors"]["im:discovery"] = {"through": (wake - timedelta(days=6)).isoformat()}
+                save_state_unlocked(kb, state)
+
+            catchup = run_due(kb, owner="host", now=wake)["lease"]
+            self.assertEqual("process", catchup["job"])
+            self.assertTrue(catchup["period"].startswith("catchup:"))
+            self.assertGreaterEqual(catchup["dependency"]["start"], "2026-11-16T16:00:00")
+            window = {"start": "2026-11-16T16:00:00+00:00", "end": wake.isoformat()}
+            self.assertEqual(window, catchup["im_window"])
+            self.assertEqual(window["end"], prepare_routine_digest(kb, token=catchup["token"], now=wake)["target_through"])
+            adapter = mock.Mock()
+            adapter.principal.return_value = "user:test"
+            adapter.collect_discovery.return_value = {"coverage": {"status": "best_effort", "gaps": []}, "messages": []}
+            batch = prepare_im_batch(kb, collector=adapter, now=wake)
+            adapter.collect_discovery.assert_called_once_with(**window)
+            for stage in ("analyzed", "consolidated"):
+                write_stage_receipt(kb, batch_id=batch["batch_id"], stage=stage, receipt={"ok": True}, now=wake)
+            commit_batch(kb, batch_id=batch["batch_id"], cursor_key="im:discovery", through=window["end"], now=wake)
+            complete_run(kb, token=catchup["token"], run_status="success", now=wake)
+
+            for day in ("2026-11-18", "2026-11-17"):
+                followup = catchup["run_id"] if day == "2026-11-18" else ""
+                report = run_due(kb, owner="host", followup_after_run_id=followup, now=wake)["lease"]
+                self.assertEqual(("daily", day), (report["job"], report["period"]))
+                prepare_report_packet(kb, kind="daily", period=day, now=wake)
+                doc = {**self.report_document(), "kind": "daily", "period": day}
+                receipt = complete_report_run(kb, token=report["token"], document=doc, now=wake)
+                self.assertTrue((kb / receipt["run"]["artifact_path"]).is_file())
+
+            weekly = report_dependency(kb, kind="weekly", period="2026-W46", now=wake)
+            self.assertEqual(["im"], [item["source"] for item in weekly["blockers"]])
+            history = run_due(kb, owner="host", now=wake)["lease"]
+            self.assertEqual("process", history["job"])
+            self.assertNotIn("im_window", history)
+            self.assertLessEqual(history["dependency"]["end"], window["start"])
+
+    def test_covered_yesterday_is_published_while_today_needs_input(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            wake = datetime(2026, 11, 18, 13, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), wake - timedelta(days=8))
+            with state_lock(kb):
+                state = load_state_unlocked(kb, wake)
+                for name, job in state["jobs"].items():
+                    job["enabled"] = name in {"daily", "weekly", "process", "recovery"}
+                state["grants"]["im"]["mode"] = "all_visible"
+                state["cursors"]["im:discovery"] = {"through": "2026-11-17T16:00:00+00:00"}
+                state["jobs"]["process"]["next_attempt_at"] = (wake + timedelta(minutes=5)).isoformat()
+                state["gaps"]["old"] = {"lane": "discovery", "windows": [{
+                    "start": "2026-11-10T00:00:00+00:00", "end": "2026-11-11T00:00:00+00:00",
+                }]}
+                save_state_unlocked(kb, state)
+            yesterday = run_due(kb, owner="host", now=wake)["lease"]
+            self.assertEqual(("daily", "2026-11-17"), (yesterday["job"], yesterday["period"]))
+            complete_report_run(kb, token=yesterday["token"], now=wake, document={
+                **self.report_document(), "kind": "daily", "period": yesterday["period"],
+            })
+            self.assertEqual("idle", run_due(kb, owner="host", now=wake)["status"])
+            retry = run_due(kb, owner="host", now=wake + timedelta(minutes=5))["lease"]
+            self.assertEqual("process", retry["job"])
+            self.assertIn("im_window", retry)
+
+    def test_first_recent_collection_preserves_older_unobserved_weeks(self):
+        from dreaming_collection import plan_recent_im_window
+
+        with tempfile.TemporaryDirectory() as temporary:
+            wake = datetime(2026, 11, 18, 13, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), wake - timedelta(days=35))
+            with state_lock(kb):
+                state = load_state_unlocked(kb, wake)
+                state["grants"]["im"]["mode"] = "monitored"
+                recent_start = datetime(2026, 11, 16, 16, tzinfo=timezone.utc)
+                window = plan_recent_im_window(state, recent_start, wake)
+                self.assertEqual(recent_start.isoformat(), window["start"])
+                state["cursors"]["im:monitored"] = {"through": window["end"]}
+                save_state_unlocked(kb, state)
+            old_week = report_dependency(kb, kind="weekly", period="2026-W43", now=wake)
+            self.assertEqual(["im"], [item["source"] for item in old_week["blockers"]])
+
+    def test_upgrade_finds_missing_yesterday_after_today_already_succeeded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            wake = datetime(2026, 11, 18, 13, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), wake - timedelta(days=8))
+            with state_lock(kb):
+                state = load_state_unlocked(kb, wake)
+                for name, job in state["jobs"].items():
+                    job["enabled"] = name == "daily"
+                state["jobs"]["daily"]["last_success"] = {
+                    "status": "success", "period": "2026-11-18", "finished_at": wake.isoformat(),
+                }
+                save_state_unlocked(kb, state)
+            report = run_due(kb, owner="host", now=wake)["lease"]
+            self.assertEqual(("daily", "2026-11-17"), (report["job"], report["period"]))
+
+    def test_blocked_weekly_survives_new_iso_year_and_newer_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            first = datetime(2025, 12, 29, 2, tzinfo=timezone.utc)  # Monday 10:00 Shanghai
+            kb = self.make_kb(Path(temporary), first - timedelta(days=4))
+            with state_lock(kb):
+                state = load_state_unlocked(kb, first)
+                for name, job in state["jobs"].items():
+                    job["enabled"] = name == "weekly"
+                state["grants"]["im"]["mode"] = "monitored"
+                save_state_unlocked(kb, state)
+            self.assertEqual("idle", run_due(kb, owner="host", now=first)["status"])
+            second = first + timedelta(days=7)
+            self.set_cursor(kb, "im:monitored", second.isoformat(), second)
+            for period in ("2026-W01", "2025-W52"):
+                lease = run_due(kb, owner="host", now=second)["lease"]
+                self.assertEqual(("weekly", period), (lease["job"], lease["period"]))
+                receipt = complete_report_run(kb, token=lease["token"], now=second, document={
+                    **self.report_document(), "kind": "weekly", "period": period,
+                })
+                self.assertTrue((kb / receipt["run"]["artifact_path"]).is_file())
+            self.assertEqual("idle", run_due(kb, owner="host", now=second)["status"])
+
     def test_daily_packet_uses_scheduled_cutoff_after_delayed_catchup(self):
         with tempfile.TemporaryDirectory() as temporary:
             cutoff = datetime(2026, 11, 17, 12, 30, tzinfo=timezone.utc)

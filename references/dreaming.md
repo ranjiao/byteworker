@@ -112,8 +112,7 @@ bin/byteworker dreaming run-due \
 上述领取命令。直接调用 `run-due` 仍兼容，但独立调用不会补造宿主唤醒记录。
 
 `disabled/idle/busy` 安静退出；`leased` 只执行返回的 `job/period` 并保存 `lease.token`。
-实际执行或启动失败时，宿主可见结果的首行包含状态和已取得的 `DT-…` / `DR-…`。
-失败、部分完成或待投递时附已记录的阶段和固定原因码，便于直接从结果继续排查。
+宿主结果优先说明实际收获和未完成的工作。启动失败时说明影响及已知原因，诊断编号在日志中查询。
 唯一例外：完成 `process catchup:*` 后，可用 `--followup-after-run-id <run_id>`
 再领一次报告。除此之外一轮最多一个 job，不自行算 period 或清空队列。失败 job 遵守 `next_attempt_at`。
 
@@ -153,11 +152,12 @@ bin/byteworker dreaming runs show --kb "<KB>" "<run_id>"
 bin/byteworker dreaming runs tail --kb "<KB>" --run-id "<run_id>" --limit 50
 ```
 
-完成回执和 `runs show` 返回同一份 `summary`。Agent 回显主要信息、来源处理分布、耗时和已核验
-的库变更。process 的主要信息及可选 `source_notes[{source_key,summary}]` 由 Agent 经
-`complete --result-input` 提供，报告采用已生成的摘要。系统从租约、来源回执和可回查的 Git 提交
-补齐计数。未完成或无法核验的来源单列，不能把未知变更当作零。日志终态关联
-`state/dreaming/run-results/<run_id>.json`，正文仅用于本机查询和宿主本轮结果。
+完成回执和 `runs show` 的 `summary.brief` 是给知识库主人的简报，宿主直接返回，本地 Viewer 优先展示。
+Agent 在 `complete --result-input` 的 `summary` 说明具体发现、日期及影响。只看消息就按消息计数；
+来源提到或链接的文档不计入已读。失败或暂缓用 `source_notes[{source_key,summary}]` 写清原因。
+系统按来源回执列出文档数量、名称、各项结果和可核验的节点名称。此前已处理、尚未处理和失败分别列出。
+节点缺少写入证据时标明未知。耗时、诊断编号、技术步骤留在详情。报告采用已经生成的内容摘要。
+正文仅用于本机查询和宿主本轮结果，技术日志只关联 `state/dreaming/run-results/<run_id>.json`。
 已准备来源被拒绝提前收尾时，日志记录 `DREAMING_DIGEST_EXECUTION_REQUIRED` 和关联 Digest 编号。
 已登记的来源失败证据保存在 `summary.accounting.routine_sources[].failure_evidence`，可用
 `digest-run show` 按 Digest 编号查看分片预算、尝试编号和核验过的宿主错误。
@@ -223,6 +223,8 @@ bin/byteworker dreaming process abort --kb "<KB>" \
 `prepare` 只生成私密 spool 与 `collected` EvidenceBatch，返回 batch id、相对 manifest path、数量和
 coverage，不返回消息正文。monitored 读取已登记的 chat Profile；all_visible 的 queryless search
 永远标 `best_effort`。预算截断形成时间切片 gap，page token 不跨 attempt 保存。
+近期 process 的 IM 使用租约 `im_window`，从知识库时区昨天零点起按游标和已知缺口取窗口。
+调用 prepare 时省略 --start/--end，窗口为空则跳过 IM。较早的未采区间记入缺口，待近期摄取、日报完成后回补。
 自动 IM 采集最多回看 14 天。完全超龄的窗口在读取来源前返回 `DREAMING_IM_WINDOW_EXPIRED`；
 跨界窗口只采集近期部分，`skipped_window` 记录未采集范围。用户明确指定历史时间可用前台单次处理。
 
