@@ -144,6 +144,17 @@ Python 未启动时，先查看宿主的本地错误或任务历史。
   `"$TARGET/bin/byteworker" lark auth login --device-code <本次流程返回的 device_code>` 收尾,再运行
   `source auth-status` 验证。URL / device code 只用于这一次进行中的授权,不得写入
   skill 仓库或知识库。
+- 风神服务地址保存在本机 `~/.config/byteworker/aeolus-endpoints.json`。
+  填写实际看板站点的 HTTPS 根地址。使用 ByteCloud JWT 时另填换取 Passport 的完整 HTTPS 地址。
+  可通过 `BYTEWORKER_AEOLUS_CONFIG` 指定配置文件路径。以下保留域名仅用于举例：
+
+  ```json
+  {
+    "dashboard_origin": "https://dashboard.example.test",
+    "passport_endpoint": "https://passport.example.test/example/exchange"
+  }
+  ```
+
 - **风神** 使用 byteworker 原生只读客户端，不依赖其它 CLI。凭据按以下优先级选择一种：
   `BYTEWORKER_AEOLUS_TITAN_PASSPORT`（当前用户态会话）、
   `BYTEWORKER_AEOLUS_BYTECLOUD_JWT`（运行时在内存中交换用户态会话）、

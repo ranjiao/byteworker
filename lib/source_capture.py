@@ -1612,6 +1612,7 @@ def _aeolus_client_error(exc: AeolusClientError) -> SourceCaptureError:
         "AEOLUS_NOT_FOUND": "SOURCE_NOT_FOUND",
         "AEOLUS_TIMEOUT": "SOURCE_TIMEOUT",
         "AEOLUS_INVALID_URL": "SOURCE_URL_INVALID",
+        "AEOLUS_ENDPOINTS_INVALID": "SOURCE_CONFIG_INVALID",
         "AEOLUS_UNSUPPORTED_URL": "SOURCE_UNSUPPORTED_VIEW",
     }
     return SourceCaptureError(

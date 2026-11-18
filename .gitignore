@@ -15,6 +15,7 @@ reports/
 
 # ===== 本地状态(每台机器不同,不提交) =====
 .kbconfig
+aeolus-endpoints.json
 .last-update-check
 .update-state.json
 .update-check.lock/

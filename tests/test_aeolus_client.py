@@ -47,6 +47,46 @@ class RecordingTransport:
 
 
 class AeolusClientTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.config = Path(folder.name) / "aeolus-endpoints.json"
+        self.config.write_text(json.dumps({
+            "dashboard_origin": "https://dashboard.example.test",
+            "passport_endpoint": "https://passport.example.test/titan/passport/id",
+        }))
+        env = patch.dict(os.environ, {"BYTEWORKER_AEOLUS_CONFIG": str(self.config)})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_endpoint_config_controls_request_destinations(self):
+        self.config.write_text(json.dumps({
+            "dashboard_origin": "https://custom.example.test:8443/",
+            "passport_endpoint": "https://login.example.test/session",
+        }))
+        http = RecordingTransport(lambda call: response(
+            {"code": 0, "data": {"titan_passport_id": "session"}}))
+        client = AeolusClient(credentials={"bytecloud_jwt": "test"}, transport=http)
+        self.assertTrue(client.auth_status()["ready"])
+        self.assertEqual("https://login.example.test/session", http.calls[0]["url"])
+        self.assertTrue(http.calls[1]["url"].startswith("https://custom.example.test:8443/"))
+        suffix = "/aeolus/pages/dashboard/2?appId=1&sheetId=3"
+        self.assertEqual("https://custom.example.test:8443", parse_dashboard_url("https://custom.example.test:8443" + suffix)["base_url"])
+        with self.assertRaises(AeolusClientError):
+            parse_dashboard_url("https://custom.example.test" + suffix)
+
+    def test_missing_or_invalid_config_makes_no_request(self):
+        self.config.unlink()
+        transport = RecordingTransport(lambda call: self.fail("unexpected request"))
+        for settings in (None, {"dashboard_origin": "http://invalid.test"},
+                         {"dashboard_origin": "https://a.test", "passport_endpoint": "https://a:b@invalid.test"}):
+            if settings is not None:
+                self.config.write_text(json.dumps(settings))
+            with self.assertRaises(AeolusClientError) as raised:
+                AeolusClient(credentials={"bearer_token": "test"}, transport=transport).auth_status()
+            self.assertEqual("AEOLUS_ENDPOINTS_INVALID", raised.exception.code)
+        self.assertEqual([], transport.calls)
+
     def test_dashboard_url_requires_stable_coordinates(self):
         parsed = parse_dashboard_url(
             "https://dashboard.example.test/aeolus/pages/dashboard/202"

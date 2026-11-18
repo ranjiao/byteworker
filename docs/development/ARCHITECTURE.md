@@ -997,6 +997,7 @@ Bundle”误认为“也必须有同形态网络 capture”：
 | Profile | `meego`、`feishu_base`、`feishu_chat`、`feishu_doc`、`feishu_wiki`；兼容 `aeolus` v1 | Base/Chat/Doc/Meego/Wiki 使用 v2；Wiki 仅描述监控子树；Aeolus 保留 v1 |
 | Bundle adapter | `meego`、`feishu_base`、`aeolus`、`feishu_chat`、`feishu_doc`、`feishu_minutes`、`web`、`local_md` | 所有单来源统一输出 `SourceBundle v2` |
 
+- 风神 adapter 从本机地址配置读取看板根地址与 Passport 交换端点；看板校验和全部 HTTP 请求复用同一配置。
 - Meego/Base/Aeolus 可用 `capture --bundle-out` 从完整 capture 同步产生 Bundle。
 - Meego `inspect / capture` 对空间主页返回 `SOURCE_SELECTION_REQUIRED`，不生成 Bundle 或
   Profile，也不发起网络业务读取；用户提供具体 Story View URL 后才进入标准 inspect / capture。

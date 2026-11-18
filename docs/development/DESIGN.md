@@ -932,7 +932,7 @@ Meego / Base 保存视图及风神 dashboard sheet 含大量记录/报表结果�
 
 风神的运行边界固定为 byteworker 自带的最小只读 HTTP 客户端：只允许 dashboard/sheet
 发现、dataset 字段读取、report 保存态配置读取和 VizQuery 查询，不接入创建、修改、发布或
-权限申请接口，也不依赖其它 CLI。用户态 Titan Passport、ByteCloud JWT、Bearer token 或
+权限申请接口，也不依赖其它 CLI。看板根地址和可选的 JWT 交换地址来自仓库外私有配置的 `dashboard_origin` 和 `passport_endpoint`，看板 URL 必须与配置的 HTTPS 源匹配。用户态 Titan Passport、ByteCloud JWT、Bearer token 或
 服务态 client credentials 只从进程环境 / secret manager / 仓库外 `0600` 私密文件读取；
 只在内存中交换和缓存，不得进入 skill 仓库、知识库、raw、diff、provenance、日志或命令参数。
 定时任务优先使用单独授权、可轮换的服务态凭据；服务身份与个人身份的资源权限必须分别验证，

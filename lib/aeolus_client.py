@@ -21,13 +21,12 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable, Mapping, MutableMapping, Sequence
 
 
 DEFAULT_AUTH_FILE = Path("~/.config/byteworker/aeolus-auth.json").expanduser()
-CN_HOSTS = {"dashboard.example.test"}
-CN_TITAN_PASSPORT_ENDPOINT = "https://passport.example.test/titan/passport/id"
 API_PATH = "/aeolus/api/v3"
 VIZ_QUERY_PATH = "/aeolus/vqs/api/v2/vizQuery/query"
 USER_AGENT = "byteworker-aeolus/1.0"
@@ -124,21 +123,61 @@ def _positive_int(value: Any, field: str) -> int:
     return parsed
 
 
-def parse_dashboard_url(url: str) -> dict[str, Any]:
+@dataclass(frozen=True)
+class AeolusEndpoints:
+    dashboard_origin: str
+    passport_endpoint: str
+
+    @classmethod
+    def load(cls) -> "AeolusEndpoints":
+        config = Path(os.environ.get("BYTEWORKER_AEOLUS_CONFIG") or "~/.config/byteworker/aeolus-endpoints.json").expanduser()
+        try:
+            settings = json.loads(config.read_text(encoding="utf-8"))
+            if not isinstance(settings, dict):
+                raise ValueError
+            origin = _endpoint_url(settings.get("dashboard_origin"), origin_only=True)
+            passport = settings.get("passport_endpoint", "")
+            if passport != "":
+                passport = _endpoint_url(passport, origin_only=False)
+        except (OSError, ValueError) as exc:
+            raise AeolusClientError(
+                "AEOLUS_ENDPOINTS_INVALID", "无法读取有效的风神服务地址配置。",
+                hint="在 ~/.config/byteworker/aeolus-endpoints.json 设置 dashboard_origin。JWT 登录还需 passport_endpoint。",
+            ) from exc
+        return cls(origin, passport)
+
+
+def _endpoint_url(value: object, *, origin_only: bool) -> str:
+    if not isinstance(value, str) or re.search(r"[\\\s\x00-\x1f\x7f?#]", value):
+        raise ValueError
+    parsed = urllib.parse.urlsplit(value)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+            or parsed.password is not None or (origin_only and parsed.path not in ("", "/"))):
+        raise ValueError
+    # Accessing port also rejects malformed or out-of-range port numbers.
+    port = parsed.port
+    host = parsed.hostname if ":" not in parsed.hostname else f"[{parsed.hostname}]"
+    origin = f"https://{host}" + (f":{port}" if port is not None and port != 443 else "")
+    return origin if origin_only else origin + parsed.path
+
+
+def parse_dashboard_url(url: str, *, endpoints: AeolusEndpoints | None = None) -> dict[str, Any]:
     """Parse the stable coordinates required by the dashboard read path."""
     try:
         parsed = urllib.parse.urlparse(url)
+        origin = _endpoint_url(f"{parsed.scheme}://{parsed.netloc}", origin_only=True)
     except ValueError as exc:
         raise AeolusClientError(
             "AEOLUS_INVALID_URL",
             "风神 dashboard URL 无法解析",
         ) from exc
     host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or host not in CN_HOSTS:
+    endpoints = endpoints or AeolusEndpoints.load()
+    if origin != endpoints.dashboard_origin:
         raise AeolusClientError(
             "AEOLUS_UNSUPPORTED_URL",
-            "当前只支持中国区风神 dashboard URL",
-            hint="请使用 dashboard.example.test 的 dashboard 页面链接。",
+            "看板链接与已配置的风神站点不匹配",
+            hint="请核对看板链接和本机的 dashboard_origin 设置。",
         )
     match = re.fullmatch(
         r"/aeolus/pages/dashboard/([1-9][0-9]*)/?",
@@ -162,7 +201,7 @@ def parse_dashboard_url(url: str) -> dict[str, Any]:
     return {
         "region": "cn",
         "host": host,
-        "base_url": f"https://{host}",
+        "base_url": origin,
         "app_id": app_id,
         "dashboard_id": int(match.group(1)),
         "sheet_id": sheet_id,
@@ -336,6 +375,10 @@ class AeolusClient:
             transport=transport,
         )
 
+    @cached_property
+    def endpoints(self) -> AeolusEndpoints:
+        return AeolusEndpoints.load()
+
     def _resolve_auth_mode(self) -> str | None:
         if self.credentials.get("titan_passport"):
             return "titan_passport"
@@ -359,8 +402,7 @@ class AeolusClient:
         try:
             self._api_request(
                 "GET",
-                "https://dashboard.example.test"
-                f"{API_PATH}/home/myAuthorized?offset=0&limit=1",
+                f"{self.endpoints.dashboard_origin}{API_PATH}/home/myAuthorized?offset=0&limit=1",
             )
         except AeolusClientError as exc:
             if exc.code in {
@@ -410,9 +452,11 @@ class AeolusClient:
             cookie = value if "=" in value else f"titan_passport_id={value}"
             headers = {"Cookie": cookie}
         elif mode == "bytecloud_jwt":
+            if not self.endpoints.passport_endpoint:
+                raise AeolusClientError("AEOLUS_ENDPOINTS_INVALID", "请在风神地址配置中设置 passport_endpoint。")
             response = self._request_json(
                 "POST",
-                CN_TITAN_PASSPORT_ENDPOINT,
+                self.endpoints.passport_endpoint,
                 headers={
                     **self._common_headers(),
                     "x-jwt-token": _nonempty(
@@ -448,8 +492,7 @@ class AeolusClient:
         else:
             response = self._request_json(
                 "POST",
-                "https://dashboard.example.test"
-                f"{API_PATH}/openapi/jwtToken",
+                f"{self.endpoints.dashboard_origin}{API_PATH}/openapi/jwtToken",
                 headers={**self._common_headers(), "Cookie": "locale=en-us"},
                 payload={
                     "metadata": {
@@ -588,7 +631,7 @@ class AeolusClient:
         return response.get("data")
 
     def resolve_dashboard(self, url: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        coordinates = parse_dashboard_url(url)
+        coordinates = parse_dashboard_url(url, endpoints=self.endpoints)
         base_url = coordinates["base_url"]
         request_id = (
             "byteworker.aeolus.dashboard."
@@ -680,7 +723,7 @@ class AeolusClient:
         return public_coordinates, resolved
 
     def get_sheet(self, *, coordinates: Mapping[str, Any], url: str) -> dict[str, Any]:
-        base_url = "https://dashboard.example.test"
+        base_url = self.endpoints.dashboard_origin
         query = urllib.parse.urlencode(
             {
                 "sheetId": coordinates["sheet_id"],
@@ -709,8 +752,7 @@ class AeolusClient:
     def get_dataset_fields(self, dataset_id: int) -> dict[str, Any]:
         data = self._api_request(
             "GET",
-            "https://dashboard.example.test"
-            f"/aeolus/api/v4/open/dataset/{dataset_id}/dimMet",
+            f"{self.endpoints.dashboard_origin}/aeolus/api/v4/open/dataset/{dataset_id}/dimMet",
         )
         if not isinstance(data, Mapping):
             raise AeolusClientError(
@@ -741,8 +783,7 @@ class AeolusClient:
         query = urllib.parse.urlencode({"reportId": report_id})
         data = self._api_request(
             "GET",
-            "https://dashboard.example.test"
-            f"{API_PATH}/dataMart/report?{query}",
+            f"{self.endpoints.dashboard_origin}{API_PATH}/dataMart/report?{query}",
         )
         if not isinstance(data, Mapping):
             raise AeolusClientError(
@@ -983,7 +1024,7 @@ class AeolusClient:
             where_filters=where_filters,
             limit=limit,
         )
-        base_url = "https://dashboard.example.test"
+        base_url = self.endpoints.dashboard_origin
         response = self._request_json(
             "POST",
             f"{base_url}{VIZ_QUERY_PATH}?"

@@ -11,6 +11,7 @@
   `aeolus:<region>:<app_id>:<dashboard_id>:<sheet_id>`；两个不同 sheet 必须注册为两个 profile。
 - profile 存在用户 KB 的 `sources/`，使用 `byteworker-source-profile/v1`，不含凭据和数据行。
   凭据只来自环境变量或仓库外 `0600` 文件。
+- 看板与认证服务地址从本机 `aeolus-endpoints.json` 读取，配置见 `INSTALL.md`。
 - 先运行 `source auth-status --source-type aeolus`。`ready=false` 时只提示配置现有凭据；
   routine 不自动登录。
 - `source inspect` 是只读预览；`source register` 才把用户确认的选择器和筛选口径写入 KB，

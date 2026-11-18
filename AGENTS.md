@@ -8,6 +8,9 @@
 - 禁止外传业务数据，也禁止把 `knowledge/`、`raw_data/`、`provenance/`、`journal/`、`INDEX.md`
   和任何节点 Markdown 放入本仓库或提交到 Git。`.gitignore` 提供额外保护。
 
+测试、示例和提交说明只使用合成数据。组织名、业务简报、私有节点及文档标识不得取自真实知识库；
+内部服务域名从仓库外的本机配置读取。审查测试改动时同时检查样例正文和断言。
+
 ## 架构治理（代码与流程变更必读）
 
 - 修改 `bin/`、`lib/` 或信息处理主流程前，先读 [`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md)
