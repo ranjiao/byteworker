@@ -95,12 +95,18 @@ def report_dependency_from_state(
     kind: str,
     period: str,
     now: datetime | None = None,
+    scheduled_at: datetime | None = None,
 ) -> dict[str, Any]:
+    timezone_name = str(state.get("timezone", ""))
+    as_of = now
+    if kind == "daily" and scheduled_at is not None and now is not None:
+        if now.astimezone(_zone(timezone_name)).date().isoformat() == period:
+            as_of = scheduled_at
     window = report_window(
         kind,
         period,
-        str(state.get("timezone", "")),
-        as_of=now,
+        timezone_name,
+        as_of=as_of,
     )
     start = parse_time(window["start"])
     end = parse_time(window["end"])
@@ -201,16 +207,28 @@ def report_dependency_from_state(
     }
 
 
-def report_dependency(kb: Path, *, kind: str, period: str) -> dict[str, Any]:
-    current = _now()
+def report_dependency(
+    kb: Path, *, kind: str, period: str, now: datetime | None = None,
+) -> dict[str, Any]:
+    current = now or _now()
     with state_lock(kb):
         state = load_state_unlocked(kb, current)
+    lease = state.get("active_lease")
+    evaluated_at = current
+    scheduled_at = None
+    if (
+        isinstance(lease, Mapping) and lease.get("job") == kind and lease.get("period") == period
+        and (parse_time(lease.get("expires_at")) or current) > current
+    ):
+        evaluated_at = parse_time(lease.get("acquired_at")) or current
+        scheduled_at = parse_time(state["jobs"][kind].get("deadline_at"))
     return report_dependency_from_state(
         kb,
         state=state,
         kind=kind,
         period=period,
-        now=current,
+        now=evaluated_at,
+        scheduled_at=scheduled_at,
     )
 
 
@@ -240,7 +258,7 @@ def prepare_report_packet(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
-    dependency = report_dependency(kb, kind=kind, period=period)
+    dependency = report_dependency(kb, kind=kind, period=period, now=current)
     if dependency["status"] == "blocked":
         raise DreamingError(
             "DREAMING_REPORT_BLOCKED",

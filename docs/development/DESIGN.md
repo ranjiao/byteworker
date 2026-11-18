@@ -627,14 +627,14 @@ state/dreaming/
 reports/<kind>/<period>.md
 ```
 
-- 报告窗口：morning 为前一日 20:30 至当日 10:00；当期自动 daily 为当日 00:00 至当前 tick，
-  历史补跑 daily 为完整自然日；weekly 为完整 ISO 周。均按 Dreaming timezone 计算后保存 UTC。
+- 报告窗口：morning 为前一日 20:30 至当日 10:00；当日领取的自动 daily 从 00:00 覆盖至配置的出报时间，
+  跨日补跑 daily 覆盖完整自然日。prepare 按租约领取时确定的窗口复核。weekly 为完整 ISO 周。均按 Dreaming timezone 计算后保存 UTC。
 - IM cursor 落后、gap 与窗口重叠，或任一定期来源 checkpoint 未覆盖窗口结束时间时，报告 job
   写 `blocked_by`，scheduler 先领取独立 process
   catch-up lease；process commit 清除已覆盖 gap 并刷新 dependency 后，runner 可用该 catch-up
   `run_id` 做一次受限 follow-up 领取报告。follow-up 只考虑 morning/daily/weekly，不参与普通
   process/recovery/maintenance 竞争，也不得循环领取。
-- 自动调度淘汰窗口结束已超龄的旧报告依赖，再按当前周期判断覆盖。
+- 每次调度都复核最近到期报告的覆盖，替换同类报告过往周期的依赖。相同缺口的重试按普通到期顺序竞争。
 - all_visible discovery 即使追平也只能标 partial/best_effort。所有合法定期 Profile 和普通
   digest 兼容历史来源都必须进入 process；Profile 无效时迁移和报告 fail closed，不允许按
   provider 类型静默忽略。

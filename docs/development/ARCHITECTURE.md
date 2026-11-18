@@ -474,6 +474,10 @@ cron/launchd 冒充 Agent task。TraeWork 网页版的云端任务不能访问�
   → 若本轮 process 是 catch-up 且成功，最多一次受限 follow-up 领取被解锁的报告 job
 ```
 
+报告依赖按最近到期周期派生。普通领取和补采后的续跑都在状态锁内核对当前覆盖，替换同类报告的旧周期依赖。
+新缺口的补采优先；同一缺口的重复尝试遵守 process 退避并参与普通排序，让其它到期任务有机会运行。
+日报准备阶段复用领取时的窗口。当日领取时覆盖至计划出报时间，跨日补跑时覆盖完整自然日。
+
 Dreaming 只通过 `bin/byteworker` 公开入口调用 source、query、mutation 或 DigestTxn，不 import
 这些模块的内部实现。Dreaming 禁用、状态损坏或 job 失败均不得改变 digest/search/update 等
 既有命令和未迁移的旧自动报告行为。

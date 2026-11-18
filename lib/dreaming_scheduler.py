@@ -1255,7 +1255,7 @@ def _candidate_key(candidate: Mapping[str, Any], now: datetime) -> tuple[Any, ..
     overdue = deadline is not None and deadline <= now
     ready_since = _parse_time(candidate.get("ready_since")) or now
     return (
-        -1 if candidate.get("dependency") else 0,
+        -1 if candidate.get("prioritize_dependency") else 0,
         0 if overdue else 1,
         deadline or datetime.max.replace(tzinfo=timezone.utc),
         ready_since,
@@ -1322,7 +1322,7 @@ def run_due(
     current = now or _now()
     decisions = observation.setdefault("jobs", {}) if observation is not None else None
     from dreaming_grants import expire_foreground_sessions
-    from dreaming_reports import expire_report_dependencies
+    from dreaming_reports import REPORT_KINDS, expire_report_dependencies, report_dependency_from_state
 
     expire_foreground_sessions(kb, now=current)
     with _state_lock(kb):
@@ -1393,7 +1393,7 @@ def run_due(
         candidates: list[dict[str, Any]] = []
         report_blockers: list[dict[str, Any]] = []
         for name in JOBS:
-            if followup_reports_only and name not in {"morning", "daily", "weekly"}:
+            if followup_reports_only and name not in REPORT_KINDS:
                 continue
             job = jobs.get(name)
             if not isinstance(job, Mapping):
@@ -1401,9 +1401,9 @@ def run_due(
                     "DREAMING_STATE_INVALID",
                     f"Dreaming job 状态缺失: {name}",
                 )
-            candidate_job = dict(job) if followup_reports_only else job
-            if followup_reports_only:
-                candidate_job["blocked_by"] = []
+            # Report blockers describe the last evaluated window. Check the schedule
+            # first, then derive fresh blockers for its latest due period.
+            candidate_job = {**job, "blocked_by": []} if name in REPORT_KINDS else job
             candidate = _candidate(
                 name,
                 candidate_job,
@@ -1414,27 +1414,30 @@ def run_due(
             if decisions is not None:
                 decisions[name] = "due" if candidate else _job_gate(candidate_job, current) or "not_due"
             if candidate is not None:
-                if name in {"morning", "daily", "weekly"}:
-                    from dreaming_reports import report_dependency_from_state
-
+                if name in REPORT_KINDS:
                     dependency = report_dependency_from_state(
                         kb,
                         state=value,
                         kind=name,
                         period=candidate["period"],
-                        now=_parse_time(candidate.get("deadline_at")) or current,
+                        now=current,
+                        scheduled_at=_parse_time(candidate.get("deadline_at")),
                     )
                     dependency_key = f"{name}:{candidate['period']}"
+                    dependencies = value["report_dependencies"]
+                    for key in list(dependencies):
+                        if key.startswith(f"{name}:") and key != dependency_key:
+                            del dependencies[key]
                     if dependency["status"] == "blocked":
                         blockers = dependency["blockers"]
                         job["blocked_by"] = [item["key"] for item in blockers]
-                        value["report_dependencies"][dependency_key] = dependency
+                        dependencies[dependency_key] = dependency
                         report_blockers.extend(blockers)
                         if decisions is not None:
                             decisions[name] = "blocked_by_dependency"
                         continue
                     job["blocked_by"] = []
-                    value["report_dependencies"].pop(dependency_key, None)
+                    dependencies.pop(dependency_key, None)
                 candidates.append(candidate)
                 if not job.get("ready_since"):
                     job["ready_since"] = candidate["ready_since"]
@@ -1442,28 +1445,23 @@ def run_due(
                     job["deadline_at"] = candidate["deadline_at"]
         if report_blockers and not followup_reports_only:
             process = jobs.get("process")
-            if isinstance(process, Mapping) and process.get("enabled"):
-                next_attempt = _parse_time(process.get("next_attempt_at"))
-                can_run = (
-                    not process.get("waiting_for_user")
-                    and not process.get("blocked_by")
-                    and (next_attempt is None or next_attempt <= current)
+            if isinstance(process, Mapping) and not _job_gate(process, current):
+                blocker = min(report_blockers, key=lambda item: item["key"])
+                digest = hashlib.sha256(blocker["key"].encode("utf-8")).hexdigest()[:16]
+                period = f"catchup:{digest}"
+                last_attempt = process.get("last_attempt")
+                retry = isinstance(last_attempt, Mapping) and last_attempt.get("period") == period
+                candidates = [item for item in candidates if item["job"] != "process"]
+                candidates.append(
+                    {
+                        "job": "process",
+                        "period": period,
+                        "prioritize_dependency": not retry,
+                        "ready_since": (last_attempt.get("finished_at") if retry else None) or _iso(current),
+                        "deadline_at": "",
+                        "dependency": blocker,
+                    }
                 )
-                if can_run:
-                    blocker = sorted(report_blockers, key=lambda item: item["key"])[0]
-                    digest = hashlib.sha256(blocker["key"].encode("utf-8")).hexdigest()[:16]
-                    candidates = [
-                        item for item in candidates if item.get("job") != "process"
-                    ]
-                    candidates.append(
-                        {
-                            "job": "process",
-                            "period": f"catchup:{digest}",
-                            "ready_since": _iso(current),
-                            "deadline_at": "",
-                            "dependency": blocker,
-                        }
-                    )
         if not candidates:
             value["updated_at"] = _iso(current)
             _atomic_write(state_path(kb), value)

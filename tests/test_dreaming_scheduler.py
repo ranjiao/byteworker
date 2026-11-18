@@ -465,6 +465,68 @@ class DreamingSchedulerTests(unittest.TestCase):
             self.assertEqual(("morning", "2026-11-10"), (leased["job"], leased["period"]))
             self.assertEqual({}, status(kb, now=now)["report_dependencies"])
 
+    def test_normal_wake_rechecks_blocked_reports_for_latest_due_period(self):
+        old_wake = datetime(2026, 11, 10, 2, 4, tzinfo=timezone.utc)
+        wake = datetime(2026, 11, 18, 2, 4, tzinfo=timezone.utc)
+        for kind, period in (("morning", "2026-11-18"), ("daily", "2026-11-17"), ("weekly", "2026-W46")):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                kb = self.make_kb(Path(temporary))
+                state = self.enable_at(kb, old_wake - timedelta(days=8))
+                for name, job in state["jobs"].items():
+                    job["enabled"] = name in {kind, "maintenance", "process", "recovery"}
+                state["grants"]["im"]["mode"] = "monitored"
+                atomic_write_json(state_path(kb), state)
+                old = run_due(kb, owner="host", now=old_wake)
+                self.assertEqual("process", old["job"])
+                complete_run(kb, token=old["lease"]["token"], run_status="partial",
+                             error_code="DREAMING_IM_CAPTURE_FAILED", now=old_wake)
+
+                observation = {}
+                fresh = run_due(kb, owner="host", observation=observation, now=wake)
+                self.assertEqual("process", fresh["job"])
+                self.assertTrue(fresh["period"].startswith("catchup:"))
+                if kind == "daily":
+                    midnight = datetime(2026, 11, 17, 16, tzinfo=timezone.utc)
+                    self.assertEqual(midnight, datetime.fromisoformat(fresh["dependency"]["end"]))
+                self.assertNotEqual(old["dependency"]["key"], fresh["dependency"]["key"])
+                self.assertEqual("blocked_by_dependency", observation["jobs"][kind])
+                self.assertEqual("due", observation["jobs"]["maintenance"])
+                expected = f"{kind}:{period}"
+                state = status(kb, now=wake)
+                self.assertEqual([expected], list(state["report_dependencies"]))
+                self.assertEqual([fresh["dependency"]["key"]], state["jobs"][kind]["blocked_by"])
+
+                complete_run(kb, token=fresh["lease"]["token"], run_status="success", now=wake)
+                # A later ordinary wake must recheck coverage even if the same-period
+                # dependency is still cached and the runner missed its follow-up.
+                state = json.loads(state_path(kb).read_text())
+                state["jobs"]["maintenance"]["enabled"] = False
+                state["cursors"]["im:monitored"] = {"through": fresh["dependency"]["end"]}
+                atomic_write_json(state_path(kb), state)
+                report = run_due(kb, owner="host", now=wake + timedelta(minutes=1))
+                self.assertEqual((kind, period), (report["job"], report["period"]))
+                self.assertEqual({}, status(kb, now=wake)["report_dependencies"])
+
+    def test_same_window_retries_after_backoff_without_starving_due_jobs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            wake = datetime(2026, 11, 18, 2, 4, tzinfo=timezone.utc)
+            state = self.enable_at(kb, wake - timedelta(days=1))
+            state["grants"]["im"]["mode"] = "monitored"
+            state["jobs"]["recovery"]["enabled"] = False
+            atomic_write_json(state_path(kb), state)
+            catchup = run_due(kb, owner="host", now=wake)
+            complete_run(kb, token=catchup["lease"]["token"], run_status="partial",
+                         error_code="DREAMING_IM_CAPTURE_FAILED", now=wake)
+            self.assertEqual("idle", run_due(kb, owner="host", now=wake,
+                             followup_after_run_id=catchup["lease"]["run_id"])["status"])
+            later = wake + timedelta(minutes=6)
+            maintenance = run_due(kb, owner="host", now=later)
+            self.assertEqual("maintenance", maintenance["job"])
+            complete_run(kb, token=maintenance["lease"]["token"], run_status="success", now=later)
+            retry = run_due(kb, owner="host", now=later)
+            self.assertEqual(("process", catchup["period"]), (retry["job"], retry["period"]))
+
     def test_routine_gaps_release_lease_and_retry_without_input(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))

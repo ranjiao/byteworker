@@ -4,7 +4,9 @@
 
 ## Coverage 与 Packet
 
-窗口未覆盖时 `run-due` 返回 process catch-up lease；commit 后用该 run_id 调一次
+每次领取前，调度器按计划找到最近到期的报告周期，用当前消息覆盖和来源 checkpoint 复核依赖。
+新周期替换同类报告的旧依赖。首次遇到缺口时优先领取 process catch-up；同一补采重试遵守退避，
+与其它已到期任务一起排序。当日领取的日报覆盖至计划出报时间，跨日补跑覆盖完整自然日。prepare 复用领取时的窗口。补采成功后用该 run_id 调一次
 `run-due --followup-after-run-id`，只领被本轮解锁的 morning/daily/weekly；否则 idle。
 
 报告 lease 到手后：

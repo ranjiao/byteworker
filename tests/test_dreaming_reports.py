@@ -178,6 +178,32 @@ class DreamingReportTests(unittest.TestCase):
             )
             self.assertEqual("morning", next_run["job"])
 
+    def test_daily_packet_uses_scheduled_cutoff_after_delayed_catchup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cutoff = datetime(2026, 11, 17, 12, 30, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), cutoff - timedelta(days=1))
+            with state_lock(kb):
+                state = load_state_unlocked(kb, cutoff)
+                for name, job in state["jobs"].items():
+                    job["enabled"] = name in {"process", "daily"}
+                state["grants"]["im"]["mode"] = "monitored"
+                save_state_unlocked(kb, state)
+            wake = cutoff + timedelta(minutes=4)
+            catchup = run_due(kb, owner="host", now=wake)
+            self.assertEqual(cutoff, datetime.fromisoformat(catchup["dependency"]["end"]))
+            self.set_cursor(kb, "im:monitored", cutoff.isoformat(), wake)
+            complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=wake)
+            report = run_due(kb, owner="host", now=wake, followup_after_run_id=catchup["lease"]["run_id"])
+            self.assertEqual("daily", report["job"])
+            prepared = prepare_report_packet(kb, kind="daily", period=report["period"], now=wake)
+            packet = json.loads((kb / prepared["packet_path"]).read_text())
+            self.assertEqual(cutoff, datetime.fromisoformat(packet["window"]["end"]))
+            self.assertEqual("covered", packet["coverage"]["status"])
+            document = {**self.report_document(), "kind": "daily", "period": report["period"],
+                        "window": packet["window"]}
+            receipt = complete_report_run(kb, token=report["lease"]["token"], document=document, now=wake)
+            self.assertTrue((kb / receipt["run"]["artifact_path"]).is_file())
+
     def test_prepare_packet_is_private_and_outbox_is_separate(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             now = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
