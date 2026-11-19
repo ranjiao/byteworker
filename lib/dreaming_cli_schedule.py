@@ -106,7 +106,7 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     due.add_argument("--kb", required=True, type=Path)
     due.add_argument("--owner", required=True)
     due.add_argument("--lease-seconds", type=positive, default=7200)
-    due.add_argument("--followup-after-run-id", default="", help="仅在刚完成 process catchup 后领取被解锁的报告 job")
+    due.add_argument("--followup-after-run-id", default="", help="刚完成报告补采后续领报告或同一日报的剩余补采")
     due.add_argument("--tick-id", default="", help="关联宿主唤醒记录")
     due.set_defaults(_handler=lambda args, kb, root: observed_run_due(
         kb, owner=args.owner, lease_seconds=args.lease_seconds,

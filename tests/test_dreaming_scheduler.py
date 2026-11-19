@@ -459,11 +459,14 @@ class DreamingSchedulerTests(unittest.TestCase):
             catchup = run_due(kb, owner="host", now=noon - timedelta(minutes=1))
             self.assertEqual("process", catchup["job"])
             self.assertIn("morning:2026-08-07", status(kb, now=noon)["report_dependencies"])
-            complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=noon)
+            with self.assertRaises(DreamingError) as blocked:
+                complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=noon)
+            self.assertEqual("DREAMING_REPORT_BLOCKED", blocked.exception.code)
             state = json.loads(state_path(kb).read_text())
             state["cursors"]["im:monitored"] = {"through": noon.isoformat()}
             atomic_write_json(state_path(kb), state)
 
+            complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=noon)
             report = run_due(kb, owner="host", followup_after_run_id=catchup["lease"]["run_id"], now=noon)
             self.assertEqual(("daily", "2026-08-06"), (report["job"], report["period"]))
             state = status(kb, now=noon)
@@ -554,13 +557,13 @@ class DreamingSchedulerTests(unittest.TestCase):
                 self.assertEqual([expected], list(state["report_dependencies"]))
                 self.assertEqual([fresh["dependency"]["key"]], state["jobs"][kind]["blocked_by"])
 
-                complete_run(kb, token=fresh["lease"]["token"], run_status="success", now=wake)
                 # A later ordinary wake must recheck coverage even if the same-period
                 # dependency is still cached and the runner missed its follow-up.
                 state = json.loads(state_path(kb).read_text())
                 state["jobs"]["maintenance"]["enabled"] = False
                 state["cursors"]["im:monitored"] = {"through": fresh["dependency"]["end"]}
                 atomic_write_json(state_path(kb), state)
+                complete_run(kb, token=fresh["lease"]["token"], run_status="success", now=wake)
                 report = run_due(kb, owner="host", now=wake + timedelta(minutes=1))
                 self.assertEqual((kind, period), (report["job"], report["period"]))
                 self.assertEqual({}, status(kb, now=wake)["report_dependencies"])

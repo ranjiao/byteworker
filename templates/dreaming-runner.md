@@ -25,7 +25,8 @@
    收尾列出仍缺的来源、已尝试的处理和下次自动检查的范围；普通缺口使用
    `DREAMING_DIGEST_INCOMPLETE`。预算、单源权限或冲突只暂停受影响的来源。
    近期 process 按租约 `im_window` 采集消息，调用 `process prepare --source im` 时省略起止参数。
-   窗口为空时只处理定期来源。历史补采使用 dependency 的起止时间。
+   日报补采每次提交消息分析后，再次省略起止时间调用 prepare，直到返回 stage=covered。
+   每批从已保存的进度继续。无法继续分页或来源拒绝访问时记录具体缺口。其它历史补采使用 dependency 的起止时间。
    `job=recovery` 补 IM 缺口时只用 `lease.im_recovery.window`。窗口为空时继续检查其它恢复项，
    没有可恢复项就成功结束。若窗口在执行时到期，记为跳过并继续其它恢复项。
 6. 保存 lease 的 `run_id`。进入 collection/analysis/consolidation/action/report/maintenance/
@@ -33,7 +34,7 @@
    `detail-code` 只用有限机器码，禁止放业务正文。
 7. 所有来源操作只调用 `bin/byteworker` 公开命令；禁止直接 import digest/query 内部模块。
 8. process / maintenance / recovery 的成功、部分或失败路径调用通用 `dreaming complete`。
-   process 只有在 `process digest-complete` 成功后才允许 `run-status=success`；即使 IM grant 为
+   process 只有在 `process digest-complete` 成功后才允许 `run-status=success`；日报补采还要复核消息与定期来源。若返回 DREAMING_REPORT_BLOCKED，按所列缺口继续本次任务。即使 IM grant 为
    `off`，已启用的普通 digest 来源也必须处理。没有定期来源时该步骤成功 no-op。
    morning / daily / weekly 只有在报告生成前失败或只能 partial 时才调用通用
    `dreaming complete`；报告成功路径不得调用它。`partial/failed` 提供稳定错误码。已知时传
@@ -56,7 +57,7 @@
    完成扫描；宿主只汇总完成回执的 `maintenance.new`。
 9. 若本轮成功完成 `job=process` 且 `period=catchup:*`，立即再调用一次：
    `bin/byteworker dreaming run-due --kb "<KB>" --owner "<TASK_ID>" --followup-after-run-id "<run_id>" --tick-id "<tick_id>"`。
-   只处理返回的 morning/daily/weekly；`disabled/idle/busy` 安静结束。本轮最多这一个 follow-up。
+   若返回同一日报的新补采任务，继续第 5–9 步；领取到报告后立即执行第 10 步。disabled/idle/busy 时结束。
 10. morning/daily/weekly 按 `references/dreaming-reports.md` 一次生成结构化报告 JSON 后，
     必须调用 `dreaming report complete`。该命令会渲染 summary、内部 Markdown、自包含 HTML、
     `reports/<kind>/<period>.md` 归档快照，完成 lease，并按配置投递摘要；它是报告成功路径唯一
@@ -64,7 +65,7 @@
     `report render`、`complete`、`enqueue-delivery` 和 `report deliver`。
 11. 向用户返回完成回执的 `summary.brief`（报告为 `run.summary.brief`）。先写具体发现，再写文档成败、
     节点变更和剩余缺口。若续跑报告，附报告结论、HTML 链接和投递状态。
-12. 不循环领取，不创建飞书任务，不 push。除已配置的报告摘要和 maintenance 按规则
+12. 报告归档后结束本轮。不创建飞书任务，不 push。除已配置的报告摘要和 maintenance 按规则
     提交的有限 doctor 决策摘要外，不发送外部消息。
 
 启用提示已经由交互设置流程确认；runner 不重复打扰用户。机器从休眠恢复后，period 和 recovery

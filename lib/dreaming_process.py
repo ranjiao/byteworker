@@ -51,6 +51,32 @@ def _existing_analysis(kb: Path, batch_id: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _findings_with_source_time(findings, items):
+    """Date a backfilled finding by the newest cited message in this batch."""
+    times = {}
+    for item in items:
+        raw = item.get("occurred_at", "")
+        try:
+            if raw.isdigit() and len(raw) in (10, 13):
+                seconds = int(raw) / (1000 if len(raw) == 13 else 1)
+                when = datetime.fromtimestamp(seconds, timezone.utc)
+            else:
+                # CLI wall times without an offset use the collector machine's timezone.
+                when = datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            continue
+        times[item["item_id"]] = when
+    proposals = []
+    for finding in findings:
+        proposal = dict(finding)
+        proposal.pop("occurred_at", None)
+        latest = max((times[ref] for ref in finding["evidence_refs"] if ref in times), default=None)
+        if latest:
+            proposal["occurred_at"] = latest.isoformat()
+        proposals.append(proposal)
+    return proposals
+
+
 def commit_finding_bundle(
     kb: Path,
     *,
@@ -121,7 +147,7 @@ def commit_finding_bundle(
         consolidation = consolidate_findings(
             kb,
             batch_id=batch_id,
-            bundle=bundle,
+            bundle={**bundle, "findings": _findings_with_source_time(bundle["findings"], evidence["items"])},
             expected_grant_revision=grant_revision,
             now=current,
         )

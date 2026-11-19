@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import tempfile
@@ -13,6 +14,7 @@ if str(LIB) not in sys.path:
 from dreaming_batch import create_collected_batch  # noqa: E402
 from dreaming_consolidation import load_findings  # noqa: E402
 from dreaming_grants import set_im_grant  # noqa: E402
+from dreaming_reports import prepare_report_packet  # noqa: E402
 from dreaming_process import commit_finding_bundle  # noqa: E402
 from dreaming_state import DreamingError  # noqa: E402
 
@@ -54,14 +56,14 @@ class DreamingProcessTests(unittest.TestCase):
             },
             window={
                 "requested_start": "2026-08-04T00:00:00+00:00",
-                "requested_end": "2026-08-04T01:00:00+00:00",
+                "requested_end": "2026-08-05T00:00:00+00:00",
             },
             coverage={"status": "complete", "gaps": []},
             messages=[
                 {
                     "message_id": "om_1",
                     "chat_id": "oc_1",
-                    "create_time": "2026-08-04T00:10:00+00:00",
+                    "create_time": str(int(datetime(2026, 8, 4, 0, 10, tzinfo=timezone.utc).timestamp()) * 1000),
                     "sender": {"id": "ou_sender"},
                     "content": "risk",
                 }
@@ -97,7 +99,10 @@ class DreamingProcessTests(unittest.TestCase):
             )
             self.assertTrue(first["persisted_findings"])
             self.assertEqual("already_committed", second["status"])
-            self.assertIn("F-risk", load_findings(kb)["findings"])
+            finding = load_findings(kb)["findings"]["F-risk"]
+            self.assertEqual("2026-08-04T00:10:00+00:00", finding["occurred_at"])
+            packet = prepare_report_packet(kb, kind="daily", period="2026-08-04")
+            self.assertEqual(1, packet["finding_count"])
 
             conflict = self.write_bundle(root, batch_id, "不同风险")
             with self.assertRaises(DreamingError) as caught:

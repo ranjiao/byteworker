@@ -1472,7 +1472,7 @@ def run_due(
         if not isinstance(jobs, Mapping):
             raise DreamingError("DREAMING_STATE_INVALID", "Dreaming jobs 状态缺失。")
         followup_run_id = followup_after_run_id.strip()
-        followup_reports_only = False
+        report_target = None
         if followup_run_id:
             process = jobs.get("process")
             last_success = (
@@ -1484,6 +1484,7 @@ def run_due(
             if (
                 not isinstance(last_success, Mapping)
                 or last_success.get("run_id") != followup_run_id
+                or (process.get("last_attempt") or {}).get("run_id") != followup_run_id
                 or last_success.get("status") != "success"
                 or not str(last_success.get("period", "")).startswith("catchup:")
                 or str(last_success.get("owner", "")) != owner.strip()
@@ -1495,7 +1496,7 @@ def run_due(
                     "status": "idle",
                     "lease": None,
                 }
-            followup_reports_only = True
+            report_target = last_success.get("report_target")
         local_now = current.astimezone(zone)
         yesterday = (local_now - timedelta(days=1)).date()
         recent_start = datetime.combine(yesterday, time.min, zone)
@@ -1506,7 +1507,9 @@ def run_due(
         history_blockers: list[dict[str, Any]] = []
         recovery = None
         for name in JOBS:
-            if followup_reports_only and name not in REPORT_KINDS:
+            if followup_run_id and name not in REPORT_KINDS:
+                continue
+            if report_target and name != "daily":
                 continue
             job = jobs.get(name)
             if not isinstance(job, Mapping):
@@ -1524,6 +1527,12 @@ def run_due(
                 migrated = _parse_time(value.get("report_owner", {}).get("migrated_at"))
                 _queue_report_periods(kb, name, job, local_now, max(enabled_at, migrated or enabled_at))
             candidate_job = {**job, "blocked_by": []} if name in REPORT_KINDS else job
+            if report_target:
+                target_period = report_target["period"]
+                pending = job.get("pending_periods", {})
+                if target_period not in pending or (kb / "reports/daily" / f"{target_period}.md").is_file():
+                    continue
+                candidate_job["pending_periods"] = {target_period: pending[target_period]}
             candidate = _candidate(
                 name,
                 candidate_job,
@@ -1556,7 +1565,8 @@ def run_due(
                     candidate["historical"] = bool(window and _parse_time(window["end"]) <= recent_start)
                 if name in REPORT_KINDS:
                     candidate["historical"] = not recent_report
-                    candidate, dependency = _report_candidate(kb, value, candidate, job, current, yesterday)
+                    coverage_at = _parse_time((report_target or {}).get("through")) or current
+                    candidate, dependency = _report_candidate(kb, value, candidate, candidate_job, coverage_at, yesterday)
                     dependency_key = f"{name}:{candidate['period']}"
                     dependencies = value["report_dependencies"]
                     for key in list(dependencies):
@@ -1566,6 +1576,13 @@ def run_due(
                         blockers = dependency["blockers"]
                         job["blocked_by"] = [item["key"] for item in blockers]
                         dependencies[dependency_key] = dependency
+                        if name == "daily":
+                            target = {
+                                "period": candidate["period"],
+                                "scheduled_at": candidate["deadline_at"],
+                                "through": dependency["window"]["end"],
+                            }
+                            blockers = [{**item, "report_target": target} for item in blockers]
                         if recent_report:
                             recent_blockers.extend(blockers)
                         else:
@@ -1588,10 +1605,10 @@ def run_due(
         if recent_due:
             candidates = [item for item in candidates if not item.get("historical")]
         report_blockers = recent_blockers if recent_due else history_blockers
-        if report_blockers and not followup_reports_only:
+        if report_blockers and (not followup_run_id or report_target):
             process = jobs.get("process")
             if isinstance(process, Mapping) and not _job_gate(process, current):
-                blocker = min(report_blockers, key=lambda item: item["key"])
+                blocker = min(report_blockers, key=lambda item: (recent_due and not item.get("report_target"), item["key"]))
                 digest = hashlib.sha256(blocker["key"].encode("utf-8")).hexdigest()[:16]
                 period = f"catchup:{digest}"
                 last_attempt = process.get("last_attempt")
@@ -1601,7 +1618,7 @@ def run_due(
                     {
                         "job": "process",
                         "period": period,
-                        "prioritize_dependency": not retry,
+                        "prioritize_dependency": (recent_due and bool(blocker.get("report_target"))) or not retry,
                         "ready_since": (last_attempt.get("finished_at") if retry else None) or _iso(current),
                         "deadline_at": "",
                         "dependency": blocker,
@@ -1637,11 +1654,22 @@ def run_due(
             "last_heartbeat_at": _iso(current),
         }
         _limit_morning_lease(lease, timezone_name)
+        if job_name == "daily" and report_target:
+            lease["report_target"] = report_target
         if selected.get("dependency"):
             lease["dependency"] = selected["dependency"]
         if job_name == "recovery":
             lease["im_recovery"] = recovery
-        if job_name == "process" and not selected.get("historical"):
+        dep = lease.get("dependency") or {}
+        if dep.get("report_target"):
+            lease["report_target"] = dep["report_target"]
+            start, end = _parse_time(dep["start"]), _parse_time(dep["end"])
+            # Keep yesterday in the recent scan when it also has an outstanding daily.
+            if selected.get("historical") is False and yesterday.isoformat() in jobs["daily"].get("pending_periods", {}):
+                start = min(start, recent_start)
+            lease["recent_start"] = _iso(start)
+            lease["im_window"] = plan_recent_im_window(value, start.astimezone(zone), end)
+        elif job_name == "process" and not selected.get("historical"):
             lease["recent_start"] = _iso(recent_start)
             lease["im_window"] = plan_recent_im_window(value, recent_start, current)
         job["lease_epoch"] = epoch
@@ -1942,7 +1970,21 @@ def complete_run(
         if job_name == "process":
             from dreaming_digest import process_has_complete_routine_digest, require_routine_digest_completion
 
-            if run_status == "success":
+            target = lease.get("report_target")
+            if run_status == "success" and target:
+                from dreaming_reports import report_dependency_from_state
+
+                coverage = report_dependency_from_state(
+                    kb, state=value, kind="daily", period=target["period"],
+                    now=_parse_time(target.get("through")) or current,
+                    scheduled_at=_parse_time(target["scheduled_at"]),
+                )
+                if coverage["blockers"]:
+                    raise DreamingError(
+                        "DREAMING_REPORT_BLOCKED", "日报覆盖仍有缺口，请在本轮继续处理。",
+                        details={"period": target["period"], "blockers": coverage["blockers"]},
+                    )
+            elif run_status == "success":
                 if not process_has_complete_routine_digest(kb, run_id=_lease_run_id(lease)):
                     raise DreamingError(
                         "DREAMING_DIGEST_INCOMPLETE",
@@ -2074,6 +2116,8 @@ def complete_run(
         }
         if maintenance_delta:
             run["maintenance"] = maintenance_delta
+        if lease.get("report_target"):
+            run["report_target"] = lease["report_target"]
         job["last_attempt"] = run
         job["last_run"] = run
         if run_status == "success":

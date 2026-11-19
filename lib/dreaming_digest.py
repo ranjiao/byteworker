@@ -330,7 +330,7 @@ def prepare_routine_digest(
         run_id = str(lease["run_id"])
         target_through = lease.get("acquired_at") or utc_iso(current)
         dependency = lease.get("dependency")
-        if "im_window" not in lease and isinstance(dependency, Mapping):
+        if isinstance(dependency, Mapping) and ("im_window" not in lease or lease.get("report_target")):
             target_through = dependency.get("end") or target_through
         if lease.get("recent_start"):
             target_through = utc_iso(parse_time(target_through).replace(microsecond=0))

@@ -107,6 +107,21 @@ class DreamingImCollectorTests(unittest.TestCase):
             "kind": "window_budget", "start": start, "end": end, "resume": "split_time_window",
         }], result["coverage"]["gaps"])
 
+    def test_missing_or_repeated_page_token_leaves_a_gap(self):
+        for token, expected_calls in (("", 1), ("repeat", 2)):
+            with self.subTest(token=token):
+                calls = []
+                def command(args):
+                    calls.append(args)
+                    self.assertLessEqual(len(calls), expected_calls)
+                    return {"ok": True, "data": {"messages": [], "has_more": True, "page_token": token}}
+
+                result = FeishuImCollector(command=command).collect_discovery(
+                    start="2026-08-04T00:00:00Z", end="2026-08-04T01:00:00Z",
+                )
+                self.assertEqual("window_budget", result["coverage"]["gaps"][0]["kind"])
+                self.assertEqual(expected_calls, len(calls))
+
     def test_budget_truncation_creates_gap_without_persisting_page_token(self):
         command = FakeCommand()
         result = FeishuImCollector(command=command, max_messages=1).collect_monitored(

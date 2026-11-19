@@ -85,6 +85,17 @@ class DreamingCollectionTests(unittest.TestCase):
                 state = load_state_unlocked(kb, now)
             self.assertIn(result["batch_id"], state["gaps"])
 
+    def test_truncated_one_second_window_does_not_advance_cursor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            end = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+            with self.assertRaises(DreamingError) as stopped:
+                prepare_im_batch(kb, start=(end - timedelta(seconds=1)).isoformat(),
+                                 end=end.isoformat(), collector=FakeCollector(), now=end)
+            self.assertEqual("DREAMING_IM_WINDOW_SATURATED", stopped.exception.code)
+            with state_lock(kb):
+                self.assertNotIn("im:discovery", load_state_unlocked(kb, end)["cursors"])
+
     def test_future_or_invalid_window_is_rejected(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))

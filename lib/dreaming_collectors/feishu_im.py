@@ -170,6 +170,7 @@ class FeishuImCollector:
         result: list[dict[str, Any]] = []
         token = ""
         truncated = False
+        seen_tokens = set()
         while True:
             args = [*base, "--page-size", str(self.page_size), "--format", "json"]
             if token:
@@ -178,13 +179,17 @@ class FeishuImCollector:
             result.extend(_messages(response))
             data = response["data"]
             has_more = bool(data.get("has_more"))
-            token = str(data.get("page_token", ""))
+            token = data.get("page_token")
             if len(result) >= self.max_messages:
                 truncated = has_more or len(result) > self.max_messages
                 result = result[: self.max_messages]
                 break
-            if not has_more or not token:
+            if not has_more:
                 break
+            if not isinstance(token, str) or not token or token in seen_tokens:
+                truncated = True
+                break
+            seen_tokens.add(token)
         return result, truncated
 
     def principal(self) -> str:

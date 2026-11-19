@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
+from zoneinfo import ZoneInfo
 
 from dreaming_batch import create_collected_batch, gc_spool
 from dreaming_collectors.feishu_im import FeishuImCollector
@@ -111,7 +112,9 @@ def _window(start: str, end: str) -> tuple[datetime, datetime]:
 
 
 def _split_gap(start: datetime, end: datetime) -> list[dict[str, str]]:
-    middle = start + (end - start) / 2
+    middle = (start + (end - start) / 2).replace(microsecond=0)
+    if not start.replace(microsecond=0) < middle < end.replace(microsecond=0):
+        raise DreamingError("DREAMING_IM_WINDOW_SATURATED", "最小可分页消息时段仍被截断，已保留缺口。")
     return [
         {
             "start": utc_iso(start),
@@ -158,6 +161,12 @@ def prepare_im_batch(
         if (lease.get("job") == "process" and "im_window" in lease
                 and (parse_time(lease.get("expires_at")) or current) > current):
             planned = lease["im_window"]
+            dependency = lease.get("dependency") or {}
+            if lease.get("report_target"):
+                left, right = _window(lease.get("recent_start") or dependency["start"], dependency["end"])
+                planned = plan_recent_im_window(state, left.astimezone(ZoneInfo(state["timezone"])), right)
+                if planned is None:
+                    return {"stage": "covered", "window": None, "item_count": 0}
             if not planned:
                 raise DreamingError("DREAMING_WINDOW_INVALID", "本轮没有待采集的近期 IM 窗口。")
             if start or end:
@@ -242,7 +251,7 @@ def prepare_im_batch(
         }
     coverage = dict(collected["coverage"])
     gaps = list(coverage.get("gaps", []))
-    if any(gap.get("kind") == "window_budget" for gap in gaps if isinstance(gap, Mapping)):
+    if any(gap.get("kind") in {"window_budget", "chat_truncated"} for gap in gaps if isinstance(gap, Mapping)):
         coverage["gaps"] = _split_gap(start_at, end_at)
     messages = _dedupe(collected["messages"])
     receipt = create_collected_batch(

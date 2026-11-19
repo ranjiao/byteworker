@@ -223,8 +223,9 @@ def report_dependency(
         isinstance(lease, Mapping) and lease.get("job") == kind and lease.get("period") == period
         and (parse_time(lease.get("expires_at")) or current) > current
     ):
-        evaluated_at = parse_time(lease.get("acquired_at")) or current
-        scheduled_at = parse_time(state["jobs"][kind].get("deadline_at"))
+        target = lease.get("report_target") or {}
+        evaluated_at = parse_time(target.get("through")) or parse_time(lease.get("acquired_at")) or current
+        scheduled_at = parse_time(target.get("scheduled_at") or state["jobs"][kind].get("deadline_at"))
     return report_dependency_from_state(
         kb,
         state=state,
@@ -274,8 +275,8 @@ def prepare_report_packet(
     assert start is not None and end is not None
     findings = []
     for finding in load_findings(kb)["findings"].values():
-        updated = parse_time(finding.get("updated_at"))
-        if updated is not None and start <= updated < end:
+        occurred = parse_time(finding.get("occurred_at")) or parse_time(finding.get("updated_at"))
+        if occurred is not None and start <= occurred < end:
             findings.append(finding)
     findings.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
     packet = {

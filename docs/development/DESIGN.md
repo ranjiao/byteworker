@@ -632,9 +632,10 @@ reports/<kind>/<period>.md
   跨日补跑 daily 覆盖完整自然日。prepare 按租约领取时确定的窗口复核。weekly 为完整 ISO 周。均按 Dreaming timezone 计算后保存 UTC。
 - IM cursor 落后、gap 与窗口重叠，或任一定期来源 checkpoint 未覆盖窗口结束时间时，报告 job
   写 `blocked_by`，scheduler 先领取独立 process
-  catch-up lease；process commit 清除已覆盖 gap 并刷新 dependency 后，runner 可用该 catch-up
-  `run_id` 做一次受限 follow-up 领取报告。follow-up 只考虑 morning/daily/weekly，不参与普通
-  process/recovery/maintenance 竞争，也不得循环领取。
+  catch-up lease。日报补采的 `report_target` 在租约和成功记录保存 period、scheduled_at 和 through。
+  消息每批提交后继续按游标和剩余缺口选段，定期来源与消息均覆盖该窗口才允许成功。runner 用该
+  `run_id` 续领指定日报，若覆盖变化则继续补同一日报。旧补采记录仍可续领已就绪的报告。
+- 新消息 Finding 按本次引用消息中最晚的发生时间保存 `occurred_at`，报告据此选期；旧记录缺该字段时沿用 updated_at。
 - daily/weekly job 以 `scheduled_through` 记录已枚举周期，`pending_periods` 保存未归档周期及其计划时间。
   首次枚举从启用或接管时起，跳过现有归档和已成功周期。近期 process 租约新增 `im_window`，
   `recent_start` 也是增量群聊的近期下界。群聊 checkpoint 的 `covered_windows` 合并已核验区间，

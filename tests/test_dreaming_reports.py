@@ -198,17 +198,33 @@ class DreamingReportTests(unittest.TestCase):
             self.assertEqual("process", catchup["job"])
             self.assertTrue(catchup["period"].startswith("catchup:"))
             self.assertGreaterEqual(catchup["dependency"]["start"], "2026-11-16T16:00:00")
-            window = {"start": "2026-11-16T16:00:00+00:00", "end": wake.isoformat()}
+            window = {"start": "2026-11-16T16:00:00+00:00", "end": "2026-11-18T12:30:00+00:00"}
             self.assertEqual(window, catchup["im_window"])
             self.assertEqual(window["end"], prepare_routine_digest(kb, token=catchup["token"], now=wake)["target_through"])
             adapter = mock.Mock()
             adapter.principal.return_value = "user:test"
-            adapter.collect_discovery.return_value = {"coverage": {"status": "best_effort", "gaps": []}, "messages": []}
-            batch = prepare_im_batch(kb, collector=adapter, now=wake)
-            adapter.collect_discovery.assert_called_once_with(**window)
-            for stage in ("analyzed", "consolidated"):
-                write_stage_receipt(kb, batch_id=batch["batch_id"], stage=stage, receipt={"ok": True}, now=wake)
-            commit_batch(kb, batch_id=batch["batch_id"], cursor_key="im:discovery", through=window["end"], now=wake)
+            clean = {"coverage": {"status": "best_effort", "gaps": []}, "messages": []}
+            adapter.collect_discovery.side_effect = [
+                {**clean, "coverage": {"status": "best_effort", "gaps": [{"kind": "window_budget"}]}},
+                clean, clean,
+            ]
+            windows = []
+            for _ in range(3):
+                with self.assertRaises(DreamingError) as blocked:
+                    complete_run(kb, token=catchup["token"], run_status="success", now=wake)
+                self.assertEqual("DREAMING_REPORT_BLOCKED", blocked.exception.code)
+                batch = prepare_im_batch(kb, collector=adapter, now=wake)
+                windows.append(batch["window"])
+                for stage in ("analyzed", "consolidated"):
+                    write_stage_receipt(kb, batch_id=batch["batch_id"], stage=stage, receipt={"ok": True}, now=wake)
+                commit_batch(kb, batch_id=batch["batch_id"], cursor_key="im:discovery",
+                             through=batch["window"]["end"], now=wake)
+            self.assertEqual(window, windows[0])
+            self.assertEqual(window["start"], windows[1]["start"])
+            self.assertEqual(windows[1]["end"], windows[2]["start"])
+            self.assertLess(windows[1]["end"], window["end"])
+            self.assertEqual(window["end"], windows[2]["end"])
+            self.assertEqual("covered", prepare_im_batch(kb, collector=adapter, now=wake)["stage"])
             complete_run(kb, token=catchup["token"], run_status="success", now=wake)
 
             for day in ("2026-11-18", "2026-11-17"):
@@ -316,12 +332,20 @@ class DreamingReportTests(unittest.TestCase):
                     job["enabled"] = name in {"process", "daily"}
                 state["grants"]["im"]["mode"] = "monitored"
                 save_state_unlocked(kb, state)
-            wake = cutoff + timedelta(minutes=4)
+            wake = cutoff.replace(hour=15, minute=59)  # 23:59 local
             catchup = run_due(kb, owner="host", now=wake)
             self.assertEqual(cutoff, datetime.fromisoformat(catchup["dependency"]["end"]))
             self.set_cursor(kb, "im:monitored", cutoff.isoformat(), wake)
+            wake += timedelta(minutes=2)
             complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=wake)
-            report = run_due(kb, owner="host", now=wake, followup_after_run_id=catchup["lease"]["run_id"])
+            # A newly discovered gap before handoff still belongs to the same report.
+            self.set_cursor(kb, "im:monitored", (cutoff - timedelta(minutes=2)).isoformat(), wake)
+            resume = run_due(kb, owner="host", now=wake, followup_after_run_id=catchup["lease"]["run_id"])
+            self.assertEqual("process", resume["job"])
+            self.assertEqual(cutoff.isoformat(), resume["lease"]["im_window"]["end"])
+            self.set_cursor(kb, "im:monitored", cutoff.isoformat(), wake)
+            complete_run(kb, token=resume["lease"]["token"], run_status="success", now=wake)
+            report = run_due(kb, owner="host", now=wake, followup_after_run_id=resume["lease"]["run_id"])
             self.assertEqual("daily", report["job"])
             prepared = prepare_report_packet(kb, kind="daily", period=report["period"], now=wake)
             packet = json.loads((kb / prepared["packet_path"]).read_text())

@@ -113,8 +113,7 @@ bin/byteworker dreaming run-due \
 
 `disabled/idle/busy` 安静退出；`leased` 只执行返回的 `job/period` 并保存 `lease.token`。
 宿主结果优先说明实际收获和未完成的工作。启动失败时说明影响及已知原因，诊断编号在日志中查询。
-唯一例外：完成 `process catchup:*` 后，可用 `--followup-after-run-id <run_id>`
-再领一次报告。除此之外一轮最多一个 job，不自行算 period 或清空队列。失败 job 遵守 `next_attempt_at`。
+完成 `process catchup:*` 后立即用 `--followup-after-run-id <run_id>` 续跑报告。日报按原日期继续处理新增缺口，归档即结束。失败任务遵守 `next_attempt_at`。
 
 长任务在租约到期前可续租：
 
@@ -224,7 +223,7 @@ bin/byteworker dreaming process abort --kb "<KB>" \
 coverage，不返回消息正文。monitored 读取已登记的 chat Profile；all_visible 的 queryless search
 永远标 `best_effort`。预算截断形成时间切片 gap，page token 不跨 attempt 保存。
 近期 process 的 IM 使用租约 `im_window`，从知识库时区昨天零点起按游标和已知缺口取窗口。
-调用 prepare 时省略 --start/--end，窗口为空则跳过 IM。较早的未采区间记入缺口，待近期摄取、日报完成后回补。
+日报补采每批 commit 后省略 --start/--end 再次 prepare，直到返回 stage=covered。普通摄取窗口为空则跳过 IM。较早的未采区间记入缺口，待近期摄取、日报完成后回补。
 自动 IM 采集最多回看 14 天。完全超龄的窗口在读取来源前返回 `DREAMING_IM_WINDOW_EXPIRED`；
 跨界窗口只采集近期部分，`skipped_window` 记录未采集范围。用户明确指定历史时间可用前台单次处理。
 
