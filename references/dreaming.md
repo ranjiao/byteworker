@@ -222,8 +222,8 @@ bin/byteworker dreaming process abort --kb "<KB>" \
 `prepare` 只生成私密 spool 与 `collected` EvidenceBatch，返回 batch id、相对 manifest path、数量和
 coverage，不返回消息正文。monitored 读取已登记的 chat Profile；all_visible 的 queryless search
 永远标 `best_effort`。预算截断形成时间切片 gap，page token 不跨 attempt 保存。
-近期 process 的 IM 使用租约 `im_window`，从知识库时区昨天零点起按游标和已知缺口取窗口。
-日报补采每批 commit 后省略 --start/--end 再次 prepare，直到返回 stage=covered。普通摄取窗口为空则跳过 IM。较早的未采区间记入缺口，待近期摄取、日报完成后回补。
+普通 digest 按自己的上次成功时间和配置频率运行，报告补采另计。近期范围从知识库时区昨天零点到本轮领取时。
+每批 commit 后省略 --start/--end 再次 prepare，按已提交的进度和缺口续采，直到返回 stage=covered。较早的未采区间记入缺口，待近期摄取、日报完成后回补。
 自动 IM 采集最多回看 14 天。完全超龄的窗口在读取来源前返回 `DREAMING_IM_WINDOW_EXPIRED`；
 跨界窗口只采集近期部分，`skipped_window` 记录未采集范围。用户明确指定历史时间可用前台单次处理。
 

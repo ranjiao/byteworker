@@ -640,7 +640,9 @@ reports/<kind>/<period>.md
   首次枚举从启用或接管时起，跳过现有归档和已成功周期。近期 process 租约新增 `im_window`，
   `recent_start` 也是增量群聊的近期下界。群聊 checkpoint 的 `covered_windows` 合并已核验区间，
   `legacy_through` 继承原版本已确认的进度；历史回补只填对应区间。
-  `im_window` 空值表示无需采集消息。跳过的消息区间进入原有 lane 的 gaps，消费近期窗口时保留历史缺口。
+  `im_window` 是领取时的第一段。每次 prepare 和成功收尾都复算目标时段的剩余缺口。
+  `jobs.process.last_recent_success` 保存普通 digest 的周期与完成时间，`catchup_retry` 保存补采退避。
+  升级时复用可辨认的普通成功记录；若仅剩补采回执，按启用时间计算普通任务是否到期。跳过的消息区间进入原有 lane 的 gaps，消费近期窗口时保留历史缺口。
 - 每次调度都复核所选报告的覆盖，替换同类报告过往周期的依赖。相同缺口的重试按普通到期顺序竞争。
 - all_visible discovery 即使追平也只能标 partial/best_effort。所有合法定期 Profile 和普通
   digest 兼容历史来源都必须进入 process；Profile 无效时迁移和报告 fail closed，不允许按

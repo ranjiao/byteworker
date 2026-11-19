@@ -235,6 +235,52 @@ class DreamingSchedulerTests(unittest.TestCase):
             )
             self.assertEqual("idle", not_due["status"])
 
+    def test_history_does_not_change_recent_due_or_share_backoff(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary))
+            wake = datetime(2026, 8, 13, 4, tzinfo=timezone.utc)
+            state = self.enable_at(kb, wake - timedelta(days=9))
+            for name, job in state["jobs"].items():
+                job["enabled"] = name in {"process", "weekly"}
+            proc = state["jobs"]["process"]
+            proc["schedule"] = {"kind": "interval", "minutes": 240}
+            # Older state only recorded the latest success, overwritten by a catch-up.
+            proc.pop("last_recent_success", None)
+            proc["last_success"] = {"period": "catchup:old", "status": "success", "finished_at": wake.isoformat()}
+            atomic_write_json(state_path(kb), state)
+            due = run_due(kb, owner="host", now=wake)["lease"]
+            self.assertNotIn("dependency", due)
+            complete_run(kb, token=due["token"], run_status="success", now=wake)
+            deadline = wake + timedelta(hours=4)
+            for offset in (30, 60, 239):
+                now = wake + timedelta(minutes=offset)
+                state = json.loads(state_path(kb).read_text())
+                state["grants"]["im"]["mode"] = "all_visible"
+                # Newly known missing evidence inside a pending historical weekly.
+                state["gaps"]["test"] = {"lane": "discovery", "windows": [{
+                    "start": "2026-08-06T03:00:00+00:00", "end": "2026-08-06T04:00:00+00:00",
+                }]}
+                state["cursors"]["im:discovery"] = {"through": wake.isoformat()}
+                atomic_write_json(state_path(kb), state)
+                history = run_due(kb, owner="host", now=now)["lease"]
+                self.assertTrue(history["period"].startswith("catchup:"))
+                self.assertEqual(state["gaps"]["test"]["windows"][0], history["im_window"])
+                if offset == 239:
+                    complete_run(kb, token=history["token"], now=now,
+                                 run_status="partial", error_code="NETWORK_TIMEOUT")
+                else:
+                    with self.assertRaises(DreamingError) as blocked:
+                        complete_run(kb, token=history["token"], now=now, run_status="success")
+                    self.assertEqual("DREAMING_IM_INCOMPLETE", blocked.exception.code)
+                    state = json.loads(state_path(kb).read_text())
+                    state["gaps"].pop("test")
+                    atomic_write_json(state_path(kb), state)
+                    complete_run(kb, token=history["token"], now=now, run_status="success")
+                self.assertEqual(deadline.isoformat(), status(kb, now=now)["jobs"]["process"]["next_due_at"])
+            recent = run_due(kb, owner="host", now=deadline)["lease"]
+            self.assertNotIn("dependency", recent)
+            self.assertEqual(deadline.isoformat(), recent["im_window"]["end"])
+
     def test_process_catchup_can_chain_one_unblocked_report(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             kb = self.make_kb(Path(temporary))
@@ -252,6 +298,14 @@ class DreamingSchedulerTests(unittest.TestCase):
 
             self.assertEqual("process", catchup["job"])
             self.assertTrue(catchup["period"].startswith("catchup:"))
+            value = json.loads(state_path(kb).read_text(encoding="utf-8"))
+            value["cursors"]["im:discovery"] = {
+                "through": "2026-08-05T02:00:00+00:00",
+                "committed_batch_id": "EB-catchup",
+                "updated_at": (due_at + timedelta(minutes=5)).isoformat(),
+            }
+            atomic_write_json(state_path(kb), value)
+
             complete_run(
                 kb,
                 token=catchup["lease"]["token"],
@@ -266,14 +320,6 @@ class DreamingSchedulerTests(unittest.TestCase):
                 now=due_at + timedelta(minutes=6),
             )
             self.assertEqual("idle", wrong_followup["status"])
-
-            value = json.loads(state_path(kb).read_text(encoding="utf-8"))
-            value["cursors"]["im:discovery"] = {
-                "through": "2026-08-05T02:00:00+00:00",
-                "committed_batch_id": "EB-catchup",
-                "updated_at": (due_at + timedelta(minutes=5)).isoformat(),
-            }
-            atomic_write_json(state_path(kb), value)
 
             report = run_due(
                 kb,
@@ -561,7 +607,7 @@ class DreamingSchedulerTests(unittest.TestCase):
                 # dependency is still cached and the runner missed its follow-up.
                 state = json.loads(state_path(kb).read_text())
                 state["jobs"]["maintenance"]["enabled"] = False
-                state["cursors"]["im:monitored"] = {"through": fresh["dependency"]["end"]}
+                state["cursors"]["im:monitored"] = {"through": fresh["lease"]["im_window"]["end"]}
                 atomic_write_json(state_path(kb), state)
                 complete_run(kb, token=fresh["lease"]["token"], run_status="success", now=wake)
                 report = run_due(kb, owner="host", now=wake + timedelta(minutes=1))
@@ -575,6 +621,7 @@ class DreamingSchedulerTests(unittest.TestCase):
             state = self.enable_at(kb, wake - timedelta(days=1))
             state["grants"]["im"]["mode"] = "monitored"
             state["jobs"]["recovery"]["enabled"] = False
+            state["jobs"]["process"]["schedule"] = {"kind": "interval", "minutes": 43200}
             atomic_write_json(state_path(kb), state)
             catchup = run_due(kb, owner="host", now=wake)
             complete_run(kb, token=catchup["lease"]["token"], run_status="partial",

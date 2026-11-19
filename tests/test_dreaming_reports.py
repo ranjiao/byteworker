@@ -162,14 +162,14 @@ class DreamingReportTests(unittest.TestCase):
             self.assertTrue(leased["period"].startswith("catchup:"))
             self.assertEqual("im", leased["dependency"]["source"])
 
+            blocker_end = leased["dependency"]["end"]
+            self.set_cursor(kb, "im:monitored", blocker_end, due_at)
             complete_run(
                 kb,
                 token=leased["lease"]["token"],
                 run_status="success",
                 now=due_at + timedelta(minutes=1),
             )
-            blocker_end = leased["dependency"]["end"]
-            self.set_cursor(kb, "im:monitored", blocker_end, due_at)
             self.assertEqual(1, refresh_report_dependencies(kb)["cleared"])
             next_run = run_due(
                 kb,
@@ -238,10 +238,66 @@ class DreamingReportTests(unittest.TestCase):
 
             weekly = report_dependency(kb, kind="weekly", period="2026-W46", now=wake)
             self.assertEqual(["im"], [item["source"] for item in weekly["blockers"]])
+            # Publishing both dailies did not consume the independent digest interval.
+            ordinary = run_due(kb, owner="host", now=wake)["lease"]
+            self.assertNotIn("dependency", ordinary)
+            self.assertEqual(window["end"], ordinary["im_window"]["start"])
+            self.set_cursor(kb, "im:discovery", wake.isoformat(), wake)
+            complete_run(kb, token=ordinary["token"], run_status="success", now=wake)
             history = run_due(kb, owner="host", now=wake)["lease"]
             self.assertEqual("process", history["job"])
-            self.assertNotIn("im_window", history)
+            self.assertEqual(history["dependency"]["end"], history["im_window"]["end"])
             self.assertLessEqual(history["dependency"]["end"], window["start"])
+
+    def test_ordinary_digest_resumes_split_windows_after_interruption(self):
+        from dreaming_collection import prepare_im_batch
+        from dreaming_process import commit_finding_bundle
+
+        wake = datetime(2026, 8, 13, 4, tzinfo=timezone.utc)
+        initial = wake - timedelta(hours=4)
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary), wake - timedelta(days=1))
+            with state_lock(kb):
+                state = load_state_unlocked(kb, wake)
+                for name, job in state["jobs"].items():
+                    job["enabled"] = name == "process"
+                state["grants"]["im"]["mode"] = "all_visible"
+                state["cursors"]["im:discovery"] = {"through": initial.isoformat()}
+                save_state_unlocked(kb, state)
+            collector = mock.Mock()
+            collector.principal.return_value = "user:test"
+            clean = {"coverage": {"status": "best_effort", "gaps": []}, "messages": []}
+            collector.collect_discovery.side_effect = [
+                {**clean, "coverage": {"status": "best_effort", "gaps": [{"kind": "window_budget"}]}},
+                clean, clean, clean,
+            ]
+
+            def collect(now, lease, start, end):
+                with self.assertRaises(DreamingError) as blocked:
+                    complete_run(kb, token=lease["token"], run_status="success", now=now)
+                expected = {"start": start.isoformat(), "end": end.isoformat()}
+                self.assertEqual("DREAMING_IM_INCOMPLETE", blocked.exception.code)
+                self.assertEqual(expected, blocked.exception.details["window"])
+                batch = prepare_im_batch(kb, collector=collector, now=now)
+                self.assertEqual(expected, batch["window"])
+                bundle = Path(temporary) / "bundle.json"
+                bundle.write_text(json.dumps({
+                    "schema_version": "byteworker-finding-bundle/v1", "batch_id": batch["batch_id"], "findings": [],
+                }))
+                commit_finding_bundle(kb, batch_id=batch["batch_id"], input_path=bundle, skill_root=ROOT, now=now)
+
+            first = run_due(kb, owner="host", now=wake)["lease"]
+            middle = initial + (wake - initial) / 2
+            collect(wake, first, initial, wake)
+            collect(wake, first, initial, middle)
+            complete_run(kb, token=first["token"], run_status="partial", error_code="NETWORK_TIMEOUT", now=wake)
+            later = wake + timedelta(minutes=6)
+            second = run_due(kb, owner="host", now=later)["lease"]
+            collect(later, second, middle, wake)
+            collect(later, second, wake, later)
+            self.assertEqual("covered", prepare_im_batch(kb, collector=collector, now=later)["stage"])
+            self.assertEqual(4, collector.collect_discovery.call_count)
+            complete_run(kb, token=second["token"], run_status="success", now=later)
 
     def test_covered_yesterday_is_published_while_today_needs_input(self):
         with tempfile.TemporaryDirectory() as temporary:

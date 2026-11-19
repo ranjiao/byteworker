@@ -1157,7 +1157,7 @@ def _candidate(
             "DREAMING_STATE_INVALID",
             f"Dreaming job schedule 缺失: {name}",
         )
-    success = _last_success(job)
+    success = job.get("last_recent_success") if name == "process" else _last_success(job)
     kind = schedule.get("kind")
     if kind == "interval":
         minutes = int(schedule.get("minutes", 0))
@@ -1303,7 +1303,7 @@ def _next_due(
     schedule = job.get("schedule")
     if not isinstance(schedule, Mapping):
         return None
-    success = _last_success(job)
+    success = job.get("last_recent_success") if name == "process" else _last_success(job)
     kind = schedule.get("kind")
     if kind == "interval":
         baseline = (
@@ -1427,7 +1427,7 @@ def run_due(
     current = now or _now()
     decisions = observation.setdefault("jobs", {}) if observation is not None else None
     from dreaming_grants import expire_foreground_sessions
-    from dreaming_collection import IM_BACKFILL_LOOKBACK, plan_im_recovery, plan_recent_im_window
+    from dreaming_collection import IM_BACKFILL_LOOKBACK, next_process_im_window, plan_im_recovery
     from dreaming_reports import REPORT_KINDS, expire_report_dependencies
 
     expire_foreground_sessions(kb, now=current)
@@ -1607,18 +1607,21 @@ def run_due(
         report_blockers = recent_blockers if recent_due else history_blockers
         if report_blockers and (not followup_run_id or report_target):
             process = jobs.get("process")
-            if isinstance(process, Mapping) and not _job_gate(process, current):
+            if (isinstance(process, Mapping) and not _job_gate(process, current)
+                    and not _job_gate({**process, **process.get("catchup_retry", {})}, current)):
                 blocker = min(report_blockers, key=lambda item: (recent_due and not item.get("report_target"), item["key"]))
                 digest = hashlib.sha256(blocker["key"].encode("utf-8")).hexdigest()[:16]
                 period = f"catchup:{digest}"
                 last_attempt = process.get("last_attempt")
                 retry = isinstance(last_attempt, Mapping) and last_attempt.get("period") == period
-                candidates = [item for item in candidates if item["job"] != "process"]
+                # A repeat attempt on the same report must yield to a due ordinary digest.
+                if not retry:
+                    candidates = [item for item in candidates if item["job"] != "process"]
                 candidates.append(
                     {
                         "job": "process",
                         "period": period,
-                        "prioritize_dependency": (recent_due and bool(blocker.get("report_target"))) or not retry,
+                        "prioritize_dependency": not retry,
                         "ready_since": (last_attempt.get("finished_at") if retry else None) or _iso(current),
                         "deadline_at": "",
                         "dependency": blocker,
@@ -1663,15 +1666,15 @@ def run_due(
         dep = lease.get("dependency") or {}
         if dep.get("report_target"):
             lease["report_target"] = dep["report_target"]
-            start, end = _parse_time(dep["start"]), _parse_time(dep["end"])
+            start = _parse_time(dep["start"])
             # Keep yesterday in the recent scan when it also has an outstanding daily.
             if selected.get("historical") is False and yesterday.isoformat() in jobs["daily"].get("pending_periods", {}):
                 start = min(start, recent_start)
             lease["recent_start"] = _iso(start)
-            lease["im_window"] = plan_recent_im_window(value, start.astimezone(zone), end)
         elif job_name == "process" and not selected.get("historical"):
             lease["recent_start"] = _iso(recent_start)
-            lease["im_window"] = plan_recent_im_window(value, recent_start, current)
+        if job_name == "process":
+            lease["im_window"] = next_process_im_window(value, lease)
         job["lease_epoch"] = epoch
         job["last_attempt"] = {
             "run_id": run_id,
@@ -1857,6 +1860,7 @@ def retry_job(
         if not isinstance(job, dict):
             raise DreamingError("DREAMING_STATE_INVALID", f"Dreaming job 缺失: {job_name}")
         job["waiting_for_user"] = None
+        job.pop("catchup_retry", None)
         job["next_attempt_at"] = None
         job["ready_since"] = None
         value["updated_at"] = _iso(current)
@@ -1990,6 +1994,14 @@ def complete_run(
                         "DREAMING_DIGEST_INCOMPLETE",
                         "process 成功前必须完成全部已启用来源的普通 digest。",
                     )
+                from dreaming_collection import next_process_im_window
+
+                missing = next_process_im_window(value, lease)
+                if missing:
+                    raise DreamingError(
+                        "DREAMING_IM_INCOMPLETE", "消息仍有缺口，请从下一段继续采集。",
+                        details={"window": missing},
+                    )
             elif error_code != SOURCE_REVIEW_REQUIRED and not (
                 run_status == "failed" and error_code in HUMAN_BLOCKING_ERRORS | {
                     "USER_REQUESTED_STOP", "ENOSPC", "COORDINATOR_STATE_WRITE_VIOLATION",
@@ -2120,21 +2132,25 @@ def complete_run(
             run["report_target"] = lease["report_target"]
         job["last_attempt"] = run
         job["last_run"] = run
+        catchup = job_name == "process" and period.startswith("catchup:")
+        retry_state = job.setdefault("catchup_retry", {}) if catchup else job
         if run_status == "success":
             if job_name in {"daily", "weekly"}:
                 job.get("pending_periods", {}).pop(period, None)
             job["last_success"] = run
-            job["consecutive_failures"] = 0
-            job["next_attempt_at"] = None
+            if job_name == "process" and not catchup:
+                job["last_recent_success"] = {"period": period, "finished_at": run["finished_at"]}
+            retry_state["consecutive_failures"] = 0
+            retry_state["next_attempt_at"] = None
             job["waiting_for_user"] = None
             job["ready_since"] = None
             job["deadline_at"] = None
         else:
-            failures = int(job.get("consecutive_failures", 0)) + 1
-            job["consecutive_failures"] = failures
+            failures = int(retry_state.get("consecutive_failures", 0)) + 1
+            retry_state["consecutive_failures"] = failures
             if error_code in HUMAN_BLOCKING_ERRORS:
                 job["waiting_for_user"] = error_code
-                job["next_attempt_at"] = None
+                retry_state["next_attempt_at"] = None
             else:
                 routine_gap = error_code in ROUTINE_WAIT_REASONS or (
                     job_name == "process" and error_code == "DREAMING_DIGEST_INCOMPLETE"
@@ -2143,7 +2159,7 @@ def complete_run(
                     BACKOFF_MAX_MINUTES, BACKOFF_MINUTES * (2 ** (failures - 1)),
                 )
                 job["waiting_for_user"] = None
-                job["next_attempt_at"] = _iso(
+                retry_state["next_attempt_at"] = _iso(
                     current + timedelta(minutes=delay)
                 )
         value["active_lease"] = None

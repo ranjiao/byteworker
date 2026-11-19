@@ -102,4 +102,4 @@ Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，
 最后调用 `dreaming process digest-complete --allow-partial`。成功来源各自推进有证据的覆盖，
 未完成来源保留缺口。返回 partial 时，用 `dreaming complete --run-status partial` 和实际错误码
 结束。普通缺口用 `DREAMING_DIGEST_INCOMPLETE`，严重错误用对应的稳定错误码。
-digest-complete 只汇总定期来源。日报补采还需逐批提交缺失时段的消息，直到 prepare 返回 stage=covered。后续自动领取时重新核验目标窗口，复用有效的已保存进度。
+digest-complete 只汇总定期来源。普通 digest 与报告补采均需逐批提交缺失时段的消息，直到 prepare 返回 stage=covered。后续自动领取时重新核验目标窗口，复用有效的已保存进度。

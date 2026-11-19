@@ -222,10 +222,9 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
   `process prepare` 只生成私密 EvidenceBatch，不调用模型、不写 Finding/报告/知识。
 - `process prepare` 后的 Agent 分析必须读 `references/dreaming-analysis.md`；Finding 持久与去重
   规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
-- 后台 process 按 `references/dreaming-routine.md` 逐源核验覆盖。日报补采从上次提交的位置逐批补齐消息，同轮生成该日期的日报。
+- 近期 digest 独立计时，按 `references/dreaming-routine.md` 逐源核验、逐段续采。补齐后同轮出日报。
   滚动文档按周期抓取，外链过多时只分析当前文档。
   Meego 按快照差异分析；核验宿主错误后自动缩片并逐片保存。无法继续时暂缓该来源。
-  完整报告仍须满足全部覆盖条件。
 - 自动 IM 补跑只看最近 14 天，历史窗口可按需前台处理。
 - 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。

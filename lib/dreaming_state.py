@@ -247,7 +247,7 @@ def _job(
         "last_attempt": old.get("last_attempt"),
         "last_run": old.get("last_run"),
         "last_success": old.get("last_success"),
-        **{key: old[key] for key in ("pending_periods", "scheduled_through") if key in old},
+        **{key: old[key] for key in ("pending_periods", "scheduled_through", "last_recent_success", "catchup_retry") if key in old},
         "next_attempt_at": old.get("next_attempt_at"),
         "consecutive_failures": int(old.get("consecutive_failures", 0)),
         "deadline_at": old.get("deadline_at"),
@@ -425,6 +425,24 @@ def _validate_v2(value: Mapping[str, Any]) -> dict[str, Any]:
             )
         if job.get("waiting_for_user") in ROUTINE_WAIT_REASONS:
             normalized_jobs[name] = {**job, "waiting_for_user": None}
+    process = dict(normalized_jobs["process"])
+    if "last_recent_success" not in process:
+        previous = process.get("last_success") or {}
+        period = str(previous.get("period") or "")
+        process["last_recent_success"] = (
+            {"period": period, "finished_at": previous["finished_at"]}
+            if previous.get("status") == "success" and period and not period.startswith("catchup:")
+            and previous.get("finished_at") else None
+        )
+        # Older versions shared both the interval clock and the retry delay.
+        attempt = process.get("last_attempt") or {}
+        if str(attempt.get("period", "")).startswith("catchup:") and process.get("next_attempt_at"):
+            process["catchup_retry"] = {
+                "next_attempt_at": process["next_attempt_at"],
+                "consecutive_failures": process.get("consecutive_failures", 0),
+            }
+            process.update(next_attempt_at=None, consecutive_failures=0)
+    normalized_jobs["process"] = process
     result = dict(value)
     maintenance = normalized_jobs["maintenance"]
     if maintenance.get("waiting_for_user") == "DOCTOR_USER_DECISION_REQUIRED":

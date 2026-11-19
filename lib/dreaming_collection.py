@@ -100,6 +100,20 @@ def plan_recent_im_window(state: dict, recent_start: datetime, now: datetime) ->
     return {"start": utc_iso(start), "end": utc_iso(end)}
 
 
+def next_process_im_window(state: dict, lease: Mapping[str, Any]) -> dict | None:
+    """Plan from committed coverage within this run's fixed target, including older leases."""
+    dependency = lease.get("dependency") or {}
+    acquired = parse_time(lease["acquired_at"]).astimezone(ZoneInfo(state["timezone"]))
+    # Historical and daily catch-ups stop at their report cutoff. An ordinary
+    # digest (or a recent morning scan) covers through the time it was claimed.
+    start = parse_time(lease.get("recent_start") or dependency.get("start"))
+    if start is None:
+        start = acquired.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    report_window = lease.get("report_target") or not lease.get("recent_start")
+    end = parse_time(dependency.get("end")) if report_window else None
+    return plan_recent_im_window(state, start.astimezone(acquired.tzinfo), end or acquired.replace(microsecond=0))
+
+
 def _window(start: str, end: str) -> tuple[datetime, datetime]:
     start_at = parse_time(start)
     end_at = parse_time(end)
@@ -158,17 +172,10 @@ def prepare_im_batch(
     if not foreground_token:
         state = read_state_for_diagnostics(kb, current)
         lease = state.get("active_lease") or {}
-        if (lease.get("job") == "process" and "im_window" in lease
-                and (parse_time(lease.get("expires_at")) or current) > current):
-            planned = lease["im_window"]
-            dependency = lease.get("dependency") or {}
-            if lease.get("report_target"):
-                left, right = _window(lease.get("recent_start") or dependency["start"], dependency["end"])
-                planned = plan_recent_im_window(state, left.astimezone(ZoneInfo(state["timezone"])), right)
-                if planned is None:
-                    return {"stage": "covered", "window": None, "item_count": 0}
-            if not planned:
-                raise DreamingError("DREAMING_WINDOW_INVALID", "本轮没有待采集的近期 IM 窗口。")
+        if lease.get("job") == "process" and (parse_time(lease.get("expires_at")) or current) > current:
+            planned = next_process_im_window(state, lease)
+            if planned is None:
+                return {"stage": "covered", "window": None, "item_count": 0}
             if start or end:
                 requested_start, requested_end = _window(start, end)
                 if requested_start > parse_time(planned["start"]) or requested_end < parse_time(planned["end"]):

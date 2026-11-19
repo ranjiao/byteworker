@@ -24,9 +24,8 @@
    用 `process digest-complete --allow-partial` 汇总实际覆盖，只有全量完成才可成功。
    收尾列出仍缺的来源、已尝试的处理和下次自动检查的范围；普通缺口使用
    `DREAMING_DIGEST_INCOMPLETE`。预算、单源权限或冲突只暂停受影响的来源。
-   近期 process 按租约 `im_window` 采集消息，调用 `process prepare --source im` 时省略起止参数。
-   日报补采每次提交消息分析后，再次省略起止时间调用 prepare，直到返回 stage=covered。
-   每批从已保存的进度继续。无法继续分页或来源拒绝访问时记录具体缺口。其它历史补采使用 dependency 的起止时间。
+   process 用 `process prepare --source im` 查询下一段消息，省略起止时间。每批分析并 commit 后再查，
+   直到返回 `stage=covered`。无法继续分页或来源拒绝访问时记录具体缺口，以 partial 收尾。
    `job=recovery` 补 IM 缺口时只用 `lease.im_recovery.window`。窗口为空时继续检查其它恢复项，
    没有可恢复项就成功结束。若窗口在执行时到期，记为跳过并继续其它恢复项。
 6. 保存 lease 的 `run_id`。进入 collection/analysis/consolidation/action/report/maintenance/
@@ -34,7 +33,7 @@
    `detail-code` 只用有限机器码，禁止放业务正文。
 7. 所有来源操作只调用 `bin/byteworker` 公开命令；禁止直接 import digest/query 内部模块。
 8. process / maintenance / recovery 的成功、部分或失败路径调用通用 `dreaming complete`。
-   process 只有在 `process digest-complete` 成功后才允许 `run-status=success`；日报补采还要复核消息与定期来源。若返回 DREAMING_REPORT_BLOCKED，按所列缺口继续本次任务。即使 IM grant 为
+   process 只有在 `process digest-complete` 成功后才允许 `run-status=success`；还须覆盖本次消息时段。若返回 DREAMING_IM_INCOMPLETE 或 DREAMING_REPORT_BLOCKED，按所列缺口继续本次任务。即使 IM grant 为
    `off`，已启用的普通 digest 来源也必须处理。没有定期来源时该步骤成功 no-op。
    morning / daily / weekly 只有在报告生成前失败或只能 partial 时才调用通用
    `dreaming complete`；报告成功路径不得调用它。`partial/failed` 提供稳定错误码。已知时传
