@@ -30,6 +30,7 @@ def parser() -> argparse.ArgumentParser:
         help="强制检查本次来源 runtime；可重复",
     )
     result.add_argument("--skip-update", action="store_true", help=argparse.SUPPRESS)
+    result.add_argument("--skip-report-automation", action="store_true", help="跳过自动报告状态与设置检查")
     result.add_argument("--json", action="store_true", help="健康时也输出完整 JSON")
     interaction = result.add_mutually_exclusive_group()
     interaction.add_argument(
@@ -54,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_update=args.skip_update,
         environ=os.environ,
         allow_capability_suggestions=args.interactive,
+        check_report_automation=not args.skip_report_automation,
     )
     trace_id = os.environ.get(trace.TRACE_ENV)
     if not trace_id and args.interactive and not result["ready"]:

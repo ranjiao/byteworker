@@ -20,6 +20,8 @@ preflight 合并：
 - 检查自动报告 onboarding、prompt upgrade 和低频能力发现状态。
 
 已登记来源从知识库 `sources/*.json` 自动推导。`--require` 只用于即将访问但尚未登记的来源。
+TRAE IDE（含 SOLO）用 `preflight --interactive --skip-report-automation`。此选项跳过自动报告状态读取、
+设置提示和提示记录。依赖检查与交互能力建议照常运行。
 能力建议采用 fail-safe 默认：只有真人参与的对话显式传 `--interactive` 才允许返回；无参数或
 `--unattended` 都禁止。自动报告、Dreaming runner 和其它定时任务必须使用 `--unattended`。
 

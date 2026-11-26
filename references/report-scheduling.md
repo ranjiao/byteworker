@@ -12,7 +12,7 @@ owner migration 必须使用 `report-automation release-owner/restore-owner`，�
 
 ## 1. 共同原则
 
-- skill 定义执行方法，Codex / Claude / TraeWork 等 harness 定义时间。
+- skill 定义执行方法，支持本地调度的宿主定义时间。
 - 任务必须在**知识库数据目录**本地运行；不得使用云端环境、临时 worktree 或 skill 仓库作为
   写入项目。
 - 日报和周报各用一个独立任务，并增加一个只做缺口检查、每次最多补跑一期的补偿任务。创建前按
@@ -31,6 +31,9 @@ owner migration 必须使用 `report-automation release-owner/restore-owner`，�
   会由 `report-automation check` 确定性跳过，只有缺失或失败的 period 才进入补跑。
 
 ## 2. 设置状态与一次性迁移
+
+TRAE IDE（含 TraeCode、SOLO）支持手动生成报告，跳过自动调度设置。
+需要自动报告时，在支持本地调度的宿主打开同一知识库。
 
 通过机器协议读取：
 
@@ -89,16 +92,6 @@ bin/byteworker report-automation status --kb "<知识库绝对路径>"
 - 不使用 Claude Code Remote Routine / `/schedule`：云端 fresh clone 访问不到本地私有 KB。
 - 创建后在 Desktop Scheduled/Routines 页面核对任务，并执行一次 Run now。
 
-### TRAE
-
-- 使用 TRAE Work 桌面端“自动化”，选择**本地**运行环境和知识库数据目录。
-- TRAE IDE/TraeCode（包括其内置 SOLO 模式）不提供这里所需的本地自动化任务；检测到时提示
-  用户切换到 TraeWork 桌面版。
-- 不使用 TRAE Work Web / 云端环境：云端任务不能访问宿主机知识库。
-- 通过“在对话中创建”或自动化面板手工创建。当前公开文档没有可依赖的稳定任务管理 API，
-  不伪造 task ID；创建后以“已配置”和“执行历史”页面核验。
-- 运行模式、环境和输出位置创建后不可修改；选错时删除后按正确设置重建。
-
 其它 harness 没有经核实的原生调度能力时，只展示两份任务 prompt 和设置要求，不擅自改用
 系统 cron / launchd。
 
@@ -107,8 +100,6 @@ bin/byteworker report-automation status --kb "<知识库绝对路径>"
 - [Codex automations](https://learn.chatgpt.com/docs/automations)
 - [Claude Code Desktop scheduled tasks](https://code.claude.com/docs/en/desktop-scheduled-tasks)
 - [Claude Code cloud scheduled tasks](https://code.claude.com/docs/en/web-scheduled-tasks)
-- [TRAE Work 自动化任务](https://docs.trae.cn/work_automated-tasks)
-- [TRAE Work 本地 / 云端环境](https://docs.trae.cn/work_sandbox)
 
 ## 5. 创建与验证完成
 
@@ -123,7 +114,7 @@ bin/byteworker report-automation status --kb "<知识库绝对路径>"
 ```bash
 bin/byteworker report-automation configure \
   --kb "<知识库绝对路径>" \
-  --harness "<codex|claude-desktop|trae-work>" \
+  --harness "<codex|claude-desktop>" \
   --timezone "<context.md 时区>" \
   --environment local \
   --daily-schedule "<用户确认的日报时间>" \

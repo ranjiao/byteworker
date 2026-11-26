@@ -66,7 +66,3 @@ Dreaming 会自动重放全部已登记且启用的定期 digest 来源，但不
 内部复验仍检查 enabled、harness、operational 和各 job 的 `next_due_at`，但用户回显必须使用
 设置向导定义的状态卡。真实本地定时任务尚未创建和首次触发时，明确显示“自动运行：待完成；
 设置已经保存，但还不会按时自动执行”，不得输出内部诊断串或声称已经完成。
-
-当前环境或用户选择的宿主是 TRAE / TRAE SOLO / TraeWork 时，额外加载
-`references/dreaming-harness-trae.md`。如果当前会话没有 Schedule 工具，必须逐步提示用户在
-TRAE 任务面板创建本地 Code 自动化任务并首次 Run now；不能把 `enabled=true` 当成任务已创建。

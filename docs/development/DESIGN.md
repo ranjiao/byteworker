@@ -333,9 +333,8 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
 ### F. 自动报告设置状态与执行租约
 
 `state/report_automation.json` 使用 `byteworker-report-automation/v1`，由
-`lib/report_automation.py` 原子维护。它只保存 byteworker 对设置流程与真实运行结果的本地认知，
-**不替代 Codex、Claude 或 TRAE 自己的任务列表**；宿主任务系统始终是是否存在、是否启用和下次
-何时运行的真相源。
+`lib/report_automation.py` 原子维护，用于保存 Byteworker 的设置流程与真实运行结果。
+任务是否存在、是否启用及下次执行时间以宿主任务列表为准。
 
 - `onboarding_version` 与 `decision` 共同保证首次安装和既有安装升级后只询问一次。
   `decision` 为 `unasked/prompted/configured/declined/deferred`；展示问题前先写 `prompted`，
@@ -658,8 +657,8 @@ reports/<kind>/<period>.md
   `reports/<kind>/<period>.md` 归档快照和 `byteworker-report-artifacts/v1` manifest。私密产物
   为 `0600`，归档快照为普通用户文件；manifest 记录相对/绝对路径、media type、audience 与
   SHA-256。
-- HTML 是单文件自包含页面，业务文本必须转义，禁止外部 JS/CSS/字体/图片和网络请求。报告核心
-  不识别 TraeWork、Codex 或 Claude Code；宿主只按 manifest 回显摘要，并自行选择直接预览 HTML
+- HTML 是单文件自包含页面，业务文本必须转义，禁止外部 JS/CSS/字体/图片和网络请求。宿主按
+  manifest 回显摘要，并自行选择直接预览 HTML
   或返回本地文件链接。
 - `report complete` 必须在完成 lease 时写入 `artifact_path=reports/<kind>/<period>.md`。归档快照
   重跑时保留“手动补充 / 备注”；delivery outbox 独立维护 pending/delivered/skipped，不以报告落地冒充

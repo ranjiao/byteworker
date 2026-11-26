@@ -6,7 +6,7 @@ Byteworker 把飞书里的工作资料整理成一个可以用聊天来查的个
 
 ## 安装
 
-把下面这句话发给你的 AI 助手，例如 Codex、Claude Code、TraeWork 或 OpenClaw。
+把下面这句话发给你的 AI 助手，例如 Codex、Claude Code、TRAE IDE 或 OpenClaw。
 
 ```
 按 https://raw.githubusercontent.com/ranjiao/byteworker/master/INSTALL.md 的说明安装 Byteworker。如果之前装过但没装好，请一并修复。

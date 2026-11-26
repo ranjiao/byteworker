@@ -11,7 +11,7 @@ Byteworker 由 Agent、确定性命令和独立的本地 Markdown 知识库组�
 ```mermaid
 flowchart LR
     U["用户<br/>自然语言或子命令"]
-    H["宿主本地定时任务<br/>Codex / Claude / TraeWork"]
+    H["宿主本地定时任务<br/>Codex / Claude"]
     A["Agent 语义层<br/>分类、依赖判断、冲突裁决、实体消解、写候选"]
     C["确定性工具层<br/>Python / Shell CLI"]
     K["私有知识库目录<br/>Markdown + JSON + 本地 Git"]
@@ -455,13 +455,9 @@ source checkpoint，报告仍等待全部相关来源覆盖。全量完成才允
 在配置时通过 user 身份通讯录唯一解析为 open_id；state 同时保存展示 key 与 open_id。报告完成和
 投递阶段只消费已复验的 open_id，不查询通讯录，也不在歧义时选择第一条。
 
-宿主差异只存在 Agent/harness 兼容层，不进入 scheduler。TRAE 产品家族环境按
-`references/dreaming-harness-trae.md` 先识别具体产品：TRAE IDE/TraeCode（包括内置 SOLO）
-没有 Dreaming 所需的本地定时任务入口，只提示用户切换到 TraeWork 桌面版；TraeWork 桌面版
-才可在“自动化”中创建本地 Code 任务，按用户确认的唤醒间隔执行 runner 并首次触发。产品未确认或没有
-Schedule 工具回执时保持 `harness.status=pending`，不能猜私有 API、改应用配置或用
-cron/launchd 冒充 Agent task。TraeWork 网页版的云端任务不能访问本地 KB 和用户态 lark-cli，
-不是等价 fallback。
+宿主差异由 Agent/harness 层处理，scheduler 接收通用租约和任务登记。TRAE IDE（包括内置 SOLO）
+支持前台单次分析。后台设置需要能访问本地 KB 和用户态 lark-cli 的原生本地任务。创建并首次触发前
+保持 `harness.status=pending`；不得用私有 API、系统 cron 或 launchd 代替宿主任务。
 
 ```text
 宿主 local tick
@@ -883,7 +879,7 @@ flowchart TB
 | 模块 | 职责 | 输出 |
 |---|---|---|
 | `bin/byteworker` + `bin/byteworker-launcher.py` | shell 先定位 Python 并完成 update-check，再 exec 当前版本 launcher；统一执行 preflight、机器 CLI 或外部工具 | 单一版本模块、静默健康路径、机器 envelope 或下游输出 |
-| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、自动报告设置与低频能力建议资格；区分 interactive / unattended，消费 shell 的有限更新 notice | `byteworker-session-preflight/v1`；无人值守不输出能力建议，交互模式默认仅异常或到期建议输出 |
+| `bin/session-preflight.py` + `lib/session_preflight.py` | 每 session 一次编排 KB、runtime、自动报告设置与低频能力建议资格；区分 interactive / unattended，消费有限更新 notice。TRAE IDE 以 `--skip-report-automation` 跳过自动报告状态和提示写入 | `byteworker-session-preflight/v1`；无人值守不输出能力建议，交互模式默认仅异常或到期建议输出 |
 | `lib/runtime_deps.py` | 解析/探测 Python、Node、lark-cli、meegle 与核心命令，构造子进程环境 | `byteworker-runtime-check/v1` |
 | `lib/command_registry.py` | 命令名、入口、operation、逻辑 namespace、兼容 alias、使用者、可见性、stability、副作用、runtime、协议与文档的唯一真相源 | `byteworker-command-manifest/v1` / `byteworker-command-description/v1`；推荐 namespace 和兼容入口帮助 |
 | `lib/command_parser.py` | 从实际 argparse parser 读取嵌套路径及参数；只在命令发现和契约校验时加载 | 注册表补充入口与操作元数据，`commands describe` 验证完整路径 |
@@ -1382,7 +1378,7 @@ digest 事务失败时不得继续生成“看似完整”的报告；报告周�
 产物必须 digest committed 后才能进入报告；报告、journal 或本地 Git 回滚点未完成时不得记录
 成功。获取到其他运行中的有效租约时应安静退出并保留现有租约，不能并发写同一 KB。
 Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `reports/<kind>/<period>.md`
-归档快照，不调用 TraeWork、Codex、Claude Code 等宿主私有预览接口。HTML 必须自包含且不加载
+归档快照，宿主按 manifest 选择预览方式。HTML 必须自包含且不加载
 外部脚本、样式、字体、图片或网络资源；宿主可自行预览，不能预览时返回本地文件链接。飞书发送失败只影响对应 outbox，
 不能删除本地产物或声称已经送达。
 报告完成在 Dreaming 状态锁内验证活跃租约、类型和周期后发布归档；独立 render 仅写私有临时预览。
@@ -1390,8 +1386,7 @@ Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `repo
 
 Dreaming 另有九条边界：缺失状态必须等同关闭；未记录当前版本能力导览、完整运行计划或机器
 运行要求确认时拒绝启用；`enabled=true` 但 harness 未登记时 `operational=false`，不能声称会
-自动运行；TRAE IDE/TraeCode 不得创建或 register Dreaming 任务，TraeWork 等支持的宿主没有
-真实任务与首次触发证据时也禁止 register；旧自动报告仍声明 enabled
+自动运行；TRAE IDE 仅支持前台单次分析，宿主须有真实任务与首次触发证据才可 register；旧自动报告仍声明 enabled
 时拒绝接管 daily/weekly；maintenance 只能调用 doctor
 公开 facade 和 `auto_fix` 白名单，重要未决项按问题保留；Dreaming 状态损坏、租约过期或 job 失败只影响
 Dreaming，不得阻塞、回滚或改变 digest/search/update 和旧自动报告。`partial/failed` 不覆盖

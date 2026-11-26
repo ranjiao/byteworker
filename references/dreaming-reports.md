@@ -58,8 +58,7 @@ bin/byteworker dreaming report complete \
 报告类型、周期和活跃租约须一致才会写归档。`report render --kb <KB> --input <report.json>`
 只生成系统临时目录中的私有预览。`report delivery-complete` 只确认宿主渠道回执。
 
-HTML 禁止宿主私有 API 和外部脚本、样式、字体、图片或网络资源。TraeWork、Codex、Claude
-Code 只消费 manifest。
+HTML 禁止宿主私有 API 和外部脚本、样式、字体、图片或网络资源。宿主按 manifest 选择产物。
 4. 飞书固定用应用机器人发送 summary；配置入口可接受字母用户名，但必须先通过 user 身份通讯录
    唯一解析并把对应 open_id 保存到 `report_delivery.lark_bot.recipient_id`。仅当
    `report_delivery.lark_bot.enabled=true` 且已有 `ou_` 收件人时，`report complete` 才自动创建

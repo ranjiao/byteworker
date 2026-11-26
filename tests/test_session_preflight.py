@@ -230,6 +230,29 @@ class SessionPreflightTests(unittest.TestCase):
                 decision="prompted",
             )
 
+    def test_manual_host_skip_leaves_report_onboarding_available(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.layout(Path(temporary))
+            command = ["--kb", str(kb), "--interactive", "--skip-update", "--json"]
+            with (
+                mock.patch.object(session_preflight, "cached_check_runtime", return_value=(runtime(), "hit")),
+                mock.patch.object(session_preflight, "peek_background_recommendation", return_value=None),
+                mock.patch.object(session_preflight, "report_status", wraps=session_preflight.report_status) as status,
+                redirect_stdout(io.StringIO()) as output,
+            ):
+                self.assertEqual(0, PREFLIGHT_CLI.main([*command, "--skip-report-automation"]))
+                self.assertEqual([], json.loads(output.getvalue())["notices"])
+                status.assert_not_called()
+                self.assertFalse((kb / "state" / "report_automation.json").exists())
+
+                output.seek(0)
+                output.truncate(0)
+                self.assertEqual(0, PREFLIGHT_CLI.main(command))
+                self.assertEqual(
+                    ["REPORT_AUTOMATION_ONBOARDING"],
+                    [notice["code"] for notice in json.loads(output.getvalue())["notices"]],
+                )
+
     def test_legacy_todo_file_is_ignored(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

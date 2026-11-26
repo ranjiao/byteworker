@@ -33,7 +33,7 @@ class ReportSchedulingContractTests(unittest.TestCase):
             "needs_onboarding=true",
             "Codex 桌面端",
             "Claude Code Desktop",
-            "TRAE Work 桌面端",
+            "TRAE IDE",
             "Run now",
         ):
             with self.subTest(term=term):
@@ -151,8 +151,15 @@ class ReportSchedulingContractTests(unittest.TestCase):
         self.assertIn("宿主本地定时任务", architecture)
         self.assertIn("不承担任务唤醒", architecture)
         self.assertIn("第三个宿主原生任务唤醒", architecture)
-        self.assertIn("TRAE IDE/TraeCode", scheduling)
-        self.assertIn("切换到 TraeWork 桌面版", scheduling)
+        self.assertIn("TRAE IDE（含 TraeCode、SOLO）支持手动生成报告", scheduling)
+
+    def test_trae_ide_installs_for_manual_use_without_retired_host_setup(self):
+        install = self.read("INSTALL.md")
+        self.assertIn("| TRAE IDE | `~/.trae-cn/skills` |", install)
+        self.assertIn("TRAE IDE 支持手动运行 Byteworker，跳过以下自动报告设置", install)
+        for path in ("INSTALL.md", "SKILL.md", "references/report-scheduling.md", "references/dreaming.md"):
+            with self.subTest(path=path):
+                self.assertNotRegex(self.read(path).lower(), r"trae[ _-]*work")
 
 
 if __name__ == "__main__":

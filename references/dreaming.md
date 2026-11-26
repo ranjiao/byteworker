@@ -7,6 +7,8 @@ Dreaming 是 Byteworker 的主动后台运行机制。它通过宿主本地定�
 
 Dreaming 默认关闭。普通 preflight、digest、search、update、brief、dashboard 和
 旧自动报告都不读取 Dreaming 状态。
+TRAE IDE（含 TraeCode、SOLO）使用 `references/dreaming-review.md` 的前台单次分析。
+需要后台运行时，在支持本地定时任务的宿主打开同一知识库，再进入启用流程。
 
 Dreaming local state 使用 `byteworker-dreaming/v2`。已有 v1 state 第一次被 Dreaming 读取时，
 确定性状态层会先在 `state/dreaming/migrations/` 写 `0600` 本地备份，再原子替换为 v2；
@@ -60,10 +62,7 @@ bin/byteworker dreaming enable \
 ```
 
 2. 在宿主中真实创建 local 定时任务，工作目录必须是私有知识库目录。
-   目标宿主属于 TRAE 产品家族时必须加载 `references/dreaming-harness-trae.md`。TRAE
-   IDE/TraeCode 只提示切换到 TraeWork 桌面版；确认处于 TraeWork 桌面版后，才按其自动化 UI、
-   首次触发和 harness pending 规则执行。
-3. 任务创建成功后登记真实 task id：
+3. 任务创建并首次触发成功后登记真实 task id：
 
 ```bash
 bin/byteworker dreaming harness register --kb "<KB>" --task-id "<宿主任务 id>"

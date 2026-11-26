@@ -31,6 +31,7 @@ description: 个人飞书工作知识库。摄取飞书文档、妙记、会议�
 bin/byteworker preflight --interactive
 ```
 
+TRAE IDE（含 SOLO）用 `preflight --interactive --skip-report-automation`，跳过自动报告设置检查。
 定时任务、runner 和其他无人值守会话用 `preflight --unattended`。省略参数时也默认不产生 Tip。
 
 访问尚未登记的飞书/Meego 来源时分别加 `--require feishu` / `--require meego`。
@@ -83,8 +84,7 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
   `references/dreaming-reports.md` + `references/dreaming-review.md`；配置时加
   `references/dreaming-setup-guide.md`，首次启用再加
   `references/dreaming-onboarding.md`，maintenance job 加
-  `references/dreaming-maintenance.md`；当前环境或目标宿主是 TRAE 时加
-  `references/dreaming-harness-trae.md`；process job 还必须从 manifest 加载
+  `references/dreaming-maintenance.md`；process job 还必须从 manifest 加载
   `features.routine_digest` 先检查变化，再按来源解析普通 digest
 - doctor：`references/doctor.md`
 - 反馈或排查后台运行 → digest_feedback：`references/digest-feedback.md`
@@ -191,7 +191,7 @@ Dreaming 可以在后台定期检查已授权的信息，默认关闭。用户�
 `references/dreaming-setup-guide.md`。用户说「帮我配置后台信息助手」「设置自动信息分析」
 「每天汇总重要信息」「重要风险及时提醒」「调整后台频率/范围」「为什么没有自动运行/摘要」
 或「继续设置」时，也进入设置向导。
-优先使用 Codex / TRAE 的结构化选项控件；不可用时使用编号选项。
+优先使用宿主的结构化选项控件；不可用时使用编号选项。
 
 面向用户称为 Dreaming，具体选项用「自动检查」「待关注事项」「定时摘要」「紧急提醒」「本地定时任务」等
 自然语言。设置时不直接展示 `operational`、`persist_report`、`instant_alert`、`harness`、grant、
@@ -207,10 +207,7 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
   `dreaming configure`，回显所有 job、timezone、日志保留期和 `next_due_at`，再询问确认。
 - 宿主任务创建后，必须用 `dreaming harness register` 登记。只有 `harness.status=installed` 且
   `operational=true` 才能告知用户后台已配置完成。宿主无本地定时能力时只提供前台单次分析。
-- 检测到 TRAE / TRAE SOLO / TraeWork 环境时必须加载 `references/dreaming-harness-trae.md`。
-  当前会话没有 Schedule 工具时，提示用户在 TRAE 任务面板创建本地 Code 定时任务、每 30 分钟
-  执行 runner，并先 Run now；没有真实任务和首次触发证据时保持 harness pending，禁止猜私有
-  API、改 TRAE 配置或用 cron/launchd 冒充 Agent task。
+- TRAE IDE（含 SOLO）仅提供前台单次分析；需要自动运行时，在支持本地任务的宿主打开同一知识库。
 - 每轮有稳定 `run_id`。长阶段调用 `dreaming heartbeat`，收尾用 `complete`。
   `dreaming runs list/show/tail` 查询私有运行日志，技术事件只含元数据。
 - 宿主简报写具体发现、文档成败和实际修改的节点。普通缺口自动处理。异常按

@@ -20,7 +20,7 @@
 全局安装的检测规则：
 
 - 当前正在运行的 agent 环境必须纳入链接目标，即使对应配置目录尚未存在。
-- TraeWork / TraeCode / TRAE IDE：检测到 `~/.trae-cn`，或当前环境属于 TRAE 产品家族。
+- TRAE IDE（含 TraeCode、SOLO）：检测到 `~/.trae-cn`，或当前会话运行在 TRAE IDE 中。
 - Codex：检测到 `${CODEX_HOME:-$HOME/.codex}`，或当前环境是 Codex。
 - Claude Code：检测到 `~/.claude`，或当前环境是 Claude Code。
 - OpenClaw：检测到 `~/.openclaw`，或当前环境是 OpenClaw。
@@ -28,7 +28,7 @@
 
 | 宿主 agent | skills 目录(SKILLS_DIR)|
 |-----------|--------------------------|
-| TraeWork / TraeCode / TRAE IDE | `~/.trae-cn/skills` |
+| TRAE IDE | `~/.trae-cn/skills` |
 | Codex | `${CODEX_HOME:-$HOME/.codex}/skills` |
 | Claude Code | `~/.claude/skills` |
 | OpenClaw | `~/.openclaw/skills` —— **装这里**(本机所有 agent 可见);装好后**务必**再做下面的「OpenClaw 专项」 |
@@ -215,7 +215,8 @@ Base 返回 `91403`，或 Meego 空间、风神看板返回 Permission Denied �
      交互语言必须用当前对话语言向用户确认；命令、URL 或资料原文不能作为默认语言依据。
   3. 填写重点人物、重点项目、主管方向和其它关注重点。
   4. 摄取 / 查询演示可以跳过，但前三项不能因为没有示例文档而跳过。
-- 初始化完成后，读取 `"$TARGET/references/report-scheduling.md"`，通过机器协议检查：
+- TRAE IDE 支持手动运行 Byteworker，跳过以下自动报告设置。有原生本地定时能力的宿主在初始化后读取
+  `"$TARGET/references/report-scheduling.md"`，通过机器协议检查：
 
   ```bash
   "$TARGET/bin/byteworker" report-automation status \
@@ -247,16 +248,6 @@ Base 返回 `91403`，或 Meego 空间、风神看板返回 Permission Denied �
     `executionEnvironment=local`；不用 heartbeat、不用 worktree。需要电脑开机且应用运行。
   - **Claude Code Desktop**：创建 Local scheduled task，folder 选择知识库。不要用 `/loop`
     或云端 `/schedule` Routine。
-  - **TRAE Work 桌面端**：先把知识库绝对路径作为工作目录加入当前 TraeWork 项目；只加入
-    byteworker skill 仓库或配置 `.kbconfig`，不会授予 TraeWork Sandbox 对 KB 的访问权限。
-    再在“自动化”中选择本地环境和该知识库目录；可在对话中创建或手工创建。不使用 Web / 云端
-    任务。当前没有可依赖的公开稳定管理 API 时，以“已配置”和执行历史核验，不伪造 task ID。
-    如果出现 `Operation not permitted` / `Permission denied`，且 skill 仓库可访问而 KB 不可
-    访问，先检查 KB 是否已加入项目工作目录；不要用 `sudo`、`chmod` 或复制 KB 绕过 Sandbox。
-  - **TraeCode / TRAE IDE**：只能安装并手动调用 byteworker skill；没有可用的本地定时任务
-    运行机制。安装助手必须提醒用户：不能在 TraeCode 自动创建日报 / 周报更新任务，也不能运行
-    Dreaming。若用户需要这些自动运行能力，请改用 TraeWork 桌面端打开同一
-    知识库目录后继续设置。
   - **其它宿主**：没有经核实的原生定时能力时，只展示 prompt 和缺口；不要擅自改用系统
     cron / launchd。
 - 若用户选择“稍后再说”,明确告诉他:第一次摄取 Meego / Base / 风神时 skill 会再次给出同样的
@@ -281,21 +272,12 @@ Base 返回 `91403`，或 Meego 空间、风神看板返回 Permission Denied �
 
 ---
 
-## TraeWork / TraeCode 专项:发现与自动运行边界
+## TRAE IDE 安装
 
-宿主是 TraeWork、TraeCode 或 TRAE IDE 时，必须确保 `~/.trae-cn/skills/byteworker` 存在。
+在 TRAE IDE、TraeCode 或 IDE 内置 SOLO 中，安装到 `~/.trae-cn/skills/byteworker`。
 全局安装时它通常是指向 `SOURCE_DIR` 的符号链接；局部安装时它是直接 clone 出来的真实目录。
-这是 TRAE 产品家族本机发现 skill 的目录；不要只装进 `~/.agents/skills`、
-`~/.openclaw/skills`、`~/.claude/skills` 或 workspace 内目录来期待 TraeWork 自动发现。
-
-安装或更新后，新开一个 TraeWork / TraeCode 会话让 skill 列表刷新。
-
-- **TraeWork 桌面端**支持本地“自动化”任务。若当前任务涉及 Dreaming 或自动日报 / 周报，
-  还要按第 6 步把**知识库绝对路径**加入 TraeWork 当前项目的工作目录；skill 安装目录只负责
-  发现 `SKILL.md`，不会授予 TraeWork Sandbox 读写 KB 的权限。
-- **TraeCode / TRAE IDE**没有可用的本地定时任务运行机制。安装完成后必须明确提醒用户：
-  byteworker 可以手动使用，但无法在 TraeCode 自动创建日报 / 周报更新任务，也无法运行
-  Dreaming。需要自动运行时请切换到 TraeWork 桌面端。
+安装或更新后，新开一个 IDE 会话刷新 skill 列表。TRAE IDE 支持手动调用 Byteworker。
+自动日报、周报和 Dreaming 后台任务需要在支持本地调度的宿主中打开同一知识库来设置。
 
 ---
 
@@ -413,7 +395,7 @@ done
 
 ```bash
 # 1. 按你当前运行环境设置 SKILLS_DIR(见上表)——
-#      TraeWork / TraeCode / TRAE IDE: ~/.trae-cn/skills
+#      TRAE IDE:   ~/.trae-cn/skills
 #      Claude Code: ~/.claude/skills
 #      Codex:       ${CODEX_HOME:-$HOME/.codex}/skills
 #      OpenClaw:    ~/.openclaw/skills

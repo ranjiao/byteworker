@@ -54,6 +54,7 @@ def run_preflight(
     required_sources: Iterable[str] = (),
     skip_update: bool = False,
     allow_capability_suggestions: bool = False,
+    check_report_automation: bool = True,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     notices: list[dict[str, Any]] = []
@@ -152,7 +153,7 @@ def run_preflight(
         )
 
     try:
-        report = report_status(kb)
+        report = report_status(kb) if check_report_automation else {}
     except Exception as exc:  # bounded boundary: corrupt local state is actionable
         notices.append(
             _notice(

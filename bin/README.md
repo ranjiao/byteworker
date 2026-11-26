@@ -628,7 +628,7 @@ bin/byteworker digest-job cancel \
 
 ## 6B. `report-automation.py`：自动报告状态与执行租约
 
-该工具不创建、唤醒或删除 Codex / Claude / TRAE 任务。它只在知识库
+宿主负责创建、唤醒和删除定时任务。该工具在知识库
 `state/report_automation.json` 中记录一次性设置选择、当前 prompt 版本、跨日报/周报单租约、
 `last_attempt/last_run/last_success` 和真实运行结果；宿主任务列表始终是真相源。
 
@@ -1054,6 +1054,7 @@ bin/byteworker preflight --unattended
 - preflight 自动从 `sources/*.json` 推导已经配置的飞书/Meego runtime；`--require` 用于本次
   即将访问但尚未登记的来源。
 - 只有 `--interactive` 允许返回低频能力建议；无参数和 `--unattended` 都禁止，适合定时任务。
+- TRAE IDE 用 `--interactive --skip-report-automation`，跳过自动报告状态和设置检查。
 - `bin/byteworker lark ...`、`bin/byteworker meegle ...` 和
   `bin/byteworker run <command> ...` 继承同一 runtime resolver。显式设置的
   `BYTEWORKER_PYTHON_BIN/BYTEWORKER_NODE_BIN/BYTEWORKER_LARK_CLI_BIN/BYTEWORKER_MEEGLE_BIN`

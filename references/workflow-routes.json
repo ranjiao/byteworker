@@ -223,7 +223,6 @@
           "references/dreaming-onboarding.md",
           "references/dreaming-setup-guide.md"
         ],
-        "harness_trae": ["references/dreaming-harness-trae.md"],
         "maintenance": ["references/dreaming-maintenance.md"],
         "routine_digest": ["references/dreaming-routine.md"]
       }
