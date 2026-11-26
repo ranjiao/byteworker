@@ -7,6 +7,7 @@
 用户可以直接说功能名，也可以描述想做什么。
 
 - “帮我配置 Dreaming”“启用 Dreaming”
+- “在 Trae 里创建 Dreaming 定时任务”“给我手动新建 Dreaming 任务用的 prompt”
 - “帮我配置后台信息助手”“打开自动信息分析”“设置自动看飞书消息”
 - “每天给我汇总重要信息”“有重要风险及时提醒我”
 - “调整自动分析的频率 / 范围 / 摘要时间”“减少模型消耗”
@@ -15,7 +16,8 @@
 
 只问状态时先运行 `dreaming status` 并翻译回显；要求配置、启用、修复或继续设置时才进入后续步骤。
 不得在普通 preflight、安装、升级或其它能力中主动推销本向导。
-TRAE IDE（含 SOLO）可按 `references/dreaming-review.md` 做前台单次分析。后台设置在支持本地任务的宿主进行。
+Trae 创建或索要定时任务 prompt 时，加载 `features.trae_schedule`。只索要 prompt 时可直接输出，
+无需进入首次启用导览。
 
 ## 用户语言契约
 
@@ -173,8 +175,9 @@ bin/byteworker dreaming grant set-actions --kb "<KB>" \
 
 ### 7. 接通自动运行
 
-用用户确认的设置创建宿主本地任务并首次触发。若宿主支持本地任务但当前会话没有任务工具，
-按宿主的本地任务设置说明引导用户操作。
+用用户确认的设置创建宿主本地任务并首次触发。Trae 按 `references/dreaming-trae-schedule.md`
+调用当前会话的原生任务工具；用户选择手动创建或当前无可用工具时，提供可粘贴的任务 prompt
+和表单设置。只索要 prompt 时跳过接通步骤。
 
 只有任务真实存在、首次触发成功并完成 register 后，才显示：
 
@@ -186,7 +189,8 @@ bin/byteworker dreaming grant set-actions --kb "<KB>" \
 
 ## 完成状态卡
 
-设置结束只展示以下用户字段：
+设置结束按以下字段展示状态卡。Trae 创建任务时在状态卡前提供任务 prompt；仍待手动创建或
+首跑验证时，说明当前需要完成的步骤。
 
 ```text
 Dreaming：已开启 / 已关闭

@@ -167,6 +167,11 @@ class AgentRouteContractTests(unittest.TestCase):
             features["maintenance"],
         )
         self.assertEqual(["references/dreaming-routine.md"], features["routine_digest"])
+        self.assertEqual(
+            ["references/dreaming-trae-schedule.md"],
+            features["trae_schedule"],
+        )
+        self.assertNotIn("references/dreaming-trae-schedule.md", self.closure("dreaming"))
         self.assertNotIn("harness_trae", features)
 
 

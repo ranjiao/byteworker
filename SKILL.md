@@ -85,7 +85,8 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
   `references/dreaming-setup-guide.md`，首次启用再加
   `references/dreaming-onboarding.md`，maintenance job 加
   `references/dreaming-maintenance.md`；process job 还必须从 manifest 加载
-  `features.routine_digest` 先检查变化，再按来源解析普通 digest
+  `features.routine_digest` 先检查变化，再按来源解析普通 digest；Trae 定时任务加
+  `features.trae_schedule`
 - doctor：`references/doctor.md`
 - 反馈或排查后台运行 → digest_feedback：`references/digest-feedback.md`
 - search/brief/update/thinking/context/dashboard/report 的运行记录见 `references/operation-trace.md`。
@@ -186,17 +187,16 @@ doctor 默认只读调用 `bin/doctor.py` 对应 facade；交互请求只有用�
 
 ## Dreaming
 
-Dreaming 可以在后台定期检查已授权的信息，默认关闭。用户说「帮我配置 Dreaming」或明确要求启用时，先读取
-`references/dreaming.md`、`references/dreaming-onboarding.md` 和
-`references/dreaming-setup-guide.md`。用户说「帮我配置后台信息助手」「设置自动信息分析」
-「每天汇总重要信息」「重要风险及时提醒」「调整后台频率/范围」「为什么没有自动运行/摘要」
-或「继续设置」时，也进入设置向导。
-优先使用宿主的结构化选项控件；不可用时使用编号选项。
+Dreaming 默认关闭。明确要求配置、启用、调整、排障或继续设置时，加载 `dreaming` 的设置向导；
+自然语言入口见 `references/dreaming-setup-guide.md`。提问优先用宿主选项控件，其次用编号选项。
+
+Trae 定时任务走 `features.trae_schedule`。设置确认后优先用原生本地工具创建，并附可粘贴的
+prompt；手动创建或只要 prompt 时，提供 prompt 和表单设置。
 
 面向用户称为 Dreaming，具体选项用「自动检查」「待关注事项」「定时摘要」「紧急提醒」「本地定时任务」等
 自然语言。设置时不直接展示 `operational`、`persist_report`、`instant_alert`、`harness`、grant、
 Finding 或 job。先读取 status，从未完成的步骤继续。只修改一项时，只问该项及其依赖。
-用自然语言汇总选择，用户确认后再写配置。完成后只展示 `dreaming-setup-guide.md` 定义的用户状态卡。
+用自然语言汇总选择，用户确认后再写配置。完成后按设置向导展示状态卡。
 
 首次启用须完整介绍它与 digest 的差异、能力、默认授权、隐私、成本、机器条件、维护和退出方式。
 请用户配置并确认完整 schedule。导览、schedule 和机器条件都明确确认后，才能传
@@ -206,8 +206,7 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
 - process 支持按分钟间隔、每天固定时间、每 N 天固定时间；不得静默套用默认频率。先运行
   `dreaming configure`，回显所有 job、timezone、日志保留期和 `next_due_at`，再询问确认。
 - 宿主任务创建后，必须用 `dreaming harness register` 登记。只有 `harness.status=installed` 且
-  `operational=true` 才能告知用户后台已配置完成。宿主无本地定时能力时只提供前台单次分析。
-- TRAE IDE（含 SOLO）仅提供前台单次分析；需要自动运行时，在支持本地任务的宿主打开同一知识库。
+  `operational=true` 才能告知用户后台已配置完成。
 - 每轮有稳定 `run_id`。长阶段调用 `dreaming heartbeat`，收尾用 `complete`。
   `dreaming runs list/show/tail` 查询私有运行日志，技术事件只含元数据。
 - 宿主简报写具体发现、文档成败和实际修改的节点。普通缺口自动处理。异常按

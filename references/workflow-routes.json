@@ -223,6 +223,7 @@
           "references/dreaming-onboarding.md",
           "references/dreaming-setup-guide.md"
         ],
+        "trae_schedule": ["references/dreaming-trae-schedule.md"],
         "maintenance": ["references/dreaming-maintenance.md"],
         "routine_digest": ["references/dreaming-routine.md"]
       }

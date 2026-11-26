@@ -457,9 +457,11 @@ source checkpoint，报告仍等待全部相关来源覆盖。全量完成才允
 在配置时通过 user 身份通讯录唯一解析为 open_id；state 同时保存展示 key 与 open_id。报告完成和
 投递阶段只消费已复验的 open_id，不查询通讯录，也不在歧义时选择第一条。
 
-宿主差异由 Agent/harness 层处理，scheduler 接收通用租约和任务登记。TRAE IDE（包括内置 SOLO）
-支持前台单次分析。后台设置需要能访问本地 KB 和用户态 lark-cli 的原生本地任务。创建并首次触发前
-保持 `harness.status=pending`；不得用私有 API、系统 cron 或 launchd 代替宿主任务。
+宿主差异由 Agent/harness 层处理，scheduler 接收通用租约和任务登记。Trae 的 `trae_schedule`
+按需路由在交互层生成调用同一 runner 的任务 prompt。用户要求创建时，Agent 可调用当前会话的
+原生本地定时任务工具，也可交给用户在表单中创建。后台任务须能访问本地 KB、Byteworker 和所需的
+用户态工具。创建并首次触发验证前保持 `harness.status=pending`；不得用私有 API、系统 cron 或
+launchd 代替宿主任务。
 
 ```text
 宿主 local tick
@@ -1388,7 +1390,7 @@ Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `repo
 
 Dreaming 另有九条边界：缺失状态必须等同关闭；未记录当前版本能力导览、完整运行计划或机器
 运行要求确认时拒绝启用；`enabled=true` 但 harness 未登记时 `operational=false`，不能声称会
-自动运行；TRAE IDE 仅支持前台单次分析，宿主须有真实任务与首次触发证据才可 register；旧自动报告仍声明 enabled
+自动运行；宿主须有真实本地任务与首次触发证据才可 register；旧自动报告仍声明 enabled
 时拒绝接管 daily/weekly；maintenance 只能调用 doctor
 公开 facade 和 `auto_fix` 白名单，重要未决项按问题保留；Dreaming 状态损坏、租约过期或 job 失败只影响
 Dreaming，不得阻塞、回滚或改变 digest/search/update 和旧自动报告。`partial/failed` 不覆盖
