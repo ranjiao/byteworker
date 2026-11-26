@@ -12,7 +12,7 @@ Byteworker 把飞书里的工作资料整理成一个可以用聊天来查的个
 按 https://raw.githubusercontent.com/ranjiao/byteworker/master/INSTALL.md 的说明安装 Byteworker。如果之前装过但没装好，请一并修复。
 ```
 
-安装时，助手会带你选一个与安装目录分开的私密知识库目录、完成首次设置，并询问是否开启自动报告。手动安装需要 `git`、`jq`、`bash` 和 `python3 >= 3.10`。依赖和授权步骤见[安装指南](INSTALL.md)。
+同一台电脑有多个 AI 助手时，可以共用一份 Byteworker 安装。助手会带你选一个独立的私密知识库目录，并在支持本地调度的宿主中询问是否开启自动报告。手动安装需要 `git`、`jq`、`bash` 和 `python3 >= 3.10`。 [安装指南](INSTALL.md)
 
 ## 快速上手
 
