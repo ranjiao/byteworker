@@ -242,8 +242,12 @@ def _external_text(path: Path | None) -> str:
         ) from exc
 
 
-def _budget_checks(actual: Mapping[str, int], budget: Mapping[str, Any]) -> tuple[dict[str, bool], int]:
-    reserved = sum(budget[field] for field in INPUT_LIMITS)
+def _budget_checks(
+    actual: Mapping[str, int], budget: Mapping[str, Any], *, rule_tokens: int | None = None,
+) -> tuple[dict[str, bool], int]:
+    if rule_tokens is None:
+        rule_tokens = budget["static_rules_tokens"] + budget["worker_prompt_tokens"]
+    reserved = rule_tokens + budget["dynamic_context_tokens"] + budget["source_packet_tokens"]
     checks = {field: count <= budget[field] for field, count in actual.items()}
     checks["reserved_total_tokens"] = reserved <= budget["total_input_tokens"]
     return checks, reserved
@@ -288,6 +292,7 @@ def inspect_budget(
     source_packet_path: Path | None = None,
     approved_review_id: str = "",
     host_input_limit: int | None = None,
+    runtime_input_limit: int | None = None,
     root: Path = ROOT,
     manifest_path: Path = MANIFEST_PATH,
 ) -> dict[str, Any]:
@@ -332,8 +337,22 @@ def inspect_budget(
     measures = {field: _measure_texts(texts) for field, texts in inputs.items()}
     actual = {field: measure["tokens"] for field, measure in measures.items()}
     actual["total_input_tokens"] = sum(actual.values())
-    checks, reserved_total = _budget_checks(actual, budget)
-    review = None if all(checks.values()) else _review_overflow(route, inputs, actual, budget, checks)
+    rule_tokens = None
+    if runtime_input_limit is not None:
+        rule_tokens = actual["static_rules_tokens"] + actual["worker_prompt_tokens"]
+        source_capacity = max(0, runtime_input_limit - rule_tokens - budget["dynamic_context_tokens"])
+        budget = {
+            **budget,
+            "source_packet_tokens": source_capacity if budget["source_packet_tokens"] else 0,
+            "total_input_tokens": runtime_input_limit,
+        }
+    checks, reserved_total = _budget_checks(actual, budget, rule_tokens=rule_tokens)
+    review = None
+    if not all(checks.values()):
+        review = (
+            {"exceeded_limits": [field for field, passed in checks.items() if not passed]}
+            if runtime_input_limit is not None else _review_overflow(route, inputs, actual, budget, checks)
+        )
     if approved_review_id or host_input_limit is not None:
         if not approved_review_id or not review or review.get("id") != approved_review_id:
             raise WorkflowBudgetError(

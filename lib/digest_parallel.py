@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from digest_capacity import load_digest_capacity
 from operation_trace import DIGEST_RUN_ID
 from workflow_budget import estimate_tokens, inspect_budget, load_manifest, resolve_route
 
@@ -224,6 +225,7 @@ def _route_tokens(
     skill_root: Path,
     source_type: str = "",
     features: Iterable[str] = (),
+    runtime_input_limit: int | None = None,
 ) -> tuple[int, int]:
     receipt = inspect_budget(
         workflow=workflow,
@@ -231,6 +233,7 @@ def _route_tokens(
         features=features,
         root=skill_root,
         manifest_path=skill_root / "references" / "workflow-routes.json",
+        runtime_input_limit=runtime_input_limit,
     )
     measurement = receipt["measurement"]
     tokens = int(measurement["static_rules_tokens"]) + int(
@@ -240,11 +243,14 @@ def _route_tokens(
     return tokens, source_budget
 
 
-def _host_packet_limit(workflow: str, input_limit: int, skill_root: Path) -> int:
+def _host_packet_limit(
+    workflow: str, input_limit: int, skill_root: Path, *, runtime_input_limit: int | None = None,
+) -> int:
     if type(input_limit) is not int or input_limit <= 0:
         raise DigestParallelError("DIGEST_HOST_INPUT_LIMIT_INVALID", "宿主可用输入 token 数必须是正整数。")
     receipt = inspect_budget(
         workflow=workflow, root=skill_root, manifest_path=skill_root / "references" / "workflow-routes.json",
+        runtime_input_limit=runtime_input_limit,
     )
     rules = receipt["measurement"]["total_input_tokens"]
     budget = receipt["budget"]
@@ -283,16 +289,23 @@ def _plan_mode(
     item_count: int,
     max_workers: int,
     skill_root: Path,
+    role_limits: Mapping[str, int],
 ) -> dict[str, Any]:
     source_estimate = estimate_tokens(source_text)
     source_tokens = int(source_estimate["tokens"])
     source_type, features = _inline_route(value, stage, source_tokens)
     inline_rules, inline_source_budget = _route_tokens(
         "digest", skill_root=skill_root, source_type=source_type, features=features,
+        runtime_input_limit=role_limits.get("digest"),
     )
-    worker_rules, worker_source_budget = _route_tokens(WORKER_WORKFLOWS[stage], skill_root=skill_root)
+    worker = WORKER_WORKFLOWS[stage]
+    worker_rules, worker_source_budget = _route_tokens(
+        worker, skill_root=skill_root, runtime_input_limit=role_limits.get(worker),
+    )
     if max_workers == 1:
         reason = "MAX_WORKERS_ONE"
+    elif worker_source_budget <= 0:
+        reason = "WORKER_INPUT_LIMIT_TOO_SMALL"
     elif item_count < MIN_PARALLEL_ITEMS[stage]:
         reason = "INSUFFICIENT_WORK_ITEMS"
     elif source_tokens < SOURCE_TOKEN_FLOOR[stage]:
@@ -300,7 +313,8 @@ def _plan_mode(
     else:
         reason = "PARALLEL_SIZE_THRESHOLD"
     parallel = reason == "PARALLEL_SIZE_THRESHOLD"
-    workers = min(max_workers, item_count, max(2, math.ceil(source_tokens / TARGET_SHARD_TOKENS[stage]))) if parallel else 1
+    target = max(1, worker_source_budget) if worker in role_limits else TARGET_SHARD_TOKENS[stage]
+    workers = min(max_workers, item_count, max(2, math.ceil(source_tokens / target))) if parallel else 1
     return {
         "use_parallel": parallel,
         "workers": workers,
@@ -311,6 +325,7 @@ def _plan_mode(
         "inline_source_budget": inline_source_budget,
         "worker_source_budget": worker_source_budget,
         "worker_rule_tokens": worker_rules,
+        "inline_route": {"source_type": source_type, "features": features},
         "inline": {"estimated_input_tokens": inline_rules + source_tokens},
         "worker_inputs": {"estimated_input_tokens": workers * worker_rules + source_tokens},
     }
@@ -433,6 +448,7 @@ def plan_parallel_work(
     stage: str,
     max_workers: int = MAX_WORKERS,
     host_input_limit: int | None = None,
+    capacity: Mapping[str, Any] | None = None,
     skill_root: Path = DEFAULT_SKILL_ROOT,
 ) -> dict[str, Any]:
     """Create private, balanced shards and a coordinator plan."""
@@ -455,6 +471,9 @@ def plan_parallel_work(
         "semantic": _semantic_work,
         "conflict": _conflict_work,
     }[stage](value, input_bytes)
+    capacity = load_digest_capacity() if capacity is None else capacity
+    role_limits = capacity.get("input_tokens", {})
+    worker = WORKER_WORKFLOWS[stage]
     item_count = len(work["items"])
     input_hash = _canonical_hash(value)
     shared = work["shared"]
@@ -466,11 +485,13 @@ def plan_parallel_work(
         item_count=item_count,
         max_workers=max_workers,
         skill_root=skill_root,
+        role_limits=role_limits,
     )
-    budget_required = decision["source_tokens"] > decision["inline_source_budget"]
+    inline_over_budget = decision["source_tokens"] > decision["inline_source_budget"]
+    budget_required = inline_over_budget
     source_limit = decision["worker_source_budget"]
     if host_input_limit is not None:
-        source_limit = _host_packet_limit(WORKER_WORKFLOWS[stage], host_input_limit, skill_root)
+        source_limit = _host_packet_limit(worker, host_input_limit, skill_root, runtime_input_limit=role_limits.get(worker))
         budget_required = True
     buckets = _balanced(work["items"], decision["workers"]) if item_count else [[]]
     if decision["use_parallel"] and not budget_required:
@@ -480,6 +501,11 @@ def plan_parallel_work(
             for index, bucket in enumerate(buckets, start=1)
         )
     if budget_required:
+        if source_limit <= 0:
+            raise DigestParallelError(
+                "DIGEST_HOST_INPUT_LIMIT_TOO_SMALL", "当前 worker 的规则已占满宿主可用输入。",
+                details={"workflow": worker, "host_input_limit": role_limits.get(worker)},
+            )
         if stage == "semantic":
             shared = {**shared, "anchors": [], "anchors_deferred": True}
         buckets = _budget_buckets(stage, work["items"], shared, input_hash, source_limit)
@@ -507,13 +533,14 @@ def plan_parallel_work(
         )
     plan_path = out_dir / f"{stage}-plan.json"
     selection_reason = (
-        "HOST_INPUT_LIMIT" if host_input_limit is not None else
+        "HOST_INPUT_LIMIT" if host_input_limit is not None or (inline_over_budget and "digest" in role_limits) else
         "INPUT_REQUIRES_BUDGET_SHARDS" if budget_required else decision["selection_reason_code"]
     )
     estimates = {
         key: value for key, value in decision.items()
-        if key not in {"use_parallel", "workers", "selection_reason_code"}
+        if key not in {"use_parallel", "workers", "selection_reason_code", "inline_route"}
     }
+    capacity_fields = {"host_capacity": capacity, "inline_route": decision["inline_route"]} if capacity else {}
     if budget_required:
         estimates["budget_shards_total_input_tokens"] = sum(
             entry["estimated_source_tokens"] + decision["worker_rule_tokens"]
@@ -529,6 +556,7 @@ def plan_parallel_work(
         "budget_required": budget_required,
         "estimates": estimates,
         "max_workers": max_workers,
+        **capacity_fields,
         **({"host_input_limit": host_input_limit, "effective_source_limit": source_limit}
            if host_input_limit is not None else {}),
         "shard_count": shard_count,
@@ -550,6 +578,7 @@ def plan_parallel_work(
         "selection_reason_code": plan["selection_reason_code"],
         "budget_required": budget_required,
         "max_workers": max_workers,
+        **({"host_capacity": capacity} if capacity else {}),
         **({"host_input_limit": host_input_limit, "effective_source_limit": source_limit}
            if host_input_limit is not None else {}),
         "estimates": plan["estimates"],
@@ -661,8 +690,13 @@ def _validate_conflict_records(shard: Mapping[str, Any], records: Sequence[Mappi
 
 def _reducer_batches(
     packet: dict[str, Any], output: Path, *, skill_root: Path, host_input_limit: int | None = None,
+    runtime_input_limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    if host_input_limit is None:
+    if runtime_input_limit is not None:
+        limit = _host_packet_limit(
+            "digest_final_reducer", runtime_input_limit, skill_root, runtime_input_limit=runtime_input_limit,
+        )
+    elif host_input_limit is None:
         _, limit = _route_tokens("digest_final_reducer", skill_root=skill_root)
     else:
         limit = _host_packet_limit("digest_final_reducer", host_input_limit, skill_root)
@@ -837,7 +871,9 @@ def _context_failure(kb, resolved, run_id, stage, pending, attempt_id):
 
 
 def _context_retry_limits(plan, failure, stage, *, skill_root):
-    rules, source_cap = _route_tokens(WORKER_WORKFLOWS[stage], skill_root=skill_root)
+    worker = WORKER_WORKFLOWS[stage]
+    runtime_limit = plan.get("host_capacity", {}).get("input_tokens", {}).get(worker)
+    rules, source_cap = _route_tokens(worker, skill_root=skill_root, runtime_input_limit=runtime_limit)
     already_serial = plan["mode"] == "parallel" and plan["max_workers"] == 1
     source_cap = min(source_cap, failure["budget"]["source_packet_tokens"] - int(already_serial))
     upper = min(rules + source_cap, plan.get("host_input_limit", rules + source_cap))
@@ -875,9 +911,11 @@ def replan_parallel_work(
             failure = _context_failure(kb, resolved, run_id, stage, pending, failed_attempt_id)
             limit_source, limits = _context_retry_limits(plan, failure, stage, skill_root=skill_root)
 
+        worker = WORKER_WORKFLOWS[stage]
+        runtime_limit = plan.get("host_capacity", {}).get("input_tokens", {}).get(worker)
         for proposed in limits:
             try:
-                limit = _host_packet_limit(WORKER_WORKFLOWS[stage], proposed, skill_root)
+                limit = _host_packet_limit(worker, proposed, skill_root, runtime_input_limit=runtime_limit)
                 entries, replacements = _resize_pending_shards(
                     resolved, plan, pending, stage, limit, skill_root=skill_root,
                 )
@@ -965,12 +1003,18 @@ def _attempt_parallel_shard(
         source_type, features = "", []
         if plan.get("mode") == "inline":
             workflow = "digest"
-            packet_path = resolved.parent.parent / "analysis-packet.json"
-            packet = _load_json(packet_path, skill_root=skill_root)[1] if packet_path.is_file() else shard
-            source_type, features = _inline_route(packet, stage, int(plan["estimates"]["source_tokens"]))
+            route = plan.get("inline_route")
+            if route is None:
+                packet_path = resolved.parent.parent / "analysis-packet.json"
+                packet = _load_json(packet_path, skill_root=skill_root)[1] if packet_path.is_file() else shard
+                source_type, features = _inline_route(packet, stage, int(plan["estimates"]["source_tokens"]))
+            else:
+                source_type, features = route["source_type"], route["features"]
+        runtime_limit = plan.get("host_capacity", {}).get("input_tokens", {}).get(workflow)
         receipt = inspect_budget(
             workflow=workflow, source_type=source_type, features=features, source_packet_path=shard_path,
             root=skill_root, manifest_path=skill_root / "references" / "workflow-routes.json",
+            runtime_input_limit=runtime_limit,
         )
         measurement, limits = receipt["measurement"], receipt["budget"]
         host_limit = plan.get("host_input_limit")
@@ -1131,7 +1175,10 @@ def merge_parallel_results(
     # An automatic retry limit applies to that worker. A reducer has a
     # different rule set and may run in a different context.
     reducer_limit = plan.get("host_input_limit") if plan.get("host_input_limit_source", "provided") == "provided" else None
-    batches = _reducer_batches(packet, output, skill_root=skill_root, host_input_limit=reducer_limit)
+    runtime_limit = plan.get("host_capacity", {}).get("input_tokens", {}).get("digest_final_reducer")
+    batches = _reducer_batches(
+        packet, output, skill_root=skill_root, host_input_limit=reducer_limit, runtime_input_limit=runtime_limit,
+    )
     _atomic_json(output, packet)
     return {
         "schema_version": REDUCE_PACKET_SCHEMA,

@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterator, Mapping
 from zoneinfo import ZoneInfo
 
 from digest_analysis import prepare_analysis_packet
+from digest_capacity import load_digest_capacity
 from digest_capture import DigestCaptureError, execute_capture_plan
 from digest_parallel import plan_parallel_work
 from digest_run_log import (
@@ -514,10 +515,11 @@ def analyze_flow(
         dependency_scope = analysis.get("dependency_scope")
         plans = {}
         if "meego_changes" not in analysis or analysis["semantic_item_count"]:
+            capacity = load_digest_capacity()
             stages = ("semantic",) if dependency_scope else ("dependency", "semantic")
             for stage in stages:
                 plans[f"{stage}_plan"] = plan_parallel_work(
-                    packet_path, work_dir / stage, stage=stage, skill_root=skill_root,
+                    packet_path, work_dir / stage, stage=stage, skill_root=skill_root, capacity=capacity,
                 )
         record_stage(
             kb,

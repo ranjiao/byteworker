@@ -535,9 +535,12 @@ parallel 时加 parallel_execution；恢复/usage 上报加 recovery，加载日
 preflight_state=resume_failed 必须核查历史 pending/failed raw 并人工恢复，不能按新版本继续生成候选或提交。
 失败的 on_error 加载诊断/事务/日志细则。条件触发时保留已选 feature 重新 resolve，只补读未读路径。
 解释性链接不等于额外必读，不允许普通来源沿链接重新加载整个旧闭包。
-flow prepare 已产生 packet 和 dependency/semantic plan，Agent 直接消费。宿主输入受限时，
-使用现有计划重分未完成片，保留已核验结果和原始输入标识；
-conflict planner 仍对新召回结果执行一次。语义 owner、coverage、inline/parallel 阈值及成功判定不变。
+flow prepare 已产生 packet 和 dependency/semantic plan，Agent 直接消费。`digest_capacity.py` 在机器配置层
+解析宿主身份和可用输入额度，规划器只消费按 workflow 分配的容量。prepare/analyze 为本次计划读取一次配置，
+conflict planner 对新召回结果读取配置并规划一次。coordinator、worker 和 reducer 各有独立额度。
+配置角色的规则和动态 context 预留从可用输入中扣除，资料包上限可比 manifest 默认值大或小，
+角色缺配置时沿用 manifest。计划保留容量快照供 attempt、replan、merge 复用。重分未完成片时保留
+已核验结果和原始输入标识。语义 owner、coverage、可选并行门槛及成功判定不变。
 大型 worker 和 Wiki resume 保留完整执行手册。Dreaming routine 只预读变化检查与分派规则；
 变化来源再解析其普通 digest 闭包，保留原有权限、依赖、冲突与事务行为。
 定期分析沿用预检保存的 routine 模式启用外链范围限制。旧调用仍可显式传 `analyze --routine`。分析准备按去重候选数和依赖
@@ -893,6 +896,7 @@ flowchart TB
 | `bin/workflow-budget.py` + `lib/workflow_budget.py` | resolve 只展开选中路径；inspect 用同一 resolver 核算静态规则与显式动态输入 token | `byteworker-workflow-route/v1` 路径回执；`byteworker-workflow-budget-receipt/v1` 预算、方法与固定 overflow action |
 | `bin/digest-run.py` | 单输入 start/stage/wait/resume/heartbeat/usage/complete/list/show；固定 6 小时 stale 窗口 | 时间线、active duration、waiting/stale 状态、最慢阶段与 token 汇总 |
 | `bin/digest-analysis.py` | SourceBundle components 单次读取、结构去噪、依赖候选/语义文本/参与者/anchor 索引整理；不做语义判断 | 系统临时 `byteworker-digest-analysis-packet/v1` 和无正文 receipt |
+| `lib/digest_capacity.py` | 从本机声明解析活跃宿主的各角色可用输入；宿主身份解析集中在配置层 | 宿主配置名称和角色 token 额度；无匹配配置时回退 manifest |
 | `bin/digest-capture.py` | 执行最多 4 个显式、独立、只读的 lark/comments capture job；provider 命令构造留在该 adapter，不进入事务 core | `byteworker-digest-capture-receipt/v1` 和显式 `0600` artifact |
 | `bin/digest-parallel.py` | 按阶段投影估算输入 token，超限时生成逐片核算的有界分片，最多 4 路并发。校验完整覆盖并归并，超限归并结果可分批 | 带选择 reason、容量限制与可执行分批路径的 plan / shard / result / reduce packet |
 | `bin/source.py` + `lib/source_cli_service.py` + `lib/source_operation_contract.py` | 入口只组合 parser、服务和错误编码；服务处理通用结果持久化，provider 参数由 operation adapter 声明并生成 | request/operation 契约、capture、SourceBundle、profile receipt、ChangeSet |

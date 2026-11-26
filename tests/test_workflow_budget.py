@@ -2,6 +2,7 @@ from contextlib import redirect_stdout
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -130,6 +131,27 @@ class WorkflowBudgetTests(unittest.TestCase):
         self.assertIn("static_rules_tokens", receipt["measurement"])
         self.assertIn("total_input_tokens", receipt["budget"])
         self.assertIn("output_tokens", receipt["budget"])
+
+    def test_cli_uses_role_capacity_and_rejects_invalid_configuration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "digest-capacity.json"
+            env = {**os.environ, "BYTEWORKER_DIGEST_HOST": "test", "BYTEWORKER_DIGEST_CAPACITY_CONFIG": str(config)}
+            command = [sys.executable, str(ROOT / "bin/workflow-budget.py"), "inspect", "--workflow", "digest"]
+            config.write_text(json.dumps({"hosts": {"test": {"digest": 64_000}}}))
+            result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+            receipt = json.loads(result.stdout)
+            self.assertEqual("within_budget", receipt["status"])
+            self.assertEqual({"host": "test", "input_tokens": 64_000}, receipt["host_capacity"])
+            budget, counts = receipt["budget"], receipt["measurement"]
+            self.assertEqual(64_000, budget["reserved_total_tokens"])
+            self.assertEqual(
+                64_000 - counts["static_rules_tokens"] - counts["worker_prompt_tokens"] - budget["dynamic_context_tokens"],
+                budget["source_packet_tokens"],
+            )
+            config.write_text(json.dumps({"hosts": {"test": {"digest": True}}}))
+            result = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(1, result.returncode)
+            self.assertEqual("DIGEST_CAPACITY_CONFIG_INVALID", json.loads(result.stdout)["error"]["code"])
 
     def resolve_cli(self, *args):
         return subprocess.run(

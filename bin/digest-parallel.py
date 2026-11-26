@@ -14,6 +14,7 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
+from digest_capacity import DigestCapacityError  # noqa: E402
 from digest_parallel import (  # noqa: E402
     DigestParallelError,
     attempt_parallel_shard,
@@ -85,7 +86,7 @@ def main() -> int:
                 args.kb, args.plan, shard_id=args.shard_id, failure=args.failure,
                 attempt_id=args.attempt_id, host_session_id=args.host_session_id,
             )
-    except (DigestParallelError, DigestRunError, WorkflowBudgetError) as exc:
+    except (DigestCapacityError, DigestParallelError, DigestRunError, WorkflowBudgetError) as exc:
         json.dump({"error": exc.as_dict()}, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")
         return 1

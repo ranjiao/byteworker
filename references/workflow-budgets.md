@@ -20,6 +20,41 @@ whiteboard/internal_reading/stakeholder_analysis/routine。planner 选择 parall
 新条件出现时重新 resolve（保留此前已触发的 feature），只补读新增文件，不跳过规则。
 large worker、Wiki resume 与 Dreaming routine 的完整入口仍独立自足，不能依赖主对话的已读状态。
 
+## Digest 宿主容量
+
+本机配置使用 `~/.config/byteworker/digest-capacity.json`，可用环境变量
+`BYTEWORKER_DIGEST_CAPACITY_CONFIG` 指定其他文件。`BYTEWORKER_DIGEST_HOST` 选择 `hosts` 中的名称。
+未显式选择时，具有 `CODEX_THREAD_ID` 的会话选择 `codex`。没有匹配的宿主或角色配置时，使用仓库预算。
+
+```json
+{
+  "hosts": {
+    "codex": {
+      "digest": 120000,
+      "digest_dependency_worker": 200000,
+      "digest_semantic_worker": 900000,
+      "digest_conflict_worker": 120000,
+      "digest_final_reducer": 300000
+    },
+    "small-window": {
+      "default": 64000,
+      "digest_semantic_worker": 48000
+    }
+  }
+}
+```
+
+这些数字是配置示例。填实际可用于该角色的输入 token，先从完整窗口扣除宿主开销、已有对话和生成空间。
+`digest` 是在当前会话执行的 coordinator；其他字段按角色独立指定。`default` 是当前宿主未单独设置的
+角色的额度。另可用 `large_digest_worker` 和 `wiki_resume_page` 配置相应路由的预算检查。
+按实际执行方式配置角色。如果 worker 在同一会话顺序执行，其输入额度也需要为该会话留足空间。
+
+已配置的角色以该额度作为总输入预算。预算器扣除实测规则、worker prompt 和预留的动态 context，
+余量用于资料包，可高于或低于仓库默认值。规则、输出、不得携带的输入仍受 manifest 约束。
+`digest-flow prepare/analyze` 和 `digest-parallel plan` 自动应用配置。计划记录所用宿主和容量，
+后续 `attempt` 和 `merge` 沿用该计划。`replan --host-input-limit` 可对未完成 worker 分片进一步限额。
+`workflow-budget inspect` 显示当前宿主角色的额度。配置变更用于新计划。
+
 ## 完整预算检查
 
 运行时只有在创建隔离 worker、输入接近 workflow 限额或需要解释超预算时调用：
@@ -45,7 +80,8 @@ bin/byteworker workflow-budget inspect --workflow digest \
 用同一方法重算，并比较分片后单次峰值及所有调用的预计总消耗。只删重复表示或无关上下文，
 保留已确认范围和证据。planner 返回 `inline` 不构成预算通过。
 
-用户已确认的范围能在现有预算内完整完成，就直接继续。Dreaming 无人值守任务按既定预算执行，
+用户已确认的范围能在现有预算内完整完成，就直接继续。已配置宿主额度时，超限按该额度分片或缩小输入。
+Dreaming 无人值守任务按既定预算执行，
 拆分后仍超限时仅暂缓该来源，保留进度并在运行摘要记录缺口。交互任务确有额外消耗才可完成时，先确认
 宿主模型可用输入容量，预留生成和其它上下文，再向用户说明当前用量、必要性、建议的新上限
 或预计总消耗，并让用户选择这次放宽、调整范围或暂缓。超过宿主容量时只提供拆分、换可用宿主

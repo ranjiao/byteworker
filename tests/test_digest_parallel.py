@@ -243,6 +243,34 @@ class DigestParallelTests(unittest.TestCase):
                 self.assertLessEqual(estimate_tokens(serialized)["tokens"], 1000)
                 self.assertEqual(["shared-key"], json.loads(serialized)["duplicate_dedupe_keys"])
 
+    def test_merge_uses_independent_reducer_capacity(self):
+        self.write_packet(semantic_items=6)
+        worker = "digest_semantic_worker"
+        reducer = "digest_final_reducer"
+        worker_rules = inspect_budget(workflow=worker)["measurement"]["total_input_tokens"]
+        reducer_rules = inspect_budget(workflow=reducer)["measurement"]["total_input_tokens"]
+        receipt = plan_parallel_work(
+            self.packet, self.work, stage="semantic", host_input_limit=worker_rules + 5000,
+            capacity={"host": "test", "input_tokens": {worker: 900_000, reducer: reducer_rules + 1200}},
+        )
+        entry, = self.load_plan(receipt)["shards"]
+        shard = json.loads(Path(entry["path"]).read_text())
+        result = self.root / "result.json"
+        result.write_text(json.dumps({
+            "schema_version": "byteworker-digest-parallel-result/v1",
+            "stage": "semantic", "shard_id": entry["shard_id"], "input_hash": shard["input_hash"],
+            "records": [{
+                "record_id": f"fact-{index}", "record_type": "fact", "dedupe_key": f"key-{index}",
+                "source_refs": [{"component": "body", "path": item["path"]}],
+                "payload": {"text": hashlib.shake_256(item["path"].encode()).hexdigest(550)},
+            } for index, item in enumerate(shard["sections"][0]["text_items"])],
+        }))
+        merged = merge_parallel_results(Path(receipt["plan_path"]), [result], self.root / "reduce.json")
+        self.assertGreater(len(merged["reduction_batches"]), 1)
+        self.assertEqual(6, sum(batch["record_count"] for batch in merged["reduction_batches"]))
+        for batch in merged["reduction_batches"]:
+            self.assertLessEqual(batch["estimated_source_tokens"], 1200)
+
     def test_semantic_checkpoints_reuse_only_matching_input(self):
         self.write_packet(semantic_items=2)
         kb = self.root / "kb"

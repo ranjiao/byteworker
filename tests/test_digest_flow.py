@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,6 +33,7 @@ from dreaming_digest_scan import _invoke  # noqa: E402
 from dreaming_state import DreamingError  # noqa: E402
 from sources import canonical_sha256  # noqa: E402
 from sources.adapters.meego import build_meego_bundle  # noqa: E402
+from workflow_budget import estimate_tokens  # noqa: E402
 
 
 class Result:
@@ -280,6 +282,52 @@ class DigestFlowTests(unittest.TestCase):
         self.assertEqual(1, sum(
             event["stage"] == "analysis_prepare" for event in flow_status(self.kb, run_id=run_id)["run"]["stages"]
         ))
+
+    def test_standard_cli_plans_and_checks_shards_using_host_and_role_capacity(self):
+        config = self.root / "digest-capacity.json"
+        config.write_text(json.dumps({"hosts": {
+            "small": {"default": 64_000, "digest_semantic_worker": 42_000},
+            "codex": {"digest": 64_000, "digest_semantic_worker": 900_000, "digest_final_reducer": 64_000},
+        }}))
+        self.source.write_text("# Synthetic source\n\n" + "\n\n".join(
+            hashlib.shake_256(str(index).encode()).hexdigest(1600) for index in range(160)
+        ))
+        environment = {"BYTEWORKER_DIGEST_CAPACITY_CONFIG": str(config), "CODEX_THREAD_ID": "test"}
+
+        def prepare(host):
+            started = self.start()
+            args = ("--kb", str(self.kb), "--run-id", started["run_id"])
+            request = self.bundle_request(Path(started["work_dir"]))
+            with patch.dict(os.environ, {**environment, "BYTEWORKER_DIGEST_HOST": host}):
+                receipt = _invoke(ROOT, "digest-flow", "prepare", *args, "--bundle-request", str(request))
+            return started["run_id"], receipt["semantic_plan"]
+
+        _, small = prepare("small")
+        run_id, large = prepare("")
+        self.assertEqual("small", small["host_capacity"]["host"])
+        self.assertGreater(small["shard_count"], 1)
+        self.assertEqual("codex", large["host_capacity"]["host"])
+        self.assertEqual(1, large["shard_count"])
+        self.assertEqual("parallel", large["mode"])
+        for plan, limit in ((small, 42_000), (large, 900_000)):
+            shard_entries = json.loads(Path(plan["plan_path"]).read_text())["shards"]
+            rule_tokens = plan["estimates"]["worker_rule_tokens"]
+            self.assertTrue(all(entry["estimated_source_tokens"] + rule_tokens <= limit for entry in shard_entries))
+        self.assertGreater(shard_entries[0]["estimated_source_tokens"], 128_000)
+
+        # Each attempt checks against the capacity snapshotted with its plan.
+        with patch.dict(os.environ, {**environment, "BYTEWORKER_DIGEST_HOST": "unconfigured"}):
+            attempt = _invoke(
+                ROOT, "digest-parallel", "attempt", "--kb", str(self.kb), "--plan", large["plan_path"],
+                "--shard-id", shard_entries[0]["shard_id"],
+            )
+        self.assertEqual(run_id, attempt["run_id"])
+        self.assertEqual("within_budget", attempt["status"])
+        self.assertEqual(900_000, attempt["budget"]["total_input_limit"])
+        self.assertGreater(attempt["budget"]["source_packet_tokens"], 128_000)
+
+        source_text = Path(shard_entries[0]["path"]).read_text()
+        self.assertEqual(estimate_tokens(source_text)["tokens"], attempt["budget"]["source_packet_tokens"])
 
     def test_commit_rejects_unprepared_flow_and_changed_bundle_or_payload(self):
         started = self.start()

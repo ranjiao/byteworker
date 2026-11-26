@@ -14,6 +14,7 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
+from digest_capacity import DIGEST_CAPACITY_ROLES, DigestCapacityError, load_digest_capacity  # noqa: E402
 from workflow_budget import (  # noqa: E402
     WorkflowBudgetError,
     inspect_budget,
@@ -54,14 +55,19 @@ def main() -> int:
                 **resolve_route(load_manifest(), **route_args),
             }
         else:
+            capacity = load_digest_capacity() if args.workflow in DIGEST_CAPACITY_ROLES else {}
+            runtime_limit = capacity.get("input_tokens", {}).get(args.workflow)
             value = inspect_budget(
                 **route_args,
                 context_path=args.context,
                 source_packet_path=args.source_packet,
                 approved_review_id=args.approved_review_id,
                 host_input_limit=args.host_input_limit,
+                runtime_input_limit=runtime_limit,
             )
-    except WorkflowBudgetError as exc:
+            if runtime_limit is not None:
+                value["host_capacity"] = {"host": capacity["host"], "input_tokens": runtime_limit}
+    except (WorkflowBudgetError, DigestCapacityError) as exc:
         json.dump({"error": exc.as_dict()}, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")
         return 1

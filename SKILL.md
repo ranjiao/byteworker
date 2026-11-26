@@ -125,7 +125,7 @@ digest 先用 resolve 找齐并加载该来源所需的规则，包括完整的�
 会议簇、立场、大型输入、routine 按对应来源/feature 加载；Wiki 空间走 wiki_space（`references/digest-wiki-space.md`），
 确认页面后按 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
-按 `references/digest-flow.md` 编排、`references/digest-inline.md` 交接，复用 prepare 的 packet/plan。
+按 `digest-flow.md` / `digest-inline.md` 执行，复用 prepare 按宿主角色容量生成的 packet/plan。
 planner 选择 parallel 才加 parallel_execution，读 `digest-analysis-pipeline.md` / `digest-concurrency.md`；
 多来源原子提交加 batch，读 `references/digest-transaction.md`；内部资料加 internal_reading。
 候选完成后只运行 `digest-flow commit`，由它在锁内复验。独立 `validate` 只用于失败排障。

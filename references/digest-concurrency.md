@@ -87,9 +87,10 @@ planner 按输入规模选择并行：dependency 至少 32 项且 12k 来源 tok
 `PARALLEL_SIZE_THRESHOLD`。最多 4 路，`--max-workers 1` 可强制顺序执行。
 容量超限则无论项数多少都无损分片，按实际序列化大小检查单片预算。归并时单独检查 reducer 容量。
 不预测宿主速度或节省秒数。回执只报告输入 token 估算、计数和容量限制。
-已知宿主可用输入量时，首次规划可加 `--host-input-limit <TOKENS>`。已有私有 flow 计划用
-`digest-parallel replan`，保留已校验的结果，仅缩小超限的待执行分片。该上限包含 worker 规则，
-归并时也按同一宿主上限计算。使用 `--max-workers 1` 按顺序执行各片并逐片保存结果。
+规划自动采用 `workflow-budgets.md` 的宿主角色额度。coordinator 放不下完整资料时按 worker
+额度分片，归并使用 reducer 自己的额度。需要临时收紧时，首次规划可加 `--host-input-limit <TOKENS>`。
+已有计划用 `digest-parallel replan`，保留已校验结果，仅缩小超限的待执行分片。该上限包含 worker 规则，
+未配置 reducer 角色时也作为其手动上限。使用 `--max-workers 1` 按顺序执行各片并逐片保存结果。
 已核验上下文错误时可改用 `replan --failed-attempt-id <ID>`。工具优先使用回执明确提供的可用
 输入量。缺少数值时，按被拒资料包的一半试算，若无法完整切分再尝试可用的更宽松上限，
 保留证据并逐片试跑。回执的 `host_input_limit_source=context_probe` 表示当前阶段的本地试算上限。

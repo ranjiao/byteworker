@@ -312,6 +312,9 @@ Digest flow checkpoint 保存私有 `prepared_bundle_hash` 和 `prepared_digest_
 `byteworker-digest-parallel-plan/v1` 保存 stage、输入 hash、inline/parallel 决定、稳定 reason code、
 私密 shard 路径及 item/weight 计数。可选并行按阶段项数和 token 阈值选择；
 不再产生预测墙钟或输出 token 的字段。旧计划仍可读取，结果身份与覆盖校验不变。
+配置了宿主容量的计划增加 `host_capacity`（宿主配置名和按 workflow 保存的 `input_tokens`）与
+`inline_route`（预算核算用的来源类型及 features）。这些字段可选，旧计划继续按 manifest 和已有的
+手动上限核算。宿主容量文件位于 KB 和仓库之外；计划快照不含路径、凭据或业务内容。
 超限时 `budget_required=true`，可生成超过 4 个分片，同时最多执行 4 个。回执包含分片累计
 输入估算。语义条目切分保留原 path 与 `text_range`，延后使用的 anchor 索引留在原私有包。
 
