@@ -25,6 +25,8 @@
        比对。有新周期或任一实际 payload component 变化,都按 `references/digest-doc.md` 更新
        同一个主记录;`state=noop` 才跳过。`body_hash` / `comment_hash` /
        `whiteboard_hash` 会作为诊断字段保留,但不能只看 `revision_id` 或正文 hash。
+       经 Dreaming 自动选最新周期时，完整正文若无可识别的周期，按本轮整篇快照复查。
+       会议日期与新增进展以证据为准，执行细则见 `references/dreaming-routine.md`。
      - 群聊:从 KB `sources/` 加载 v2 Profile，运行
        `source capture --source-type feishu_chat --kb ... --source-uid ... --out <bundle>`；
        operation adapter 会把 `pull-chat.sh --since-last`、KB 高水位、overlap、逐字稿和

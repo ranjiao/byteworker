@@ -25,6 +25,7 @@ from dreaming_digest import (  # noqa: E402
 from digest_flow import fail_flow, flow_status, prepare_flow, start_flow  # noqa: E402
 from digest_parallel import DigestParallelError, attempt_parallel_shard  # noqa: E402
 from digest_run_log import record_usage, show_run as show_digest_run  # noqa: E402
+from digest_txn import compute_payload  # noqa: E402
 from dreaming_digest_scan import _invoke, scan_routine_digest  # noqa: E402
 from dreaming_reports import report_dependency  # noqa: E402
 from dreaming_run_log import show_run  # noqa: E402
@@ -294,6 +295,57 @@ class DreamingDigestTests(unittest.TestCase):
                 period="2026-08-04",
             )
             self.assertEqual("covered", dependency["status"])
+
+    def test_undated_routine_document_covers_daily_after_verified_noop(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            acquired = datetime.now(timezone.utc)
+            kb = self.make_kb(Path(temporary), acquired - timedelta(hours=4))
+            (kb / "knowledge").mkdir()
+            profile = feishu_doc_profile()
+            self.save_profile(kb, profile)
+            uid = profile["source_uid"]
+            yesterday = (acquired + timedelta(hours=8) - timedelta(days=1)).date().isoformat()
+            self.assertEqual("blocked", report_dependency(kb, kind="daily", period=yesterday)["status"])
+            lease = run_due(kb, owner="host", now=acquired)["lease"]
+            token = lease["token"]
+            source = prepare_routine_digest(kb, token=token)["sources"][0]
+            manual_args = ("dreaming", "process", "digest-source", "--kb", str(kb), "--token", token,
+                           "--source-key", source["source_key"])
+            manual = _invoke(ROOT, *manual_args)
+            work = Path(manual["work_dir"])
+            body = work / "body.xml"
+            content = "<h1>Team updates</h1><p>A decision from the source.</p>"
+            body.write_text(content, encoding="utf-8")
+            payload = compute_payload({
+                "type": "feishu_doc", "uid": uid, "url": profile["source_url"], "title": "Synthetic document",
+                "revision": "1", "comments_status": "unavailable",
+                "components": [{"name": "body", "kind": "body", "mode": "verbatim", "path": str(body)}],
+            }, body)
+            digest_key = f"feishu_doc:{uid}:rolling:{payload['content_hash']}"
+            raw_path = kb / "raw_data" / "previous.md"
+            raw_path.write_text(
+                f"---\nraw_id: previous\nsource_type: feishu_doc\nsource_uid: {uid}\n"
+                f"ingested: {yesterday}T10:00:00+08:00\ndigest_period: rolling\n"
+                f"digest_status: digested\ndigest_key: {digest_key}\n---\n{content}\n",
+                encoding="utf-8",
+            )
+            scope_args = ("digest-flow", "document-scope", "--kb", str(kb), "--run-id", manual["run_id"],
+                          "--source-uid", uid, "--body", str(body))
+            self.assertEqual({"scope": "full"}, _invoke(ROOT, *scope_args, "--outline"))
+            scope = _invoke(ROOT, *scope_args)
+            self.assertEqual("rolling", scope["digest_period"])
+            request = work / "request.json"
+            request.write_text(json.dumps({
+                "source_uid": uid, "source_url": profile["source_url"], "title": "Synthetic document",
+                "revision": "2", "body": {"path": str(body)},
+                "provider_metadata": {"digest_period": scope["digest_period"]},
+            }), encoding="utf-8")
+            checked = _invoke(ROOT, *manual_args, "--bundle-request", str(request))
+            self.assertEqual(("noop", digest_key), (checked["phase"], checked["receipt"]["digest_key"]))
+            completed = complete_routine_digest(kb, token=token)
+            self.assertEqual(("completed", 1), (completed["status"], completed["noop_count"]))
+            self.assertEqual("covered", report_dependency(kb, kind="daily", period=yesterday)["status"])
+            self.assertEqual([raw_path], list((kb / "raw_data").iterdir()))
 
     def test_verified_empty_chat_window_completes_without_a_transaction(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

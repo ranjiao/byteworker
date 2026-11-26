@@ -23,6 +23,8 @@ _TEMPLATE = re.compile(r"^(?:模板|模版|template)", re.I)
 _BOARD_TOKEN = re.compile(r"""<whiteboard\b[^>]*?\btoken=["']([^"']+)["']""", re.I)
 _BLOCK_ID = re.compile(r"""<[^<>]+?\sid=["']([^"']+)["']""")
 _FRAGMENT = re.compile(r"\s*<fragment\b[^>]*>(.*)</fragment>\s*", re.S)
+_ROLLING_SNAPSHOT_PERIOD = "rolling"
+_LATEST_PERIOD_POLICIES = ("latest", _ROLLING_SNAPSHOT_PERIOD)
 
 
 def _period(title: str, reference: date) -> tuple[str, date] | None:
@@ -73,7 +75,7 @@ def select_document_window(body: str, *, policy: str, reference: date) -> tuple[
             )
     sections = _sections(body, reference)
     for index, (heading, period) in enumerate(sections):
-        if period and policy in ("latest", period):
+        if period and (policy == period or policy in _LATEST_PERIOD_POLICIES):
             end = sections[index + 1][0].start() if index + 1 < len(sections) else len(body)
             # Skip empty dated placeholders.
             if body[heading.end():end].strip():
@@ -116,7 +118,7 @@ def document_fetch_scope(outline: str, *, policy: str, reference: date) -> dict[
         return {"scope": "full"}
     sections = _sections(outline, reference)
     for index, (heading, period) in enumerate(sections):
-        if not period or policy not in ("latest", period):
+        if not period or (policy != period and policy not in _LATEST_PERIOD_POLICIES):
             continue
         start = _BLOCK_ID.search(heading[0])
         end = _BLOCK_ID.search(sections[index + 1][0][0]) if index + 1 < len(sections) else None
@@ -130,19 +132,22 @@ def document_fetch_scope(outline: str, *, policy: str, reference: date) -> dict[
 
 
 def routine_document_window(
-    kb: Path, source_uid: str, body: str, *, declared_period: str, today: date,
+    kb: Path, source_uid: str, body: str, *, declared_period: str, today: date, body_complete: bool = True,
 ) -> tuple[str, str]:
     policy = declared_period or routine_document_policy(kb, source_uid)
     if not policy:
         return "", body
     window = select_document_window(body, policy=policy, reference=today)
-    if window is None:
-        raise SourceBundleError(
-            "SOURCE_DOCUMENT_WINDOW_NOT_FOUND",
-            "无法定位定期文档的目标日期或周次标题。",
-            path="body",
-        )
-    return window
+    if window is not None:
+        return window
+    if policy in _LATEST_PERIOD_POLICIES and body_complete and body.strip() and not _FRAGMENT.fullmatch(body):
+        # Use the legacy rolling identity to deduplicate undated snapshots and keep looking for dated headings.
+        return _ROLLING_SNAPSHOT_PERIOD, body
+    raise SourceBundleError(
+        "SOURCE_DOCUMENT_WINDOW_NOT_FOUND",
+        "无法定位定期文档的目标日期或周次标题。",
+        path="body",
+    )
 
 
 def scoped_document_anchors(

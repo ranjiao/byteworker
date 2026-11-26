@@ -285,9 +285,12 @@ def capture_flow(
     }
 
 
-def _scope_document(kb: Path, source_uid: str, body: str, *, declared_period: str = "") -> tuple[str, str]:
+def _scope_document(
+    kb: Path, source_uid: str, body: str, *, declared_period: str = "", body_complete: bool = True,
+) -> tuple[str, str]:
     return routine_document_window(
         kb, source_uid, body, declared_period=declared_period, today=datetime.now(ZoneInfo("Asia/Shanghai")).date(),
+        body_complete=body_complete,
     )
 
 
@@ -322,6 +325,7 @@ def _routine_document_bundle(
     period, selected = _scope_document(
         kb, bundle.identity.source_uid, body,
         declared_period=str(metadata.get("digest_period") or metadata.get("period") or ""),
+        body_complete=bundle.coverage.components[body_component["name"]] == "complete",
     )
     if not period:
         return bundle

@@ -24,6 +24,9 @@
   加 `--json-pointer /data/document/content`。只抓回执列出的白板，正文交给 prepare 裁切。
   评论仍完整复查（含回复、已解决评论）。按需加载 `digest-comments.md` 和 `digest-whiteboard.md`。
   仅凭正文 revision 不足以确认未变化。历史 raw 兼容来源按返回的 `raw_path` 定位。
+  自动选择最新周期时，若完整正文找不到可用日期或周次标题，工具返回 `digest_period: rolling`
+  和正文内全部白板，按本轮整篇快照照常预检、分析。会议日期和业务进展仍须有原文证据。
+  已明确指定的日期或周次仍须匹配。正文不完整或抓取失败时，沿用该来源的原有失败处理。
 - 捕获后再次运行 `dreaming process digest-source`，加 `--bundle-request <request.json>` 或
   `--bundle <bundle.json>`。它按定期规则预检并登记 `noop` 或 `empty_window`。
   `phase=checked` 的来源进入分析队列。Digest 命令传 `--kb` 和 `--run-id`。

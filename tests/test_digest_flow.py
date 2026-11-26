@@ -438,6 +438,43 @@ class DigestFlowTests(unittest.TestCase):
         self.assertNotIn("Old decision", json.dumps(packet))
         self.assertNotIn("20261106", json.dumps(packet))
 
+    def test_undated_routine_document_requires_a_complete_snapshot(self):
+        uid = "undated-doc"
+        content = "<h1>Status updates</h1><p>First topic</p><h1>Decisions</h1><p>Second topic</p>"
+
+        def prepare(body, coverage, period):
+            started = start_flow(self.kb, source_type="feishu_doc", source_ref=uid)
+            work = Path(started["work_dir"])
+            body_path = work / "capture.xml"
+            body_path.write_text(body, encoding="utf-8")
+            request = work / "request.json"
+            request.write_text(json.dumps({
+                "source_uid": uid, "source_url": f"https://example.test/docx/{uid}", "title": "Synthetic document",
+                "revision": "1", "body": {"path": str(body_path), "coverage": coverage},
+                "provider_metadata": {"digest_period": period},
+            }), encoding="utf-8")
+            checked = _invoke(
+                ROOT, "digest-flow", "prepare", "--kb", str(self.kb), "--run-id", started["run_id"],
+                "--routine", "--check-only", "--bundle-request", str(request),
+            )
+            return checked, work
+
+        checked, work = prepare(content, "complete", "latest")
+        self.assertEqual(("checked", "new_source"), (checked["phase"], checked["preflight_state"]))
+        bundle = json.loads((work / "source-bundle.json").read_text(encoding="utf-8"))
+        self.assertEqual("rolling", bundle["provider_metadata"]["digest_period"])
+        self.assertEqual(content, Path(bundle["components"][0]["path"]).read_text(encoding="utf-8"))
+
+        for label, body, coverage, period in (
+            ("range", f'<fragment mode="range">{content}</fragment>', "complete", "latest"),
+            ("partial", content, "partial", "latest"),
+            ("blank", " \n", "complete", "latest"),
+            ("pinned", content, "complete", "2026-W48"),
+        ):
+            with self.subTest(label=label), self.assertRaises(DreamingError) as caught:
+                prepare(body, coverage, period)
+            self.assertEqual("SOURCE_DOCUMENT_WINDOW_NOT_FOUND", caught.exception.code)
+
     def test_routine_document_with_many_links_keeps_semantic_plan(self):
         def prepare(source_uid, link_count, *, routine):
             run = start_flow(self.kb, source_type="feishu_doc", source_ref=source_uid)
