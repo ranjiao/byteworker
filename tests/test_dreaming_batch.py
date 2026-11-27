@@ -20,7 +20,7 @@ from dreaming_batch import (  # noqa: E402
     recover_committed_cursors,
     write_stage_receipt,
 )
-from dreaming_grants import set_im_grant  # noqa: E402
+from dreaming_grants import get_im_grant, set_im_grant  # noqa: E402
 from dreaming_state import (  # noqa: E402
     DreamingError,
     load_state_unlocked,
@@ -28,17 +28,18 @@ from dreaming_state import (  # noqa: E402
     secure_path,
     state_lock,
 )
+from settings import update_settings  # noqa: E402
 
 
 class DreamingBatchTests(unittest.TestCase):
-    def make_kb(self, root: Path) -> Path:
+    def make_kb(self, root: Path, *, grant_mode="monitored") -> Path:
         kb = root / "kb"
         (kb / ".git" / "info").mkdir(parents=True)
         set_im_grant(
             kb,
-            mode="monitored",
-            persist_finding=False,
-            acknowledge_all_visible=False,
+            mode=grant_mode,
+            persist_finding=grant_mode == "all_visible",
+            acknowledge_all_visible=grant_mode == "all_visible",
         )
         return kb
 
@@ -99,6 +100,40 @@ class DreamingBatchTests(unittest.TestCase):
             )
             with self.assertRaises(DreamingError) as caught:
                 self.create(kb, datetime(2026, 8, 4, tzinfo=timezone.utc))
+            self.assertEqual("DREAMING_GRANT_STALE", caught.exception.code)
+
+    def test_settings_grant_version_preserves_unrelated_batch_and_rejects_revoked_batch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            kb = self.make_kb(Path(temporary), grant_mode="all_visible")
+            now = datetime(2026, 8, 4, tzinfo=timezone.utc)
+            ready, stale = (self.create(kb, now)["batch_id"] for _ in range(2))
+            for batch_id in (ready, stale):
+                for stage in ("analyzed", "consolidated"):
+                    write_stage_receipt(kb, batch_id=batch_id, stage=stage, receipt={"ok": True})
+            discovery_spool = secure_path(kb, "spool", "EB-discovery")
+            discovery_spool.mkdir()
+            (discovery_spool / "content.json").write_text("{}")
+
+            initial_grant = get_im_grant(kb)
+            settings = update_settings(kb, {"dreaming": {
+                "timezone": "UTC",
+                "logging": {"retention_days": 45},
+                "im": {"mode": "all_visible", "persist_finding": True},
+            }})
+            self.assertEqual(45, settings["dreaming"]["logging"]["retention_days"])
+            self.assertEqual(initial_grant, get_im_grant(kb))
+            self.assertTrue((discovery_spool / "content.json").is_file())
+            commit = {"cursor_key": "chat:oc_test", "through": "om_test"}
+            self.assertEqual("committed", commit_batch(kb, batch_id=ready, **commit)["stage"])
+
+            update_settings(kb, {"dreaming": {"im": {"mode": "monitored"}}})
+            grant = get_im_grant(kb)
+            self.assertEqual(initial_grant["revision"] + 1, grant["revision"])
+            self.assertTrue(grant["persist_finding"])
+            self.assertFalse((discovery_spool / "content.json").exists())
+            self.assertTrue(secure_path(kb, "batches", stale).exists())
+            with self.assertRaises(DreamingError) as caught:
+                commit_batch(kb, batch_id=stale, **commit)
             self.assertEqual("DREAMING_GRANT_STALE", caught.exception.code)
 
     def test_commit_requires_consolidation_and_recovery_repairs_cursor(self):

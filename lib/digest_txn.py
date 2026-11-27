@@ -416,8 +416,14 @@ def preflight(kb: Path, source: Dict[str, Any], manifest_path: Path, *, payload:
     digest_key = build_digest_key(source, payload)
     matches = []
     exact = []
+    completed = []
     for path in sorted((kb / "raw_data").glob("*.md")):
-        fm, raw_body = parse_file(str(path))
+        try:
+            raw_bytes = path.read_bytes()
+        except FileNotFoundError:
+            # A concurrent writer can roll back a new raw after the directory scan.
+            continue
+        fm, raw_body = parse_frontmatter(raw_bytes.decode("utf-8"))
         if not fm or not _raw_source_matches(fm, source):
             continue
         item = {
@@ -432,9 +438,10 @@ def preflight(kb: Path, source: Dict[str, Any], manifest_path: Path, *, payload:
         matches.append(item)
         if item["digest_key"] == digest_key or _legacy_payload_matches(fm, payload, source=source, raw_body=raw_body):
             exact.append(item)
+            if item["digest_status"] == "digested" and _raw_matches_head(kb, item["path"], raw_bytes):
+                completed.append(item)
 
     if exact:
-        completed = [item for item in exact if item["digest_status"] == "digested"]
         preferred = completed[-1] if completed else exact[-1]
         state = "noop" if completed else "resume_failed"
     elif matches:
@@ -1418,7 +1425,7 @@ def validate_batch_plan(kb: Path, manifest_path: Path, *, now: datetime | None =
         payload = compute_payload(source, source_path)
         if bundle is not None:
             _verify_bundle_payload(bundle, payload)
-        flight = preflight(kb, source, source_path)
+        flight = preflight(kb, source, source_path, payload=payload)
         if flight["state"] in {"noop", "resume_failed"}:
             raise DigestTxnError(
                 f"批量输入 {index} 状态为 {flight['state']}；"
@@ -1677,6 +1684,61 @@ def _git(kb: Path, args: Sequence[str], check: bool = True) -> subprocess.Comple
     return completed
 
 
+def _raw_matches_head(kb: Path, relative_path: str, raw_bytes: bytes) -> bool:
+    committed = _git(kb, ["rev-parse", "--verify", f"HEAD:{relative_path}"], check=False)
+    if committed.returncode != 0:
+        return False
+    # Hash the same bytes preflight parsed, using the clean conversion Git
+    # applies to this path (for example, converting CRLF to LF).
+    working = subprocess.run(
+        ["git", "-C", str(kb), "hash-object", f"--path={relative_path}", "--stdin"],
+        input=raw_bytes,
+        capture_output=True,
+    )
+    return working.returncode == 0 and working.stdout.strip() == committed.stdout.strip().encode("ascii")
+
+
+def _digest_head(kb: Path) -> str:
+    head = _git(kb, ["rev-parse", "--verify", "--quiet", "HEAD"], check=False)
+    if head.returncode == 1:
+        return ""  # An initialized knowledge base may still have an unborn branch.
+    if head.returncode != 0 or not head.stdout.strip():
+        raise DigestTxnError("无法读取知识库 Git HEAD")
+    return head.stdout.strip()
+
+
+def _commit_digest(kb: Path, message: str) -> str:
+    previous_head = _digest_head(kb)
+    expected_tree = _git(kb, ["write-tree"]).stdout.strip()
+    commit_error = None
+    try:
+        _git(kb, ["commit", "-m", message])
+    except (Exception, KeyboardInterrupt) as exc:
+        commit_error = exc
+
+    try:
+        head = _digest_head(kb)
+        if head != previous_head:
+            commit = _git(
+                kb, ["log", "-1", "--no-notes", "--no-show-signature", "--format=%T%n%P", head, "--"],
+            ).stdout.splitlines()
+            tree_matches = bool(commit) and commit[0] == expected_tree
+            parents = commit[1].split() if len(commit) > 1 else []
+            if tree_matches and parents == ([previous_head] if previous_head else []):
+                return head
+            raise DigestTxnError("Git HEAD 的提交树或父提交与 Digest 事务不一致")
+    except (Exception, KeyboardInterrupt) as exc:
+        # HEAD may already contain the commit. Restoring pre-commit files or the
+        # index here would leave them out of sync with the committed tree.
+        raise DigestTxnRollbackError(
+            "无法确认 Digest 提交结果，已保留知识库写入现场，需人工核验 Git HEAD、暂存区和工作树。"
+        ) from exc
+
+    if commit_error is not None:
+        raise commit_error
+    raise DigestTxnError("git commit 未更新知识库 HEAD")
+
+
 def _dirty_paths(kb: Path) -> set[str]:
     output = _git(kb, ["status", "--porcelain=v1", "-z"]).stdout
     chunks = [item for item in output.split("\0") if item]
@@ -1831,7 +1893,7 @@ def execute_plan(
         if flight["state"] == "resume_failed":
             existing = flight.get("existing") or {}
             raise DigestTxnError(
-                "发现相同 payload 的 pending/failed raw，不自动覆盖或续写；"
+                "发现相同 payload 的 raw，但 Git HEAD 中没有一致的已完成版本；"
                 f"请先检查 {existing.get('path', existing.get('raw_id', '历史 raw'))}"
             )
         result = _validate_plan_contents(
@@ -1908,8 +1970,8 @@ def execute_plan(
                     + (diff_check.stdout.strip() or diff_check.stderr.strip())
                 )
 
-            _git(kb, ["add", "--", *relative_paths])
             staged_by_txn = True
+            _git(kb, ["add", "--", *relative_paths])
             staged_after = set(
                 _git(kb, ["diff", "--cached", "--name-only"]).stdout.splitlines()
             )
@@ -1921,9 +1983,10 @@ def execute_plan(
             if not staged_after:
                 raise DigestTxnError("事务没有产生可提交变更")
             commit_message = str(result.plan["commit"]["message"]).strip()
-            _git(kb, ["commit", "-m", commit_message])
-            commit_hash = _git(kb, ["rev-parse", "HEAD"]).stdout.strip()
-        except Exception:
+            commit_hash = _commit_digest(kb, commit_message)
+        except DigestTxnRollbackError:
+            raise
+        except (Exception, KeyboardInterrupt):
             _rollback_digest(snapshots, git_index_path, git_index_snapshot, staged_by_txn=staged_by_txn)
             raise
 
@@ -2064,8 +2127,8 @@ def execute_batch_plan(
                     "git diff --check 失败: "
                     + (diff_check.stdout.strip() or diff_check.stderr.strip())
                 )
-            _git(kb, ["add", "--", *relative_paths])
             staged_by_txn = True
+            _git(kb, ["add", "--", *relative_paths])
             staged_after = set(
                 _git(kb, ["diff", "--cached", "--name-only"]).stdout.splitlines()
             )
@@ -2076,9 +2139,10 @@ def execute_batch_plan(
                 )
             if not staged_after:
                 raise DigestTxnError("事务没有产生可提交变更")
-            _git(kb, ["commit", "-m", str(result.plan["commit"]["message"]).strip()])
-            commit_hash = _git(kb, ["rev-parse", "HEAD"]).stdout.strip()
-        except Exception:
+            commit_hash = _commit_digest(kb, str(result.plan["commit"]["message"]).strip())
+        except DigestTxnRollbackError:
+            raise
+        except (Exception, KeyboardInterrupt):
             _rollback_digest(snapshots, git_index_path, git_index_snapshot, staged_by_txn=staged_by_txn)
             raise
 

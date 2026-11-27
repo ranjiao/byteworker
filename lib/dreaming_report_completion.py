@@ -8,9 +8,9 @@ from typing import Any, Mapping
 
 from dreaming_delivery_lark import deliver_lark_bot_summary
 from dreaming_report_bundle import render_report_bundle, validate_report_document
-from dreaming_reports import enqueue_delivery
+from dreaming_reports import enqueue_delivery_unlocked
 from dreaming_run_result import RESULT_SCHEMA
-from dreaming_scheduler import complete_run, status
+from dreaming_scheduler import complete_run
 from dreaming_state import DreamingError
 
 
@@ -27,11 +27,9 @@ def complete_report_run(
 ) -> dict[str, Any]:
     normalized = validate_report_document(document)
     rendered = {}
-    manual = None
+    queued = {}
 
     def publish(dependency: Mapping[str, Any], lease: Mapping[str, Any]) -> dict[str, Any]:
-        nonlocal manual
-        manual = lease.get("manual_report")
         coverage = normalized["coverage"]
         if dependency["status"] == "partial":
             coverage["status"] = "partial"
@@ -51,6 +49,11 @@ def complete_report_run(
         rendered.update(render_report_bundle(kb, document=normalized))
         return rendered
 
+    def stage_delivery(state, lease, report_path, run_id, current):
+        queued.update(_stage_delivery(
+            state, lease=lease, report_path=report_path, run_id=run_id, now=current,
+        ))
+
     run = complete_run(
         kb,
         token=token,
@@ -63,19 +66,12 @@ def complete_report_run(
             "period": normalized["period"], "summary": normalized["message_summary"],
         },
         publish_report=publish,
+        stage_report_delivery=stage_delivery,
         now=now,
     )
-    delivery = {"status": "skipped", "reason": "manual_delivery_not_requested"} if (
-        manual and not manual.get("deliver")
-    ) else _deliver_if_enabled(
-        kb,
-        kind=str(rendered["kind"]),
-        period=str(rendered["period"]),
-        report_path=str(rendered["report_path"]),
-        run_id=str(run["run_id"]),
-        binary=delivery_binary,
-        now=now,
-    )
+    delivery = queued
+    if queued["status"] == "pending":
+        delivery = _deliver_if_enabled(kb, outbox_id=queued["outbox_id"], binary=delivery_binary, now=now)
     return {
         "status": "completed",
         "kind": rendered["kind"],
@@ -86,27 +82,27 @@ def complete_report_run(
     }
 
 
-def _deliver_if_enabled(
-    kb: Path,
+def _stage_delivery(
+    state: dict[str, Any],
     *,
-    kind: str,
-    period: str,
+    lease: Mapping[str, Any],
     report_path: str,
     run_id: str,
-    binary: str | None,
-    now: datetime | None,
+    now: datetime,
 ) -> dict[str, Any]:
-    current = status(kb, now=now)
-    lark = current.get("report_delivery", {}).get("lark_bot", {})
+    manual = lease.get("manual_report")
+    if manual and not manual.get("deliver"):
+        return {"status": "skipped", "reason": "manual_delivery_not_requested"}
+    lark = state.get("report_delivery", {}).get("lark_bot", {})
     if not isinstance(lark, Mapping) or not lark.get("enabled"):
         return {"status": "skipped", "reason": "lark_delivery_disabled"}
     recipient_id = str(lark.get("recipient_id", ""))
     if not recipient_id.startswith("ou_"):
         return {"status": "skipped", "reason": "lark_recipient_missing"}
-    queued = enqueue_delivery(
-        kb,
-        kind=kind,
-        period=period,
+    return enqueue_delivery_unlocked(
+        state,
+        kind=str(lease["job"]),
+        period=str(lease["period"]),
         report_path=report_path,
         commit=run_id,
         channel="lark_bot",
@@ -114,23 +110,28 @@ def _deliver_if_enabled(
         recipient_id=recipient_id,
         now=now,
     )
+
+
+def _deliver_if_enabled(
+    kb: Path, *, outbox_id: str, binary: str | None, now: datetime | None,
+) -> dict[str, Any]:
     try:
         delivered = deliver_lark_bot_summary(
             kb,
-            outbox_id=str(queued["outbox_id"]),
+            outbox_id=outbox_id,
             binary=binary,
             now=now,
         )
     except DreamingError as exc:
         return {
             "status": "pending",
-            "outbox_id": queued["outbox_id"],
+            "outbox_id": outbox_id,
             "error": exc.as_dict(),
         }
     if delivered.get("status") == "skipped":
         return delivered
     return {
         "status": "delivered",
-        "outbox_id": queued["outbox_id"],
+        "outbox_id": outbox_id,
         "delivery_id": delivered.get("delivery_id", ""),
     }

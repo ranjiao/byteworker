@@ -1103,10 +1103,61 @@ def _report_period(name: str, target: datetime) -> str:
     return target.date().isoformat()
 
 
+def _restore_daily_report_debt(
+    kb: Path, pending: dict[str, Any], *, settled_period: str | None,
+    last_attempt: Mapping[str, Any],
+    enabled_at: datetime, local_now: datetime,
+) -> None:
+    """Recover periods that older deadline publishers removed from the formal queue."""
+    for path in secure_path(kb, "reports").glob("daily-*/deadline/publication.json"):
+        period = path.parent.parent.name.removeprefix("daily-")
+        if period == settled_period or period in pending:
+            continue
+        artifacts = path.parent.parent / "artifacts"
+        interrupted = last_attempt.get("period") == period and last_attempt.get("status") in {
+            "running", "failed", "partial",
+        }
+        if (artifacts / "manifest.json").is_file() and not interrupted:
+            # Older completed reports can predate the current last_success.
+            continue
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            cutoff = _parse_time(receipt.get("cutoff"))
+        except (AttributeError, OSError, ValueError):
+            continue
+        if (
+            receipt.get("schema_version") == "byteworker-deadline-daily/v1"
+            and receipt.get("status") in {"staged", "published"}
+            and receipt.get("period") == period
+            and cutoff is not None
+            and enabled_at <= cutoff <= local_now
+            and cutoff.astimezone(local_now.tzinfo).date().isoformat() == period
+        ):
+            archive = kb / "reports" / "daily" / f"{period}.md"
+            if archive.is_file():
+                digest = receipt.get("sha256")
+                if not isinstance(digest, str) or len(digest) != 64 or any(
+                    char not in "0123456789abcdef" for char in digest
+                ):
+                    continue
+                baseline = path.parent / f"{digest}.md"
+                if interrupted and (artifacts / "report.md").is_file():
+                    baseline = artifacts / "report.md"
+                try:
+                    heading = "\n## 手动补充 / 备注\n"
+                    archive_body = archive.read_text(encoding="utf-8").split(heading, 1)[0]
+                    baseline_body = baseline.read_text(encoding="utf-8").split(heading, 1)[0]
+                    if archive_body != baseline_body:
+                        continue
+                except (OSError, ValueError):
+                    continue
+            pending[period] = _iso(cutoff)
+
+
 def _queue_report_periods(
     kb: Path, name: str, job: dict[str, Any], local_now: datetime, enabled_at: datetime,
 ) -> None:
-    """Discover unpublished periods once; a newer success must not erase older debt."""
+    """Discover outstanding formal reports without consuming older debt."""
     schedule = job["schedule"]
     clock = _clock(schedule["time"])
     if name == "weekly":
@@ -1128,6 +1179,12 @@ def _queue_report_periods(
             pending[period] = _iso(target)
         target -= step
     job["scheduled_through"] = max(seen, _report_period(name, latest))
+    if name == "daily":
+        _restore_daily_report_debt(
+            kb, pending, settled_period=last_success.get("period"),
+            last_attempt=job.get("last_attempt") or {},
+            enabled_at=enabled_at, local_now=local_now,
+        )
 
 
 def _job_gate(job: Mapping[str, Any], now: datetime) -> str:
@@ -1536,7 +1593,7 @@ def run_due(
             if report_target:
                 target_period = report_target["period"]
                 pending = job.get("pending_periods", {})
-                if target_period not in pending or (kb / "reports/daily" / f"{target_period}.md").is_file():
+                if target_period not in pending:
                     continue
                 candidate_job["pending_periods"] = {target_period: pending[target_period]}
             candidate = _candidate(
@@ -2009,6 +2066,7 @@ def complete_run(
     result_document: Mapping[str, Any] | None = None,
     report_sources: list[dict[str, Any]] | None = None,
     publish_report: Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]] | None = None,
+    stage_report_delivery: Callable[[dict[str, Any], Mapping[str, Any], str, str, datetime], None] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if run_status not in RUN_STATUSES:
@@ -2175,6 +2233,8 @@ def complete_run(
             rendered = publish_report(dependency, lease)
             artifact = _validate_artifact(job_name, str(rendered["report_path"]))
             report_sources = rendered["source_distribution"]
+            if stage_report_delivery is not None:
+                stage_report_delivery(value, lease, artifact, run_id, current)
         started_at = _parse_time(lease.get("acquired_at"))
         metrics = {
             key: count for key, count in (

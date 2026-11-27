@@ -103,9 +103,8 @@ bin/byteworker digest-txn preflight \
 
 - `new_source`：首次来源，继续依赖判断与语义分析。
 - `new_version`：同源 payload 变化；沿历史 `digest_targets` 更新已有主记录，不建重复主节点。
-- `noop`：停止；不生成 plan、不写 raw/节点/journal，向用户列出现有 raw 与 targets。
-- `resume_failed`：发现相同 payload 的 pending/failed raw；第一版不自动覆盖，检查历史 raw 后
-  再人工恢复。
+- `noop`：当前 raw 与 Git 已提交版本一致且标为 digested。停止写入，向用户列出现有 raw 与 targets。
+- `resume_failed`：相同 payload 只匹配到 pending/failed raw，或 raw 尚未通过提交核验。保留现场，检查对应 raw、Git 及目标节点后人工恢复。
 
 Agent 不得手算或覆盖脚本返回的 component hash、`content_hash`、`digest_key`。
 

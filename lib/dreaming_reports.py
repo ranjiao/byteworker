@@ -474,6 +474,30 @@ def enqueue_delivery(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
+    with state_lock(kb):
+        state = load_state_unlocked(kb, current)
+        item = enqueue_delivery_unlocked(
+            state, kind=kind, period=period, report_path=report_path, commit=commit,
+            channel=channel, artifact=artifact, recipient_id=recipient_id, now=current,
+        )
+        state["updated_at"] = utc_iso(current)
+        save_state_unlocked(kb, state)
+    return item
+
+
+def enqueue_delivery_unlocked(
+    state: dict[str, Any],
+    *,
+    kind: str,
+    period: str,
+    report_path: str,
+    commit: str,
+    channel: str,
+    artifact: str,
+    recipient_id: str,
+    now: datetime,
+) -> dict[str, Any]:
+    """Stage an outbox entry in the caller's state transaction."""
     if kind not in REPORT_KINDS or not report_path.startswith(f"reports/{kind}/"):
         raise DreamingError("DREAMING_REPORT_INVALID", "报告路径与 kind 不一致。")
     if channel not in {"host", "lark_bot"}:
@@ -488,21 +512,17 @@ def enqueue_delivery(
             "飞书机器人投递只接受 summary，且收件人必须是 open_id。",
         )
     outbox_id = "OUT-" + uuid.uuid4().hex
-    with state_lock(kb):
-        state = load_state_unlocked(kb, current)
-        state.setdefault("outbox", {})[outbox_id] = {
-            "kind": kind,
-            "period": period,
-            "report_path": report_path,
-            "commit": commit,
-            "channel": channel,
-            "artifact": artifact,
-            "recipient_id": recipient_id,
-            "status": "pending",
-            "created_at": utc_iso(current),
-        }
-        state["updated_at"] = utc_iso(current)
-        save_state_unlocked(kb, state)
+    state.setdefault("outbox", {})[outbox_id] = {
+        "kind": kind,
+        "period": period,
+        "report_path": report_path,
+        "commit": commit,
+        "channel": channel,
+        "artifact": artifact,
+        "recipient_id": recipient_id,
+        "status": "pending",
+        "created_at": utc_iso(now),
+    }
     return {"outbox_id": outbox_id, "status": "pending"}
 
 

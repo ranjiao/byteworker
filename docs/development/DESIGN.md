@@ -432,8 +432,9 @@ component/path source refs 和 payload。merge 缺任何 shard 都 fail closed�
   不允许启用流程静默决定 quota 消耗。
 - 总开关 disable 只把运行态 `enabled` 置 false，不清除 `configured_enabled`；再次 enable 按用户
   原偏好恢复。process/morning/maintenance/recovery 可独立配置，避免附带启用用户不需要的 job。
-- `grants` 初始化 `revision=0`、`im.mode=off`、`persist_finding=false`。`grant set-im` 每次变更
-  revision；`all_visible` 必须确认会读取 P2P/免打扰。降级会清理被撤销范围内未晋升 spool/batch。
+- `grants` 初始化 `revision=0`、`im.mode=off`、`persist_finding=false`。IM 模式或
+  `persist_finding` 改变时递增 revision，重复保存同值保留原版本。启用 `all_visible` 必须确认会读取
+  P2P/免打扰。降级会清理被撤销范围内未晋升 spool/batch。
 - `grants.actions` 分别保存 `persist_report/archive/instant_alert`，默认全部关闭。
   `grant set-actions` 是整组替换；任何 grant revision 变化会取消未 claim action，并把 claimed
   action 转入 reconcile。
@@ -638,7 +639,8 @@ reports/<kind>/<period>.md
   已验收状态由 commit marker 重放。旧数据没有字段时保留既有入口。
 - 独立日报在 `reports/daily-<period>/deadline/` 保存私有 Markdown 版本和
   `byteworker-deadline-daily/v1` 发布凭证，含截止时间、首版发布时间、版本、校验值和发布状态。
-  日报 job 保存最后一次独立发布及按周期记录的事故。归档发现兼容旧日报文件。
+  日报 job 保存最后一次基础版发布及按周期记录的事故。`pending_periods` 记录仍待完成正式报告的周期。
+  基础版归档后保留该期，正式完成后再清除；旧版只生成基础版的周期按发布凭证恢复调度。
 - 报告窗口：morning 为前一日 20:30 至当日 10:00；当日领取的自动 daily 从 00:00 覆盖至配置的出报时间，
   跨日补跑 daily 覆盖完整自然日。prepare 按租约领取时确定的窗口复核。weekly 为完整 ISO 周。均按 Dreaming timezone 计算后保存 UTC。
 - 消息游标落后、gap 与窗口重叠或定期来源缺少覆盖时，自动日报将缺口记录为
@@ -646,8 +648,8 @@ reports/<kind>/<period>.md
   日报租约使用 `report_target` 保存 period、scheduled_at 和 through。报告准备及发布使用同一窗口。
   晨报和周报保留 `blocked_by` 与独立补采。已有日报补采租约仍使用原窗口。
 - 新消息 Finding 按本次引用消息中最晚的发生时间保存 `occurred_at`，报告据此选期；旧记录缺该字段时沿用 updated_at。
-- daily/weekly job 以 `scheduled_through` 记录已枚举周期，`pending_periods` 保存未归档周期及其计划时间。
-  首次枚举从启用或接管时起，跳过现有归档和已成功周期。近期 process 租约新增 `im_window`，
+- daily/weekly job 以 `scheduled_through` 记录已枚举周期，`pending_periods` 保存待完成正式报告的周期及计划时间。
+  从启用或接管时起枚举，已有正式报告或用户归档的周期跳过，仅发布基础版的日报仍待完成。近期 process 租约新增 `im_window`，
   `recent_start` 也是增量群聊的近期下界。群聊 checkpoint 的 `covered_windows` 合并已核验区间，
   `legacy_through` 继承原版本已确认的进度；历史回补只填对应区间。
   `im_window` 是领取时的第一段。每次 prepare 和成功收尾都复算目标时段的剩余缺口。
@@ -668,9 +670,9 @@ reports/<kind>/<period>.md
 - HTML 是单文件自包含页面，业务文本必须转义，禁止外部 JS/CSS/字体/图片和网络请求。宿主按
   manifest 回显摘要，并自行选择直接预览 HTML
   或返回本地文件链接。
-- `report complete` 必须在完成 lease 时写入 `artifact_path=reports/<kind>/<period>.md`。归档快照
-  重跑时保留“手动补充 / 备注”；delivery outbox 独立维护 pending/delivered/skipped，不以报告落地冒充
-  送达。
+- `report complete` 在完成 lease 时写入 `artifact_path=reports/<kind>/<period>.md`，并在同一次
+  状态保存中登记已配置的投递。归档重跑保留“手动补充 / 备注”。锁外发送后按回执更新 outbox 的
+  pending/delivered/skipped 状态。
 - 显式补报 lease 及完成回执可附加 `manual_report`，含 `accepted_source_gaps`（逐项来源键）、
   `gap_note`（用户授权的限制说明）与 `deliver`（默认 false）。缺口说明加入正式报告
   `coverage.notes`，未覆盖来源保留 checkpoint 原值；不改变 report document / packet schema 版本。

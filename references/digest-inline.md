@@ -25,7 +25,7 @@ component 失败必须停止，不能用部分结果冒充完整。artifact/requ
 identity、coverage、anchors、provider_metadata 由来源 adapter 交给 Bundle，不能伪造空评论。
 然后只执行一次 `digest-flow prepare`，不重复调用底层 bundle/preflight/analysis prepare/planner。
 
-先检查 preflight_state：noop 结束；resume_failed 加 recovery 核查历史 pending/failed raw，人工恢复前
+先检查 preflight_state：noop 结束；resume_failed 加 recovery 核查未完成或未通过 Git 核验的 raw，人工恢复前
 不生成候选或提交，不得覆盖旧 raw。仅 new_source/new_version 读取 analysis packet 和计划继续：
 
 - dependency_candidates 只用于依赖判断，不授权读取依赖正文。

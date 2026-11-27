@@ -12,6 +12,7 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
+import digest_txn  # noqa: E402
 from digest_txn import (  # noqa: E402
     compute_payload,
     DigestTxnError,
@@ -35,6 +36,7 @@ from sources import (  # noqa: E402
 )
 
 
+original_git = digest_txn._git
 NODE_DIRS = ("people", "projects", "areas", "orgs", "events", "decisions", "readings")
 
 
@@ -843,8 +845,19 @@ links: []
         validated = validate_batch_plan(self.kb, plan_path)
         self.assertEqual(2, len(validated.inputs))
         before = run_git(self.kb, "rev-list", "--count", "HEAD")
-        receipt = execute_batch_plan(self.kb, plan_path, ROOT)
+        self.interrupt_after_first_raw("execute_batch_plan", plan_path)
+        partial_raw = self.kb / "raw_data/test-a.md"
+        self.assertEqual("digested", parse_file(str(partial_raw))[0]["digest_status"])
+        with self.assertRaisesRegex(DigestTxnError, "resume_failed"):
+            execute_batch_plan(self.kb, plan_path, ROOT)
+        self.assertFalse((self.kb / "raw_data/test-b.md").exists())
+        self.assertEqual(before, run_git(self.kb, "rev-list", "--count", "HEAD"))
+        partial_raw.unlink()
+        with patch("digest_txn._git", side_effect=self.git_with_lost_commit_result):
+            receipt = execute_batch_plan(self.kb, plan_path, ROOT)
         after = run_git(self.kb, "rev-list", "--count", "HEAD")
+        self.assertEqual(receipt["commit"], run_git(self.kb, "rev-parse", "HEAD"))
+        self.assertEqual("", run_git(self.kb, "status", "--short"))
         self.assertEqual("committed", receipt["status"])
         self.assertEqual(2, receipt["batch_size"])
         self.assertEqual(int(before) + 1, int(after))
@@ -1174,6 +1187,88 @@ links: []
         self.assertEqual("# 知识库索引\n", (self.kb / "INDEX.md").read_text())
         self.assertEqual("", run_git(self.kb, "status", "--short"))
 
+    def interrupt_after_first_raw(self, executor, plan):
+        result = subprocess.run(
+            [sys.executable, "-c", """
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+lib, executor, kb, plan, root = sys.argv[1:]
+sys.path.insert(0, lib)
+import digest_txn
+original_write = digest_txn._atomic_write
+
+def stop_after_raw(path, content):
+    original_write(path, content)
+    if path.parent.name == "raw_data":
+        os._exit(37)
+
+with patch("digest_txn._atomic_write", side_effect=stop_after_raw):
+    getattr(digest_txn, executor)(Path(kb), Path(plan), Path(root))
+""", str(LIB), executor, str(self.kb), str(plan), str(ROOT)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(37, result.returncode, result.stderr)
+
+    @staticmethod
+    def git_with_lost_commit_result(kb, args, **kwargs):
+        result = original_git(kb, args, **kwargs)
+        if args[0] == "commit":
+            raise OSError("synthetic failure reading git commit result")
+        return result
+
+    def test_interrupted_raw_preserves_user_edits_until_recovery(self):
+        source = self.source_manifest(*self.write_source())
+        raw_id = "raw-2026-07-27-test-plan"
+        plan = self.write_plan(source, raw_id, "2026-07-27-test-plan", self.reading_text([raw_id]))
+        head = run_git(self.kb, "rev-parse", "HEAD")
+        self.interrupt_after_first_raw("execute_plan", plan)
+        raw_path = self.kb / "raw_data/2026-07-27-test-plan.md"
+        node_path = self.kb / "knowledge/readings/reading-test-plan.md"
+        self.assertEqual("digested", parse_file(str(raw_path))[0]["digest_status"])
+        self.assertFalse(node_path.exists())
+        edited = raw_path.read_bytes() + b"\nSynthetic user edit.\n"
+        raw_path.write_bytes(edited)
+        run_git(self.kb, "add", "raw_data/2026-07-27-test-plan.md")
+        self.assertEqual("resume_failed", preflight(self.kb, source, plan)["state"])
+        with self.assertRaisesRegex(DigestTxnError, "Git HEAD"):
+            execute_plan(self.kb, plan, ROOT)
+        self.assertEqual(edited, raw_path.read_bytes())
+        self.assertEqual("raw_data/2026-07-27-test-plan.md", run_git(self.kb, "diff", "--cached", "--name-only"))
+        self.assertEqual(head, run_git(self.kb, "rev-parse", "HEAD"))
+
+        run_git(self.kb, "restore", "--staged", "raw_data/2026-07-27-test-plan.md")
+        raw_path.rename(self.inputs / "preserved-raw.md")
+        self.assertEqual("committed", execute_plan(self.kb, plan, ROOT)["status"])
+        self.assertTrue(node_path.exists())
+        self.assertEqual(edited, (self.inputs / "preserved-raw.md").read_bytes())
+        self.assertEqual("noop", execute_plan(self.kb, plan, ROOT)["status"])
+
+    def test_lost_commit_result_is_reconciled_from_git(self):
+        source = self.source_manifest(*self.write_source())
+        raw_id = "raw-2026-07-27-test-plan"
+        plan = self.write_plan(source, raw_id, "2026-07-27-test-plan", self.reading_text([raw_id]))
+        with patch("digest_txn._git", side_effect=self.git_with_lost_commit_result):
+            receipt = execute_plan(self.kb, plan, ROOT)
+        self.assertEqual("committed", receipt["status"])
+        self.assertEqual(receipt["commit"], run_git(self.kb, "rev-parse", "HEAD"))
+        self.assertEqual("", run_git(self.kb, "status", "--short"))
+        self.assertEqual("noop", execute_plan(self.kb, plan, ROOT)["status"])
+
+    def test_head_read_failure_after_commit_preserves_transaction_for_retry(self):
+        source = self.source_manifest(*self.write_source())
+        raw_id = "raw-2026-07-27-test-plan"
+        plan = self.write_plan(source, raw_id, "2026-07-27-test-plan", self.reading_text([raw_id]))
+        previous_head = run_git(self.kb, "rev-parse", "HEAD")
+        with patch("digest_txn._digest_head", side_effect=[previous_head, OSError("HEAD read failed")]):
+            with self.assertRaisesRegex(DigestTxnRollbackError, "已保留"):
+                execute_plan(self.kb, plan, ROOT)
+        self.assertEqual(previous_head, run_git(self.kb, "rev-parse", "HEAD^"))
+        self.assertEqual("", run_git(self.kb, "status", "--short"))
+        self.assertEqual("noop", execute_plan(self.kb, plan, ROOT)["status"])
+
     def test_commit_failure_restores_files_and_git_index(self):
         hook = self.kb / ".git/hooks/pre-commit"
         hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
@@ -1286,10 +1381,22 @@ legacy raw body
             ),
             encoding="utf-8",
         )
+        self.assertEqual("resume_failed", preflight(self.kb, source, manifest_path)["state"])
+        run_git(self.kb, "add", "--", str(legacy_raw))
+        run_git(self.kb, "commit", "-m", "commit legacy fixture")
         result = preflight(self.kb, source, manifest_path)
         self.assertEqual("noop", result["state"])
         self.assertEqual("raw-2026-07-01-legacy", result["existing"]["raw_id"])
         self.assertNotIn("payload_schema", parse_file(str(legacy_raw))[0])
+
+        (self.kb / ".gitattributes").write_text("raw_data/*.md text eol=crlf\n")
+        run_git(self.kb, "add", ".gitattributes")
+        run_git(self.kb, "commit", "-m", "configure CRLF raw checkout")
+        legacy_raw.unlink()
+        run_git(self.kb, "restore", "--", str(legacy_raw))
+        self.assertIn(b"\r\n", legacy_raw.read_bytes())
+        self.assertEqual("", run_git(self.kb, "status", "--short"))
+        self.assertEqual("noop", preflight(self.kb, source, manifest_path)["state"])
 
     def test_execute_rejects_preexisting_staged_changes(self):
         staged = self.kb / "staged-note.md"

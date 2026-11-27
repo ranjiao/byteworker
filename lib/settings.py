@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
-from dreaming_grants import IM_MODES, set_im_grant
+from dreaming_grants import IM_MODES, get_im_grant, set_im_grant
 from dreaming_scheduler import configure as configure_dreaming
 from dreaming_scheduler import status as dreaming_status
 from dreaming_state import DreamingError, atomic_write_json, state_lock
@@ -314,6 +314,12 @@ def _checked_settings_path(kb: Path, relative: Path) -> Path:
     return path
 
 
+def _im_values(patch: Mapping[str, Any], current: Mapping[str, Any]) -> tuple[str, bool]:
+    mode = str(patch.get("mode", current.get("mode", "off"))).strip()
+    persist = bool(patch.get("persist_finding", current.get("persist_finding", False)))
+    return mode, persist
+
+
 def _stage_settings(
     kb: Path, staged: Path, patch: Mapping[str, Any], source_now: datetime,
 ) -> dict[Path, bytes]:
@@ -343,22 +349,18 @@ def _stage_settings(
 
     dreaming = patch.get("dreaming")
     im = dreaming.get("im") if isinstance(dreaming, Mapping) else None
-    if isinstance(im, Mapping) and str(im.get("mode", "off")).strip() in IM_MODES:
-        mode = str(im.get("mode", "off")).strip()
+    if isinstance(im, Mapping):
         raw = dreaming_status(staged)
         grants = raw.get("grants", {})
         old_im = grants.get("im", {}) if isinstance(grants, Mapping) else {}
-        old_mode = old_im.get("mode") if isinstance(old_im, Mapping) else None
-        # Only revocation walks spool/batches or purges findings. In particular,
-        # ordinary Dreaming saves and grant renewals need no spool snapshots.
-        if mode == "off" or (old_mode == "all_visible" and mode == "monitored"):
-            for name in ("spool", "batches"):
-                stage(Path("state/dreaming") / name, tree=True)
-            for name in ("finding-history.jsonl", "findings.json"):
-                stage(Path("state/dreaming") / name)
-        actions = raw.get("actions", {})
-        if isinstance(actions, Mapping):
-            for action_id in actions:
+        mode, persist = _im_values(im, old_im)
+        if mode in IM_MODES and (mode, persist) != _im_values({}, old_im):
+            if mode == "off" or (old_im.get("mode") == "all_visible" and mode == "monitored"):
+                for name in ("spool", "batches"):
+                    stage(Path("state/dreaming") / name, tree=True)
+                for name in ("finding-history.jsonl", "findings.json"):
+                    stage(Path("state/dreaming") / name)
+            for action_id in raw.get("actions", {}):
                 stage(Path("state/dreaming/actions") / f"{action_id}.json")
 
     if isinstance(patch.get("sources"), list) and patch["sources"]:
@@ -568,11 +570,11 @@ def _update_dreaming(kb: Path, patch: Any) -> None:
     if im is not None:
         if not isinstance(im, Mapping):
             raise SettingsError("SETTINGS_PATCH_INVALID", "信息来源权限必须是对象。")
-        mode = str(im.get("mode", "off")).strip()
+        mode, persist = _im_values(im, get_im_grant(kb))
         set_im_grant(
             kb,
             mode=mode,
-            persist_finding=bool(im.get("persist_finding", False)),
+            persist_finding=persist,
             acknowledge_all_visible=bool(im.get("acknowledge_all_visible", False)),
         )
 

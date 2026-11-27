@@ -199,6 +199,46 @@ class DigestFlowTests(unittest.TestCase):
         with self.assertRaises(DigestFlowError):
             resume_flow(self.kb, run_id=run_id)
 
+    def test_interrupted_unborn_repository_does_not_complete_a_fresh_flow(self):
+        first = self.start()
+        work = Path(first["work_dir"])
+        prepare_flow(self.kb, run_id=first["run_id"], bundle_request=self.bundle_request(work))
+        plan = self.real_plan(work, "interrupted")
+        child = subprocess.run([sys.executable, "-c", """
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+lib, kb, run_id, plan = sys.argv[1:]
+sys.path.insert(0, lib)
+from digest_flow import commit_flow
+from digest_txn import _atomic_write
+
+def stop_after_raw(path, content):
+    _atomic_write(path, content)
+    if path.parent.name == "raw_data":
+        os._exit(37)
+
+with patch("digest_txn._atomic_write", side_effect=stop_after_raw):
+    commit_flow(Path(kb), run_id=run_id, plan_path=Path(plan))
+""", str(LIB), str(self.kb), first["run_id"], str(plan)], capture_output=True, text=True)
+        self.assertEqual(37, child.returncode, child.stderr)
+        raw = self.kb / "raw_data/raw-local-interrupted.md"
+        self.assertEqual("digested", parse_file(str(raw))[0]["digest_status"])
+        self.assertFalse(list((self.kb / "knowledge").rglob("*.md")))
+
+        retry = self.start()
+        work = Path(retry["work_dir"])
+        request = self.bundle_request(work)
+        result = prepare_flow(self.kb, run_id=retry["run_id"], bundle_request=request, check_only=True)
+        self.assertEqual(("checked", "resume_failed"), (result["phase"], result["preflight_state"]))
+        raw.rename(self.root / "preserved-raw.md")
+        prepare_flow(self.kb, run_id=retry["run_id"], bundle_request=request)
+        receipt = commit_flow(self.kb, run_id=retry["run_id"], plan_path=self.real_plan(work, "recovered"))["receipt"]
+        self.assertEqual("committed", receipt["status"])
+        self.assertTrue((self.kb / "knowledge/readings/reading-local.md").is_file())
+
     def test_snapshot_only_preserves_knowledge_and_still_archives_and_deduplicates(self):
         started = self.start()
         run_id, work = started["run_id"], Path(started["work_dir"])
@@ -380,6 +420,10 @@ class DigestFlowTests(unittest.TestCase):
             f"{window}\n\n## Archived whiteboard\n\n```json\n"
             f"{old_payload['components'][1].data.decode()}\n```\n"
         )
+
+        subprocess.run(["git", "add", str(raw_path)], cwd=self.kb, check=True)
+        subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.test",
+                        "commit", "-qm", "Commit stored document"], cwd=self.kb, check=True)
 
         def prepare(body, nodes):
             started = start_flow(self.kb, source_type="feishu_doc", source_ref=uid)

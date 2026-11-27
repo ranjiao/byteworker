@@ -3,6 +3,7 @@
 这里保存带日期的审查和测量结果。
 
 - [`reviews/2026-09-command-architecture.md`](reviews/2026-09-command-architecture.md)：`bin/` 命令架构审查。
+- [全项目技术架构审查，2026-11-27](reviews/2026-11-project-architecture.md)，含事务中断、日报调度、权限失效复现及重构优先级。
 - [`benchmarks/2026-09-command-performance.md`](benchmarks/2026-09-command-performance.md)：命令性能基线。
 - [`benchmarks/2026-11-digest-rule-loading.md`](benchmarks/2026-11-digest-rule-loading.md)：普通单文档 digest 的规则加载压缩与统计口径。
 

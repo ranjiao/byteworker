@@ -19,10 +19,13 @@ from dreaming_batch import commit_batch, create_collected_batch, recover_committ
 from dreaming_collection import prepare_im_batch
 from dreaming_consolidation import consolidate_findings
 from dreaming_daily import publish_due_daily
+from dreaming_diagnostics import observed_run_due, run_tick
+from dreaming_delivery_lark import deliver_lark_bot_summary
 from dreaming_digest import link_routine_digest, prepare_routine_digest, record_routine_digest
 from dreaming_grants import set_im_grant
-from dreaming_scheduler import complete_run, enable, heartbeat_run, run_due, set_report_management
-from dreaming_state import DreamingError, load_state_unlocked, secure_path
+from dreaming_report_completion import complete_report_run
+from dreaming_scheduler import complete_run, configure, enable, heartbeat_run, run_due, set_report_management
+from dreaming_state import DreamingError, load_state_unlocked, save_state_unlocked, secure_path
 from source_profiles import profile_relative_path
 
 try:
@@ -31,6 +34,7 @@ except ModuleNotFoundError:
     from test_source_profiles import feishu_chat_profile, feishu_doc_profile
 
 DUE = datetime(2026, 11, 27, 12, 30, tzinfo=timezone.utc)
+PERIOD = DUE.date().isoformat()
 
 
 class DreamingReliabilityTests(unittest.TestCase):
@@ -45,6 +49,147 @@ class DreamingReliabilityTests(unittest.TestCase):
                acknowledge_schedule=True, now=DUE - timedelta(hours=4))
         set_report_management(kb, enabled=True, acknowledge_owner_released=True, now=DUE - timedelta(hours=4))
         return kb
+
+    def tick(self, kb, now):
+        real_subprocess = subprocess.run
+
+        def invoke(argv, **kwargs):
+            if argv[0] != ROOT / "bin/byteworker":
+                return real_subprocess(argv, **kwargs)
+            if argv[1] == "preflight":
+                return subprocess.CompletedProcess(argv, 0, b"{}")
+            result = observed_run_due(
+                kb, owner="fixture", lease_seconds=7200, followup="", tick_id=argv[-1],
+            )
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"data": result}).encode())
+
+        def publish(path, **kwargs):
+            return publish_due_daily(path, now=now, **kwargs)
+
+        with patch("dreaming_diagnostics.publish_due_daily", side_effect=publish), \
+             patch("dreaming_diagnostics.subprocess.run", side_effect=invoke), \
+             patch("dreaming_scheduler._now", return_value=now), \
+             patch("operation_trace.os.environ", dict(os.environ)):
+            return run_tick(kb, owner="fixture", lease_seconds=7200, root=ROOT)
+
+    def document(self):
+        return {
+            "schema_version": "byteworker-report-document/v1", "kind": "daily", "period": PERIOD,
+            "title": "正式日报样例", "generated_at": "2026-11-27 20:35",
+            "window": {"start": "2026-11-27 00:00", "end": "2026-11-27 20:30", "timezone": "Asia/Shanghai"},
+            "coverage": {"status": "covered", "notes": []},
+            "message_summary": "合成日报摘要。",
+            "sections": {"highlights": [], "changes": [], "risks": [], "confirmations": []},
+            "sources": [], "manual_notes": "",
+        }
+
+    def test_tick_publishes_base_then_formal_daily_with_optional_delivery(self):
+        for deliver in (False, True):
+            with self.subTest(deliver=deliver):
+                kb = self.workspace()
+                configure(kb, lark_delivery_enabled=deliver, lark_recipient_id="ou_fixture", now=DUE)
+                tick = self.tick(kb, DUE)
+                self.assertEqual("daily", tick["lease"]["job"])
+                base = tick["daily"]["published"][0]
+                archive = kb / base["archive"]
+                self.assertIn("已验收事项", archive.read_text())
+                archive.write_text(archive.read_text().replace("- 暂无", "- 手动备注样例"))
+                state = load_state_unlocked(kb, DUE)
+                self.assertIn(PERIOD, state["jobs"]["daily"]["pending_periods"])
+                self.assertEqual({}, state["outbox"])
+
+                def send(argv, **kwargs):
+                    persisted = load_state_unlocked(kb, DUE)
+                    outbox_id = argv[argv.index("--idempotency-key") + 1]
+                    self.assertNotIn(PERIOD, persisted["jobs"]["daily"]["pending_periods"])
+                    self.assertIn(outbox_id, persisted["outbox"])
+                    return subprocess.CompletedProcess(
+                        argv, 0, '{"ok":true,"data":{"message_id":"om_fixture"}}', "",
+                    )
+
+                with patch("dreaming_delivery_lark.subprocess.run", side_effect=send) as provider:
+                    result = complete_report_run(kb, token=tick["lease"]["token"], document=self.document(), now=DUE)
+                    self.assertEqual(int(deliver), provider.call_count)
+                repeated = self.tick(kb, DUE + timedelta(minutes=1))
+                self.assertNotEqual("daily", (repeated.get("lease") or {}).get("job"))
+                self.assertNotIn("daily", repeated)
+                self.assertTrue(Path(result["rendered"]["html_path"]).is_file())
+                self.assertIn("正式日报样例", archive.read_text())
+                self.assertIn("手动备注样例", archive.read_text())
+                self.assertEqual("delivered" if deliver else "skipped", result["delivery"]["status"])
+                outbox = load_state_unlocked(kb, DUE)["outbox"]
+                self.assertEqual(int(deliver), len(outbox))
+                if deliver:
+                    self.assertEqual("delivered", outbox[result["delivery"]["outbox_id"]]["status"])
+
+    def test_deadline_runs_with_live_automatic_daily_lease_and_recovers_old_publisher_state(self):
+        kb = self.workspace()
+        original = run_due(kb, owner="fixture", now=DUE)["lease"]
+        self.assertEqual("daily", original["job"])
+        tick = self.tick(kb, DUE)
+        self.assertEqual("busy", tick["status"])
+        self.assertEqual(PERIOD, tick["daily"]["published"][0]["period"])
+        state = load_state_unlocked(kb, DUE)
+        self.assertEqual(original["token"], state["active_lease"]["token"])
+        state["jobs"]["daily"]["pending_periods"].clear()
+        state["active_lease"] = None
+        save_state_unlocked(kb, state)
+        recovered = run_due(kb, owner="fixture", now=DUE)["lease"]
+        self.assertEqual((PERIOD, "daily"), (recovered["period"], recovered["job"]))
+
+    def test_tick_respects_existing_user_archive(self):
+        kb = self.workspace()
+        report = kb / "reports" / "daily" / f"{PERIOD}.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("# 用户撰写的日报样例\n")
+        tick = self.tick(kb, DUE)
+        self.assertNotEqual("daily", (tick.get("lease") or {}).get("job"))
+        self.assertNotIn("daily", tick)
+        self.assertEqual("# 用户撰写的日报样例\n", report.read_text())
+
+    def test_tick_recovers_formal_debt_after_rendered_report_and_state_write_failure(self):
+        kb = self.workspace()
+        configure(kb, lark_delivery_enabled=True, lark_recipient_id="ou_fixture", now=DUE)
+        tick = self.tick(kb, DUE)
+        with patch("dreaming_scheduler._atomic_write", side_effect=OSError("state write failed")), \
+             patch("dreaming_report_completion.deliver_lark_bot_summary") as provider:
+            with self.assertRaises(OSError):
+                complete_report_run(kb, token=tick["lease"]["token"], document=self.document(), now=DUE)
+            provider.assert_not_called()
+        artifacts = secure_path(kb, "reports", "daily-" + PERIOD, "artifacts")
+        self.assertTrue((artifacts / "manifest.json").is_file())
+        state = load_state_unlocked(kb, DUE)
+        self.assertIn(PERIOD, state["jobs"]["daily"]["pending_periods"])
+        self.assertEqual({}, state["outbox"])
+        # Simulate the old deadline publisher consuming the formal queue entry.
+        state["jobs"]["daily"]["pending_periods"].clear()
+        save_state_unlocked(kb, state)
+        recovered = self.tick(kb, DUE + timedelta(hours=2, minutes=1))
+        self.assertEqual(PERIOD, recovered["lease"]["period"])
+        self.assertEqual("daily", recovered["lease"]["job"])
+
+    def test_report_completion_interruption_leaves_delivery_recoverable(self):
+        kb = self.workspace()
+        configure(kb, lark_delivery_enabled=True, lark_recipient_id="ou_fixture", now=DUE)
+        tick = self.tick(kb, DUE)
+        with patch("dreaming_scheduler.append_run_event", side_effect=OSError("after state persisted")), \
+             patch("dreaming_report_completion.deliver_lark_bot_summary") as provider:
+            with self.assertRaises(OSError):
+                complete_report_run(kb, token=tick["lease"]["token"], document=self.document(), now=DUE)
+            provider.assert_not_called()
+        state = load_state_unlocked(kb, DUE)
+        self.assertEqual(PERIOD, state["jobs"]["daily"]["last_success"]["period"])
+        self.assertNotIn(PERIOD, state["jobs"]["daily"]["pending_periods"])
+        outbox_id, pending = next(iter(state["outbox"].items()))
+        self.assertEqual("pending", pending["status"])
+        result = subprocess.CompletedProcess([], 0, '{"ok":true,"data":{"message_id":"om_fixture"}}', "")
+        with patch("dreaming_delivery_lark.subprocess.run", return_value=result) as provider:
+            for _ in range(2):
+                sent = deliver_lark_bot_summary(kb, outbox_id=outbox_id, now=DUE)
+                self.assertEqual("delivered", sent["status"])
+            provider.assert_called_once()
+            argv = provider.call_args.args[0]
+            self.assertEqual(outbox_id, argv[argv.index("--idempotency-key") + 1])
 
     def finding(self, kb, grant, timestamp, summary, *, commit):
         when = timestamp.isoformat()

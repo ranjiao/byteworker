@@ -167,7 +167,10 @@ def publish_due_daily(kb: Path, *, supplement: bool = False,
             raise DreamingError("DREAMING_STATE_INVALID", "缺少日报调度的启用时间。")
         start = max(enabled_at, parse_time(owner.get("migrated_at")) or enabled_at)
         _queue_report_periods(kb, "daily", job, current.astimezone(zone), start)
-        deadlines = dict(job["pending_periods"])
+        deadlines = {
+            period: cutoff for period, cutoff in job["pending_periods"].items()
+            if not (kb / "reports" / "daily" / f"{period}.md").is_file()
+        }
         directory = secure_path(kb, "reports")
         age_limit = current - timedelta(days=14)
         for path in directory.glob("daily-*/deadline/publication.json"):
@@ -187,6 +190,9 @@ def publish_due_daily(kb: Path, *, supplement: bool = False,
                 save_state_unlocked(kb, state)
                 continue
             archive = kb / "reports" / "daily" / f"{period}.md"
+            if (path.parent.parent / "artifacts" / "manifest.json").is_file():
+                deadlines.pop(period, None)
+                continue
             if receipt.get("status") == "staged" or not archive.is_file() or (supplement and cutoff >= age_limit):
                 deadlines.setdefault(period, receipt["cutoff"])
         if not deadlines:
@@ -208,11 +214,14 @@ def publish_due_daily(kb: Path, *, supplement: bool = False,
             cutoff = parse_time(value)
             if not cutoff or cutoff > current:
                 continue
-            # Do not overwrite a concurrently prepared explicit manual report.
+            # A manual lease controls its own archive; automatic leases can use a base snapshot.
             active = state.get("active_lease") or {}
-            if (active.get("job"), active.get("period")) == ("daily", period) and (
-                parse_time(active.get("expires_at")) or current
-            ) > current:
+            active_until = parse_time(active.get("expires_at")) or current
+            if (
+                active.get("manual_report")
+                and (active.get("job"), active.get("period")) == ("daily", period)
+                and active_until > current
+            ):
                 continue
             try:
                 if state["jobs"]["process"].get("waiting_for_user") in {
@@ -240,6 +249,5 @@ def publish_due_daily(kb: Path, *, supplement: bool = False,
                 incident = job.get("publication_incidents", {}).get(period)
                 if incident is not None:
                     incident["recovered_at"] = receipt["published_at"]
-            job["pending_periods"].pop(period, None)
             save_state_unlocked(kb, state)
     return {"status": "published" if published else "idle", "published": published}

@@ -72,6 +72,13 @@
       "authority": "none"
     },
     {
+      "id": "project-architecture-review-2026-11",
+      "path": "docs/development/evidence/reviews/2026-11-project-architecture.md",
+      "kind": "review",
+      "status": "point_in_time",
+      "authority": "none"
+    },
+    {
       "id": "command-architecture-review-2026-09",
       "path": "docs/development/evidence/reviews/2026-09-command-architecture.md",
       "kind": "review",

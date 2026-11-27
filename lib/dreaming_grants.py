@@ -89,21 +89,28 @@ def set_im_grant(
             "DREAMING_GRANT_INVALID",
             "IM mode 必须是 off、monitored 或 all_visible。",
         )
-    if normalized == "all_visible" and not acknowledge_all_visible:
-        raise DreamingError(
-            "DREAMING_GRANT_ACK_REQUIRED",
-            "all_visible 会扫描 P2P 和免打扰会话，必须显式确认。",
-        )
     current = now or _now()
     with state_lock(kb):
         state = load_state_unlocked(kb, current)
         grants = state["grants"]
         old = dict(grants["im"])
+        persist = bool(persist_finding)
+        if (normalized, persist) == (old["mode"], old["persist_finding"]):
+            return {
+                "revision": grants["revision"],
+                **old,
+                "cleanup": {"directories": 0, "files": 0},
+            }
+        if normalized == "all_visible" and not acknowledge_all_visible:
+            raise DreamingError(
+                "DREAMING_GRANT_ACK_REQUIRED",
+                "all_visible 会扫描 P2P 和免打扰会话，必须显式确认。",
+            )
         revision = int(grants["revision"]) + 1
         grants["revision"] = revision
         grants["im"] = {
             "mode": normalized,
-            "persist_finding": bool(persist_finding),
+            "persist_finding": persist,
             "updated_at": utc_iso(current),
         }
         cleanup: dict[str, Any] = {

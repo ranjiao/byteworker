@@ -330,6 +330,10 @@ class DreamingDigestTests(unittest.TestCase):
                 f"digest_status: digested\ndigest_key: {digest_key}\n---\n{content}\n",
                 encoding="utf-8",
             )
+            subprocess.run(["git", "init", "-q"], cwd=kb, check=True)
+            subprocess.run(["git", "add", str(raw_path)], cwd=kb, check=True)
+            subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.test",
+                            "commit", "-qm", "Commit previous document"], cwd=kb, check=True)
             scope_args = ("digest-flow", "document-scope", "--kb", str(kb), "--run-id", manual["run_id"],
                           "--source-uid", uid, "--body", str(body))
             self.assertEqual({"scope": "full"}, _invoke(ROOT, *scope_args, "--outline"))

@@ -16,13 +16,17 @@ class ViewerSaveQueueTests(unittest.TestCase):
 const assert = require('assert');
 const API_TOKEN = 'secret';
 const state = {settingsOpen:true, settingsTab:'global', appSettings:{}, appSettingsRevision:0};
-let checked = false, renders = 0, requests = [];
+let checked = false, timezone = 'UTC', renders = 0, requests = [];
+let retention = '30', imMode = 'monitored', persist = true;
 let discard = false;
 const confirmations = [];
 function confirm(message){ confirmations.push(message); return discard; }
-const D = {settingsPortal:{innerHTML:'open'}, app:{inert:true}, palettePortal:{inert:true},
+const D = {settingsPortal:{innerHTML:'open', querySelectorAll:()=>[]}, app:{inert:true}, palettePortal:{inert:true},
   btnSettings:{focus(){ this.focused = true; }}};
-const document = {getElementById: id => ({checked, value:'UTC'})};
+const document = {getElementById: id => ({
+  checked: {'settings-viewer-token-required': checked, 'settings-im-persist': persist}[id] || false,
+  value: {'settings-dreaming-timezone': timezone, 'settings-log-retention': retention, 'settings-im-mode': imMode}[id] || '',
+})};
 function renderSettings(keepPosition){ renders++; lastRenderKeptPosition = keepPosition; }
 let lastRenderKeptPosition;
 function updateSettingsStatus(){}
@@ -33,8 +37,12 @@ function fetch(url, options) {
 function succeed(request){ request.resolve({ok:true,json:async()=>({persisted:request.body})}); }
 ''' + source + '''
 (async()=>{
+  checked=true;
+  state.appSettingsBaseline=collectSettingsValues();
+  checked=false;
   scheduleSystemSettingsSave();
   const first = saveSystemSettings();
+  assert.deepEqual(requests[0].body, {viewer:{access_token_required:false}});
   checked = true;
   scheduleSystemSettingsSave();
   assert.equal(requests.length,1);
@@ -64,6 +72,7 @@ function succeed(request){ request.resolve({ok:true,json:async()=>({persisted:re
   assert.equal(state.appSettingsDirty,false);
   assert.equal(confirmations.length,1); // Successful flush needs no confirmation.
   state.settingsTab='global';
+  timezone='invalid';
   scheduleSystemSettingsSave();
   const deniedSwitch=setSettingsTab('display');
   requests[4].resolve({ok:false,json:async()=>({error:{message:'invalid timezone'}})});
@@ -82,6 +91,7 @@ function succeed(request){ request.resolve({ok:true,json:async()=>({persisted:re
   assert.equal(state.appSettingsSaveTimer,null);
   assert.equal(state.appSettingsError,'');
   state.settingsTab='global';
+  timezone='Europe/Paris';
   scheduleSystemSettingsSave();
   const discardedClose=closeSettings();
   requests[6].resolve({ok:false,json:async()=>({error:{message:'server down'}})});
@@ -98,12 +108,34 @@ function succeed(request){ request.resolve({ok:true,json:async()=>({persisted:re
   assert.equal(D.btnSettings.focused,true);
 
   state.settingsTab='dreaming';
+  state.settingsOpen=true;
   state.appSettings={dreaming:{timezone:''},kb:{context:{timezone_hint:'Asia/Tokyo'}}};
-  assert.equal(collectSettingsPatch().dreaming.timezone, 'Asia/Tokyo');
+  state.appSettingsBaseline=collectSettingsValues();
+  retention='45';
+  assert.deepEqual(collectSettingsPatch(collectSettingsValues()), {
+    dreaming:{logging:{retention_days:45}, timezone:'Asia/Tokyo'},
+  });
   state.appSettings.kb.context.timezone_hint='待补充';
-  assert.equal(collectSettingsPatch().dreaming.timezone, 'Asia/Shanghai');
+  assert.equal(collectSettingsPatch(collectSettingsValues()).dreaming.timezone, 'Asia/Shanghai');
   state.appSettings.dreaming.timezone='UTC';
-  assert.equal(Object.hasOwn(collectSettingsPatch().dreaming, 'timezone'),false);
+  scheduleSystemSettingsSave();
+  const loggingSave=saveSystemSettings();
+  assert.deepEqual(requests[7].body, {dreaming:{logging:{retention_days:45}}});
+  persist=false;
+  scheduleSystemSettingsSave();
+  requests[7].resolve({ok:false,json:async()=>({error:{message:'disk full'}})});
+  await loggingSave;
+  const retry=flushSettings();
+  assert.deepEqual(requests[8].body, {dreaming:{im:{persist_finding:false},logging:{retention_days:45}}});
+  succeed(requests[8]); await retry;
+  scheduleSystemSettingsSave();
+  await flushSettings();
+  assert.equal(requests.length,9);
+  retention='60';
+  scheduleSystemSettingsSave();
+  const afterNoop=flushSettings();
+  assert.equal(requests.length,10);
+  succeed(requests[9]); await afterNoop;
 })().catch(e=>{console.error(e);process.exitCode=1});
 '''
         result = subprocess.run(['node', '-e', script], capture_output=True, text=True)

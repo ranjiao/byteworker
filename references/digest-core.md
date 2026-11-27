@@ -14,9 +14,8 @@
    complete。外部引用不是自动授权，依赖正文须先通过下面的依赖闸门。
 3. **准备与幂等**：`digest-flow prepare` 自动构造 SourceBundle v2、运行 transaction preflight、
    analysis prepare 和 dependency/semantic planner。Agent 不手算 hash、digest_key，不手拼 raw。
-   noop 按回执结束；new_source/new_version 按 next_action 继续。resume_failed 表示已有相同 payload
-   的 pending/failed raw，必须加 recovery 读事务细则、核查历史 raw 后人工恢复；不得自动覆盖或继续
-   生成候选/提交。正文未变不能证明评论或白板未变。
+   noop 按回执结束；new_source/new_version 按 next_action 继续。resume_failed 表示同内容 raw 未完成或未通过 Git 核验。
+   加 recovery 读事务细则，人工核查恢复前停止生成候选和提交，保留旧 raw。正文未变不能证明评论或白板未变。
 4. **重要依赖**：只消费 packet 的 dependency_candidates，按 `digest-dependencies.md` 判断重要性，
    复用足够新的已摄取版本。没有重要依赖静默继续；有则在读取依赖正文和写节点前合并询问范围。
    拒绝或暂缓后继续当前对象，标注“依赖未摄取 / 待核实”，不补写缺失事实，不自动递归二跳。

@@ -225,7 +225,7 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
 - 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
 - morning/daily/weekly 由唯一 owner 按 `references/dreaming-reports.md` 运行。晨报只在本地工作日 12:00 前生成和发送。错过就跳过，优先摄取今天和昨天的信息并生成到期日报，之后回补历史。
-  自动日报通过 `dreaming report publish-due` 独立归档 Markdown。宿主在截止时间触发；普通 tick 在预检前也检查。仅使用已验收消息和归档事件，后续回执可补进同一期。
+  宿主到点调用 `dreaming report publish-due`，普通 tick 在预检前补查。基础 Markdown 仅用已验收消息和归档事件，可按回执补充。领取同一期 daily 后照常完成正式报告与已配置投递。
   process 心跳续租，过期后新尝试接手原窗口和仍适用的摄取进度。晨报、周报依照各自的覆盖门槛。
 - 指定周期补报须 start → prepare → complete；用户接受的来源缺口按上述报告规则披露。
 - maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行获准的

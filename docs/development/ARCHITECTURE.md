@@ -214,9 +214,12 @@ sequenceDiagram
     Source-->>Txn: Bundle 与所指 capture 一致
     Txn->>KB: 扫描同源 raw 和 digest_key
 
-    alt 完全相同 payload
+    alt 完全相同 payload 且匹配已提交的 digested raw
         Txn-->>Agent: state=noop + 既有 raw/targets
         Agent-->>User: 已摄取，不重复写入
+    else 相同 payload 只匹配未完成或未经提交核验的 raw
+        Txn-->>Agent: state=resume_failed
+        Agent-->>User: 保留工作树并说明需要核查的 raw
     else 新来源或新版本
         Txn-->>Agent: new_source / new_version
         Agent->>Prep: 一次生成 analysis packet
@@ -478,7 +481,7 @@ launchd 代替宿主任务。
 
 调度器优先核验本地今天、昨天的到期日报、当日晨报和到期的定期摄取，再选历史报告与旧消息缺口。
 晨报使用知识库时区，当地 12:00 起跳过当天晨报并清除其补采依赖。领取、续期与归档共用这个截止时间；飞书投递也在发送前检查。之后仍优先处理近期 digest 和到期日报。
-日报、周报各自记录已发现和待发布的周期，成功归档后移除对应日期。
+日报、周报各自记录已发现和待完成的周期，正式报告成功收尾后移除对应周期。
 普通 digest 和报告补采分别记录成功与重试时间。普通 digest 以领取时为截止时间，已有日报补采租约兼容原固定窗口。collection 按已提交的游标和剩余缺口选下一段，scheduler 收尾时复用同一计算并复核定期来源。报告按所引消息的发生时间选取发现。
 开放式增量群聊由 source adapter 按批次窗口抓取。Digest 回执核验完整起止，分段检查点供报告复核历史缺口。
 消息游标落后于昨天零点时，租约和暂缓的历史缺口在同一状态锁内落盘。报告依赖按所选周期派生。普通领取和补采后的续跑都在状态锁内核对当前覆盖，替换同类报告的旧周期依赖。
@@ -1154,7 +1157,10 @@ flowchart TD
     LOAD --> LOCK --> PAY --> HASH --> PREF --> VAL --> WRITE --> DERIVE --> GIT --> REC
     WRITE -->|"任一步失败"| ROLLBACK
     DERIVE -->|"任一步失败"| ROLLBACK
-    GIT -->|"任一步失败"| ROLLBACK
+    GIT -->|"提交结果待核实"| CHECK{"核对 HEAD 和暂存树"}
+    CHECK -->|"确认提交成功"| REC
+    CHECK -->|"确认尚未提交"| ROLLBACK
+    CHECK -->|"无法判定"| STOP["保留现场，报告对账失败"]
 ```
 
 digest、Profile、provenance backfill、postflight 和通用 mutation 全部使用
@@ -1184,6 +1190,9 @@ Git index 和必要的 HEAD ref。事务成功的唯一证明是 `status=committ
 
 标准 digest 在 plan 完成后调用 `digest-flow commit`，由 flow 委托 execute。单来源和批量 execute
 在共享写锁内一次读取和完整校验，复用该次 payload 与候选，避免锁前、锁内重复全量扫描和物化。
+同内容的 raw 必须按 Git 对该路径的规则核验为 HEAD 中已完成的版本，才可用于幂等判定。
+提交回执丢失时，以提交前 HEAD、预期暂存树及当前提交父节点核对结果。确认未提交才回滚；
+无法核对则报 `DIGEST_TXN_ROLLBACK_FAILED`，保留文件、暂存区与提交供恢复。
 基线、暂存区、脏路径、来源绑定和证据均在锁内检查；期间不执行网络抓取或模型调用。独立 validate 保留为失败诊断入口，不是标准成功路径。receipt 之后只允许一次紧凑的
 HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或完整 diff 重新送回 Agent。
 
@@ -1394,7 +1403,9 @@ Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `repo
 自动日报的普通消息和定期来源缺口在准备和发布时均转换为报告限制，不推进来源检查点。非法来源配置和未解决的知识库回滚失败仍阻断发布。
 独立基础日报不使用摄取租约，只用已验收的 Finding 和可按原始时间归期的 Git 归档事件。
 私有 Markdown 版本和待发布凭证先落盘，再原子替换用户归档。中断后重放发布凭证。
-事故与补充版本按周期记录，HTML 和投递不在基础发布路径中。
+事故与补充版本按周期记录。基础版的发布凭证只确认 Markdown 到点可读。
+同一期正式报告保留调度资格，由报告完成入口生成 HTML。已启用投递时，成功收尾和摘要入队
+共用一次状态写入，随后在锁外发送。投递失败可以用原 outbox id 重试。
 手动补报由 `dreaming report start` 经 scheduler 领取指定日报或周报周期，不修改时间安排。
 用户逐项明确接受的定期来源缺口与说明保存在私有 lease；reports 层只对这些缺口提供 partial
 packet，不推进来源 checkpoint，不放行消息缺口或非法 Profile。completion 强制披露限制；
@@ -1687,9 +1698,10 @@ COMMIT_EDITMSG，不复制 .git 历史、其它 refs 或配置。knowledge/raw_d
 时作为索引重建器的只读输入链接，不复制内容。符号链接检查仅针对暂存/发布的路径及其祖先，
 不遍历或拒绝 KB 其它位置的链接。
 此策略不引入新的持久化 schema；不提供进程崩溃恢复或跨文件读快照隔离。
-前端按编辑 revision 串行保存快照，切页/关闭等待队列完成；失败时显示包含错误的放弃修改确认，
+前端按编辑 revision 串行保存改动的设置字段，切页/关闭等待队列完成；失败时显示包含错误的放弃修改确认，
 取消则保留编辑和错误并阻止导航，确认则清除待保存草稿和错误并继续；
 较早请求成功不得清除较新编辑。
+设置服务重复收到相同的 IM 模式与 Finding 持久化选项时保留授权版本和在途批次。实际变更仍由授权 writer 处理。
 首次保存 Dreaming 偏好时，前端补入全局设置显示的时区。已有时区时，Dreaming 页的保存请求不携带时区。
 自动保存后的重绘保留当前字段、光标和滚动位置，页脚播报保存状态。设置内容使用同一滚动区，
 窄窗口把表单标签和控件上下排列。弹窗打开后焦点进入设置，背景不可操作，关闭时焦点回到设置按钮。

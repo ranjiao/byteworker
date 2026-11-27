@@ -1762,6 +1762,7 @@ const state = {
   appSettingsSaveTimer: null,
   appSettingsRevision: 0,
   appSettingsPending: null,
+  appSettingsBaseline: null,
   appSettingsSavePromise: null,
   paletteOpen: false,
   paletteQ: '',
@@ -3331,7 +3332,7 @@ function scheduleSystemSettingsSave() {
   if (!state.settingsOpen || state.settingsTab === 'display') return;
   state.appSettingsDirty = true;
   state.appSettingsRevision++;
-  state.appSettingsPending = { patch: collectSettingsPatch(), revision: state.appSettingsRevision };
+  state.appSettingsPending = { values: collectSettingsValues(), revision: state.appSettingsRevision };
   state.appSettingsError = '';
   clearSettingsSaveTimer();
   state.appSettingsSaveTimer = setTimeout(() => {
@@ -3364,7 +3365,7 @@ function updateProcessScheduleFields() {
     element.hidden = element.dataset.processKind !== kind;
   });
 }
-function collectSettingsPatch() {
+function collectSettingsValues() {
     let patch;
     if (state.settingsTab === 'global') {
       patch = {
@@ -3438,13 +3439,42 @@ function collectSettingsPatch() {
           },
         },
       };
-      if (!state.appSettings?.dreaming?.timezone) {
-        patch.dreaming.timezone = settingsTimezone();
-      }
     } else {
       return;
     }
     return patch;
+}
+function changedSettingsFields(before, after) {
+  const changes = {};
+  for (const [key, value] of Object.entries(after)) {
+    const previous = before[key];
+    // The settings writers take a complete schedule or source routine.
+    if (key === 'sources') {
+      const routines = new Map((previous || []).map(row => [row.source_uid, row.routine]));
+      const rows = value.filter(row =>
+        JSON.stringify(row.routine) !== JSON.stringify(routines.get(row.source_uid)));
+      if (rows.length) changes[key] = rows;
+    } else if (key === 'schedule') {
+      if (JSON.stringify(value) !== JSON.stringify(previous)) changes[key] = value;
+    } else if (value && typeof value === 'object') {
+      const fields = changedSettingsFields(previous || {}, value);
+      if (Object.keys(fields).length) changes[key] = fields;
+    } else if (key !== 'acknowledge_all_visible' && value !== previous) {
+      changes[key] = value;
+    }
+  }
+  return changes;
+}
+function collectSettingsPatch(values) {
+  const patch = changedSettingsFields(state.appSettingsBaseline, values);
+  if (patch.dreaming?.im && values.dreaming.im.mode === 'all_visible' &&
+      values.dreaming.im.acknowledge_all_visible) {
+    patch.dreaming.im.acknowledge_all_visible = true;
+  }
+  if (patch.dreaming && state.settingsTab === 'dreaming' && !state.appSettings?.dreaming?.timezone) {
+    patch.dreaming.timezone = settingsTimezone();
+  }
+  return patch;
 }
 async function flushSettings(confirmDiscard = false) {
   clearSettingsSaveTimer();
@@ -3462,13 +3492,18 @@ function saveSystemSettings() {
   if (!state.appSettingsPending) return Promise.resolve();
   state.appSettingsSavePromise = (async () => {
     state.appSettingsSaving = true;
+    let saved = false;
     try {
       while (state.appSettingsPending) {
         const draft = state.appSettingsPending;
         state.appSettingsError = '';
         updateSettingsStatus();
-        const persisted = await settingsApi('PATCH', draft.patch);
-        state.appSettings = persisted;
+        const patch = collectSettingsPatch(draft.values);
+        if (Object.keys(patch).length) {
+          state.appSettings = await settingsApi('PATCH', patch);
+          saved = true;
+        }
+        state.appSettingsBaseline = draft.values;
         if (draft.revision === state.appSettingsRevision) {
           state.appSettingsPending = null;
           state.appSettingsDirty = false;
@@ -3479,11 +3514,12 @@ function saveSystemSettings() {
       state.appSettingsError = e.message || String(e);
     } finally {
       state.appSettingsSaving = false;
-      state.appSettingsSavePromise = null;
-      if (!state.appSettingsDirty) renderSettings(true);
+      if (!state.appSettingsDirty && saved) renderSettings(true);
       else updateSettingsStatus();
     }
-  })();
+  })().finally(() => {
+    state.appSettingsSavePromise = null;
+  });
   return state.appSettingsSavePromise;
 }
 function scheduleValue(job, key, fallback = '') {
@@ -3710,6 +3746,9 @@ function settingsFooterText() {
   return '当前页设置会自动写入知识库本地配置';
 }
 function bindSettingsBodyEvents() {
+  if (state.appSettings && !state.appSettingsDirty) {
+    state.appSettingsBaseline = collectSettingsValues();
+  }
   D.settingsPortal.querySelectorAll('[data-set]').forEach(button => {
     button.addEventListener('click', () => setSetting(button.dataset.set, button.dataset.val));
   });
