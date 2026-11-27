@@ -7,10 +7,9 @@ from pathlib import Path
 
 from dreaming_batch import abort_batch
 from dreaming_collection import prepare_foreground_im_batch, prepare_im_batch
-from dreaming_digest import (
-    complete_routine_digest, link_routine_digest, prepare_routine_digest, record_routine_digest_result,
-)
-from dreaming_digest_scan import commit_routine_source, prepare_manual_source, scan_routine_digest
+from dreaming_digest import prepare_routine_digest
+from dreaming_digest_completion import complete_routine_digest, record_routine_digest_result
+from dreaming_digest_scan import commit_routine_source, link_routine_digest, prepare_manual_source, scan_routine_digest
 from dreaming_grants import set_action_grants, set_im_grant
 from dreaming_process import commit_finding_bundle
 

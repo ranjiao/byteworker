@@ -14,20 +14,18 @@ LIB = ROOT / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from dreaming_digest import (  # noqa: E402
+from dreaming_digest import prepare_routine_digest, routine_inventory  # noqa: E402
+from dreaming_digest_completion import (  # noqa: E402
     RESULT_SCHEMA,
     complete_routine_digest,
-    link_routine_digest,
-    prepare_routine_digest,
     record_routine_digest,
     record_routine_digest_result,
-    routine_inventory,
 )
 from digest_flow import fail_flow, flow_status, prepare_flow, start_flow  # noqa: E402
 from digest_parallel import DigestParallelError, attempt_parallel_shard  # noqa: E402
 from digest_run_log import record_usage, show_run as show_digest_run  # noqa: E402
 from digest_txn import compute_payload  # noqa: E402
-from dreaming_digest_scan import _invoke, commit_routine_source, scan_routine_digest  # noqa: E402
+from dreaming_digest_scan import _invoke, commit_routine_source, link_routine_digest, scan_routine_digest  # noqa: E402
 from dreaming_reports import report_dependency  # noqa: E402
 from dreaming_run_log import show_run  # noqa: E402
 from dreaming_run_result import RESULT_SCHEMA as RUN_RESULT_SCHEMA  # noqa: E402

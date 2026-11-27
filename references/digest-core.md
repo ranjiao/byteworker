@@ -3,6 +3,12 @@
 普通单来源使用本文件、`digest-flow.md`、`digest-inline.md` 与路由返回的来源和 policy 文件。
 完整日志、并发、事务兼容手册按 feature 或失败加载，不沿解释性链接整包展开。
 
+`source auth-status` 是无副作用状态检查。`ready=false` 仍可能是成功 envelope；真正的
+inspect/capture 会以稳定错误码 fail closed。
+
+外部凭据不支持 `auth status` 时，飞书群聊只用 `whoami --as user` 检查 user；scope 留到
+capture-time，失败只修宿主注入，不本地登录或切 bot。
+
 ## 流程与闸门
 
 1. **分类与范围**：识别当前指定的 source type；通过 `workflow-budget resolve --workflow digest`

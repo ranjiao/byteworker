@@ -10,8 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(shutil.which('node'), 'node required')
 class ViewerSaveQueueTests(unittest.TestCase):
     def test_revision_queue_navigation_and_failure(self):
-        page = (ROOT / 'viewer/index.html').read_text()
-        source = page[page.index('async function closeSettings()'):page.index('function renderAppSettingsState')]
+        source = (ROOT / 'viewer/settings-save.js').read_text()
         script = '''
 const assert = require('assert');
 const API_TOKEN = 'secret';
@@ -36,12 +35,14 @@ function fetch(url, options) {
 }
 function succeed(request){ request.resolve({ok:true,json:async()=>({persisted:request.body})}); }
 ''' + source + '''
+const {closeSettings, setSettingsTab, scheduleSystemSettingsSave, collectSettingsValues, settingsTimezone, flushSettings}
+  = createSettingsController({state, D, apiToken: API_TOKEN, renderSettings, updateSettingsStatus});
 (async()=>{
   checked=true;
   state.appSettingsBaseline=collectSettingsValues();
   checked=false;
   scheduleSystemSettingsSave();
-  const first = saveSystemSettings();
+  const first = flushSettings();
   assert.deepEqual(requests[0].body, {viewer:{access_token_required:false}});
   checked = true;
   scheduleSystemSettingsSave();
@@ -112,30 +113,34 @@ function succeed(request){ request.resolve({ok:true,json:async()=>({persisted:re
   state.appSettings={dreaming:{timezone:''},kb:{context:{timezone_hint:'Asia/Tokyo'}}};
   state.appSettingsBaseline=collectSettingsValues();
   retention='45';
-  assert.deepEqual(collectSettingsPatch(collectSettingsValues()), {
-    dreaming:{logging:{retention_days:45}, timezone:'Asia/Tokyo'},
-  });
-  state.appSettings.kb.context.timezone_hint='待补充';
-  assert.equal(collectSettingsPatch(collectSettingsValues()).dreaming.timezone, 'Asia/Shanghai');
+  scheduleSystemSettingsSave();
+  const withHint=flushSettings();
+  assert.deepEqual(requests[7].body, {dreaming:{logging:{retention_days:45}, timezone:'Asia/Tokyo'}});
+  succeed(requests[7]); await withHint;
+  state.appSettings={dreaming:{timezone:''},kb:{context:{timezone_hint:'待补充'}}};
+  assert.equal(settingsTimezone(), 'Asia/Shanghai');
+  retention='30';
+  state.appSettingsBaseline=collectSettingsValues();
+  retention='45';
   state.appSettings.dreaming.timezone='UTC';
   scheduleSystemSettingsSave();
-  const loggingSave=saveSystemSettings();
-  assert.deepEqual(requests[7].body, {dreaming:{logging:{retention_days:45}}});
+  const loggingSave=flushSettings();
+  assert.deepEqual(requests[8].body, {dreaming:{logging:{retention_days:45}}});
   persist=false;
   scheduleSystemSettingsSave();
-  requests[7].resolve({ok:false,json:async()=>({error:{message:'disk full'}})});
+  requests[8].resolve({ok:false,json:async()=>({error:{message:'disk full'}})});
   await loggingSave;
   const retry=flushSettings();
-  assert.deepEqual(requests[8].body, {dreaming:{im:{persist_finding:false},logging:{retention_days:45}}});
-  succeed(requests[8]); await retry;
+  assert.deepEqual(requests[9].body, {dreaming:{im:{persist_finding:false},logging:{retention_days:45}}});
+  succeed(requests[9]); await retry;
   scheduleSystemSettingsSave();
   await flushSettings();
-  assert.equal(requests.length,9);
+  assert.equal(requests.length,10);
   retention='60';
   scheduleSystemSettingsSave();
   const afterNoop=flushSettings();
-  assert.equal(requests.length,10);
-  succeed(requests[9]); await afterNoop;
+  assert.equal(requests.length,11);
+  succeed(requests[10]); await afterNoop;
 })().catch(e=>{console.error(e);process.exitCode=1});
 '''
         result = subprocess.run(['node', '-e', script], capture_output=True, text=True)

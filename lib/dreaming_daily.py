@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from dreaming_consolidation import accepted_findings_unlocked
 from dreaming_report_bundle import _existing_manual_notes, _write_archive, _write_private
-from dreaming_scheduler import _queue_report_periods
+from dreaming_schedule import queue_report_periods
 from dreaming_state import (
     DreamingError, atomic_write_json, load_state_unlocked, parse_time, save_state_unlocked,
     secure_path, state_lock, utc_iso,
@@ -166,7 +166,7 @@ def publish_due_daily(kb: Path, *, supplement: bool = False,
         if enabled_at is None:
             raise DreamingError("DREAMING_STATE_INVALID", "缺少日报调度的启用时间。")
         start = max(enabled_at, parse_time(owner.get("migrated_at")) or enabled_at)
-        _queue_report_periods(kb, "daily", job, current.astimezone(zone), start)
+        queue_report_periods(kb, "daily", job, current.astimezone(zone), start)
         deadlines = {
             period: cutoff for period, cutoff in job["pending_periods"].items()
             if not (kb / "reports" / "daily" / f"{period}.md").is_file()

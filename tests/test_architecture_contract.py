@@ -23,11 +23,18 @@ class ArchitectureContractTests(unittest.TestCase):
             with self.subTest(module=module):
                 self.assertNotIn("dreaming_scheduler", imports(f"lib/{module}.py"))
 
+    def test_source_and_report_rules_do_not_call_the_scheduler(self):
+        for module in ("dreaming_digest", "dreaming_digest_receipts", "dreaming_digest_completion",
+                       "dreaming_schedule", "dreaming_daily"):
+            with self.subTest(module=module):
+                self.assertNotIn("dreaming_scheduler", imports(f"lib/{module}.py"))
+
     def test_dreaming_domain_uses_facades_for_knowledge_writes(self):
         modules = (
             "dreaming_state", "dreaming_models", "dreaming_grants", "dreaming_collection",
             "dreaming_batch", "dreaming_analysis", "dreaming_consolidation", "dreaming_process",
-            "dreaming_digest", "dreaming_action_policy", "dreaming_action_ledger", "dreaming_reports",
+            "dreaming_digest", "dreaming_digest_receipts", "dreaming_digest_completion", "dreaming_schedule",
+            "dreaming_action_policy", "dreaming_action_ledger", "dreaming_reports",
             "report_owner", "dreaming_evaluation", "dreaming_scheduler",
         )
         for module in modules:

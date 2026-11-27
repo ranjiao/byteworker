@@ -9,28 +9,15 @@
    不调用 `discover recommend`。不要重复启动检查或领取。
 2. 启动失败时说明哪项工作没能开始及已知原因。诊断编号、阶段和错误码保存在本地日志，按需排查。
 3. `disabled/idle/busy` 时安静结束。
-4. `leased` 后从 `references/workflow-routes.json` 解析 `dreaming` 并读取 required 闭包。
+4. `leased` 后按租约选择 feature：maintenance → maintenance，process → routine_digest，recovery → recovery，morning/daily/weekly → report。
+   运行 `bin/byteworker workflow-budget resolve --workflow dreaming --feature <feature>`，只读 `references/workflow-routes.json` 解析出的规则。
    无人值守时在已授权范围内做可验证的决定。普通缺口记入本轮摘要，继续独立工作；
    需要确认的动作只保留为待办。只在任务级授权缺失、状态损坏或写入回滚失败时停止相关任务，
    说明需要修复的具体问题。运行期间不等用户答复。
 5. `leased` 时只执行返回的一个 `job/period`，遵守 Dreaming reference 对该 job 的要求；
-   `job=maintenance` 时额外加载 workflow manifest 的 `features.maintenance`。
-   `job=process` 时加载 `features.routine_digest`，先调用 `dreaming process digest-scan`。
-   按定期摄取细则完成全部来源的变化检查，再对有变化的来源解析普通 Digest。
-   手动来源用 `dreaming process digest-source` 打开和预检。文档用 `digest-flow document-scope` 确定白板范围。
-   用 `digest-flow analyze` 准备分析。返回 `source_only` 时跳过依赖审查，继续分析并提交当前文档。
-   逐来源关联 Digest，按计划检查并执行缺失分片，逐片保存结果。普通来源候选用
-   `process digest-commit --token <LEASE> --source-key <KEY> --plan <PLAN>` 提交并验收。
-   实际遇到阻塞时先记录原因，
-   再登记暂缓并完成其它独立来源。收尾返回 `DREAMING_DIGEST_EXECUTION_REQUIRED` 时继续处理所指来源。
-   宿主返回上下文错误时，按定期摄取细则核验回执并自动重分未完成片，逐片试跑和保存。
-   再遇上下文错误就继续自动缩片。只有工具确认无法继续缩片才暂缓该来源。并行不可用时逐片执行。
-   用 `process digest-complete --allow-partial` 核验并汇总来源回执。仍待处理的来源要补登记成功或明确失败。只有全量完成才可把 process 标为成功。
-   收尾列出仍缺的来源、已尝试的处理和下次自动检查的范围；普通缺口使用
-   `DREAMING_DIGEST_INCOMPLETE`。预算、单源权限或冲突只暂停受影响的来源。
-   process 用 `process prepare --source im --token <LEASE>` 查询下一段消息，省略起止时间。
-   返回 `candidate_path` 时复用该分析候选；用 `process commit --token <LEASE>` 提交。
-   每批提交后再查，直到返回 `stage=covered`。无法继续分页或来源拒绝访问时记录具体缺口，以 partial 收尾。
+   maintenance 按维护规则完成心跳、扫描和租约收尾后结束本轮。
+   process 先调用 `dreaming process digest-scan`，按 routine_digest 规则逐源处理，再核验批次。
+   对本轮 IM 窗口重复 prepare / commit 至 covered，无法继续时按 partial 记录具体缺口。
    `job=recovery` 补 IM 缺口时只用 `lease.im_recovery.window`。窗口为空时继续检查其它恢复项，
    没有可恢复项就成功结束。若窗口在执行时到期，记为跳过并继续其它恢复项。
 6. 保存 lease 的 `run_id`。进入 collection/analysis/consolidation/action/report/maintenance/
@@ -63,7 +50,7 @@
    完成扫描；宿主只汇总完成回执的 `maintenance.new`。
 9. 若本轮成功完成 `job=process` 且 `period=catchup:*`，立即再调用一次：
    `bin/byteworker dreaming run-due --kb "<KB>" --owner "<TASK_ID>" --followup-after-run-id "<run_id>" --tick-id "<tick_id>"`。
-   领取到报告后立即执行第 10 步。disabled/idle/busy 时结束。
+   领取到报告后先解析 report feature，再执行第 10 步。disabled/idle/busy 时结束。
 10. morning/daily/weekly 按 `references/dreaming-reports.md` 一次生成结构化报告 JSON 后，
     必须调用 `dreaming report complete`。该命令会渲染 summary、内部 Markdown、自包含 HTML、
     `reports/<kind>/<period>.md` 归档快照，完成 lease，并按配置投递摘要；它是报告成功路径唯一

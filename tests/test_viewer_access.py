@@ -87,7 +87,7 @@ class ViewerAccessTests(unittest.TestCase):
                     httpd.shutdown()
                     worker.join()
 
-    def test_viewer_boot_page_and_versioned_parser_require_cache_revalidation(self):
+    def test_viewer_boot_page_and_application_scripts_require_cache_revalidation(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / 'app').symlink_to(ROOT / 'viewer', target_is_directory=True)
@@ -103,10 +103,12 @@ class ViewerAccessTests(unittest.TestCase):
                     base = f'http://127.0.0.1:{httpd.server_port}/app/'
                     with urllib.request.urlopen(base + 'index.html?launch=test', timeout=5) as page:
                         self.assertEqual('no-cache', page.headers['Cache-Control'])
-                        self.assertRegex(page.read(), rb'<script src="index-parser\.js\?v=\d+"></script>')
-                    with urllib.request.urlopen(base + 'index-parser.js?v=2', timeout=5) as parser:
-                        self.assertEqual('no-cache', parser.headers['Cache-Control'])
-                        self.assertIn(b'function inspectIndex', parser.read())
+                        html = page.read()
+                    for asset in ('index-parser.js?v=2', 'settings-save.js'):
+                        with self.subTest(asset=asset):
+                            self.assertIn(f'<script src="{asset}"></script>'.encode(), html)
+                            with urllib.request.urlopen(base + asset, timeout=5) as script:
+                                self.assertEqual('no-cache', script.headers['Cache-Control'])
                 finally:
                     httpd.shutdown()
                     worker.join()

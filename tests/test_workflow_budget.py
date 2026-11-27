@@ -76,6 +76,25 @@ class WorkflowBudgetTests(unittest.TestCase):
         )
         self.assertGreater(receipt["measurement"]["worker_prompt_tokens"], 0)
 
+    def test_search_and_dreaming_load_rules_for_the_selected_task(self):
+        def paths(workflow, *features):
+            return set(resolve_route(self.manifest, workflow=workflow, features=features)["static_rule_paths"])
+
+        search = paths("search")
+        self.assertTrue({"references/citations.md", "references/operation-trace.md",
+                         "references/discovery-completion.md"} <= search)
+        maintenance = paths("dreaming", "maintenance")
+        self.assertEqual({"SKILL.md", "references/machine-protocol.md",
+                          "references/dreaming-maintenance.md"}, maintenance)
+        for route, limit in ((search, 15_000), (maintenance, 11_000)):
+            self.assertLessEqual(sum(len((ROOT / path).read_text()) for path in route), limit)
+
+        for feature, reference in (("configure", "setup-guide"), ("enable", "onboarding"),
+                                   ("trae_schedule", "trae-schedule"), ("routine_digest", "routine"),
+                                   ("report", "reports"), ("review", "review"), ("recovery", "analysis")):
+            with self.subTest(feature=feature):
+                self.assertIn(f"references/dreaming-{reference}.md", paths("dreaming", feature))
+
     def test_dynamic_overflow_returns_action_without_truncation(self):
         with tempfile.TemporaryDirectory() as temporary:
             context = Path(temporary) / "context.md"

@@ -90,7 +90,6 @@ class ViewerLayoutContractTests(unittest.TestCase):
         self.assertIn("查看运行日志", self.viewer)
 
     def test_system_settings_auto_save_without_explicit_save_button(self):
-        self.assertIn("function scheduleSystemSettingsSave()", self.viewer)
         self.assertIn('class="settings-foot-text" role="status"', self.viewer)
         self.assertIn("return '已保存'", self.viewer)
         self.assertIn("当前页设置会自动写入知识库本地配置", self.viewer)

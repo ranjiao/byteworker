@@ -20,7 +20,8 @@ runner=lark 的真实参数先按来源 skill 或 --help 确认，不能照抄�
 component 失败必须停止，不能用部分结果冒充完整。artifact/request 权限 0600，目录 0700，
 只能在私有 work_dir 或系统临时目录，不进入 skill 仓库。
 
-`source bundle-spec --source-type <TYPE>` 按需返回 request 字段；request 只引用 artifact 绝对路径。
+`source bundle-spec --source-type <TYPE>` 返回必填字段、可选字段和最小示例。传给 `source bundle --request` 的是 JSON 文件路径；
+component 使用 artifact 的绝对 `path`。
 正文用 verbatim，评论/白板用 canonical-json；抓取 wrapper 可用 json_pointer 选择正文字符串。
 identity、coverage、anchors、provider_metadata 由来源 adapter 交给 Bundle，不能伪造空评论。
 然后只执行一次 `digest-flow prepare`，不重复调用底层 bundle/preflight/analysis prepare/planner。

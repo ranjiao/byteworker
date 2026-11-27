@@ -48,8 +48,8 @@ class ViewerHandler(SimpleHTTPRequestHandler):
     auth_required: bool
 
     def end_headers(self) -> None:
-        # Keep the boot page and its INDEX parser on the same revision.
-        if urlsplit(self.path).path in {"/app/index.html", "/app/index-parser.js"}:
+        # Keep the boot page and its application scripts on the same revision.
+        if urlsplit(self.path).path in {"/app/index.html", "/app/index-parser.js", "/app/settings-save.js"}:
             self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 

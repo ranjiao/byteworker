@@ -11,6 +11,13 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dreaming_reports import MORNING_CUTOFF, morning_cutoff
+from dreaming_schedule import (
+    due_candidate,
+    next_due_for_job,
+    queue_report_periods,
+    report_candidate_dependency,
+    schedule_time,
+)
 from report_owner import report_owner_lock
 from dreaming_run_log import (
     BATCH_ID,
@@ -203,7 +210,7 @@ def _status_value(value: Mapping[str, Any], now: datetime) -> dict[str, Any]:
         for name, raw_job in jobs.items():
             job = dict(raw_job) if isinstance(raw_job, Mapping) else raw_job
             if isinstance(job, dict):
-                next_due = _next_due(
+                next_due = next_due_for_job(
                     name,
                     job,
                     now=now,
@@ -234,17 +241,6 @@ def _timezone(value: str) -> ZoneInfo:
             "DREAMING_CONFIG_INVALID",
             f"无效 timezone: {value}",
         ) from exc
-
-
-def _clock(value: str) -> time:
-    try:
-        parsed = datetime.strptime(value, "%H:%M")
-    except ValueError as exc:
-        raise DreamingError(
-            "DREAMING_CONFIG_INVALID",
-            f"时间必须是 HH:MM: {value}",
-        ) from exc
-    return parsed.time()
 
 
 def _positive(value: int, field: str) -> int:
@@ -315,7 +311,7 @@ def _process_schedule(
         )
         return {"kind": kind, "minutes": minutes}
     clock = at_time or "22:00"
-    _clock(clock)
+    schedule_time(clock)
     if kind == "daily_time":
         return {"kind": kind, "time": clock}
     days = _positive(every_days if every_days is not None else 2, "process_every_days")
@@ -488,7 +484,7 @@ def enable(
             if recovery_interval_minutes is not None
             else int(recovery_schedule.get("minutes", 240))
         )
-        if morning_time is not None and _clock(morning_time) >= MORNING_CUTOFF:
+        if morning_time is not None and schedule_time(morning_time) >= MORNING_CUTOFF:
             raise DreamingError("DREAMING_CONFIG_INVALID", "晨报的计划时间必须早于本地 12:00。")
         for clock_value in (
             resolved_morning_time,
@@ -496,7 +492,7 @@ def enable(
             resolved_weekly_time,
             resolved_maintenance_time,
         ):
-            _clock(clock_value)
+            schedule_time(clock_value)
         if resolved_weekly_weekday not in range(7):
             raise DreamingError(
                 "DREAMING_CONFIG_INVALID",
@@ -748,14 +744,14 @@ def configure(
                 job["configured_enabled"] = requested
                 job["enabled"] = bool(value.get("enabled")) and requested
         if morning_time is not None:
-            if _clock(morning_time) >= MORNING_CUTOFF:
+            if schedule_time(morning_time) >= MORNING_CUTOFF:
                 raise DreamingError("DREAMING_CONFIG_INVALID", "晨报的计划时间必须早于本地 12:00。")
             jobs["morning"]["schedule"] = {
                 "kind": "weekday_time",
                 "time": morning_time,
             }
         if maintenance_time is not None:
-            _clock(maintenance_time)
+            schedule_time(maintenance_time)
             jobs["maintenance"]["schedule"] = {
                 "kind": "weekday_time",
                 "time": maintenance_time,
@@ -1013,180 +1009,6 @@ def disable(kb: Path, *, now: datetime | None = None) -> dict[str, Any]:
     return status(kb, now=current)
 
 
-def _last_success(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    value = job.get("last_success")
-    return value if isinstance(value, Mapping) and value.get("status") == "success" else None
-
-
-def _latest_weekday_target(local_now: datetime, clock: time) -> datetime:
-    candidate = local_now.replace(
-        hour=clock.hour,
-        minute=clock.minute,
-        second=0,
-        microsecond=0,
-    )
-    if candidate > local_now:
-        candidate -= timedelta(days=1)
-    while candidate.weekday() >= 5:
-        candidate -= timedelta(days=1)
-    return candidate
-
-
-def _latest_weekly_target(
-    local_now: datetime,
-    *,
-    weekday: int,
-    clock: time,
-) -> datetime:
-    days = (local_now.weekday() - weekday) % 7
-    candidate = (local_now - timedelta(days=days)).replace(
-        hour=clock.hour,
-        minute=clock.minute,
-        second=0,
-        microsecond=0,
-    )
-    if candidate > local_now:
-        candidate -= timedelta(days=7)
-    return candidate
-
-
-def _latest_daily_target(local_now: datetime, clock: time) -> datetime:
-    candidate = local_now.replace(
-        hour=clock.hour,
-        minute=clock.minute,
-        second=0,
-        microsecond=0,
-    )
-    return candidate if candidate <= local_now else candidate - timedelta(days=1)
-
-
-def _every_n_days_target(
-    local_now: datetime,
-    *,
-    days: int,
-    clock: time,
-    anchor_date: str,
-) -> datetime:
-    if days <= 0:
-        raise DreamingError(
-            "DREAMING_STATE_INVALID",
-            "every_n_days days 必须大于 0。",
-        )
-    try:
-        anchor = datetime.strptime(anchor_date, "%Y-%m-%d").date()
-    except ValueError as exc:
-        raise DreamingError(
-            "DREAMING_STATE_INVALID",
-            "every_n_days anchor_date 无效。",
-        ) from exc
-    elapsed = (local_now.date() - anchor).days
-    step = elapsed // days
-    target_date = anchor + timedelta(days=step * days)
-    target = local_now.replace(
-        year=target_date.year,
-        month=target_date.month,
-        day=target_date.day,
-        hour=clock.hour,
-        minute=clock.minute,
-        second=0,
-        microsecond=0,
-    )
-    if target > local_now:
-        target -= timedelta(days=days)
-    return target
-
-
-def _report_period(name: str, target: datetime) -> str:
-    if name == "weekly":
-        year, week, _ = (target.date() - timedelta(days=7)).isocalendar()
-        return f"{year}-W{week:02d}"
-    return target.date().isoformat()
-
-
-def _restore_daily_report_debt(
-    kb: Path, pending: dict[str, Any], *, settled_period: str | None,
-    last_attempt: Mapping[str, Any],
-    enabled_at: datetime, local_now: datetime,
-) -> None:
-    """Recover periods that older deadline publishers removed from the formal queue."""
-    for path in secure_path(kb, "reports").glob("daily-*/deadline/publication.json"):
-        period = path.parent.parent.name.removeprefix("daily-")
-        if period == settled_period or period in pending:
-            continue
-        artifacts = path.parent.parent / "artifacts"
-        interrupted = last_attempt.get("period") == period and last_attempt.get("status") in {
-            "running", "failed", "partial",
-        }
-        if (artifacts / "manifest.json").is_file() and not interrupted:
-            # Older completed reports can predate the current last_success.
-            continue
-        try:
-            receipt = json.loads(path.read_text(encoding="utf-8"))
-            cutoff = _parse_time(receipt.get("cutoff"))
-        except (AttributeError, OSError, ValueError):
-            continue
-        if (
-            receipt.get("schema_version") == "byteworker-deadline-daily/v1"
-            and receipt.get("status") in {"staged", "published"}
-            and receipt.get("period") == period
-            and cutoff is not None
-            and enabled_at <= cutoff <= local_now
-            and cutoff.astimezone(local_now.tzinfo).date().isoformat() == period
-        ):
-            archive = kb / "reports" / "daily" / f"{period}.md"
-            if archive.is_file():
-                digest = receipt.get("sha256")
-                if not isinstance(digest, str) or len(digest) != 64 or any(
-                    char not in "0123456789abcdef" for char in digest
-                ):
-                    continue
-                baseline = path.parent / f"{digest}.md"
-                if interrupted and (artifacts / "report.md").is_file():
-                    baseline = artifacts / "report.md"
-                try:
-                    heading = "\n## 手动补充 / 备注\n"
-                    archive_body = archive.read_text(encoding="utf-8").split(heading, 1)[0]
-                    baseline_body = baseline.read_text(encoding="utf-8").split(heading, 1)[0]
-                    if archive_body != baseline_body:
-                        continue
-                except (OSError, ValueError):
-                    continue
-            pending[period] = _iso(cutoff)
-
-
-def _queue_report_periods(
-    kb: Path, name: str, job: dict[str, Any], local_now: datetime, enabled_at: datetime,
-) -> None:
-    """Discover outstanding formal reports without consuming older debt."""
-    schedule = job["schedule"]
-    clock = _clock(schedule["time"])
-    if name == "weekly":
-        latest = _latest_weekly_target(local_now, weekday=schedule["weekday"], clock=clock)
-        step = timedelta(days=7)
-    else:
-        latest = _latest_weekday_target(local_now, clock)
-        step = timedelta(days=1)
-    last_success = _last_success(job) or {}
-    seen = job.get("scheduled_through", "")
-    pending = job.setdefault("pending_periods", {})
-    target = latest
-    while target >= enabled_at:
-        period = _report_period(name, target)
-        if period <= seen:
-            break
-        archive = kb / "reports" / name / f"{period}.md"
-        if (name == "weekly" or target.weekday() < 5) and period != last_success.get("period") and not archive.is_file():
-            pending[period] = _iso(target)
-        target -= step
-    job["scheduled_through"] = max(seen, _report_period(name, latest))
-    if name == "daily":
-        _restore_daily_report_debt(
-            kb, pending, settled_period=last_success.get("period"),
-            last_attempt=job.get("last_attempt") or {},
-            enabled_at=enabled_at, local_now=local_now,
-        )
-
-
 def _job_gate(job: Mapping[str, Any], now: datetime) -> str:
     if not job.get("enabled"):
         return "disabled"
@@ -1199,205 +1021,6 @@ def _job_gate(job: Mapping[str, Any], now: datetime) -> str:
     if isinstance(blocked_by, list) and blocked_by:
         return "blocked_by_dependency"
     return ""
-
-
-def _candidate(
-    name: str,
-    job: Mapping[str, Any],
-    *,
-    now: datetime,
-    local_now: datetime,
-    enabled_at: datetime,
-) -> dict[str, str] | None:
-    schedule = job.get("schedule")
-    if not isinstance(schedule, Mapping):
-        raise DreamingError(
-            "DREAMING_STATE_INVALID",
-            f"Dreaming job schedule 缺失: {name}",
-        )
-    success = job.get("last_recent_success") if name == "process" else _last_success(job)
-    kind = schedule.get("kind")
-    if kind == "interval":
-        minutes = int(schedule.get("minutes", 0))
-        baseline = (
-            _parse_time(success.get("finished_at")) if success is not None else enabled_at
-        )
-        if minutes <= 0 or baseline is None:
-            raise DreamingError(
-                "DREAMING_STATE_INVALID",
-                f"Dreaming interval 无效: {name}",
-            )
-        if now < baseline + timedelta(minutes=minutes):
-            return None
-        ready_since = baseline + timedelta(minutes=minutes)
-        return {
-            "job": name,
-            "period": now.replace(second=0, microsecond=0).strftime("%Y-%m-%dT%H:%MZ"),
-            "ready_since": _iso(ready_since),
-            "deadline_at": "",
-        }
-    if kind == "daily_time":
-        target = _latest_daily_target(
-            local_now,
-            _clock(str(schedule.get("time", ""))),
-        )
-        if target.astimezone(timezone.utc) < enabled_at:
-            return None
-        period = target.date().isoformat()
-    elif kind == "every_n_days":
-        target = _every_n_days_target(
-            local_now,
-            days=int(schedule.get("days", 0)),
-            clock=_clock(str(schedule.get("time", ""))),
-            anchor_date=str(schedule.get("anchor_date", "")),
-        )
-        if target.astimezone(timezone.utc) < enabled_at:
-            return None
-        period = target.date().isoformat()
-    elif kind == "weekday_time":
-        clock = _clock(str(schedule.get("time", "")))
-        target = _latest_weekday_target(local_now, clock)
-        if target.astimezone(timezone.utc) < enabled_at:
-            return None
-        period = target.date().isoformat()
-    elif kind == "weekly_time":
-        target = _latest_weekly_target(
-            local_now,
-            weekday=int(schedule.get("weekday", -1)),
-            clock=_clock(str(schedule.get("time", ""))),
-        )
-        if target.astimezone(timezone.utc) < enabled_at:
-            return None
-        period = _report_period(name, target)
-    else:
-        raise DreamingError(
-            "DREAMING_STATE_INVALID",
-            f"Dreaming schedule kind 无效: {name}",
-        )
-    if name == "morning" and (target.date() != local_now.date() or local_now.time() >= MORNING_CUTOFF):
-        return None
-    if name in {"daily", "weekly"} and period <= job.get("scheduled_through", ""):
-        pending = job["pending_periods"]
-        if not pending:
-            return None
-        period = max(pending)
-        target = _parse_time(pending[period])
-        if target is None:
-            raise DreamingError("DREAMING_STATE_INVALID", "待补报告的计划时间无效。")
-    if success is not None and success.get("period") == period:
-        return None
-    return {
-        "job": name,
-        "period": period,
-        "ready_since": _iso(target.astimezone(timezone.utc)),
-        "deadline_at": _iso(target.astimezone(timezone.utc)),
-    }
-
-
-def _report_candidate(kb, state, candidate, current):
-    from dreaming_reports import allow_daily_coverage_gaps, report_dependency_from_state
-
-    dependency = report_dependency_from_state(
-        kb, state=state, kind=candidate["job"], period=candidate["period"],
-        now=current, scheduled_at=_parse_time(candidate["deadline_at"]),
-    )
-    if candidate["job"] == "daily":
-        dependency = allow_daily_coverage_gaps(dependency)
-        candidate["report_target"] = {
-            "period": candidate["period"],
-            "scheduled_at": candidate["deadline_at"],
-            "through": dependency["window"]["end"],
-        }
-    return dependency
-
-
-def _next_due(
-    name: str,
-    job: Mapping[str, Any],
-    *,
-    now: datetime,
-    local_now: datetime,
-    enabled_at: datetime,
-) -> dict[str, Any] | None:
-    if not job.get("enabled"):
-        return None
-    if job.get("waiting_for_user"):
-        return None
-    if name == "morning":
-        clock = _clock(job["schedule"]["time"])
-        if clock >= MORNING_CUTOFF:
-            return None
-        retry = _parse_time(job.get("next_attempt_at"))
-        earliest = max(local_now, retry.astimezone(local_now.tzinfo)) if retry else local_now
-        target = datetime.combine(earliest.date(), clock, local_now.tzinfo)
-        if earliest.time() >= MORNING_CUTOFF:
-            target += timedelta(days=1)
-        while target.weekday() >= 5:
-            target += timedelta(days=1)
-        if target > local_now:
-            return {"at": _iso(max(target, earliest)), "due": False}
-    blocked_by = job.get("blocked_by")
-    if isinstance(blocked_by, list) and blocked_by:
-        return None
-    next_attempt = _parse_time(job.get("next_attempt_at"))
-    if next_attempt is not None and next_attempt > now:
-        return {"at": _iso(next_attempt), "due": False}
-    candidate = _candidate(
-        name,
-        job,
-        now=now,
-        local_now=local_now,
-        enabled_at=enabled_at,
-    )
-    if candidate is not None:
-        at = candidate.get("deadline_at") or candidate.get("ready_since")
-        return {"at": at, "due": True}
-    schedule = job.get("schedule")
-    if not isinstance(schedule, Mapping):
-        return None
-    success = job.get("last_recent_success") if name == "process" else _last_success(job)
-    kind = schedule.get("kind")
-    if kind == "interval":
-        baseline = (
-            _parse_time(success.get("finished_at")) if success is not None else enabled_at
-        )
-        if baseline is None:
-            return None
-        target_utc = baseline + timedelta(minutes=int(schedule.get("minutes", 0)))
-    elif kind == "daily_time":
-        latest = _latest_daily_target(
-            local_now,
-            _clock(str(schedule.get("time", ""))),
-        )
-        target_utc = (latest + timedelta(days=1)).astimezone(timezone.utc)
-    elif kind == "every_n_days":
-        days = int(schedule.get("days", 0))
-        latest = _every_n_days_target(
-            local_now,
-            days=days,
-            clock=_clock(str(schedule.get("time", ""))),
-            anchor_date=str(schedule.get("anchor_date", "")),
-        )
-        target_utc = (latest + timedelta(days=days)).astimezone(timezone.utc)
-    elif kind == "weekday_time":
-        latest = _latest_weekday_target(
-            local_now,
-            _clock(str(schedule.get("time", ""))),
-        )
-        future = latest + timedelta(days=1)
-        while future.weekday() >= 5:
-            future += timedelta(days=1)
-        target_utc = future.astimezone(timezone.utc)
-    elif kind == "weekly_time":
-        latest = _latest_weekly_target(
-            local_now,
-            weekday=int(schedule.get("weekday", -1)),
-            clock=_clock(str(schedule.get("time", ""))),
-        )
-        target_utc = (latest + timedelta(days=7)).astimezone(timezone.utc)
-    else:
-        return None
-    return {"at": _iso(target_utc), "due": target_utc <= now}
 
 
 def _candidate_key(candidate: Mapping[str, Any], now: datetime) -> tuple[Any, ...]:
@@ -1424,9 +1047,9 @@ def _expire_lease(kb: Path, value: dict[str, Any], now: datetime) -> None:
     jobs = value.get("jobs")
     job = jobs.get(job_name) if isinstance(jobs, Mapping) else None
     if job_name == "process":
-        from dreaming_digest import _batch_path
+        from dreaming_digest import routine_batch_path
 
-        resume_from = run_id if _batch_path(kb, run_id).is_file() else lease.get("resume_from")
+        resume_from = run_id if routine_batch_path(kb, run_id).is_file() else lease.get("resume_from")
         value["interrupted_process"] = {
             "period": lease["period"],
             "target_acquired_at": lease.get("target_acquired_at", lease["acquired_at"]),
@@ -1588,7 +1211,7 @@ def run_due(
                 continue
             if name in {"daily", "weekly"}:
                 migrated = _parse_time(value.get("report_owner", {}).get("migrated_at"))
-                _queue_report_periods(kb, name, job, local_now, max(enabled_at, migrated or enabled_at))
+                queue_report_periods(kb, name, job, local_now, max(enabled_at, migrated or enabled_at))
             candidate_job = {**job, "blocked_by": []} if name in REPORT_KINDS else job
             if report_target:
                 target_period = report_target["period"]
@@ -1596,7 +1219,7 @@ def run_due(
                 if target_period not in pending:
                     continue
                 candidate_job["pending_periods"] = {target_period: pending[target_period]}
-            candidate = _candidate(
+            candidate = due_candidate(
                 name,
                 candidate_job,
                 now=current,
@@ -1629,7 +1252,7 @@ def run_due(
                 if name in REPORT_KINDS:
                     candidate["historical"] = not recent_report
                     coverage_at = _parse_time((report_target or {}).get("through")) or current
-                    dependency = _report_candidate(kb, value, candidate, coverage_at)
+                    dependency = report_candidate_dependency(kb, value, candidate, coverage_at)
                     dependency_key = f"{name}:{candidate['period']}"
                     dependencies = value["report_dependencies"]
                     for key in list(dependencies):
@@ -2245,7 +1868,7 @@ def complete_run(
             metrics["duration_ms"] = max(0, int((current - started_at).total_seconds() * 1000))
         accounting = {"status": run_status, "error_code": error_code, "metrics": metrics}
         if job_name == "process":
-            from dreaming_digest import routine_run_accounting
+            from dreaming_digest_completion import routine_run_accounting
             from dreaming_action_ledger import run_kb_action_commits
 
             action_commits = run_kb_action_commits(

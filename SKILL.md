@@ -65,47 +65,14 @@ bin/byteworker workflow-budget resolve --workflow <WORKFLOW> --source-type <TYPE
 `bin/byteworker run ...`。由入口解析 Python、nvm、venv 和内部 CLI 路径。公共 CLI 响应格式见
 `references/machine-protocol.md`。
 
-### 按意图加载
-
-- search：`references/command-search.md` + `references/citations.md`
-- update：`references/command-update.md` + `references/conflict-policy.md` +
-  `references/kb-mutation.md` + `references/write-rules.md`
-- brief：`references/command-brief.md` + `references/command-search.md` +
-  `references/citations.md`
-- dashboard：`references/command-dashboard.md` + `references/citations.md`。
-  查看调用 `dashboard view`，仅管理手动项时加载 `references/kb-mutation.md`。
-- context：`references/command-context.md` + `references/kb-mutation.md`
-- thinking：`references/thinking.md` + `references/kb-mutation.md`
-- discover：`references/capability-discovery.md`
-- report：`references/report-scheduling.md` + `references/periodic-report.md` +
-  `references/digest-routine.md` + `references/kb-mutation.md` + `references/citations.md`
-- dreaming：`references/dreaming.md` + `references/dreaming-analysis.md` +
-  `references/dreaming-consolidation.md` + `references/dreaming-actions.md` +
-  `references/dreaming-reports.md` + `references/dreaming-review.md`；配置时加
-  `references/dreaming-setup-guide.md`，首次启用再加
-  `references/dreaming-onboarding.md`，maintenance job 加
-  `references/dreaming-maintenance.md`；process job 还必须从 manifest 加载
-  `features.routine_digest` 先检查变化，再按来源解析普通 digest；Trae 定时任务加
-  `features.trae_schedule`
-- doctor：`references/doctor.md`
-- 反馈或排查后台运行 → digest_feedback：`references/digest-feedback.md`
-- search/brief/update/thinking/context/dashboard/report 的运行记录见 `references/operation-trace.md`。
+search、brief、update、thinking、context、dashboard 和手动报告按 `references/operation-trace.md` 记录本次请求。
+报告按 `references/report-scheduling.md`，Doctor 按 `references/doctor.md`。反馈或排障使用 digest_feedback。
 
 ## 能力发现
 
-真人交互中，digest/search/update/brief/dashboard/context/thinking、来源登记、报告和 Viewer
-请求成功后，最终回复前**必须**执行公共收尾，不先判断是否需要推荐：
-
-```bash
-bin/byteworker discover complete --kb "<KB>" --interactive --after <capability>
-```
-
-报告映射 `reports`，来源登记映射 `routine`，其它同名。只由主 Agent 每个用户请求调用一次；
-失败、等待用户裁决、隔离 worker、help/discover/doctor/dreaming 不执行。返回 suggestion 时在
-结果后附一句 message 和 example；null 静默。完整规则见 `references/capability-discovery.md`。
-preflight 建议只作候选，收尾重新选择，不重复展示或写 shown；语义信号须有当前对话证据。
-无人值守 session 禁止调用 complete/recommend 或展示 Tip；CLI 无交互标记也不推荐、不记使用。
-Dreaming 固定为 `explicit_only`，不进入通用推荐，仍只由用户明确意图触发完整导览。
+真人请求成功后，digest、search、update、brief、dashboard、context、thinking、来源登记、报告和 Viewer 的主 Agent 按 `references/discovery-completion.md` 调用一次 `discover complete`；
+只在返回 suggestion 时展示。无人值守、worker、等待用户或失败时跳过；无人值守不推荐、不展示 Tip。
+Dreaming 只由用户明确触发。
 
 ## Context
 
@@ -126,15 +93,8 @@ digest 先用 resolve 找齐并加载该来源所需的规则，包括完整的�
 会议簇、立场、大型输入、routine 按对应来源/feature 加载；Wiki 空间走 wiki_space（`references/digest-wiki-space.md`），
 确认页面后按 feishu_doc；恢复任务还要读 `references/wiki-digest-jobs.md`。
 
-按 `digest-flow.md` / `digest-inline.md` 执行，复用 prepare 按宿主角色容量生成的 packet/plan。
-planner 选择 parallel 才加 parallel_execution，读 `digest-analysis-pipeline.md` / `digest-concurrency.md`；
-多来源原子提交加 batch，读 `references/digest-transaction.md`；内部资料加 internal_reading。
-候选完成后只运行 `digest-flow commit`，由它在锁内复验。独立 `validate` 只用于失败排障。
-多来源用 `digest-batch-plan/v2`。Agent 负责语义判断、冲突分类，事务负责确定性写入和回滚。
-仅 `status=committed` 表示写入成功。
-
-flow 自动记录确定性阶段与终态；失败和恢复统一用 digest-flow fail/resume，语义耗时打点可选；等待按 inline。恢复、诊断或 usage 上报加 recovery
-读取 `references/digest-observability.md`。
+按 prepare 的 packet/plan 执行；并行加 parallel_execution，多来源原子提交加 batch，内部资料加 internal_reading。
+只走 `digest-flow commit` 写入，失败或恢复用 recovery。隔离 worker 的宿主约束见对应路由。
 
 事实 `[E1]` 绑 raw，主记录设 `primary_source`。raw / Bundle 的 `source_title`
 留原题；宽泛时，按来源可确认的作者、团队、项目/周期命名；不明标“归属待确认”。
@@ -146,11 +106,7 @@ Meego/Base/风神/群聊先做 `source auth-status`。宿主注入的 user 凭�
 大型结构化视图保存完整快照，不为普通行建节点。left_view 只表示记录已离开视图。
 查询具体记录时用 `kb-query source-record`，禁止 Agent 扫描完整 raw。
 
-大型输入 worker 和 Wiki resume page 必须从 workflow manifest 解析完整 digest 闭包；子 Agent
-必须使用宿主提供的**全新隔离上下文**，prompt 自足且只传来源、确认范围、KB 和临时 artifact
-路径，不得继承主对话。`fork_turns` 是 Codex adapter 的专有参数；其中
-`fork_turns="all"` 表示继承全部历史，违反本流程，其他宿主不得被要求理解或伪造该参数。主
-Agent 不重复语义分析、不主动轮询，只接收阶段状态和最终紧凑回执。
+大型输入 worker 和 Wiki resume page 解析对应路由，必须使用宿主提供的全新隔离上下文，以路径交接，禁止继承主对话。
 
 ## 写入
 
@@ -187,55 +143,16 @@ doctor 默认只读调用 `bin/doctor.py` 对应 facade；交互请求只有用�
 
 ## Dreaming
 
-Dreaming 默认关闭。明确要求配置、启用、调整、排障或继续设置时，加载 `dreaming` 的设置向导；
-自然语言入口见 `references/dreaming-setup-guide.md`。提问优先用宿主选项控件，其次用编号选项。
+默认关闭。查看状态用 `dreaming status`。配置与调整用 configure，首次启用用 enable；
+读取现有设置、解释能力与成本、确认计划和机器条件后才启用。后台真正可用须确认宿主已登记且 operational。
+Trae 定时任务加 trae_schedule。排障、停用和迁移见 operations，接管已有报告须单独确认。
 
-Trae 定时任务走 `features.trae_schedule`。设置确认后优先用原生本地工具创建，并附可粘贴的
-prompt；手动创建或只要 prompt 时，提供 prompt 和表单设置。
-
-面向用户称为 Dreaming，具体选项用「自动检查」「待关注事项」「定时摘要」「紧急提醒」「本地定时任务」等
-自然语言。设置时不直接展示 `operational`、`persist_report`、`instant_alert`、`harness`、grant、
-Finding 或 job。先读取 status，从未完成的步骤继续。只修改一项时，只问该项及其依赖。
-用自然语言汇总选择，用户确认后再写配置。完成后按设置向导展示状态卡。
-
-首次启用须完整介绍它与 digest 的差异、能力、默认授权、隐私、成本、机器条件、维护和退出方式。
-请用户配置并确认完整 schedule。导览、schedule 和机器条件都明确确认后，才能传
-`--acknowledge-capability-tour --acknowledge-schedule --acknowledge-machine-runtime` 并创建宿主 local 任务。
-
-- 普通安装、升级、preflight 和其它命令不得自动启用或反复询问。
-- process 支持按分钟间隔、每天固定时间、每 N 天固定时间；不得静默套用默认频率。先运行
-  `dreaming configure`，回显所有 job、timezone、日志保留期和 `next_due_at`，再询问确认。
-- 宿主任务创建后，必须用 `dreaming harness register` 登记。只有 `harness.status=installed` 且
-  `operational=true` 才能告知用户后台已配置完成。
-- 每轮有稳定 `run_id`。长阶段调用 `dreaming heartbeat`，收尾用 `complete`。
-  `dreaming runs list/show/tail` 查询私有运行日志，技术事件只含元数据。
-- 宿主简报写具体发现、文档成败和实际修改的节点。普通缺口自动处理。异常按
-  `references/dreaming.md` 查最近运行，无需要求用户提供编号。
-- 启用默认不接管现有日报/周报；接管需要单独确认旧 scheduler owner 已释放。
-- Dreaming local state 使用 `byteworker-dreaming/v2`；读取已有 v1 时由确定性状态层先写本地私密
-  备份再迁移。迁移失败保持 Dreaming 关闭，不得阻塞其它命令或让 Agent 手改 state JSON。
-- IM grant 默认 `off`。`all_visible` 会读取 P2P 和免打扰会话，只有用户明确确认后才可设置；
-  `process prepare` 只生成私密 EvidenceBatch，不调用模型、不写 Finding/报告/知识。
-- `process prepare` 后的 Agent 分析必须读 `references/dreaming-analysis.md`；Finding 持久与去重
-  规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
-- 近期 digest 独立计时，按 `references/dreaming-routine.md` 逐源核验、逐段续采。批次收尾自动找回已关联的下游成功回执，未登记结果的来源会保持批次打开。
-  滚动文档按周期抓取。自动选择最新周期但完整正文无法识别周期时，按本轮快照复查。外链过多时只分析当前文档。
-  Meego 按快照差异分析；核验宿主错误后自动缩片并逐片保存。无法继续时暂缓该来源。
-- 自动 IM 补跑只看最近 14 天，历史窗口可按需前台处理。
-- 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
-  下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
-- morning/daily/weekly 由唯一 owner 按 `references/dreaming-reports.md` 运行。晨报只在本地工作日 12:00 前生成和发送。错过就跳过，优先摄取今天和昨天的信息并生成到期日报，之后回补历史。
-  宿主到点调用 `dreaming report publish-due`，普通 tick 在预检前补查。基础 Markdown 仅用已验收消息和归档事件，可按回执补充。领取同一期 daily 后照常完成正式报告与已配置投递。
-  process 心跳续租，过期后新尝试接手原窗口和仍适用的摄取进度。晨报、周报依照各自的覆盖门槛。
-- 指定周期补报须 start → prepare → complete；用户接受的来源缺口按上述报告规则披露。
-- maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行获准的
-  确定性修复。人工待办逐项保留，只汇总新增或变化项，后续扫描继续运行。
-- 前台单次处理、Finding review/explain/feedback 和私有 shadow 评估按
-  `references/dreaming-review.md`；foreground 不得隐式启用后台或持久化 Finding。
-- 用户明确要求分析今天、昨天或指定窗口的 IM 时，使用 foreground
-  `dreaming process once --source im`；独立 Inbox 已移除，旧命令只返回 `INBOX_REMOVED`。
-- Dreaming 只通过公开 `bin/byteworker` 命令调用既有能力，不 import digest/query 内部模块。
-- Dreaming 禁用、失败或状态损坏不能阻塞 digest/search/update。
+已领取的后台任务按 runner 选 feature：maintenance 只调用 Doctor，process 用 routine_digest，
+morning/daily/weekly 用 report，recovery 用 recovery。由 Dreaming 接管的指定周期补报也用 report，先 start 再 prepare / complete。
+用户明确要单次分析某段 IM 时用 review 的 foreground 入口；复核和评估同样用 review。
+来源、报告或知识动作须依 actions 走授权与回执。IM 授权默认关闭，扩大范围须明确确认。
+飞书摘要恢复先走 report delivery-check；99992361 等待按发送应用重新解析已确认收件人，
+不默认当前登录账号。configure 只修未来投递；原 pending 条目通过 report repair-recipient 按 ID 修正。
 
 ## 安全与架构
 

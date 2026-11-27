@@ -9,10 +9,18 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from dreaming_digest import link_routine_digest, prepare_routine_digest, record_routine_digest
+from dreaming_digest import attach_digest_run, prepare_routine_digest
+from dreaming_digest_completion import record_routine_digest
+from dreaming_scheduler import heartbeat_run
 from dreaming_run_log import MACHINE_CODE
 from dreaming_state import DreamingError
 from sources import SourceBundleError, load_source_bundle
+
+
+def link_routine_digest(kb: Path, *, token: str, source_key: str, digest_run_id: str) -> dict[str, Any]:
+    work = attach_digest_run(kb, token=token, source_key=source_key, digest_run_id=digest_run_id)
+    heartbeat_run(kb, token=token, stage="collection", digest_run_id=digest_run_id)
+    return work
 
 
 def _invoke(skill_root: Path, *arguments: str) -> dict[str, Any]:

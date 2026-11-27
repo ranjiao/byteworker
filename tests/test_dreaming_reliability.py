@@ -21,7 +21,9 @@ from dreaming_consolidation import consolidate_findings
 from dreaming_daily import publish_due_daily
 from dreaming_diagnostics import observed_run_due, run_tick
 from dreaming_delivery_lark import deliver_lark_bot_summary
-from dreaming_digest import link_routine_digest, prepare_routine_digest, record_routine_digest
+from dreaming_digest import prepare_routine_digest
+from dreaming_digest_completion import record_routine_digest
+from dreaming_digest_scan import link_routine_digest
 from dreaming_grants import set_im_grant
 from dreaming_report_completion import complete_report_run
 from dreaming_scheduler import complete_run, configure, enable, heartbeat_run, run_due, set_report_management
@@ -302,7 +304,7 @@ class DreamingReliabilityTests(unittest.TestCase):
         )
         new_expiry = heartbeat_run(kb, token=token, stage="analysis", now=when + timedelta(seconds=59))
         self.assertEqual(when + timedelta(seconds=119), datetime.fromisoformat(new_expiry["expires_at"]))
-        with patch("dreaming_digest.save_state_unlocked", side_effect=OSError("after receipt before checkpoint")):
+        with patch("dreaming_digest_completion.save_state_unlocked", side_effect=OSError("after receipt before checkpoint")):
             with self.assertRaises(OSError):
                 record_routine_digest(kb, token=token, now=when + timedelta(seconds=61), result={
                     **source, "status": "noop", "receipt": {

@@ -41,25 +41,8 @@ bin/byteworker commands describe source.capture --json
 
 `--help` 返回只读文本。`describe` 返回实际参数、子命令及 `source` 的分来源参数。
 
-## SourceBundle request 快速参考
-
-`source bundle --request` 接受系统临时目录或 KB 内的 JSON **文件路径**，不接受内联 JSON。
-拿不准字段时先运行：
-
-```bash
-bin/byteworker source bundle-spec --source-type "<source_type>"
-```
-
-它返回真实 `required_fields/optional_fields`、artifact 字段、source UID 规则、component 契约和
-最小示例。`body/transcript/local_file/comments/whiteboards[]` 等 component 至少提供绝对
-`path`；不要猜 `content` 或 `content_path`。业务 artifact、request、plan 和候选不得放进
-skill 仓库。
-
-`source auth-status` 是无副作用状态检查。`ready=false` 仍可能是成功 envelope；真正的
-inspect/capture 会以稳定错误码 fail closed。
-
-外部凭据不支持 `auth status` 时，飞书群聊只用 `whoami --as user` 检查 user；scope 留到
-capture-time，失败只修宿主注入，不本地登录或切 bot。
+返回 `byteworker-cli-artifact/v1` 时按 receipt 的 SHA-256 校验临时文件，读取后删除；
+失败的大输出见 `error.details.output_artifact`。完整字段见 `command-output.md`。
 
 ## 写入成功判定
 

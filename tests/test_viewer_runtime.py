@@ -221,6 +221,7 @@ class ViewerRuntimeTests(unittest.TestCase):
                 (async () => {{
                   vm.runInContext(fs.readFileSync({json.dumps(str(ROOT / 'viewer/vendor/markdown-it.min.js'))}, 'utf8'), context);
                   vm.runInContext(fs.readFileSync({json.dumps(str(ROOT / 'viewer/index-parser.js'))}, 'utf8'), context);
+                  vm.runInContext(fs.readFileSync({json.dumps(str(ROOT / 'viewer/settings-save.js'))}, 'utf8'), context);
                   vm.runInContext(source, context, {{ filename: 'viewer/index.html' }});
                   await vm.runInContext('__viewerBoot()', context);
                   await new Promise(resolve => setTimeout(resolve, 0));

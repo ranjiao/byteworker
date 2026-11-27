@@ -139,6 +139,7 @@
       "required": [
         "references/machine-protocol.md",
         "references/command-search.md",
+        "references/operation-trace.md",
         "references/discovery-completion.md",
         "references/citations.md"
       ]
@@ -208,24 +209,27 @@
       ]
     },
     "dreaming": {
-      "required": [
-        "references/machine-protocol.md",
-        "references/dreaming.md",
-        "references/dreaming-analysis.md",
-        "references/dreaming-consolidation.md",
-        "references/dreaming-actions.md",
-        "references/dreaming-reports.md",
-        "references/dreaming-review.md"
-      ],
+      "required": ["references/machine-protocol.md"],
       "features": {
-        "configure": ["references/dreaming-setup-guide.md"],
-        "enable": [
-          "references/dreaming-onboarding.md",
-          "references/dreaming-setup-guide.md"
-        ],
+        "operations": ["references/dreaming.md"],
+        "configure": ["references/dreaming.md", "references/dreaming-setup-guide.md"],
+        "enable": ["references/dreaming.md", "references/dreaming-onboarding.md", "references/dreaming-setup-guide.md"],
         "trae_schedule": ["references/dreaming-trae-schedule.md"],
         "maintenance": ["references/dreaming-maintenance.md"],
-        "routine_digest": ["references/dreaming-routine.md"]
+        "routine_digest": [
+          "references/dreaming.md", "references/dreaming-routine.md",
+          "references/dreaming-analysis.md", "references/dreaming-consolidation.md", "references/dreaming-actions.md"
+        ],
+        "recovery": [
+          "references/dreaming.md", "references/dreaming-analysis.md",
+          "references/dreaming-consolidation.md", "references/dreaming-actions.md", "references/dreaming-reports.md"
+        ],
+        "report": ["references/dreaming-reports.md", "references/dreaming-actions.md", "references/citations.md"],
+        "review": [
+          "references/dreaming-review.md", "references/dreaming-analysis.md",
+          "references/dreaming-consolidation.md", "references/dreaming-actions.md"
+        ],
+        "actions": ["references/dreaming-actions.md"]
       }
     },
     "doctor": {

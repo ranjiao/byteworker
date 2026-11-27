@@ -535,6 +535,9 @@ inspect 继续基于同一 resolver 计完整预算，并返回超限分项和�
 确认只覆盖同一规则和输入，受宿主可用容量限制。Dreaming 无人值守用既定预算、角色投影、分片
 和复用处理超限；仍超限时记录单源缺口并继续。
 
+搜索路由包含检索、引用、交互收尾和前台 trace。Dreaming runner 在 tick 返回租约后按 job 解析 feature；
+maintenance 只需入口、机器协议和 Doctor 维护规则。process 续领报告时重新解析报告规则。
+
 普通 digest 的必读执行层是 `digest-core.md`、`digest-flow.md` 和 `digest-inline.md`，同时完整
 加载 machine-protocol、digest-dependencies、provenance、write-rules、conflict-policy、semantic-policy
 和所选来源规则。inline 承载标准抓取 request、packet/plan 交接、冲突召回、候选契约与日常语义
@@ -729,7 +732,10 @@ flowchart TB
         DA["lib/dreaming_analysis.py<br/>Finding/evidence/grant 校验"]
         DCO["lib/dreaming_consolidation.py<br/>history、投影与幂等 revision"]
         DPR["lib/dreaming_process.py<br/>process commit 编排"]
-        DRD["lib/dreaming_digest.py<br/>routine 来源快照、普通 digest 回执核验与 checkpoint"]
+        DSC["lib/dreaming_schedule.py<br/>到期时间与待补报告周期"]
+        DFIN["lib/dreaming_digest_completion.py<br/>来源登记与批次收尾"]
+        DVER["lib/dreaming_digest_receipts.py<br/>下游回执核验"]
+        DRD["lib/dreaming_digest.py<br/>routine 来源快照与 checkpoint"]
         DAP["lib/dreaming_action_policy.py<br/>有限动作与确定性门禁"]
         DAL["lib/dreaming_action_ledger.py<br/>claim fencing 与 receipt reconcile"]
         DREP["lib/dreaming_reports.py<br/>窗口、coverage、packet、outbox"]
@@ -809,6 +815,13 @@ flowchart TB
     DPR --> DA
     DPR --> DCO
     DPR --> DB
+    DR --> DSC
+    DSC --> DREP
+    DIRECT --> DFIN
+    DFIN --> DVER
+    DFIN --> DRD
+    DFIN --> DREP
+    DRD --> DVER
     DRD --> DST
     DRD --> SP
     DA --> DM
@@ -1217,7 +1230,8 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/lark_recipient.py` | 配置期把字母用户名通过 user 身份通讯录唯一解析为 open_id；open_id 直填兼容 | 否；失败或歧义时拒绝配置 |
 | `lib/dreaming_state.py` | `byteworker-dreaming/v2` 安全路径、`0700/0600`、共享 state lock、原子 JSON 与 v1→v2 迁移 | 仅写 Git 排除的 `state/dreaming/` |
 | `lib/dreaming_models.py` | EvidenceBatch、batch、FindingBundle、ActionPlan、ActionClaim 的结构校验 | 否 |
-| `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、interval/daily/every-N-days、next due、harness truth、fairness、退避、lease/heartbeat、process catch-up 后受限报告 follow-up、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
+| `lib/dreaming_schedule.py` | 计算各任务到期时间、待补报告周期及报告候选的覆盖要求 | 独立日报发布与租约调度共享同一个待补周期计算。租约发放、退避与优先级由 scheduler 决定 |
+| `lib/dreaming_scheduler.py` | 能力导览/运行计划/机器条件三启用闸门、harness truth、fairness、退避、lease/heartbeat、process catch-up 后受限报告 follow-up、maintenance 与报告 owner 冲突 | 通过 `dreaming_state.py` 写 local state |
 | `lib/dreaming_run_log.py` | 每个 run 的 leased/heartbeat/renewed/completed/expired 事件、白名单 metrics、终态关联私有摘要、轮转与查询 | `state/dreaming/run-logs/*.jsonl`，仅 `0600` 元数据 |
 | `lib/dreaming_diagnostics.py` | `tick` 先记宿主唤醒，再运行无人值守 preflight 和当前版本的调度器；`diagnose` 只读关联唤醒、实际调度决定、租约、run 日志和投递 | 唤醒记录使用共用技术存储；诊断读取不迁移、不领取、不重试 |
 | `lib/operation_trace.py` | 本机技术回执，字段与取值白名单、独立锁、有界保留 | 用户私有状态目录；与 KB 写锁和 Git 事务分离 |
@@ -1232,7 +1246,9 @@ HEAD/INDEX/工作区核验，不把 raw、provenance、候选、节点正文或�
 | `lib/dreaming_consolidation.py` | Finding event history、当前投影、跨 batch revision、重建和 grant purge | 私密 Finding state |
 | `lib/dreaming_process.py` | analysis receipt、可选 consolidation、batch commit/cursor 的幂等编排 | 仅通过 analysis/consolidation/batch owner |
 | `lib/routine_identity.py` | 为 INDEX 与 Dreaming 归并飞书文档的历史 UID 和文档链接，确认每个归并来源的 Profile 唯一 | 否 |
-| `lib/dreaming_digest.py` | 快照定期来源、关联子运行、记录成功或阻塞，收尾时按真实回执单调推进各来源覆盖 | `state/dreaming/digest-batches/` 与 `state.json.source_checkpoints` |
+| `lib/dreaming_digest.py` | 快照来源与配置版本、关联子运行、在接手旧批次时恢复回执、维护覆盖检查点 | 批次与状态写入使用同一把 Dreaming 状态锁 |
+| `lib/dreaming_digest_receipts.py` | 从下游事务、Wiki、聊天窗口和分片日志核验来源结果；登记与恢复复用相同核验 | 只读下游证据 |
+| `lib/dreaming_digest_completion.py` | 登记来源结果、核对整批清单与窗口、汇总实际变更 | 成功来源先登记回执再推进检查点，批次收尾在释放状态锁后刷新报告依赖 |
 | `lib/dreaming_digest_scan.py` | 通过公开 source 与 Digest facade 有界并发复查已登记来源，直接登记空窗口和无变化，隔离单源失败 | 通过既有 flow、run log 和批次 owner 写入 |
 | `lib/dreaming_action_policy.py` | 有限 action kind、Finding/evidence/coverage、确认与 report/archive/alert grant 门禁 | 否 |
 | `lib/dreaming_action_ledger.py` | planned/confirm/claimed/committed/cancelled/reconcile、lease epoch fencing、下游 receipt 对账 | 私密 action state 与 v2 索引 |
@@ -1303,7 +1319,7 @@ flowchart LR
 | `byteworker-report-automation/v1` | `report_automation.py` | 宿主任务是真相源；local-only；last attempt/run/success 可恢复；check 只对未成功 period 返回 due；单租约防重叠 |
 | `byteworker-settings/v1` | `settings.py` + viewer API | 配置聚合视图，不替代底层 truth source；Viewer 可修改访问保护、Dreaming 安全开关/频率/日志/摘要/本地任务偏好和 Source Profile routine；API 保留旧自动报告的只读兼容字段 |
 | `byteworker-dreaming/v2` | `dreaming_state.py` + `dreaming_scheduler.py` | 缺失即关闭；v1 原子备份后迁移；`0700/0600`；schedule/harness/harness_preferences/logging/grant/job/run/cursor/gap/receipt/source checkpoint；enabled 与 operational 分离；默认不接管报告 |
-| `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + Agent runner | 批次固定来源清单与 Profile revision，记录子运行、成功回执或失败码。清单漂移拒绝更新；部分完成只推进成功来源 |
+| `byteworker-dreaming-digest-batch/v1` / `byteworker-dreaming-digest-result/v1` | `dreaming_digest.py` + `dreaming_digest_completion.py` + Agent runner | 批次固定来源清单与 Profile revision，记录子运行、成功回执或失败码。清单漂移拒绝更新；部分完成只推进成功来源 |
 | `byteworker-dreaming-run-event/v1` | `dreaming_run_log.py` | 稳定 run_id；事件/stage/metrics 白名单；无业务正文；独立日志锁、5 MiB 轮转与 1..365 天保留 |
 | `byteworker-dreaming-run-result/v1` | Agent / 报告完成入口 + `dreaming_run_result.py` | 私有语义摘要和可选来源说明。耗时按租约核算，来源状态与库变更按下游回执核验，未知单列。诊断反馈不读取此正文 |
 | Dreaming 跨阶段结构契约 | `dreaming_models.py` | schema 白名单、必填结构、枚举和 evidence ref 形状；不复刻业务语义 |
@@ -1684,6 +1700,9 @@ byteworker/
 隐藏路径、内部 state/sources/provenance/journal 和越出 app/KB 根的符号链接
 始终拒绝；唯一的 state 静态例外是调试页链接的 reports/<id>/artifacts/report.html，
 同样要求 token 且禁止符号链接改道。前端为 KB 请求及日志页面、报告链接传递 token。
+
+浏览器的 `viewer/settings-save.js` 收集表单、生成字段差量并串行发送 PATCH。切页和关闭先等待保存；
+失败时允许重试或明确放弃。页面保留渲染和事件绑定，保存控制器通过回调更新界面。
 
 settings façade 持有共享 KB 写锁和 Dreaming 状态锁，在权限受限的系统临时目录上调用既有
 writer，先完成整个 patch 的校验与准备，再发布变化文件；失败按原始字节回滚。

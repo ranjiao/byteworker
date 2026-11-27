@@ -149,31 +149,5 @@ class AgentRouteContractTests(unittest.TestCase):
         self.assertNotIn("todo", self.workflows)
         self.assertNotIn("todo", self.manifest["budgets"])
 
-    def test_dreaming_routes_enable_tour_and_maintenance_on_demand(self):
-        features = self.workflows["dreaming"]["features"]
-        self.assertEqual(
-            ["references/dreaming-setup-guide.md"],
-            features["configure"],
-        )
-        self.assertEqual(
-            [
-                "references/dreaming-onboarding.md",
-                "references/dreaming-setup-guide.md",
-            ],
-            features["enable"],
-        )
-        self.assertEqual(
-            ["references/dreaming-maintenance.md"],
-            features["maintenance"],
-        )
-        self.assertEqual(["references/dreaming-routine.md"], features["routine_digest"])
-        self.assertEqual(
-            ["references/dreaming-trae-schedule.md"],
-            features["trae_schedule"],
-        )
-        self.assertNotIn("references/dreaming-trae-schedule.md", self.closure("dreaming"))
-        self.assertNotIn("harness_trae", features)
-
-
 if __name__ == "__main__":
     unittest.main()

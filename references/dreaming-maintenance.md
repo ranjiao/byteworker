@@ -5,6 +5,9 @@
 
 ## 执行
 
+领取后保留 lease 的 token、run_id 和 period。进入 maintenance 阶段、预计耗时的调用前及单阶段超过 60 秒时，
+调用 `dreaming heartbeat --kb "<KB>" --token "<LEASE>" --stage maintenance`。tick 已做无人值守预检，不再重复。
+
 1. 调用 `bin/byteworker doctor scan --kb "<KB>"`。退出码 2 表示扫描完成且有问题。
 2. 如有 `auto_fix` 为 `index` 或 `links` 的项，调用
    `bin/byteworker doctor fix --kb "<KB>" --only index,links`，以它的复扫结果为准。
@@ -13,9 +16,9 @@
 3. 把最终回执的 `data.maintenance_issues` 完整复制到结果文档的 `issues`。必须使用最后一次完整扫描的列表；
    空列表表示问题已清除。不要自行筛选、截断或把扫描失败当作空列表。
    若 facade 返回私密输出 artifact，先按机器协议读取并核验其中的 JSON，再提取所需字段。
-4. 通过 `dreaming complete --run-status success --result-input "<临时运行结果 JSON>"` 完成租约。
+4. 通过 `dreaming complete --kb "<KB>" --token "<LEASE>" --run-status success --result-input "<临时运行结果 JSON>"` 完成租约。
    `success` 表示本轮维护执行完成，允许仍有单条问题待处理。Doctor 退出 1、无法取得完整回执或
-   `transaction.execution_failed=true` 时，按技术失败完成并使用退避，不提交 `issues`。
+   `transaction.execution_failed=true` 时，以 failed 和稳定 --error-code 完成，由调度器退避，不提交 `issues`。
 5. 完成回执的 `maintenance.new` 最多包含 10 个首次出现或内容变化的问题。只向当前宿主任务结果
    汇总这些项和总数。未变化的项继续留在 `dreaming status` 的 `maintenance_issues`，后续扫描
    会移除已消失的项。不要发送额外消息或重复提醒。
