@@ -442,7 +442,7 @@ Digest 检查阶段复用 Bundle 和事务预检，直接返回 `committed/noop`
 业务事实的日期以原始证据为准。区间节选须回退到完整抓取，显式指定的日期或周次须精确匹配。
 白板预检兼容旧归档中顺序不同的等值节点数组，由适配层核验归档组件哈希及节点字段。
 来源进度和下游 run 关联写入批次。单源失败后继续其它独立来源，部分收尾只更新有完成证据的
-source checkpoint，报告仍等待全部相关来源覆盖。全量完成才允许 process 成功。初始启用不
+source checkpoint。自动日报允许带覆盖缺口出报。全量完成才允许 process 成功。初始启用不
 接管上述自动报告；`daily/weekly` job 默认关闭。后续迁移必须先
 释放旧 scheduler owner，并由 `migration_epoch` 保证同一 period 只有一个 owner。
 
@@ -464,20 +464,22 @@ source checkpoint，报告仍等待全部相关来源覆盖。全量完成才允
 launchd 代替宿主任务。
 
 ```text
-宿主 local tick
+宿主独立日报触发 / 普通 local tick 的预检前步骤
+  → dreaming report publish-due → 已验收快照 → Markdown 发布凭证
+普通 local tick
   → dreaming run-due
   → process（全部普通 routine digest + 可选 IM 分析）/ morning / maintenance / recovery（初始启用）
   → daily / weekly（显式迁移后）
   → process / maintenance / recovery：dreaming complete
   → morning / daily / weekly 成功：dreaming report complete（内部完成 lease）
   → 报告生成前 partial / failed：dreaming complete
-  → 日报补采逐批提交并复核目标窗口。成功后 follow-up 生成该期日报；若覆盖发生变化，续补同一目标
+  → 自动日报到期优先生成，普通覆盖缺口写入报告限制。process 继续独立推进来源覆盖
 ```
 
 调度器优先核验本地今天、昨天的到期日报、当日晨报和到期的定期摄取，再选历史报告与旧消息缺口。
 晨报使用知识库时区，当地 12:00 起跳过当天晨报并清除其补采依赖。领取、续期与归档共用这个截止时间；飞书投递也在发送前检查。之后仍优先处理近期 digest 和到期日报。
 日报、周报各自记录已发现和待发布的周期，成功归档后移除对应日期。
-普通 digest 和报告补采分别记录成功与重试时间。普通 digest 以领取时为截止时间，日报补采固定报告日期与截止时间。collection 按已提交的游标和剩余缺口选下一段，scheduler 收尾时复用同一计算并复核定期来源。报告按所引消息的发生时间选取补采发现。
+普通 digest 和报告补采分别记录成功与重试时间。普通 digest 以领取时为截止时间，已有日报补采租约兼容原固定窗口。collection 按已提交的游标和剩余缺口选下一段，scheduler 收尾时复用同一计算并复核定期来源。报告按所引消息的发生时间选取发现。
 开放式增量群聊由 source adapter 按批次窗口抓取。Digest 回执核验完整起止，分段检查点供报告复核历史缺口。
 消息游标落后于昨天零点时，租约和暂缓的历史缺口在同一状态锁内落盘。报告依赖按所选周期派生。普通领取和补采后的续跑都在状态锁内核对当前覆盖，替换同类报告的旧周期依赖。
 新缺口的补采优先；同一缺口的重复尝试遵守 process 退避并参与普通排序，让其它到期任务有机会运行。
@@ -492,8 +494,11 @@ Dreaming 只通过 `bin/byteworker` 公开入口调用 source、query、mutation
 并按调度自动重试。仅任务级授权或数据安全严重错误能阻断相关 job。DigestTxn 回滚失败向
 flow 与 Dreaming 传播固定错误码，防止被当成可重复写入的普通故障。
 旧 `SOURCE_REVIEW_REQUIRED` 结果的私有复核结构仍可读取，诊断和反馈只投影固定原因码。
-已准备分析的来源须完成或登记对应的失败证据才可收尾。Dreaming 从已关联的 Digest 日志核验
-失败证据，拒绝直接用部分完成或普通失败跳过批次收尾。严重状态错误和用户主动停止仍可结束租约。
+Dreaming 在批次收尾时从关联 Digest flow 恢复遗漏的持久成功回执，复用来源校验后推进检查点。
+受管摄取提交通过 `process digest-commit` 关联活跃租约和下游回执，来源验收后立即推进其检查点。
+process 心跳延长租约，过期后新尝试接手原窗口，复用已验收的来源、未完成的 Digest 关联和 IM 批次。
+IM 提交标记可以重放完整验收状态；报告只投影已验收事件。
+仍待处理的来源须登记成功或明确失败，已准备分析的来源失败须有对应日志证据。通用收尾拒绝绕过打开的批次，严重状态错误和用户主动停止仍可结束租约。定期群聊完整窗口已分析且无可入库事实时，Digest flow 可归档原文与定位，生成实际事务回执。独立日志命令不能把托管 Digest 标为成功。
 
 自动 IM 采集使用 14 天时间上限。collection 负责恢复窗口选择并在访问 provider 前再次核验时间。
 recovery 租约只提供最新的近期 IM 缺口，超龄部分保留为未覆盖历史。调度器淘汰超龄报告依赖，
@@ -1299,7 +1304,7 @@ flowchart LR
 | `byteworker-findings/v1` | `dreaming_consolidation.py` | history 是恢复源、projection 可重建；事件键 `batch_id+finding_id` 幂等 |
 | `byteworker-action-plan/v1` | Agent + `dreaming_action_policy.py` | action kind 白名单；policy_result、确认、recapture 和 coverage 由 Python 重算 |
 | `byteworker-action-claim/v1` | `dreaming_action_ledger.py` | run/lease epoch/grant revision 绑定；dedupe key；真实下游 receipt 后才 committed |
-| `byteworker-report-document/v1` | Agent + `dreaming_report_bundle.py` | 单一语义结果；300–500 字消息摘要；章节引用只能指向已声明来源 |
+| `byteworker-report-document/v1` | Agent + `dreaming_report_bundle.py` | 单一语义结果；日报摘要最多 500 字，晨报和周报为 300–500 字；章节引用只能指向已声明来源 |
 | `byteworker-report-artifacts/v1` | `dreaming_report_bundle.py` | 四类私密产物路径、归档快照路径、media type、audience 与 hash；HTML 预览不要求宿主私有 API |
 | `byteworker-finding-event/v1` | `dreaming_consolidation.py` | proposal/feedback 事件；request-id 幂等；projection 可重建 |
 | `byteworker-shadow-evaluation/v1` | `dreaming_evaluation.py` | 只含指标与 sample IDs；评估输入拒绝业务文本字段 |
@@ -1385,7 +1390,16 @@ Dreaming 报告核心生成本地 summary、Markdown、HTML、manifest 和 `repo
 归档快照，宿主按 manifest 选择预览方式。HTML 必须自包含且不加载
 外部脚本、样式、字体、图片或网络资源；宿主可自行预览，不能预览时返回本地文件链接。飞书发送失败只影响对应 outbox，
 不能删除本地产物或声称已经送达。
-报告完成在 Dreaming 状态锁内验证活跃租约、类型和周期后发布归档；独立 render 仅写私有临时预览。
+报告完成在 Dreaming 状态锁内验证活跃租约、类型、周期和覆盖后发布归档；独立 render 仅写私有临时预览。
+自动日报的普通消息和定期来源缺口在准备和发布时均转换为报告限制，不推进来源检查点。非法来源配置和未解决的知识库回滚失败仍阻断发布。
+独立基础日报不使用摄取租约，只用已验收的 Finding 和可按原始时间归期的 Git 归档事件。
+私有 Markdown 版本和待发布凭证先落盘，再原子替换用户归档。中断后重放发布凭证。
+事故与补充版本按周期记录，HTML 和投递不在基础发布路径中。
+手动补报由 `dreaming report start` 经 scheduler 领取指定日报或周报周期，不修改时间安排。
+用户逐项明确接受的定期来源缺口与说明保存在私有 lease；reports 层只对这些缺口提供 partial
+packet，不推进来源 checkpoint，不放行消息缺口或非法 Profile。completion 强制披露限制；
+scheduler 在发布锁内重查未接受的缺口。报告生成成功独立于来源处理成功，正式完成清除该周期
+欠账并保留原始来源失败记录。手动补报默认不投递，只有显式 `--deliver` 才使用已有投递配置。
 宿主确认只能更新 host outbox，飞书条目由机器人 adapter 用实际 message_id 确认。
 
 Dreaming 另有九条边界：缺失状态必须等同关闭；未记录当前版本能力导览、完整运行计划或机器

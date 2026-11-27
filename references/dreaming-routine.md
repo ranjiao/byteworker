@@ -8,7 +8,7 @@
 它也记录单个抓取失败，成功的其它来源继续。先处理返回的所有检查，再加载语义规则。
 
 - `status=pending` 且有 `check.status=changed` 的来源已完成预检，保留返回的 Digest 编号。
-- 日报补采以该报告的截止时间为目标，其它近期 process 以领取时间为目标；开放式增量群聊按批次的 `capture_window` 抓取并校验完整区间。其余来源按已登记 Profile 做增量或快照检查。
+- 近期 process 以领取时间为目标；历史日报补采租约仍使用原报告截止时间。开放式增量群聊按批次的 `capture_window` 抓取并校验完整区间。其余来源按已登记 Profile 做增量或快照检查。
 - `status=covered` 表示同一 Profile 的既有检查点已覆盖本次目标，常见于补跑旧报告；无需重复抓取。
 - 手动来源先调用 `dreaming process digest-source --kb <KB> --token <LEASE> --source-key <KEY>`。
   它打开或恢复该来源的 Digest，返回 `run_id` 和私有 `work_dir`，无需另行关联。
@@ -47,6 +47,9 @@ Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，
 `changed` 只说明采集 payload 变化，不代表有业务进展。主记录候选也必须执行
 `write-rules.md`「信息增量门槛」；已有来源无业务增量用 snapshot_only 保存快照，
 不把 digest-scan 计数、分片执行、未晋升说明或覆盖状态复制进知识节点。
+定期群聊窗口有消息，但完整分析后没有可入库事实时，沿用 `snapshot_only` 归档完整转写和来源定位，
+首次窗口也适用。已核验的空窗口和已归档的等值内容由 Digest flow 生成各自的回执。
+不要用 `digest-run complete` 把分析结果手工写成 `noop`。
 
 ## 无人值守时的处理顺序
 
@@ -103,7 +106,14 @@ Meego 使用工具生成的增量分析包。若返回 `candidate_generation`，
 `DREAMING_DIGEST_EXECUTION_REQUIRED` 时，按返回的 Digest 编号恢复执行或补记实际失败，再继续收尾。
 摘要说明缺口、原因及已尝试的处理。普通缺口不发起交互，也不把子运行置为 `digest-run wait`。
 
-最后调用 `dreaming process digest-complete --allow-partial`。成功来源各自推进有证据的覆盖，
+普通 Digest 可用 `dreaming process digest-commit --token <LEASE> --source-key <KEY> --plan <PLAN>`
+通过当前来源关联提交并验收。已提交但执行响应丢失时，命令可复用持久回执。
+已验收来源立即推进覆盖。进程中断失去租约后，下一次领取接手原窗口并复用相同 Profile 的产物，
+已推进的来源跳过，仍未完成的子运行继续。process 心跳同时续租。当前 token 是受管 IM 和定期
+摄取回执的执行权。
+
+最后调用 `dreaming process digest-complete --allow-partial`。工具从关联 Digest 恢复已提交或无变化但漏登记的回执，并按普通规则校验。仍待处理的来源会保持批次打开，直到登记成功或明确失败。
+成功来源各自推进有证据的覆盖，
 未完成来源保留缺口。返回 partial 时，用 `dreaming complete --run-status partial` 和实际错误码
 结束。普通缺口用 `DREAMING_DIGEST_INCOMPLETE`，严重错误用对应的稳定错误码。
 digest-complete 只汇总定期来源。普通 digest 与报告补采均需逐批提交缺失时段的消息，直到 prepare 返回 stage=covered。后续自动领取时重新核验目标窗口，复用有效的已保存进度。

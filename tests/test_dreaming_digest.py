@@ -19,6 +19,7 @@ from dreaming_digest import (  # noqa: E402
     complete_routine_digest,
     link_routine_digest,
     prepare_routine_digest,
+    record_routine_digest,
     record_routine_digest_result,
     routine_inventory,
 )
@@ -26,7 +27,7 @@ from digest_flow import fail_flow, flow_status, prepare_flow, start_flow  # noqa
 from digest_parallel import DigestParallelError, attempt_parallel_shard  # noqa: E402
 from digest_run_log import record_usage, show_run as show_digest_run  # noqa: E402
 from digest_txn import compute_payload  # noqa: E402
-from dreaming_digest_scan import _invoke, scan_routine_digest  # noqa: E402
+from dreaming_digest_scan import _invoke, commit_routine_source, scan_routine_digest  # noqa: E402
 from dreaming_reports import report_dependency  # noqa: E402
 from dreaming_run_log import show_run  # noqa: E402
 from dreaming_run_result import RESULT_SCHEMA as RUN_RESULT_SCHEMA  # noqa: E402
@@ -413,6 +414,80 @@ class DreamingDigestTests(unittest.TestCase):
             self.assertEqual("covered", report_dependency(kb, kind="morning", period="2026-08-04")["status"])
             self.assertEqual([], list((kb / "raw_data").iterdir()))
 
+    def test_nonempty_chat_without_business_facts_archives_and_recovers_missing_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            acquired = datetime.now(timezone.utc)
+            kb = self.make_kb(Path(temporary), acquired - timedelta(hours=4))
+            subprocess.run(["git", "init", "-q"], cwd=kb, check=True)
+            for key, value in (("user.name", "Test"), ("user.email", "test@example.test")):
+                subprocess.run(["git", "config", key, value], cwd=kb, check=True)
+            (kb / "knowledge").mkdir()
+            self.save_profile(kb, feishu_chat_profile())
+            lease = run_due(kb, owner="host", now=acquired)["lease"]
+            token = lease["token"]
+            source = prepare_routine_digest(kb, token=token)["sources"][0]
+            child = start_flow(kb, source_type="feishu_chat", source_ref=source["source_uid"])
+            run_id, work = child["run_id"], Path(child["work_dir"])
+            link_routine_digest(kb, token=token, source_key=source["source_key"], digest_run_id=run_id)
+
+            transcript = work / "transcript.txt"
+            transcript.write_text("收到。\n", encoding="utf-8")
+            window = source["capture_window"]
+            request = work / "request.json"
+            request.write_text(json.dumps({
+                "source_uid": source["source_uid"], "title": "Synthetic chat",
+                "source_window": window, "transcript": {"path": str(transcript)},
+                "locator_artifact": {
+                    "schema_version": "byteworker-source-locators/v1", "source_type": "feishu_chat",
+                    "source_chat_id": source["source_uid"], "source_window": window, "anchors": [{
+                        "anchor_id": "chat:message:om_fixture", "kind": "chat_message", "precision": "exact",
+                        "open_url": "https://example.test/message/om_fixture", "quote": "收到。",
+                        "locator": {"chat_id": source["source_uid"], "message_id": "om_fixture", "thread_id": ""},
+                    }],
+                },
+                "provider_metadata": {
+                    "capture_mode": "since-last", "message_count": 1, "page_count": 1,
+                    "source_profile": {"revision": source["profile_revision"]},
+                },
+            }), encoding="utf-8")
+            prepared = prepare_flow(kb, run_id=run_id, bundle_request=request, routine=True)
+            self.assertEqual("prepared", prepared["phase"])
+            with self.assertRaises(DreamingError) as rejected:
+                _invoke(ROOT, "digest-run", "complete", "--kb", str(kb), "--run-id", run_id,
+                        "--status", "noop")
+            self.assertEqual("DIGEST_FLOW_RECEIPT_REQUIRED", rejected.exception.code)
+            with self.assertRaises(DreamingError) as missing:
+                record_routine_digest(kb, token=token, result={
+                    **source, "status": "noop", "receipt": {"status": "noop"},
+                })
+            self.assertEqual("DREAMING_DIGEST_RESULT_INVALID", missing.exception.code)
+
+            plan = work / "plan.json"
+            plan.write_text(json.dumps({
+                "schema_version": "digest-plan/v2", "source_bundle": str(work / "source-bundle.json"),
+                "raw": {"raw_id": "raw-chat-fixture", "path": "raw_data/fixture.md"},
+                "knowledge_effect": "snapshot_only", "nodes": [],
+                "journal": {"summary": "Reviewed chat window"}, "commit": {"message": "Archive chat window"},
+            }), encoding="utf-8")
+            with patch("dreaming_digest_scan.record_routine_digest", side_effect=OSError("lost coordinator response")):
+                with self.assertRaises(OSError):
+                    commit_routine_source(kb, token=token, source_key=source["source_key"],
+                                          plan=plan, skill_root=ROOT)
+            receipt = flow_status(kb, run_id=run_id)["receipt"]
+            self.assertEqual("committed", receipt["status"])
+            self.assertTrue((kb / receipt["provenance"]).is_file())
+            self.assertEqual([], list((kb / "knowledge").rglob("*.md")))
+
+            # Simulate the worker ending after commit and before digest-record.
+            self.assertEqual("pending", prepare_routine_digest(kb, token=token)["sources"][0]["status"])
+            result = complete_routine_digest(kb, token=token, allow_partial=True)
+            self.assertEqual(("completed", 1), (result["status"], result["committed_count"]))
+            state = load_state_unlocked(kb, datetime.now(timezone.utc))
+            checkpoint = state["source_checkpoints"][source["source_key"]]
+            self.assertEqual(receipt["digest_key"], checkpoint["digest_key"])
+            self.assertEqual("committed", checkpoint["result_status"])
+            complete_run(kb, token=token, run_status="success")
+
     def test_chat_backfill_merges_only_verified_intervals(self):
         from dreaming_digest import _record_chat_window, source_covers_window
 
@@ -507,6 +582,12 @@ class DreamingDigestTests(unittest.TestCase):
                 kb, run_id=child, stage="classify", worker_role="coordinator", usage_source="measured",
                 call_id="synthetic-timing-only", call_duration_ms=200, usage={},
             )
+            with self.assertRaises(DreamingError) as early:
+                complete_routine_digest(kb, token=token, allow_partial=True)
+            self.assertEqual("DREAMING_DIGEST_EXECUTION_REQUIRED", early.exception.code)
+            record_routine_digest(kb, token=token, result={
+                **sources["feishu_doc"], "status": "blocked", "error_code": "SOURCE_AUTH_REQUIRED",
+            })
             result = complete_routine_digest(kb, token=token, allow_partial=True)
             self.assertEqual(("partial", 2), (result["status"], result["incomplete_count"]))
             state = load_state_unlocked(kb, datetime.now(timezone.utc))
@@ -574,7 +655,15 @@ class DreamingDigestTests(unittest.TestCase):
             }))
             record_routine_digest_result(kb, token=lease["token"], input_path=result_path, now=finished)
 
-            summary = "仅完成一个来源，另一个来源未登记完成。"
+            with self.assertRaises(DreamingError) as early:
+                complete_run(kb, token=lease["token"], run_status="partial",
+                             error_code="DREAMING_DIGEST_INCOMPLETE", now=finished)
+            self.assertEqual("DREAMING_DIGEST_EXECUTION_REQUIRED", early.exception.code)
+            chat = next(row for row in batch["sources"] if row["source_type"] == "feishu_chat")
+            record_routine_digest(kb, token=lease["token"], now=finished,
+                                  result={**chat, "status": "failed", "error_code": "SOURCE_AUTH_REQUIRED"})
+            complete_routine_digest(kb, token=lease["token"], allow_partial=True, now=finished)
+            summary = "仅完成一个来源，另一个来源无法访问。"
             completed = complete_run(
                 kb, token=lease["token"], run_status="failed", error_code="SOURCE_AUTH_REQUIRED", now=finished,
                 result_document={
@@ -587,7 +676,7 @@ class DreamingDigestTests(unittest.TestCase):
             self.assertEqual(summary, logged["summary"]["summary"])
             brief = logged["summary"]["brief"]
             self.assertIn("本次完成 1 个", brief)
-            self.assertIn("尚未完成", brief)
+            self.assertIn("失败 1", brief)
             self.assertIn("《样例图形》", brief)
             self.assertIn("《reading-new》", brief)
             self.assertNotIn("duration_ms", brief)
@@ -598,7 +687,7 @@ class DreamingDigestTests(unittest.TestCase):
                 {"digest_commits": 1, "files_changed": 3, "nodes_created": 1, "nodes_updated": 1, "nodes_deleted": 0},
                 accounting["kb_operations"],
             )
-            self.assertEqual({"committed", "pending"}, {row["status"] for row in accounting["routine_sources"]})
+            self.assertEqual({"committed", "failed"}, {row["status"] for row in accounting["routine_sources"]})
             self.assertEqual(completed["result_path"], logged["events"][-1]["result_path"])
             self.assertNotIn(summary, json.dumps(logged["events"], ensure_ascii=False))
             self.assertNotIn("summary", show_run(kb, run_id=lease["run_id"], include_summary=False))
@@ -610,10 +699,14 @@ class DreamingDigestTests(unittest.TestCase):
             profile = self.profile()
             self.save_profile(kb, profile)
             leased = run_due(kb, owner="host", now=enabled_at + timedelta(hours=2))
-            prepare_routine_digest(
+            batch = prepare_routine_digest(
                 kb,
                 token=leased["lease"]["token"],
                 now=enabled_at + timedelta(hours=2),
+            )
+            record_routine_digest(
+                kb, token=leased["lease"]["token"], now=enabled_at + timedelta(hours=2),
+                result={**batch["sources"][0], "status": "failed", "error_code": "SOURCE_AUTH_REQUIRED"},
             )
             profile["capture_policy"]["max_items"] = 600
             self.save_profile(kb, profile)
@@ -622,12 +715,9 @@ class DreamingDigestTests(unittest.TestCase):
                 complete_routine_digest(
                     kb,
                     token=leased["lease"]["token"],
-                    now=enabled_at + timedelta(hours=2, minutes=1),
+                    now=enabled_at + timedelta(hours=2, minutes=1), allow_partial=True,
                 )
-            self.assertIn(
-                caught.exception.code,
-                {"DREAMING_DIGEST_INCOMPLETE", "DREAMING_DIGEST_INVENTORY_CHANGED"},
-            )
+            self.assertEqual("DREAMING_DIGEST_INVENTORY_CHANGED", caught.exception.code)
 
     def test_inventory_covers_all_profile_source_types(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

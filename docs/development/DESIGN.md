@@ -535,7 +535,7 @@ state/dreaming/
 `committed/noop`。群聊还接受 `empty_window`，来源结果引用确定性准备回执的 `digest_run_id`，
 据此核验私有 Bundle 并记录 UTC 窗口起止。空窗口 checkpoint 保存 `digest_run_id`，不需要
 `digest_key` 或 raw。Wiki 子树只接受 coverage complete 且 tree hash 可复验的 scan `observed`。
-收尾前重新枚举来源；清单或 revision 漂移拒绝更新 `source_checkpoints`。partial 只推进有
+收尾时恢复关联 Digest flow 中遗漏的持久成功回执。来源仍为 pending 时拒绝关闭批次。清单或 revision 漂移拒绝更新 `source_checkpoints`。partial 只推进有
 核验回执的来源，同版本已覆盖到更晚时间的 checkpoint 不回退。完整批次才允许 process 成功。
 同一来源配置的 checkpoint 已覆盖本次目标时，补跑批次可记 `covered`，保留原检查点。
 Digest flow 增加 `checked`，保存已预检的 Bundle。分片结果保存在各计划目录 `results/`，
@@ -632,13 +632,19 @@ state/dreaming/
 reports/<kind>/<period>.md
 ```
 
+- 受管 process 租约有稳定的 `work_id`、尝试 run ID、有效期与续租时长。过期时保存
+  `interrupted_process`，接手保留目标窗口并复用匹配的来源关联。IM 批次关联 `process_work_id`，
+  采集完成后先保存临时索引凭证于 `im-work/<work-id>/<batch-id>.json`，索引写入成功后清除。
+  已验收状态由 commit marker 重放。旧数据没有字段时保留既有入口。
+- 独立日报在 `reports/daily-<period>/deadline/` 保存私有 Markdown 版本和
+  `byteworker-deadline-daily/v1` 发布凭证，含截止时间、首版发布时间、版本、校验值和发布状态。
+  日报 job 保存最后一次独立发布及按周期记录的事故。归档发现兼容旧日报文件。
 - 报告窗口：morning 为前一日 20:30 至当日 10:00；当日领取的自动 daily 从 00:00 覆盖至配置的出报时间，
   跨日补跑 daily 覆盖完整自然日。prepare 按租约领取时确定的窗口复核。weekly 为完整 ISO 周。均按 Dreaming timezone 计算后保存 UTC。
-- IM cursor 落后、gap 与窗口重叠，或任一定期来源 checkpoint 未覆盖窗口结束时间时，报告 job
-  写 `blocked_by`，scheduler 先领取独立 process
-  catch-up lease。日报补采的 `report_target` 在租约和成功记录保存 period、scheduled_at 和 through。
-  消息每批提交后继续按游标和剩余缺口选段，定期来源与消息均覆盖该窗口才允许成功。runner 用该
-  `run_id` 续领指定日报，若覆盖变化则继续补同一日报。旧补采记录仍可续领已就绪的报告。
+- 消息游标落后、gap 与窗口重叠或定期来源缺少覆盖时，自动日报将缺口记录为
+  `partial_reasons[].kind=daily_coverage_gap`，按现有材料归档并从 `pending_periods` 移除。
+  日报租约使用 `report_target` 保存 period、scheduled_at 和 through。报告准备及发布使用同一窗口。
+  晨报和周报保留 `blocked_by` 与独立补采。已有日报补采租约仍使用原窗口。
 - 新消息 Finding 按本次引用消息中最晚的发生时间保存 `occurred_at`，报告据此选期；旧记录缺该字段时沿用 updated_at。
 - daily/weekly job 以 `scheduled_through` 记录已枚举周期，`pending_periods` 保存未归档周期及其计划时间。
   首次枚举从启用或接管时起，跳过现有归档和已成功周期。近期 process 租约新增 `im_window`，
@@ -654,8 +660,8 @@ reports/<kind>/<period>.md
 - report packet 只包含 committed Finding 投影、coverage 和 durable KB 查询指针，不读取 spool；
   文件 `0600`。报告事实仍必须通过 citations 回到原始 evidence。
 - Agent 只生成一次 `byteworker-report-document/v1` 语义结果；`dreaming_report_completion.py`
-  是报告 job 的唯一成功出口，调用 `dreaming_report_bundle.py` 校验并确定性派生 300–500 字
-  `summary.txt`、内部审计用 `report.md`、面向用户的 `report.html`、用户可编辑的
+  是报告 job 的唯一成功出口，调用 `dreaming_report_bundle.py` 校验并确定性派生
+  `summary.txt`（日报最多 500 字，晨报和周报为 300–500 字）、内部审计用 `report.md`、面向用户的 `report.html`、用户可编辑的
   `reports/<kind>/<period>.md` 归档快照和 `byteworker-report-artifacts/v1` manifest。私密产物
   为 `0600`，归档快照为普通用户文件；manifest 记录相对/绝对路径、media type、audience 与
   SHA-256。
@@ -665,6 +671,9 @@ reports/<kind>/<period>.md
 - `report complete` 必须在完成 lease 时写入 `artifact_path=reports/<kind>/<period>.md`。归档快照
   重跑时保留“手动补充 / 备注”；delivery outbox 独立维护 pending/delivered/skipped，不以报告落地冒充
   送达。
+- 显式补报 lease 及完成回执可附加 `manual_report`，含 `accepted_source_gaps`（逐项来源键）、
+  `gap_note`（用户授权的限制说明）与 `deliver`（默认 false）。缺口说明加入正式报告
+  `coverage.notes`，未覆盖来源保留 checkpoint 原值；不改变 report document / packet schema 版本。
 - outbox 每项保存 `channel/artifact/recipient_id`。飞书通道只接受 summary 和明确的用户 open ID，
   使用 outbox id 作为幂等键；仅应用机器人返回真实 `message_id` 后标记 delivered。投递失败保持
   pending。晨报到本地 12:00 后再次投递时转为 skipped，reason 为 morning_cutoff，保留已有归档。
@@ -896,7 +905,7 @@ anchors；`digest-batch-plan/v1` 保持只读兼容。batch
 该模式只用于已有知识的同源新版本：工具验证历史 raw 已提交且干净、关联节点存在，继承 digest_targets，
 写新 raw/provenance/INDEX/journal 并提交，知识节点逐字保持。新 raw 记录 knowledge_effect=snapshot_only。
 节点 sources、evidence、primary_source 和日期不更新，不能将新快照当作旧事实的新证据。
-首次摄取及批量合并仍要求实质节点候选；不用空节点绕过初次摘要。
+首次摄取通常要求实质节点候选。定期群聊经已准备的 Digest flow 验证完整采集窗口、分页和来源定位后，分析确认无可入库事实，可仅保存 raw 与 provenance。批量合并仍要求实质节点候选。
 节点写入拒绝新引入的 frontmatter 结构错误，报告写入拒绝新引入的缺失引用条目。
 
 `SourceBundle` 不定义统一正文 AST，也不要求飞书文档、群聊、妙记、Web、本地资料、
@@ -1548,7 +1557,7 @@ reports/
     projection、coverage 与 durable KB 查询指针，不读取 spool，也不在报告 job 内重跑 digest；
     必须通过 include_report Action claim 提交。
 - **展示边界**:Dreaming 的 Markdown 是 Agent 内部记录、引用审计和 KB mutation 输入，不作为
-  主要用户界面；用户收到 300–500 字消息摘要，并通过自包含 HTML 查看详细版本。宿主不能预览
+  主要用户界面；用户收到简短消息摘要，并通过自包含 HTML 查看详细版本。宿主不能预览
   HTML 时返回本地文件链接，不依赖任何宿主私有接口。
 - **模板**:skill 目录 `templates/report-daily.md`、`templates/report-weekly.md`、
   `templates/report-morning.md`。

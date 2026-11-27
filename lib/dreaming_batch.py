@@ -48,6 +48,17 @@ def _batch_dir(kb: Path, batch_id: str) -> Path:
     return secure_path(kb, "batches", batch_id)
 
 
+def require_work_owner(state: Mapping[str, Any], token: str, now: datetime,
+                       work_id: str = "") -> str:
+    lease = state.get("active_lease") or {}
+    expires = parse_time(lease.get("expires_at"))
+    active_work = lease.get("work_id") or lease.get("run_id")
+    if (not token or token != lease.get("token") or lease.get("job") != "process"
+            or not expires or expires <= now or (work_id and active_work != work_id)):
+        raise DreamingError("DREAMING_LEASE_MISMATCH", "IM 工作项需要当前有效的 process 租约。")
+    return active_work
+
+
 def create_collected_batch(
     kb: Path,
     *,
@@ -57,6 +68,7 @@ def create_collected_batch(
     messages: list[Mapping[str, Any]],
     grant_revision: int,
     foreground_token: str = "",
+    process_token: str = "",
     skipped_window: Mapping[str, str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -64,6 +76,7 @@ def create_collected_batch(
     batch_id = "EB-" + uuid.uuid4().hex
     with state_lock(kb):
         state = load_state_unlocked(kb, current)
+        work_id = require_work_owner(state, process_token, current) if process_token else ""
         grants = state["grants"]
         if grants["revision"] != grant_revision:
             raise DreamingError(
@@ -151,25 +164,30 @@ def create_collected_batch(
         }
         validate_dreaming_batch(batch)
         atomic_write_json(batch_dir / "batch.json", batch)
-        state["runs"][batch_id] = {
+        run = {
             "stage": "collected",
             "manifest": f"state/dreaming/batches/{batch_id}/manifest.json",
             "grant_revision": grant_revision,
             "foreground_token": foreground_token,
+            **({"process_work_id": work_id, "lane": lane, "window": dict(window)} if work_id else {}),
             "updated_at": utc_iso(current),
         }
         gaps = list(coverage.get("gaps", []))
         if skipped_window:
             gaps.append(dict(skipped_window))
-        if gaps:
-            state["gaps"][batch_id] = {
-                "source_type": source.get("source_type"),
-                "lane": lane,
-                "windows": gaps,
-                "created_at": utc_iso(current),
-            }
+        gap = {"source_type": source.get("source_type"), "lane": lane, "windows": gaps,
+               "created_at": utc_iso(current)} if gaps else None
+        intent = None
+        if work_id:
+            intent = secure_path(kb, "im-work", work_id, f"{batch_id}.json")
+            atomic_write_json(intent, {"run": run, "gap": gap})
+        state["runs"][batch_id] = run
+        if gap:
+            state["gaps"][batch_id] = gap
         state["updated_at"] = utc_iso(current)
         save_state_unlocked(kb, state)
+        if intent is not None:
+            intent.unlink(missing_ok=True)
     return {
         "batch_id": batch_id,
         "stage": "collected",
@@ -177,6 +195,41 @@ def create_collected_batch(
         "item_count": len(items),
         "coverage": dict(coverage),
     }
+
+
+def recover_collected_work(kb: Path, *, token: str, now: datetime) -> None:
+    """Accept a complete capture when the worker stopped before indexing it."""
+    from dreaming_analysis import load_evidence_batch
+
+    with state_lock(kb):
+        state = load_state_unlocked(kb, now)
+        work_id = require_work_owner(state, token, now)
+        directory = secure_path(kb, "im-work", work_id)
+        recovered = []
+        for intent in directory.glob("*.json"):
+            batch_id = intent.stem
+            if batch_id in state["runs"]:
+                intent.unlink(missing_ok=True)
+                continue
+            try:
+                value = json.loads(intent.read_text(encoding="utf-8"))
+                run = value["run"]
+                evidence = load_evidence_batch(kb, batch_id)
+            except (OSError, ValueError, KeyError, TypeError, DreamingError):
+                continue
+            revision = evidence["source"]["grant_revision"]
+            if (run.get("process_work_id") != work_id or run.get("grant_revision") != revision
+                    or revision != state["grants"]["revision"]):
+                intent.unlink(missing_ok=True)
+                continue
+            state["runs"][batch_id] = run
+            if value.get("gap"):
+                state["gaps"][batch_id] = value["gap"]
+            recovered.append(intent)
+        if recovered:
+            save_state_unlocked(kb, state)
+            for intent in recovered:
+                intent.unlink(missing_ok=True)
 
 
 def write_stage_receipt(
@@ -259,6 +312,7 @@ def commit_batch(
     batch_id: str,
     cursor_key: str,
     through: str,
+    process_token: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
@@ -278,6 +332,8 @@ def commit_batch(
                 "DREAMING_BATCH_NOT_READY",
                 "batch 尚未完成 consolidation。",
             )
+        if run.get("process_work_id"):
+            require_work_owner(state, process_token, current, run["process_work_id"])
         foreground_token = str(run.get("foreground_token", ""))
         if (
             not foreground_token
@@ -302,41 +358,69 @@ def commit_batch(
             "committed_at": utc_iso(current),
         }
         atomic_write_json(batch_dir / "batch.commit.json", marker)
-        try:
-            manifest = json.loads(
-                (batch_dir / "manifest.json").read_text(encoding="utf-8")
-            )
-        except (OSError, json.JSONDecodeError):
-            manifest = {}
-        coverage = manifest.get("coverage") if isinstance(manifest, Mapping) else {}
-        source = manifest.get("source") if isinstance(manifest, Mapping) else {}
-        window = manifest.get("window") if isinstance(manifest, Mapping) else {}
-        if (
-            isinstance(coverage, Mapping)
-            and not coverage.get("gaps")
-            and isinstance(source, Mapping)
-            and isinstance(window, Mapping)
-        ):
-            lane = source.get("lane")
-            start = parse_time(window.get("requested_start"))
-            end = parse_time(window.get("requested_end"))
-            if start is not None and end is not None and start < end:
-                for gap_id, gap in list(state["gaps"].items()):
-                    if not isinstance(gap, dict) or gap.get("lane") != lane:
-                        continue
-                    remaining = [
-                        fragment for item in gap.get("windows", []) for fragment in _subtract_gap(item, start, end)
-                    ]
-                    if remaining:
-                        gap["windows"] = remaining
-                    else:
-                        state["gaps"].pop(gap_id, None)
-        _advance_cursor(state, marker, current)
-        run["stage"] = "committed"
-        run["updated_at"] = utc_iso(current)
-        state["receipt_index"][batch_id] = marker
-        state["updated_at"] = utc_iso(current)
+        _apply_commit(kb, state, marker, current)
         save_state_unlocked(kb, state)
+    return marker
+
+
+def _apply_commit(kb: Path, state: dict[str, Any], marker: Mapping[str, Any],
+                  current: datetime) -> None:
+    batch_id = marker["batch_id"]
+    batch_dir = _batch_dir(kb, batch_id)
+    run = state["runs"][batch_id]
+    try:
+        manifest = json.loads(
+            (batch_dir / "manifest.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        manifest = {}
+    coverage = manifest.get("coverage") if isinstance(manifest, Mapping) else {}
+    source = manifest.get("source") if isinstance(manifest, Mapping) else {}
+    window = manifest.get("window") if isinstance(manifest, Mapping) else {}
+    if (
+        isinstance(coverage, Mapping)
+        and not coverage.get("gaps")
+        and isinstance(source, Mapping)
+        and isinstance(window, Mapping)
+    ):
+        lane = source.get("lane")
+        start = parse_time(window.get("requested_start"))
+        end = parse_time(window.get("requested_end"))
+        if start is not None and end is not None and start < end:
+            for gap_id, gap in list(state["gaps"].items()):
+                if not isinstance(gap, dict) or gap.get("lane") != lane:
+                    continue
+                remaining = [
+                    fragment for item in gap.get("windows", []) for fragment in _subtract_gap(item, start, end)
+                ]
+                if remaining:
+                    gap["windows"] = remaining
+                else:
+                    state["gaps"].pop(gap_id, None)
+    _advance_cursor(state, marker, current)
+    run["stage"] = "committed"
+    run["updated_at"] = utc_iso(current)
+    state["receipt_index"][batch_id] = marker
+    state["updated_at"] = utc_iso(current)
+
+
+def verified_commit_marker(kb: Path, state: Mapping[str, Any], batch_id: str) -> dict[str, Any] | None:
+    run = state["runs"].get(batch_id)
+    if not isinstance(run, Mapping) or run.get("stage") in {"revoked", "aborted"}:
+        return None
+    path = _batch_dir(kb, batch_id)
+    try:
+        marker = json.loads((path / "batch.commit.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if (not isinstance(marker, dict) or marker.get("batch_id") != batch_id
+            or marker.get("stage") != "committed"
+            or not all(isinstance(marker.get(key), str) and marker[key] for key in ("cursor_key", "through"))
+            or not (path / "consolidation.receipt.json").is_file()):
+        return None
+    if (state["receipt_index"].get(batch_id) != marker
+            and run.get("grant_revision") != state["grants"]["revision"]):
+        return None
     return marker
 
 
@@ -351,15 +435,17 @@ def recover_committed_cursors(
         state = load_state_unlocked(kb, current)
         root = secure_path(kb, "batches")
         for marker_path in root.glob("*/batch.commit.json") if root.is_dir() else []:
-            try:
-                marker = json.loads(marker_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+            batch_id = marker_path.parent.name
+            marker = verified_commit_marker(kb, state, batch_id)
+            if marker is None:
                 continue
-            if not isinstance(marker, dict) or not all(
-                isinstance(marker.get(key), str) and marker[key] for key in ("cursor_key", "batch_id", "through")
-            ):
-                continue
-            repaired += _advance_cursor(state, marker, current)
+            run = state["runs"][batch_id]
+            indexed = state["receipt_index"].get(batch_id) == marker and run.get("stage") == "committed"
+            if indexed:
+                repaired += _advance_cursor(state, marker, current)
+            else:
+                _apply_commit(kb, state, marker, current)
+                repaired += 1
         if repaired:
             state["updated_at"] = utc_iso(current)
             save_state_unlocked(kb, state)

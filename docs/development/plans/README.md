@@ -4,3 +4,5 @@
 
 完成、取消或被替代的计划移到 [`../archive/initiatives/`](../archive/initiatives/)。
 历史设计里的问题经重新确认后再列入当前计划。
+
+- [Dreaming 日报保障与任务恢复方案](dreaming-workflow-reliability.md)

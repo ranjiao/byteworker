@@ -218,14 +218,16 @@ Finding 或 job。先读取 status，从未完成的步骤继续。只修改一�
   `process prepare` 只生成私密 EvidenceBatch，不调用模型、不写 Finding/报告/知识。
 - `process prepare` 后的 Agent 分析必须读 `references/dreaming-analysis.md`；Finding 持久与去重
   规则见 `references/dreaming-consolidation.md`。Agent 不直接编辑 Finding history/projection。
-- 近期 digest 独立计时，按 `references/dreaming-routine.md` 逐源核验、逐段续采。补齐后同轮出日报。
+- 近期 digest 独立计时，按 `references/dreaming-routine.md` 逐源核验、逐段续采。批次收尾自动找回已关联的下游成功回执，未登记结果的来源会保持批次打开。
   滚动文档按周期抓取。自动选择最新周期但完整正文无法识别周期时，按本轮快照复查。外链过多时只分析当前文档。
   Meego 按快照差异分析；核验宿主错误后自动缩片并逐片保存。无法继续时暂缓该来源。
 - 自动 IM 补跑只看最近 14 天，历史窗口可按需前台处理。
 - 任何报告、来源或知识动作必须读 `references/dreaming-actions.md`，先 plan/claim 并在
   下游调用前 validate-claim；不得绕过 Ledger 或自行重试 reconcile action。
 - morning/daily/weekly 由唯一 owner 按 `references/dreaming-reports.md` 运行。晨报只在本地工作日 12:00 前生成和发送。错过就跳过，优先摄取今天和昨天的信息并生成到期日报，之后回补历史。
-  报告复核覆盖，只用已提交的 digest、Finding 和 KB。
+  自动日报通过 `dreaming report publish-due` 独立归档 Markdown。宿主在截止时间触发；普通 tick 在预检前也检查。仅使用已验收消息和归档事件，后续回执可补进同一期。
+  process 心跳续租，过期后新尝试接手原窗口和仍适用的摄取进度。晨报、周报依照各自的覆盖门槛。
+- 指定周期补报须 start → prepare → complete；用户接受的来源缺口按上述报告规则披露。
 - maintenance job 按 `references/dreaming-maintenance.md` 调用公开 doctor facade，只执行获准的
   确定性修复。人工待办逐项保留，只汇总新增或变化项，后续扫描继续运行。
 - 前台单次处理、Finding review/explain/feedback 和私有 shadow 评估按

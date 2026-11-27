@@ -41,7 +41,7 @@
 
 已有来源无业务增量时，单来源 v2 可设置 `knowledge_effect: snapshot_only`、`nodes: []`。
 工具验证干净且已提交的同源历史 raw 及其节点关联，仅归档新 raw/provenance，知识节点不变。
-首次摄取不接受该模式；默认 knowledge_effect=update 仍要求非空节点。单来源与批量事务均在
+首次摄取通常需要实质节点。定期群聊经 Digest flow 核验了完整窗口、分页与消息定位，且完成分析后没有可入库事实时，可以归档 raw/provenance 并保留空的节点关联。默认 knowledge_effect=update 仍要求非空节点。单来源与批量事务均在
 共享写锁内一次读取和完整校验，复用本次输入后写入。独立 validate 只用于排障。
 
 `digest-plan/v1` 保留给已有调用方和未迁移来源，不是新增 adapter 的目标格式。所有 bundle、

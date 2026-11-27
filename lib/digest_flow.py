@@ -35,7 +35,7 @@ from sources.adapters.feishu_doc_scope import (
     scoped_document_anchors,
     whiteboard_tokens,
 )
-from sources.adapters.text import empty_chat_window
+from sources.adapters.text import allows_unlinked_routine_chat_snapshot, empty_chat_window
 
 
 FLOW_SCHEMA = "byteworker-digest-flow/v1"
@@ -600,7 +600,13 @@ def _commit_flow_unlocked(
         detail_code="DIGEST_FLOW_TRANSACTION_STARTED",
     )
     try:
-        receipt = executor(kb, plan, skill_root, prepared_source=PreparedSource(bundle_path, bundle_hash, digest_key))
+        allow_unlinked_snapshot = bool(state.get("routine")) and allows_unlinked_routine_chat_snapshot(
+            load_source_bundle(bundle_path),
+        )
+        receipt = executor(
+            kb, plan, skill_root,
+            prepared_source=PreparedSource(bundle_path, bundle_hash, digest_key, allow_unlinked_snapshot),
+        )
         status = str(receipt.get("status", ""))
         if status not in {"committed", "noop"}:
             raise DigestFlowError(

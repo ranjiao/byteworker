@@ -58,7 +58,7 @@ class DocumentationCatalogTests(unittest.TestCase):
                     self.assertEqual("historical", status)
                 elif "/evidence/benchmarks/" in path or "/evidence/reviews/" in path:
                     self.assertEqual("point_in_time", status)
-                elif path.endswith("/plans/backlog.md"):
+                elif "/plans/" in path and not path.endswith("/README.md"):
                     self.assertEqual("active", status)
                 else:
                     self.assertEqual("current", status)

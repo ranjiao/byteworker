@@ -119,6 +119,29 @@ def prepare_manual_source(kb: Path, *, token: str, source_key: str, skill_root: 
     return {**flow, "source_key": source_key, "source_uid": source["source_uid"]}
 
 
+def commit_routine_source(kb: Path, *, token: str, source_key: str,
+                          plan: Path, skill_root: Path) -> dict[str, Any]:
+    """Commit and accept through the linked source, including retries after commit."""
+    batch = prepare_routine_digest(kb, token=token)
+    source = next((row for row in batch["sources"] if row["source_key"] == source_key), None)
+    run_id = (source or {}).get("work", {}).get("digest_run_id")
+    if not run_id or source["workflow"] != "ordinary_digest" or batch["status"] != "running":
+        raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "当前批次缺少该来源对应的 Digest。")
+    from dreaming_scheduler import heartbeat_run
+
+    heartbeat_run(kb, token=token, stage="consolidation", digest_run_id=run_id)
+    scope = ("--kb", str(kb), "--run-id", run_id)
+    flow = _invoke(skill_root, "digest-flow", "status", *scope)
+    receipt = flow.get("receipt")
+    if not receipt:
+        flow = _invoke(skill_root, "digest-flow", "commit", *scope, "--plan", str(plan))
+        receipt = flow.get("receipt")
+    if not receipt:
+        raise DreamingError("DREAMING_DIGEST_RESULT_INVALID", "Digest 未返回可验收的回执。")
+    accepted = record_routine_digest(kb, token=token, result={**source, "status": receipt["status"], "receipt": receipt})
+    return {**flow, "source_result": accepted}
+
+
 def scan_routine_digest(kb: Path, *, token: str, skill_root: Path, max_workers: int = 3) -> dict[str, Any]:
     if max_workers not in (1, 2, 3):
         raise DreamingError("DREAMING_SOURCE_CHECK_FAILED", "来源检查并发必须是 1..3。")

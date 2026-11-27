@@ -271,6 +271,23 @@ def load_findings(kb: Path) -> dict[str, Any]:
     return projection
 
 
+def accepted_findings_unlocked(kb: Path, state: Mapping[str, Any]) -> dict[str, Any]:
+    """Project only events whose IM batch passed the durable commit boundary."""
+    from dreaming_batch import verified_commit_marker
+
+    history = _read_history(kb)
+    batches = {
+        batch_id for event in history
+        if event["operation"] == "upsert" and isinstance(batch_id := event.get("batch_id"), str)
+    }
+    accepted = {batch_id for batch_id in batches if verified_commit_marker(kb, state, batch_id)}
+    events = [
+        event for event in history
+        if event["operation"] == "feedback" or event.get("batch_id") in accepted
+    ]
+    return _projection_from_history(events)["findings"]
+
+
 def review_findings(
     kb: Path,
     *,

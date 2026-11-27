@@ -16,7 +16,7 @@ from dreaming_run_log import MACHINE_CODE, append_run_event
 from operation_trace import DIGEST_RUN_ID
 from routine_identity import IdentityKey, RoutineDocumentAliases
 from source_profile_contract import SourceProfileError
-from source_profiles import list_profiles, profile_revision
+from source_profiles import list_profiles, load_profile, profile_revision
 from sources import SourceBundleError, load_source_bundle
 from sources.adapters.text import chat_window, empty_chat_window
 from sources.registry import create_default_registry
@@ -328,7 +328,7 @@ def prepare_routine_digest(
         state = load_state_unlocked(kb, current)
         lease = _live_process_lease(state, token=token, now=current)
         run_id = str(lease["run_id"])
-        target_through = lease.get("acquired_at") or utc_iso(current)
+        target_through = lease.get("target_acquired_at") or lease.get("acquired_at") or utc_iso(current)
         dependency = lease.get("dependency")
         if isinstance(dependency, Mapping) and (not lease.get("recent_start") or lease.get("report_target")):
             target_through = dependency.get("end") or target_through
@@ -356,7 +356,34 @@ def prepare_routine_digest(
                     for item in inventory
                 },
             }
+            resume_from = lease.get("resume_from")
+            if resume_from:
+                previous = _load_batch(kb, resume_from)
+                batch["target_start"] = previous["target_start"]
+                batch["target_through"] = previous["target_through"]
+                start = parse_time(batch["target_start"])
+                end = parse_time(batch["target_through"])
+                batch["sources"] = {}
+                for item in inventory:
+                    key = item["source_key"]
+                    row = _batch_source(item, checkpoints.get(key), start, end)
+                    old = previous["sources"].get(key) or {}
+                    if row["status"] == "pending" and old.get("profile_revision") == row["profile_revision"]:
+                        if old.get("work"):
+                            row["work"] = old["work"]
+                            # Reuse the exact capture window that the linked receipt must cover.
+                            if old.get("capture_window"):
+                                row["capture_window"] = old["capture_window"]
+                        if old.get("status") in SUCCESS_STATUSES - {"covered"}:
+                            row.update(status=old["status"], receipt=old["receipt"])
+                        _recover_linked_receipt(kb, row, batch, lease, current)
+                    batch["sources"][key] = row
             atomic_write_json(path, batch)
+            if resume_from:
+                for row in batch["sources"].values():
+                    _advance_source_checkpoint(state, row, batch, current)
+                save_state_unlocked(kb, state)
+
     return {
         "schema_version": BATCH_SCHEMA,
         "run_id": run_id,
@@ -733,7 +760,7 @@ def record_routine_digest_result(
     return record_routine_digest(kb, token=token, result=_load_result(input_path), now=now)
 
 
-def _prepared_flow(kb: Path, source: Mapping[str, Any]) -> Path | None:
+def _linked_flow(kb: Path, source: Mapping[str, Any]) -> tuple[Path, dict[str, Any]] | None:
     run_id = str(source.get("work", {}).get("digest_run_id", ""))
     if not DIGEST_RUN_ID.fullmatch(run_id):
         return None
@@ -742,12 +769,50 @@ def _prepared_flow(kb: Path, source: Mapping[str, Any]) -> Path | None:
         state = json.loads(path.read_text(encoding="utf-8")) if path.resolve() == path else None
     except (OSError, ValueError):
         return None
-    if isinstance(state, dict) and state.get("run_id") == run_id and (
-        state.get("phase") in {"prepared", "commit_failed"}
-        or (state.get("phase") == "failed" and state.get("resume_phase") in {"prepared", "commit_failed"})
+    if not isinstance(state, dict) or state.get("run_id") != run_id:
+        return None
+    return path.parent, state
+
+
+def _prepared_flow(kb: Path, source: Mapping[str, Any]) -> Path | None:
+    linked = _linked_flow(kb, source)
+    if linked is None:
+        return None
+    path, state = linked
+    if state.get("phase") in {"prepared", "commit_failed"} or (
+        state.get("phase") == "failed" and state.get("resume_phase") in {"prepared", "commit_failed"}
     ):
-        return path.parent
+        return path
     return None
+
+
+def _verify_source_success(kb: Path, source: Mapping[str, Any], result: Mapping[str, Any],
+                           batch: Mapping[str, Any], lease: Mapping[str, Any],
+                           now: datetime) -> dict[str, Any]:
+    if source["workflow"] == "wiki_scan_then_digest":
+        return _verify_wiki_receipt(kb, source, result)
+    verify = _verify_empty_chat_receipt if result.get("status") == "empty_window" else _verify_transaction_receipt
+    return verify(kb, source, result, target_through=batch["target_through"],
+                  acquired_at=lease.get("target_acquired_at", lease["acquired_at"]), now=now)
+
+
+def _recover_linked_receipt(kb: Path, source: dict[str, Any], batch: Mapping[str, Any],
+                            lease: Mapping[str, Any], now: datetime) -> None:
+    if source["workflow"] != "ordinary_digest" or source["status"] in SUCCESS_STATUSES:
+        return
+    linked = _linked_flow(kb, source)
+    if linked is None:
+        return
+    _, flow = linked
+    receipt = flow.get("receipt")
+    if not isinstance(receipt, Mapping):
+        return
+    status = receipt.get("status")
+    phase = "noop" if status == "empty_window" else status
+    if status not in {"committed", "noop", "empty_window"} or phase != flow.get("phase"):
+        return
+    verified = _verify_source_success(kb, source, {"status": status, "receipt": receipt}, batch, lease, now)
+    source.update(status=status, receipt=verified, error_code="", finished_at=utc_iso(now))
 
 
 def _failure_evidence(kb: Path, flow: Path, error_code: str) -> dict[str, Any] | None:
@@ -892,18 +957,8 @@ def record_routine_digest(
                         now=current, log_settings=state["logging"],
                     )
                 verified["failure_evidence"] = evidence
-        elif source["workflow"] == "wiki_scan_then_digest":
-            verified = _verify_wiki_receipt(kb, source, result)
-        elif result.get("status") == "empty_window":
-            verified = _verify_empty_chat_receipt(
-                kb, source, result, target_through=batch["target_through"],
-                acquired_at=lease["acquired_at"], now=current,
-            )
         else:
-            verified = _verify_transaction_receipt(
-                kb, source, result, target_through=batch["target_through"],
-                acquired_at=lease["acquired_at"], now=current,
-            )
+            verified = _verify_source_success(kb, source, result, batch, lease, current)
         if source["status"] in SUCCESS_STATUSES and source["receipt"] != verified:
             raise DreamingError(
                 "DREAMING_DIGEST_RESULT_CONFLICT",
@@ -914,12 +969,58 @@ def record_routine_digest(
         source["error_code"] = error_code
         source["finished_at"] = utc_iso(current)
         atomic_write_json(_batch_path(kb, str(lease["run_id"])), batch)
+        if verified["status"] in SUCCESS_STATUSES:
+            if source["origin"] == "profile":
+                try:
+                    profile = load_profile(kb, source["source_uid"])
+                    unchanged = profile["routine"]["enabled"] and profile_revision(profile) == source["profile_revision"]
+                except SourceProfileError:
+                    unchanged = False
+            else:
+                unchanged = any(item["source_key"] == source_key and item["profile_revision"] == source["profile_revision"]
+                                for item in routine_inventory(kb))
+            if unchanged:
+                _advance_source_checkpoint(state, source, batch, current)
+                state["updated_at"] = utc_iso(current)
+                save_state_unlocked(kb, state)
+
     return {
         "run_id": lease["run_id"],
         "source_key": source_key,
         "status": verified["status"],
         **({"failure_evidence": verified["failure_evidence"]} if "failure_evidence" in verified else {}),
     }
+
+
+def _advance_source_checkpoint(state: dict[str, Any], source: Mapping[str, Any],
+                               batch: Mapping[str, Any], current: datetime) -> None:
+    key = source["source_key"]
+    start = parse_time(batch.get("target_start") or batch["target_through"])
+    end = parse_time(batch["target_through"])
+    checkpoints = state.setdefault("source_checkpoints", {})
+    if source["status"] == "covered" or source["status"] not in SUCCESS_STATUSES:
+        return
+    previous = checkpoints.get(key, {})
+    if source_covers_window(previous, source, start, end):
+        return
+    checkpoints[key] = {
+        "source_type": source["source_type"],
+        "source_uid": source["source_uid"],
+        "profile_revision": source["profile_revision"],
+        "through": batch["target_through"],
+        "run_id": batch["run_id"],
+        "result_status": source["status"],
+        "updated_at": utc_iso(current),
+    }
+    receipt = source["receipt"]
+    if source.get("capture_window") or (previous.get("covered_windows") and receipt.get("window_start")):
+        _record_chat_window(previous, checkpoints[key], f"{receipt['window_start']}..{receipt['window_end']}")
+    if source["status"] == "empty_window":
+        checkpoints[key]["digest_run_id"] = source["receipt"]["digest_run_id"]
+    elif source["workflow"] == "ordinary_digest":
+        checkpoints[key]["digest_key"] = source["receipt"]["digest_key"]
+    else:
+        checkpoints[key]["tree_hash"] = source["receipt"]["tree_hash"]
 
 
 def complete_routine_digest(
@@ -938,6 +1039,7 @@ def complete_routine_digest(
         start = parse_time(batch.get("target_start") or batch["target_through"])
         end = parse_time(batch["target_through"])
         for source in batch["sources"].values():
+            _recover_linked_receipt(kb, source, batch, lease, current)
             evidence = source.get("receipt", {}).get("failure_evidence", {})
             if source["status"] not in SUCCESS_STATUSES and not evidence:
                 flow = _prepared_flow(kb, source)
@@ -957,6 +1059,12 @@ def complete_routine_digest(
             for item in batch["sources"].values()
             if item.get("status") not in SUCCESS_STATUSES
         ]
+        unrecorded = [key for key in pending if batch["sources"][key]["status"] == "pending"]
+        if unrecorded:
+            raise DreamingError(
+                EXECUTION_REQUIRED, "仍有来源缺少完成或失败回执，批次保持打开。",
+                details={"pending_source_keys": unrecorded},
+            )
         if pending and not allow_partial:
             raise DreamingError(
                 "DREAMING_DIGEST_INCOMPLETE",
@@ -987,30 +1095,8 @@ def complete_routine_digest(
                 "DREAMING_DIGEST_INVENTORY_CHANGED",
                 "定期来源清单在本轮运行中发生变化，拒绝推进覆盖检查点。",
             )
-        for key, source in batch["sources"].items():
-            if source["status"] == "covered" or source["status"] not in SUCCESS_STATUSES:
-                continue
-            previous = checkpoints.get(key, {})
-            if source_covers_window(previous, source, start, end):
-                continue
-            checkpoints[key] = {
-                "source_type": source["source_type"],
-                "source_uid": source["source_uid"],
-                "profile_revision": source["profile_revision"],
-                "through": batch["target_through"],
-                "run_id": run_id,
-                "result_status": source["status"],
-                "updated_at": utc_iso(current),
-            }
-            receipt = source["receipt"]
-            if source.get("capture_window") or (previous.get("covered_windows") and receipt.get("window_start")):
-                _record_chat_window(previous, checkpoints[key], f"{receipt['window_start']}..{receipt['window_end']}")
-            if source["status"] == "empty_window":
-                checkpoints[key]["digest_run_id"] = source["receipt"]["digest_run_id"]
-            elif source["workflow"] == "ordinary_digest":
-                checkpoints[key]["digest_key"] = source["receipt"]["digest_key"]
-            else:
-                checkpoints[key]["tree_hash"] = source["receipt"]["tree_hash"]
+        for source in batch["sources"].values():
+            _advance_source_checkpoint(state, source, batch, current)
         batch["status"] = "partial" if pending else "completed"
         batch["completed_at"] = utc_iso(current)
         state["updated_at"] = utc_iso(current)
@@ -1062,17 +1148,13 @@ def process_has_complete_routine_digest(
 
 
 def require_routine_digest_completion(
-    kb: Path, lease: Mapping[str, Any], *, now: datetime, log_settings: Mapping[str, int],
+    kb: Path, lease: Mapping[str, Any],
 ) -> None:
     run_id = lease.get("run_id")
     if not run_id or not _batch_path(kb, run_id).is_file():
         return
     batch = _load_batch(kb, run_id)
     if batch["status"] == "running":
-        for source in batch["sources"].values():
-            flow = _prepared_flow(kb, source)
-            if flow is not None:
-                _reject_early_completion(
-                    kb, lease, flow.name, "请先完成已准备来源的执行或登记实际阻塞，再调用 process digest-complete。",
-                    now=now, log_settings=log_settings,
-                )
+        raise DreamingError(
+            EXECUTION_REQUIRED, "定期摄取批次仍在运行，请先登记来源结果并汇总批次。",
+        )

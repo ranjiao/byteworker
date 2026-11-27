@@ -343,6 +343,22 @@ def feishu_chat_bundle_to_transaction_source(
     )
 
 
+def allows_unlinked_routine_chat_snapshot(bundle: SourceBundle) -> bool:
+    """Require a complete registered chat capture before archiving without nodes."""
+    metadata = bundle.provider_metadata
+    profile = metadata.get("source_profile")
+    return (
+        bundle.identity.source_type == "feishu_chat"
+        and bundle.coverage.status == "complete"
+        and metadata.get("capture_mode") in {"since-last", "explicit"}
+        and isinstance(profile, Mapping) and bool(profile.get("revision"))
+        and type(metadata.get("message_count")) is int and metadata["message_count"] > 0
+        and type(metadata.get("page_count")) is int and metadata["page_count"] > 0
+        and metadata.get("locator_schema") == LOCATOR_SCHEMA and bool(bundle.anchors)
+        and chat_window(metadata.get("source_window")) is not None
+    )
+
+
 def empty_chat_window(bundle: SourceBundle) -> tuple[datetime, datetime] | None:
     """Recognize an empty window from complete, consistent chat capture artifacts."""
     metadata = bundle.provider_metadata

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from dreaming_consolidation import load_findings
+from dreaming_consolidation import accepted_findings_unlocked
 from dreaming_state import (
     DreamingError,
     atomic_write_json,
@@ -159,6 +159,13 @@ def report_dependency_from_state(
                     }
                 )
                 break
+    if kind == "daily":
+        process_error = state["jobs"]["process"].get("waiting_for_user")
+        if process_error in {"DIGEST_TXN_ROLLBACK_FAILED", "KB_MUTATION_ROLLBACK_ERROR"}:
+            blockers.append({
+                "kind": "process", "source": "kb", "key": f"process:kb:{process_error}",
+                "start": window["start"], "end": window["end"], "error_code": process_error,
+            })
     try:
         routine_sources = routine_inventory(kb)
     except DreamingError as exc:
@@ -217,23 +224,69 @@ def report_dependency(
     with state_lock(kb):
         state = load_state_unlocked(kb, current)
     lease = state.get("active_lease")
-    evaluated_at = current
-    scheduled_at = None
     if (
         isinstance(lease, Mapping) and lease.get("job") == kind and lease.get("period") == period
         and (parse_time(lease.get("expires_at")) or current) > current
     ):
-        target = lease.get("report_target") or {}
-        evaluated_at = parse_time(target.get("through")) or parse_time(lease.get("acquired_at")) or current
-        scheduled_at = parse_time(target.get("scheduled_at") or state["jobs"][kind].get("deadline_at"))
-    return report_dependency_from_state(
-        kb,
-        state=state,
-        kind=kind,
-        period=period,
-        now=evaluated_at,
-        scheduled_at=scheduled_at,
+        return report_dependency_for_lease(kb, state, lease, current)
+    return report_dependency_from_state(kb, state=state, kind=kind, period=period, now=current)
+
+
+def report_dependency_for_lease(kb: Path, state: Mapping[str, Any], lease: Mapping[str, Any],
+                                now: datetime) -> dict[str, Any]:
+    kind = lease["job"]
+    target = lease.get("report_target") or {}
+    dependency = report_dependency_from_state(
+        kb, state=state, kind=kind, period=lease["period"],
+        now=parse_time(target.get("through")) or parse_time(lease.get("acquired_at")) or now,
+        scheduled_at=parse_time(target.get("scheduled_at") or state["jobs"][kind].get("deadline_at")),
     )
+    if lease.get("manual_report"):
+        return apply_manual_source_gaps(dependency, lease)
+    if kind == "daily":
+        return allow_daily_coverage_gaps(dependency)
+    return dependency
+
+
+def allow_daily_coverage_gaps(dependency: Mapping[str, Any]) -> dict[str, Any]:
+    """A due automatic daily can publish verified material despite coverage gaps."""
+    blockers, gaps = [], []
+    for blocker in dependency["blockers"]:
+        if blocker.get("error_code"):
+            blockers.append(blocker)
+        else:
+            gaps.append({**blocker, "kind": "daily_coverage_gap"})
+    reasons = [*dependency["partial_reasons"], *gaps]
+    return {
+        **dependency, "blockers": blockers, "partial_reasons": reasons,
+        "status": "blocked" if blockers else ("partial" if reasons else "covered"),
+    }
+
+
+def apply_manual_source_gaps(
+    dependency: Mapping[str, Any], lease: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Disclose explicitly accepted source gaps without changing checkpoints."""
+    result = dict(dependency)
+    manual = lease.get("manual_report") or {}
+    accepted = set(manual.get("accepted_source_gaps", []))
+    note = str(manual.get("gap_note", "")).strip()
+    if not accepted or not note:
+        return result
+    blockers, gaps = [], []
+    for blocker in dependency["blockers"]:
+        if (blocker.get("source") == "routine_digest"
+                and blocker.get("source_key") in accepted
+                and not blocker.get("error_code")):
+            gaps.append({**blocker, "kind": "manual_source_gap", "note": note})
+        else:
+            blockers.append(blocker)
+    result["blockers"] = blockers
+    result["partial_reasons"] = list(dependency["partial_reasons"]) + gaps
+    result["status"] = "blocked" if blockers else (
+        "partial" if result["partial_reasons"] else "covered"
+    )
+    return result
 
 
 def report_migration_readiness(kb: Path) -> dict[str, Any]:
@@ -274,7 +327,9 @@ def prepare_report_packet(
     end = parse_time(window["end"])
     assert start is not None and end is not None
     findings = []
-    for finding in load_findings(kb)["findings"].values():
+    with state_lock(kb):
+        accepted = accepted_findings_unlocked(kb, load_state_unlocked(kb, current))
+    for finding in accepted.values():
         occurred = parse_time(finding.get("occurred_at")) or parse_time(finding.get("updated_at"))
         if occurred is not None and start <= occurred < end:
             findings.append(finding)
@@ -298,7 +353,7 @@ def prepare_report_packet(
         "created_at": utc_iso(current),
     }
     packet_dir = secure_path(kb, "reports", f"{kind}-{period}")
-    packet_dir.mkdir(parents=True, mode=0o700)
+    packet_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     packet_path = packet_dir / "packet.json"
     atomic_write_json(packet_path, packet)
     return {

@@ -35,6 +35,7 @@ from digest_run_log import (  # noqa: E402
     start_run,
     wait_for_user,
 )
+from operation_trace import DIGEST_RUN_ID  # noqa: E402
 
 
 def configured_kb() -> str:
@@ -161,6 +162,14 @@ def main() -> int:
                 metrics=_metrics(args),
             )
         elif args.command == "complete":
+            if (
+                args.status in {"committed", "noop"} and DIGEST_RUN_ID.fullmatch(args.run_id)
+                and (kb / "state" / "digest" / "flows" / args.run_id / "state.json").is_file()
+            ):
+                raise DigestRunError(
+                    "DIGEST_FLOW_RECEIPT_REQUIRED",
+                    "Use digest-flow prepare or commit to finish a managed Digest and create its receipt.",
+                )
             output = finish_run(
                 kb,
                 run_id=args.run_id,

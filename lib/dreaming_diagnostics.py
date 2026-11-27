@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import operation_trace as trace
+from dreaming_daily import publish_due_daily
 from dreaming_run_log import show_run
 from dreaming_scheduler import _job_gate, _status_value, run_due
 from dreaming_state import DreamingError, parse_time, read_state_for_diagnostics
@@ -20,6 +21,15 @@ REPORTS = {"morning", "daily", "weekly"}
 
 def run_tick(kb: Path, *, owner: str, lease_seconds: int, root: Path) -> dict:
     tick_id = trace.start("dreaming", kb)
+    daily = {}
+    if kb.is_dir():
+        try:
+            report = publish_due_daily(kb, supplement=True)
+            if report["published"]:
+                daily["daily"] = report
+        except (DreamingError, OSError, ValueError) as exc:
+            daily["daily"] = {"status": "failed", "severity": "critical",
+                              "code": getattr(exc, "code", "DREAMING_DAILY_PUBLICATION_FAILED")}
     environment = {key: value for key, value in os.environ.items() if key != trace.TRACE_ENV}
     try:
         result = subprocess.run(
@@ -28,7 +38,7 @@ def run_tick(kb: Path, *, owner: str, lease_seconds: int, root: Path) -> dict:
         )
     except OSError:
         trace.record(tick_id, "preflight", "failed", code="PREFLIGHT_FAILED")
-        return {"tick_id": tick_id, "status": "preflight_failed"}
+        return {"tick_id": tick_id, "status": "preflight_failed", **daily}
     if result.returncode:
         try:
             notices = json.loads(result.stdout).get("notices", [])
@@ -43,7 +53,7 @@ def run_tick(kb: Path, *, owner: str, lease_seconds: int, root: Path) -> dict:
         }
         for code in sorted(codes or {"PREFLIGHT_FAILED"}):
             trace.record(tick_id, "preflight", "failed", code=code)
-        return {"tick_id": tick_id, "status": "preflight_failed"}
+        return {"tick_id": tick_id, "status": "preflight_failed", **daily}
     trace.record(tick_id, "preflight", "success")
     # The preflight may have updated the checkout. Load the scheduler in a new
     # process so its modules all come from the post-update revision.
@@ -55,13 +65,13 @@ def run_tick(kb: Path, *, owner: str, lease_seconds: int, root: Path) -> dict:
         )
         response = json.loads(result.stdout)
         if result.returncode == 0 and isinstance(response.get("data"), dict):
-            return {**response["data"], "tick_id": tick_id}
+            return {**response["data"], "tick_id": tick_id, **daily}
     except (OSError, ValueError, AttributeError):
         pass
     events = (trace.read(tick_id, kb=kb) or {}).get("events", [])
     if not any(event["stage"] == "scheduler" for event in events):
         trace.record(tick_id, "scheduler", "failed", code="RUN_DUE_FAILED")
-    return {"tick_id": tick_id, "status": "scheduler_failed"}
+    return {"tick_id": tick_id, "status": "scheduler_failed", **daily}
 
 
 def observed_run_due(kb: Path, *, owner: str, lease_seconds: int, followup: str, tick_id: str) -> dict:
@@ -205,6 +215,11 @@ def diagnose(kb: Path, *, job: str = "", tick_id: str = "", run_id: str = "") ->
             "last_attempt": _project_attempt(value.get("last_attempt"), now),
             "last_success": _project_attempt(value.get("last_success"), now),
         }
+
+        if name == "daily":
+            jobs[name]["last_deadline_publication"] = value.get("last_deadline_publication")
+            incidents = value.get("publication_incidents", {})
+            jobs[name]["publication_incidents"] = dict(sorted(incidents.items(), reverse=True)[:10])
 
     wake_events = selected_tick["events"] if selected_tick else []
     if not run_id:

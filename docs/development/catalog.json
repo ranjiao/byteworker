@@ -51,6 +51,13 @@
       "authority": "deferred-engineering-work"
     },
     {
+      "id": "dreaming-workflow-reliability",
+      "path": "docs/development/plans/dreaming-workflow-reliability.md",
+      "kind": "plan",
+      "status": "active",
+      "authority": "dreaming-workflow-reliability"
+    },
+    {
       "id": "evidence-index",
       "path": "docs/development/evidence/README.md",
       "kind": "evidence-index",

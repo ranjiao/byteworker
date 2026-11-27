@@ -10,7 +10,7 @@ from dreaming_collection import prepare_foreground_im_batch, prepare_im_batch
 from dreaming_digest import (
     complete_routine_digest, link_routine_digest, prepare_routine_digest, record_routine_digest_result,
 )
-from dreaming_digest_scan import prepare_manual_source, scan_routine_digest
+from dreaming_digest_scan import commit_routine_source, prepare_manual_source, scan_routine_digest
 from dreaming_grants import set_action_grants, set_im_grant
 from dreaming_process import commit_finding_bundle
 
@@ -68,6 +68,14 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     digest_record.add_argument("--token", required=True)
     digest_record.add_argument("--input", required=True, type=Path)
     digest_record.set_defaults(_handler=lambda args, kb, root: record_routine_digest_result(kb, token=args.token, input_path=args.input))
+    digest_commit = process_sub.add_parser("digest-commit", help="Commit and accept a linked routine Digest")
+    digest_commit.add_argument("--kb", required=True, type=Path)
+    digest_commit.add_argument("--token", required=True)
+    digest_commit.add_argument("--source-key", required=True)
+    digest_commit.add_argument("--plan", required=True, type=Path)
+    digest_commit.set_defaults(_handler=lambda args, kb, root: commit_routine_source(
+        kb, token=args.token, source_key=args.source_key, plan=args.plan, skill_root=root,
+    ))
     digest_complete = process_sub.add_parser("digest-complete", help="Complete the routine digest batch")
     digest_complete.add_argument("--kb", required=True, type=Path)
     digest_complete.add_argument("--token", required=True)
@@ -80,7 +88,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     prepare.add_argument("--source", choices=("im",), required=True)
     prepare.add_argument("--start", default="")
     prepare.add_argument("--end", default="")
-    prepare.set_defaults(_handler=lambda args, kb, root: prepare_im_batch(kb, start=args.start, end=args.end))
+    prepare.add_argument("--token", default="")
+    prepare.set_defaults(_handler=lambda args, kb, root: prepare_im_batch(
+        kb, start=args.start, end=args.end, process_token=args.token,
+    ))
     abort = process_sub.add_parser("abort", help="Abort a prepared batch")
     abort.add_argument("--kb", required=True, type=Path)
     abort.add_argument("--batch-id", required=True)
@@ -91,6 +102,7 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     commit.add_argument("--batch-id", required=True)
     commit.add_argument("--input", required=True, type=Path)
     commit.add_argument("--semantic-revision", default="finding-v1")
+    commit.add_argument("--token", default="")
     commit.set_defaults(_handler=_commit)
     once = process_sub.add_parser("once", help="Prepare one foreground IM batch")
     once.add_argument("--kb", required=True, type=Path)
@@ -127,6 +139,7 @@ def _commit(args, kb: Path, root: Path):
         input_path=args.input,
         skill_root=root,
         semantic_revision=args.semantic_revision,
+        process_token=args.token,
     )
 
 

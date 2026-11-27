@@ -4,14 +4,27 @@
 
 ## Coverage 与 Packet
 
-调度按知识库时区处理今天和昨天。到期的近期日报有完整覆盖就先生成。两天都到期时先检查今天，
-今天仍缺资料而昨天已覆盖时先出昨天。未到出报时间的今天继续摄取，工作日与原出报时间照常生效。
-近期报告或定期摄取仍待完成时，周报、较早的日报与旧消息补跑排在后面。补采退避期间可做维护。
+自动日报按知识库时区在工作日到点后优先领取。今天和昨天都待生成时先出今天，再出昨天。
+宿主须在出报时间唤醒才能到点领取。如果宿主晚唤醒，或另一个任务仍持有有效租约，在可领取的下一次唤醒出报。
+消息或定期来源有缺口时，使用已核实的信息生成日报，标注覆盖不完整。知识库回滚失败、来源配置损坏和归档错误会阻止相关日报发布。
+近期报告或定期摄取仍待完成时，周报、较早的日报与旧消息补跑排在后面。
 晨报仅在本地工作日的计划时间到 12:00 前可生成和发送。到 12:00 仍未完成即跳过，补采后的续跑与旧投递重试也遵守截止时间。
 已有归档跳过。近期完成后再处理接管后缺失的工作日日报和周报，跨日、跨周保留欠账。自动 IM 仍遵守 14 天回看范围，超龄缺口保留。
-当日领取的日报覆盖至计划出报时间，跨日补跑覆盖完整自然日。prepare 复用领取时的窗口。
-日报补采每批提交后重查消息进度，直至报告窗口内的缺口全部补齐。定期来源完成后仍须核验消息。
-补采成功后立即用其 run_id 调 `run-due --followup-after-run-id`。若该日报又出现缺口，继续处理；覆盖达标后同轮生成该日报。
+当日领取的日报覆盖至计划出报时间，跨日补跑覆盖完整自然日。prepare 和 complete 复用领取时的窗口。
+日报归档完成后，定期摄取继续按自己的调度推进，来源检查点和消息缺口保持真实。
+
+### 到点独立发布
+
+工作日的计划时间由宿主独立调用 `bin/byteworker dreaming report publish-due --kb "<KB>"`。
+该入口在本机确定性生成 Markdown，使用已验收的消息 Finding 和 Git 中带原始时间与出处的归档事件。
+它不读取未验收的 Finding、不访问 provider、不调用模型或 HTML 渲染，也不等待摄取租约。
+普通 `dreaming tick` 在预检前唤起同一路径，作为漏唤醒后的恢复机会。
+要在截止分钟发布，宿主必须支持独立触发并在该分钟启动命令。
+
+独立发布先保存私有版本和待发布回执，再原子替换正式 Markdown。中断后按同一回执重放。
+`diagnose --job daily` 显示最后的独立发布与近期事故。截止分钟后恢复的初版保留迟报记录。
+`publish-due --supplement` 根据后续验收结果更新最近 14 天由该入口发布的日报，保留手动备注和历史版本。
+若报告正文已由用户或其它报告流程另行编辑，自动补充保留该正文。独立发布不投递飞书。
 
 报告 lease 到手后：
 
@@ -22,14 +35,22 @@ bin/byteworker dreaming report prepare \
 
 日报或周报将 `--kind` 改成 `daily` 或 `weekly`。
 
+用户明确要求补指定周期时，可用 `dreaming report start --kb <KB> --kind daily
+--period <日期> --owner <当前宿主>` 领取该周期，再 prepare / complete。
+若用户明确要求将某来源的周期缺口写入日报而照常出报，逐项传
+`--accept-source-gap <source_key>` 和 `--gap-note <限制说明>`；只允许接受当前周期已知的
+定期来源缺口，不接受消息缺口或非法 Profile。来源 checkpoint 和 process 成功状态保持真实。
+prepare 将这些缺口列入 partial_reasons，complete 强制 partial 和限制说明，发布前复核覆盖。
+手动补报默认仅生成本地正式产物；已有明确发送授权时才传 `--deliver`。
+此入口不创建定时任务、不修改业务时间安排，也不会因已有 Markdown 快照而跳过正式归档。
+
 prepare 只读 committed Finding 和 durable KB 引用，不读 spool 或重跑 digest，返回 packet、
 Finding 数量和 coverage：
 
-- monitored cursor/gap 未完成：blocked。
-- 任一定期 digest 来源没有与当前 Profile revision 一致、且覆盖窗口结束时间的成功 checkpoint：
-  blocked；`run-due` 先调度 process catch-up。
-- all_visible discovery：最多 partial，披露 best-effort。
-- 来源 Profile 非法：迁移检查 fail closed；不存在“忽略某类 provider 后生成完整报告”的降级。
+- 消息游标落后、窗口中仍有消息缺口或定期来源检查点未覆盖期末：自动日报以
+  `daily_coverage_gap` 记录在 `partial_reasons`。晨报、周报继续等待覆盖，手动补报按上面的明确授权执行。
+- all_visible discovery 最多为 partial，报告披露消息发现仅尽力覆盖。
+- 来源 Profile 非法时停止发布，保留错误以便诊断。
 
 ## 生成与提交
 
@@ -38,7 +59,7 @@ Finding 数量和 coverage：
    限制说明，不混进重点，不把报告运行摘要反向写成 knowledge 节点。
    未识别出周会周期的完整快照，其本轮已核验的信息增量可作为当期材料。事实发生时间以原文为准。
 2. 一次生成 `byteworker-report-document/v1`；事实按 `references/citations.md` 回到原始
-   evidence，`message_summary` 为 300-500 字。
+   evidence。日报 `message_summary` 最多 500 字，可核实内容少时简短说明。晨报和周报摘要为 300–500 字。
 3. 将候选保存到 KB 外临时文件，调用：
 
 ```bash

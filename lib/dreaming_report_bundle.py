@@ -31,6 +31,12 @@ SECTION_ORDER = (
     ("risks", "风险 / 阻塞"),
     ("confirmations", "待确认"),
 )
+WEEKLY_HEADINGS = {
+    "今日重点": "本周重点",
+    "今日要点": "本周要点",
+    "夜间重要变化": "关键进展与对齐",
+    "待确认": "下周关注与待确认",
+}
 SEVERITIES = {"info", "attention", "high"}
 MAX_INPUT_BYTES = 2 * 1024 * 1024
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "templates"
@@ -138,7 +144,7 @@ def validate_report_document(value: Mapping[str, Any]) -> dict[str, Any]:
             "sections 必须是 object，sources 必须是 array。",
         )
     summary = _text(value.get("message_summary"), "message_summary", maximum=500)
-    if len(summary) < 300:
+    if kind != "daily" and len(summary) < 300:
         raise DreamingError(
             "DREAMING_REPORT_DOCUMENT_INVALID",
             "message_summary 必须为 300-500 字。",
@@ -302,6 +308,8 @@ def _render_markdown(document: Mapping[str, Any]) -> str:
     for note in coverage["notes"]:
         lines.append(f"> Coverage 说明:{note}")
     for key, heading in SECTION_ORDER:
+        if document["kind"] == "weekly":
+            heading = WEEKLY_HEADINGS.get(heading, heading)
         lines.extend(["", f"## {heading}"])
         items = document["sections"][key]
         if not items:
@@ -396,6 +404,10 @@ def _render_html(document: Mapping[str, Any]) -> str:
     }
     replacements.update({key.lower(): value for key, value in replacements.items()})
     template = _load_html_template()
+    if document["kind"] == "weekly":
+        template = template.replace("Daily Intel Brief", "Weekly Intel Brief")
+        for original, weekly_heading in WEEKLY_HEADINGS.items():
+            template = template.replace(original, weekly_heading)
     for key, value in replacements.items():
         template = template.replace("{{" + key + "}}", value)
     return template
@@ -504,6 +516,13 @@ def _render_html_section_cards(document: Mapping[str, Any]) -> str:
         items = document["sections"][key]
         heading, code, default_level = SECTION_META[key]
         rows = _render_html_rows(key, items)
+        if document["kind"] == "weekly":
+            weekly_heading = WEEKLY_HEADINGS.get(heading, heading)
+            rows = rows.replace(
+                f'<span class="subj">{html.escape(heading, quote=True)}',
+                f'<span class="subj">{html.escape(weekly_heading, quote=True)}',
+            )
+            heading = weekly_heading
         sections.append(
             f'<section class="block" data-block data-reveal>\n'
             f'  <div class="block-head"><span class="bar {default_level}"></span>'

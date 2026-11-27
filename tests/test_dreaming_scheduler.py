@@ -418,6 +418,7 @@ class DreamingSchedulerTests(unittest.TestCase):
             process = run_due(
                 kb,
                 owner="host",
+                lease_seconds=10800,
                 now=enabled_at + timedelta(hours=2),
             )
             failed_at = enabled_at + timedelta(hours=4)
@@ -502,34 +503,26 @@ class DreamingSchedulerTests(unittest.TestCase):
                 job["enabled"] = name in {"morning", "process", "daily"}
             state["grants"]["im"]["mode"] = "monitored"
             atomic_write_json(state_path(kb), state)
-            catchup = run_due(kb, owner="host", now=noon - timedelta(minutes=1))
-            self.assertEqual("process", catchup["job"])
-            self.assertIn("morning:2026-08-07", status(kb, now=noon)["report_dependencies"])
-            with self.assertRaises(DreamingError) as blocked:
-                complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=noon)
-            self.assertEqual("DREAMING_REPORT_BLOCKED", blocked.exception.code)
-            state = json.loads(state_path(kb).read_text())
-            state["cursors"]["im:monitored"] = {"through": noon.isoformat()}
-            atomic_write_json(state_path(kb), state)
-
-            complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=noon)
-            report = run_due(kb, owner="host", followup_after_run_id=catchup["lease"]["run_id"], now=noon)
+            # The standalone morning dependency is still evaluated, but the overdue
+            # daily is selected first.
+            report = run_due(kb, owner="host", now=noon - timedelta(minutes=1))
             self.assertEqual(("daily", "2026-08-06"), (report["job"], report["period"]))
-            state = status(kb, now=noon)
-            self.assertFalse(state["jobs"]["morning"]["blocked_by"])
-            self.assertNotIn("morning:2026-08-07", state["report_dependencies"])
-            self.assertEqual("2026-08-10T00:30:00+00:00", state["jobs"]["morning"]["next_due_at"])
-
+            self.assertIn("morning:2026-08-07", status(kb, now=noon)["report_dependencies"])
             complete_run(
                 kb, token=report["lease"]["token"], run_status="success", now=noon,
                 result_document={
                     "schema_version": "byteworker-dreaming-run-result/v1", "job": "daily",
                     "period": report["period"], "summary": "示例日报。",
                 },
-                publish_report=lambda: {"report_path": "reports/daily/2026-08-06.md", "source_distribution": []},
+                publish_report=lambda dependency, lease: {"report_path": "reports/daily/2026-08-06.md", "source_distribution": []},
             )
             later = noon + timedelta(hours=4)
             ordinary = run_due(kb, owner="host", now=later)
+            state = status(kb, now=noon)
+            self.assertFalse(state["jobs"]["morning"]["blocked_by"])
+            self.assertNotIn("morning:2026-08-07", state["report_dependencies"])
+            self.assertEqual("2026-08-10T00:30:00+00:00", state["jobs"]["morning"]["next_due_at"])
+
             self.assertEqual("process", ordinary["job"])
             self.assertFalse(ordinary["period"].startswith("catchup:"))
             self.assertIn("recent_start", ordinary["lease"])
@@ -573,7 +566,7 @@ class DreamingSchedulerTests(unittest.TestCase):
     def test_normal_wake_rechecks_blocked_reports_for_latest_due_period(self):
         old_wake = datetime(2026, 11, 10, 2, 4, tzinfo=timezone.utc)
         wake = datetime(2026, 11, 18, 2, 4, tzinfo=timezone.utc)
-        for kind, period in (("morning", "2026-11-18"), ("daily", "2026-11-17"), ("weekly", "2026-W46")):
+        for kind, period in (("morning", "2026-11-18"), ("weekly", "2026-W46")):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
                 kb = self.make_kb(Path(temporary))
                 state = self.enable_at(kb, old_wake - timedelta(days=8))
@@ -592,9 +585,6 @@ class DreamingSchedulerTests(unittest.TestCase):
                 fresh = run_due(kb, owner="host", observation=observation, now=wake)
                 self.assertEqual("process", fresh["job"])
                 self.assertTrue(fresh["period"].startswith("catchup:"))
-                if kind == "daily":
-                    midnight = datetime(2026, 11, 17, 16, tzinfo=timezone.utc)
-                    self.assertEqual(midnight, datetime.fromisoformat(fresh["dependency"]["end"]))
                 self.assertNotEqual(old["dependency"]["key"], fresh["dependency"]["key"])
                 self.assertEqual("blocked_by_dependency", observation["jobs"][kind])
                 self.assertEqual("due", observation["jobs"]["maintenance"])
@@ -742,6 +732,7 @@ class DreamingSchedulerTests(unittest.TestCase):
                 token=leased["lease"]["token"],
                 run_status="failed",
                 error_code="SOURCE_AUTH_REQUIRED",
+                now=enabled_at + timedelta(hours=2, minutes=1),
             )
             self.assertEqual("SOURCE_AUTH_REQUIRED", failed["error_code"])
 

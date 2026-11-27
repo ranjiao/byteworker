@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
-from dreaming_batch import create_collected_batch, gc_spool
+from dreaming_batch import (
+    create_collected_batch, gc_spool, recover_collected_work, recover_committed_cursors, require_work_owner,
+)
 from dreaming_collectors.feishu_im import FeishuImCollector
 from dreaming_grants import (
     close_foreground_session,
@@ -103,7 +105,7 @@ def plan_recent_im_window(state: dict, recent_start: datetime, now: datetime) ->
 def next_process_im_window(state: dict, lease: Mapping[str, Any]) -> dict | None:
     """Plan from committed coverage within this run's fixed target, including older leases."""
     dependency = lease.get("dependency") or {}
-    acquired = parse_time(lease["acquired_at"]).astimezone(ZoneInfo(state["timezone"]))
+    acquired = parse_time(lease.get("target_acquired_at") or lease["acquired_at"]).astimezone(ZoneInfo(state["timezone"]))
     # Historical and daily catch-ups stop at their report cutoff. An ordinary
     # digest (or a recent morning scan) covers through the time it was claimed.
     start = parse_time(lease.get("recent_start") or dependency.get("start"))
@@ -166,12 +168,19 @@ def prepare_im_batch(
     end: str = "",
     collector: FeishuImCollector | None = None,
     foreground_token: str = "",
+    process_token: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or datetime.now(timezone.utc)
+    work_id = ""
     if not foreground_token:
+        if process_token:
+            recover_collected_work(kb, token=process_token, now=current)
+            recover_committed_cursors(kb, now=current)
         state = read_state_for_diagnostics(kb, current)
         lease = state.get("active_lease") or {}
+        if process_token:
+            work_id = require_work_owner(state, process_token, current)
         if lease.get("job") == "process" and (parse_time(lease.get("expires_at")) or current) > current:
             planned = next_process_im_window(state, lease)
             if planned is None:
@@ -218,6 +227,29 @@ def prepare_im_batch(
         ttl_hours=24 if effective_mode == "all_visible" else 72,
         now=current,
     )
+    if work_id:
+        from dreaming_analysis import load_evidence_batch
+        from dreaming_state import secure_path
+
+        for batch_id, run in state["runs"].items():
+            if (run.get("process_work_id") != work_id or run.get("grant_revision") != grant["revision"]
+                    or run.get("stage") not in {"collected", "analyzed", "consolidated"}):
+                continue
+            window = run.get("window") or {}
+            if (window.get("requested_start"), window.get("requested_end")) != (utc_iso(start_at), utc_iso(end_at)):
+                continue
+            evidence = load_evidence_batch(kb, batch_id)
+            if any(not secure_path(kb, "spool", *item["content_ref"].removeprefix("spool://").split("/")).is_file()
+                   for item in evidence["items"]):
+                continue
+            candidate = secure_path(kb, "batches", batch_id, "finding-candidate.json")
+            return {
+                "batch_id": batch_id, "stage": run["stage"], "manifest_path": run["manifest"],
+                "item_count": len(evidence["items"]), "coverage": evidence["coverage"],
+                "lane": evidence["source"]["lane"], "principal": evidence["source"]["principal"],
+                "window": {"start": utc_iso(start_at), "end": utc_iso(end_at)},
+                **({"candidate_path": str(candidate)} if candidate.is_file() else {}),
+            }
     adapter = collector or FeishuImCollector()
     principal = adapter.principal()
     if effective_mode == "monitored":
@@ -278,8 +310,9 @@ def prepare_im_batch(
         messages=messages,
         grant_revision=grant["revision"],
         foreground_token=foreground_token,
+        process_token=process_token,
         skipped_window=skipped_window,
-        now=current,
+        now=now,
     )
     return {
         **receipt,

@@ -5,15 +5,34 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from dreaming_daily import publish_due_daily
 from dreaming_delivery_lark import deliver_lark_bot_summary
 from dreaming_report_bundle import load_report_document, render_report_bundle
 from dreaming_report_completion import complete_report_run
 from dreaming_reports import complete_delivery, enqueue_delivery, prepare_report_packet
+from dreaming_scheduler import start_manual_report
 
 
 def register_commands(sub: argparse._SubParsersAction) -> None:
     report = sub.add_parser("report", help="Prepare, render, complete, or deliver reports")
     report_sub = report.add_subparsers(dest="report_operation", required=True)
+    due = report_sub.add_parser("publish-due", help="Publish local dailies independently of process")
+    due.add_argument("--kb", required=True, type=Path)
+    due.add_argument("--supplement", action="store_true")
+    due.set_defaults(_handler=lambda args, kb, root: publish_due_daily(kb, supplement=args.supplement))
+    start = report_sub.add_parser("start", help="Claim an explicit manual daily or weekly report")
+    start.add_argument("--kb", required=True, type=Path)
+    start.add_argument("--kind", required=True, choices=("daily", "weekly"))
+    start.add_argument("--period", required=True)
+    start.add_argument("--owner", required=True)
+    start.add_argument("--accept-source-gap", action="append", default=[])
+    start.add_argument("--gap-note", default="")
+    start.add_argument("--deliver", action="store_true")
+    start.set_defaults(_handler=lambda args, kb, root: start_manual_report(
+        kb, kind=args.kind, period=args.period, owner=args.owner,
+        accepted_source_gaps=args.accept_source_gap, gap_note=args.gap_note,
+        deliver=args.deliver,
+    ))
     prepare = report_sub.add_parser("prepare", help="Prepare a bounded report packet")
     prepare.add_argument("--kb", required=True, type=Path)
     prepare.add_argument("--kind", required=True, choices=("morning", "daily", "weekly"))

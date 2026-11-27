@@ -1028,6 +1028,7 @@ class PreparedSource:
     path: Path
     bundle_hash: str
     digest_key: str
+    allow_unlinked_snapshot: bool = False
 
 
 def _require_prepared_source(
@@ -1058,7 +1059,8 @@ def _prepare_plan(kb: Path, manifest_path: Path, prepared_source: PreparedSource
         _verify_bundle_payload(bundle, payload)
     flight = preflight(kb, source, source_path, payload=payload)
 
-    return plan, source_path, payload, flight
+    allow_unlinked_snapshot = prepared_source is not None and prepared_source.allow_unlinked_snapshot
+    return plan, source_path, payload, flight, allow_unlinked_snapshot
 
 
 def validate_plan(kb: Path, manifest_path: Path, *, prepared_source: PreparedSource | None = None) -> ValidationResult:
@@ -1066,7 +1068,9 @@ def validate_plan(kb: Path, manifest_path: Path, *, prepared_source: PreparedSou
     return _validate_plan_contents(kb, manifest_path, *_prepare_plan(kb, manifest_path, prepared_source))
 
 
-def _snapshot_targets(kb: Path, flight: Dict[str, Any], existing_nodes: Dict[str, Any]) -> List[str]:
+def _snapshot_targets(
+    kb: Path, flight: Dict[str, Any], existing_nodes: Dict[str, Any], allow_unlinked: bool,
+) -> List[str]:
     """Reuse a committed same-source association without rewriting knowledge."""
     for previous in reversed(flight["matched_raws"]):
         targets = previous["digest_targets"]
@@ -1076,12 +1080,15 @@ def _snapshot_targets(kb: Path, flight: Dict[str, Any], existing_nodes: Dict[str
         if (_git(kb, ["cat-file", "-e", f"HEAD:{path}"], check=False).returncode == 0
                 and _git(kb, ["diff", "--quiet", "HEAD", "--", path], check=False).returncode == 0):
             return list(targets)
+    if allow_unlinked:
+        return []
     raise DigestTxnError("snapshot_only 需要已有、干净且已提交的同源 raw 和有效知识节点；首次摄取必须生成摘要")
 
 
 def _validate_plan_contents(
     kb: Path, manifest_path: Path, plan: Dict[str, Any], source_path: Path,
-    payload: Dict[str, Any], flight: Dict[str, Any], now: datetime | None = None,
+    payload: Dict[str, Any], flight: Dict[str, Any], allow_unlinked_snapshot: bool,
+    now: datetime | None = None,
 ) -> ValidationResult:
     raw = plan.get("raw")
     if not isinstance(raw, dict):
@@ -1119,7 +1126,7 @@ def _validate_plan_contents(
     ]
     node_ids = [item["id"] for item in nodes]
     if effect == "snapshot_only":
-        node_ids = _snapshot_targets(kb, flight, existing_nodes)
+        node_ids = _snapshot_targets(kb, flight, existing_nodes, allow_unlinked_snapshot)
     if len(node_ids) != len(set(node_ids)):
         raise DigestTxnError("plan.nodes 包含重复节点 id")
     paths = [item["path"] for item in nodes]
@@ -1810,7 +1817,9 @@ def execute_plan(
     if now is None:
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
     with kb_write_lock(kb):
-        plan, source_path, payload, flight = _prepare_plan(kb, manifest_path, prepared_source)
+        plan, source_path, payload, flight, allow_unlinked_snapshot = _prepare_plan(
+            kb, manifest_path, prepared_source,
+        )
         if flight["state"] == "noop":
             existing = flight.get("existing") or {}
             return {
@@ -1825,7 +1834,9 @@ def execute_plan(
                 "发现相同 payload 的 pending/failed raw，不自动覆盖或续写；"
                 f"请先检查 {existing.get('path', existing.get('raw_id', '历史 raw'))}"
             )
-        result = _validate_plan_contents(kb, manifest_path, plan, source_path, payload, flight, now)
+        result = _validate_plan_contents(
+            kb, manifest_path, plan, source_path, payload, flight, allow_unlinked_snapshot, now,
+        )
         journal_path = _journal_path(kb, now)
         index_path = kb / "INDEX.md"
         target_paths = [result.raw_path, journal_path, index_path] + [node["path"] for node in result.nodes]

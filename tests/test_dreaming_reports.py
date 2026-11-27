@@ -23,6 +23,7 @@ from dreaming_reports import (  # noqa: E402
     report_dependency,
     report_migration_readiness,
     report_window,
+    apply_manual_source_gaps,
 )
 from dreaming_report_bundle import render_report_bundle  # noqa: E402
 from dreaming_report_completion import complete_report_run  # noqa: E402
@@ -30,7 +31,7 @@ from dreaming_delivery_lark import (  # noqa: E402
     deliver_lark_bot_summary,
     format_lark_summary_message,
 )
-from dreaming_scheduler import complete_run, configure, enable, run_due  # noqa: E402
+from dreaming_scheduler import complete_run, configure, enable, run_due, start_manual_report  # noqa: E402
 from dreaming_state import (  # noqa: E402
     DreamingError,
     load_state_unlocked,
@@ -111,6 +112,116 @@ class DreamingReportTests(unittest.TestCase):
             "manual_notes": "",
         }
 
+    def manual_kb(self, root, now):
+        kb = self.make_kb(root, now)
+        with state_lock(kb):
+            state = load_state_unlocked(kb, now)
+            state["manage_reports"] = True
+            state["jobs"]["daily"]["enabled"] = True
+            state["jobs"]["daily"]["pending_periods"] = {"2026-08-04": now.isoformat()}
+            state["report_delivery"]["lark_bot"].update(enabled=True, recipient_id="ou_test")
+            save_state_unlocked(kb, state)
+        return kb
+
+    def test_manual_gap_policy_keeps_im_and_invalid_profiles_blocking(self):
+        dependency = {
+            "status": "blocked", "partial_reasons": [],
+            "blockers": [
+                {"source": "routine_digest", "source_key": "one"},
+                {"source": "routine_digest", "source_key": "two"},
+                {"source": "im"},
+                {"source": "routine_digest", "error_code": "SOURCE_PROFILE_INVALID"},
+            ],
+        }
+        lease = {"manual_report": {"accepted_source_gaps": ["one"], "gap_note": "日期缺失。"}}
+        result = apply_manual_source_gaps(dependency, lease)
+        self.assertEqual("blocked", result["status"])
+        self.assertEqual(3, len(result["blockers"]))
+        self.assertEqual("one", result["partial_reasons"][0]["source_key"])
+        self.assertEqual(4, len(dependency["blockers"]))
+        self.assertEqual(dependency, apply_manual_source_gaps(dependency, {}))
+
+    @mock.patch("dreaming_reports.routine_inventory")
+    def test_manual_report_registers_partial_archive_without_delivery(self, inventory):
+        inventory.return_value = [{
+            "source_key": "synthetic-source", "source_type": "feishu_doc",
+            "profile_revision": "sha256:synthetic",
+        }]
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            now = datetime(2026, 8, 5, 2, tzinfo=timezone.utc)
+            kb = self.manual_kb(Path(temporary), now)
+            with self.assertRaises(DreamingError) as caught:
+                start_manual_report(kb, kind="daily", period="2026-08-04", owner="host", now=now)
+            self.assertEqual("DREAMING_REPORT_BLOCKED", caught.exception.code)
+            leased = start_manual_report(
+                kb, kind="daily", period="2026-08-04", owner="host",
+                accepted_source_gaps=["synthetic-source"], gap_note="来源未提供目标日期。",
+                now=now,
+            )
+            prepared = prepare_report_packet(kb, kind="daily", period="2026-08-04", now=now)
+            self.assertEqual("partial", prepared["coverage"]["status"])
+            self.assertEqual("blocked", report_dependency(
+                kb, kind="daily", period="2026-08-03", now=now,
+            )["status"])
+            self.assertEqual("blocked", report_dependency(
+                kb, kind="daily", period="2026-08-04", now=now + timedelta(hours=3),
+            )["status"])
+            document = self.report_document()
+            document.update(kind="daily", title="日报 · 2026-08-04")
+            document["coverage"] = {"status": "covered", "notes": []}
+            with mock.patch("dreaming_report_completion._deliver_if_enabled") as delivery:
+                completed = complete_report_run(
+                    kb, token=leased["lease"]["token"], document=document, now=now,
+                )
+                delivery.assert_not_called()
+            self.assertEqual("manual_delivery_not_requested", completed["delivery"]["reason"])
+            manifest = json.loads((kb / completed["rendered"]["manifest_path"]).read_text())
+            rendered_document = json.loads(Path(manifest["artifacts"]["document"]["absolute_path"]).read_text())
+            self.assertEqual("partial", rendered_document["coverage"]["status"])
+            self.assertIn("来源未提供目标日期。", rendered_document["coverage"]["notes"])
+            with state_lock(kb):
+                state = load_state_unlocked(kb, now)
+            self.assertNotIn("2026-08-04", state["jobs"]["daily"]["pending_periods"])
+            self.assertEqual("2026-08-04", state["jobs"]["daily"]["last_success"]["period"])
+            self.assertIsNone(state["active_lease"])
+            self.assertEqual({}, state["source_checkpoints"])
+            self.assertEqual({}, state["outbox"])
+            self.assertEqual("covered", document["coverage"]["status"])
+
+    def test_manual_report_rejects_invalid_claims_and_busy_lease(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            now = datetime(2026, 8, 5, 2, tzinfo=timezone.utc)
+            kb = self.manual_kb(Path(temporary), now)
+            for extra in (
+                {"accepted_source_gaps": ["unknown"], "gap_note": "缺口"},
+                {"accepted_source_gaps": ["unknown"]},
+                {"period": "2026-09-01"},
+            ):
+                arguments = dict(kind="daily", period="2026-08-04", owner="host", now=now)
+                arguments.update(extra)
+                with self.assertRaises(DreamingError):
+                    start_manual_report(kb, **arguments)
+            leased = start_manual_report(kb, kind="daily", period="2026-08-04", owner="host", now=now)
+            with self.assertRaises(DreamingError) as caught:
+                start_manual_report(kb, kind="daily", period="2026-08-04", owner="host2", now=now)
+            self.assertEqual("DREAMING_LEASE_BUSY", caught.exception.code)
+            with state_lock(kb):
+                self.assertEqual(leased["lease"], load_state_unlocked(kb, now)["active_lease"])
+
+    def test_manual_report_rechecks_coverage_before_publish(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            now = datetime(2026, 8, 5, 2, tzinfo=timezone.utc)
+            kb = self.manual_kb(Path(temporary), now)
+            leased = start_manual_report(kb, kind="daily", period="2026-08-04", owner="host", now=now)
+            set_im_grant(kb, mode="monitored", persist_finding=True,
+                         acknowledge_all_visible=False, now=now)
+            document = self.report_document()
+            document["kind"] = "daily"
+            with self.assertRaises(DreamingError) as caught:
+                complete_report_run(kb, token=leased["lease"]["token"], document=document, now=now)
+            self.assertEqual("DREAMING_REPORT_BLOCKED", caught.exception.code)
+            self.assertFalse((kb / "reports/daily/2026-08-04.md").exists())
+
     def test_report_windows(self):
         daily = report_window("daily", "2026-08-04", "Asia/Shanghai")
         morning = report_window("morning", "2026-08-04", "Asia/Shanghai")
@@ -178,76 +289,52 @@ class DreamingReportTests(unittest.TestCase):
             )
             self.assertEqual("morning", next_run["job"])
 
-    def test_recent_digest_and_both_dailies_precede_weekly_backfill(self):
-        from dreaming_batch import commit_batch, write_stage_receipt
-        from dreaming_collection import prepare_im_batch
-        from dreaming_digest import prepare_routine_digest
-
+    @mock.patch("dreaming_reports.routine_inventory", return_value=[{
+        "source_key": "synthetic", "source_type": "feishu_doc", "profile_revision": "synthetic",
+    }])
+    def test_dailies_publish_partial_before_regular_digest_and_weekly_backfill(self, inventory):
         with tempfile.TemporaryDirectory() as temporary:
-            wake = datetime(2026, 11, 18, 13, tzinfo=timezone.utc)  # Wednesday 21:00 Shanghai
+            wake = datetime(2026, 11, 18, 12, 30, tzinfo=timezone.utc)
             kb = self.make_kb(Path(temporary), wake - timedelta(days=10))
             with state_lock(kb):
                 state = load_state_unlocked(kb, wake)
                 for name, job in state["jobs"].items():
                     job["enabled"] = name in {"process", "daily", "weekly", "recovery"}
-                state["grants"]["im"]["mode"] = "all_visible"
-                state["cursors"]["im:discovery"] = {"through": (wake - timedelta(days=6)).isoformat()}
+                state["grants"]["im"]["mode"] = "monitored"
+                original_cursor = {"through": (wake - timedelta(days=6)).isoformat()}
+                state["cursors"]["im:monitored"] = original_cursor
                 save_state_unlocked(kb, state)
 
-            catchup = run_due(kb, owner="host", now=wake)["lease"]
-            self.assertEqual("process", catchup["job"])
-            self.assertTrue(catchup["period"].startswith("catchup:"))
-            self.assertGreaterEqual(catchup["dependency"]["start"], "2026-11-16T16:00:00")
-            window = {"start": "2026-11-16T16:00:00+00:00", "end": "2026-11-18T12:30:00+00:00"}
-            self.assertEqual(window, catchup["im_window"])
-            self.assertEqual(window["end"], prepare_routine_digest(kb, token=catchup["token"], now=wake)["target_through"])
-            adapter = mock.Mock()
-            adapter.principal.return_value = "user:test"
-            clean = {"coverage": {"status": "best_effort", "gaps": []}, "messages": []}
-            adapter.collect_discovery.side_effect = [
-                {**clean, "coverage": {"status": "best_effort", "gaps": [{"kind": "window_budget"}]}},
-                clean, clean,
-            ]
-            windows = []
-            for _ in range(3):
-                with self.assertRaises(DreamingError) as blocked:
-                    complete_run(kb, token=catchup["token"], run_status="success", now=wake)
-                self.assertEqual("DREAMING_REPORT_BLOCKED", blocked.exception.code)
-                batch = prepare_im_batch(kb, collector=adapter, now=wake)
-                windows.append(batch["window"])
-                for stage in ("analyzed", "consolidated"):
-                    write_stage_receipt(kb, batch_id=batch["batch_id"], stage=stage, receipt={"ok": True}, now=wake)
-                commit_batch(kb, batch_id=batch["batch_id"], cursor_key="im:discovery",
-                             through=batch["window"]["end"], now=wake)
-            self.assertEqual(window, windows[0])
-            self.assertEqual(window["start"], windows[1]["start"])
-            self.assertEqual(windows[1]["end"], windows[2]["start"])
-            self.assertLess(windows[1]["end"], window["end"])
-            self.assertEqual(window["end"], windows[2]["end"])
-            self.assertEqual("covered", prepare_im_batch(kb, collector=adapter, now=wake)["stage"])
-            complete_run(kb, token=catchup["token"], run_status="success", now=wake)
-
             for day in ("2026-11-18", "2026-11-17"):
-                followup = catchup["run_id"] if day == "2026-11-18" else ""
-                report = run_due(kb, owner="host", followup_after_run_id=followup, now=wake)["lease"]
+                report = run_due(kb, owner="host", now=wake)["lease"]
                 self.assertEqual(("daily", day), (report["job"], report["period"]))
-                prepare_report_packet(kb, kind="daily", period=day, now=wake)
-                doc = {**self.report_document(), "kind": "daily", "period": day}
-                receipt = complete_report_run(kb, token=report["token"], document=doc, now=wake)
+                prepared = prepare_report_packet(kb, kind="daily", period=day, now=wake)
+                self.assertEqual("partial", prepared["coverage"]["status"])
+                self.assertEqual({"im", "routine_digest"}, {
+                    reason["source"] for reason in prepared["coverage"]["partial_reasons"]
+                })
+                self.assertEqual(0, prepared["finding_count"])
+                document = {
+                    **self.report_document(), "kind": "daily", "period": day,
+                    "coverage": {"status": "covered", "notes": []},
+                    "message_summary": "本期暂无可核实的进展。",
+                    "sections": {}, "sources": [],
+                }
+                receipt = complete_report_run(kb, token=report["token"], document=document, now=wake)
+                manifest = json.loads((kb / receipt["rendered"]["manifest_path"]).read_text())
+                rendered = json.loads(Path(manifest["artifacts"]["document"]["absolute_path"]).read_text())
+                self.assertEqual("partial", rendered["coverage"]["status"])
+                self.assertEqual(2, len(rendered["coverage"]["notes"]))
                 self.assertTrue((kb / receipt["run"]["artifact_path"]).is_file())
 
-            weekly = report_dependency(kb, kind="weekly", period="2026-W46", now=wake)
-            self.assertEqual(["im"], [item["source"] for item in weekly["blockers"]])
-            # Publishing both dailies did not consume the independent digest interval.
-            ordinary = run_due(kb, owner="host", now=wake)["lease"]
-            self.assertNotIn("dependency", ordinary)
-            self.assertEqual(window["end"], ordinary["im_window"]["start"])
-            self.set_cursor(kb, "im:discovery", wake.isoformat(), wake)
-            complete_run(kb, token=ordinary["token"], run_status="success", now=wake)
-            history = run_due(kb, owner="host", now=wake)["lease"]
-            self.assertEqual("process", history["job"])
-            self.assertEqual(history["dependency"]["end"], history["im_window"]["end"])
-            self.assertLessEqual(history["dependency"]["end"], window["start"])
+            with state_lock(kb):
+                state = load_state_unlocked(kb, wake)
+                self.assertEqual(original_cursor, state["cursors"]["im:monitored"])
+                self.assertEqual({}, state["source_checkpoints"])
+                self.assertNotIn("2026-11-18", state["jobs"]["daily"]["pending_periods"])
+                self.assertNotIn("2026-11-17", state["jobs"]["daily"]["pending_periods"])
+            self.assertEqual("blocked", report_dependency(kb, kind="weekly", period="2026-W46", now=wake)["status"])
+            self.assertEqual("process", run_due(kb, owner="host", now=wake)["job"])
 
     def test_ordinary_digest_resumes_split_windows_after_interruption(self):
         from dreaming_collection import prepare_im_batch
@@ -298,31 +385,6 @@ class DreamingReportTests(unittest.TestCase):
             self.assertEqual("covered", prepare_im_batch(kb, collector=collector, now=later)["stage"])
             self.assertEqual(4, collector.collect_discovery.call_count)
             complete_run(kb, token=second["token"], run_status="success", now=later)
-
-    def test_covered_yesterday_is_published_while_today_needs_input(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            wake = datetime(2026, 11, 18, 13, tzinfo=timezone.utc)
-            kb = self.make_kb(Path(temporary), wake - timedelta(days=8))
-            with state_lock(kb):
-                state = load_state_unlocked(kb, wake)
-                for name, job in state["jobs"].items():
-                    job["enabled"] = name in {"daily", "weekly", "process", "recovery"}
-                state["grants"]["im"]["mode"] = "all_visible"
-                state["cursors"]["im:discovery"] = {"through": "2026-11-17T16:00:00+00:00"}
-                state["jobs"]["process"]["next_attempt_at"] = (wake + timedelta(minutes=5)).isoformat()
-                state["gaps"]["old"] = {"lane": "discovery", "windows": [{
-                    "start": "2026-11-10T00:00:00+00:00", "end": "2026-11-11T00:00:00+00:00",
-                }]}
-                save_state_unlocked(kb, state)
-            yesterday = run_due(kb, owner="host", now=wake)["lease"]
-            self.assertEqual(("daily", "2026-11-17"), (yesterday["job"], yesterday["period"]))
-            complete_report_run(kb, token=yesterday["token"], now=wake, document={
-                **self.report_document(), "kind": "daily", "period": yesterday["period"],
-            })
-            self.assertEqual("idle", run_due(kb, owner="host", now=wake)["status"])
-            retry = run_due(kb, owner="host", now=wake + timedelta(minutes=5))["lease"]
-            self.assertEqual("process", retry["job"])
-            self.assertIn("im_window", retry)
 
     def test_first_recent_collection_preserves_older_unobserved_weeks(self):
         from dreaming_collection import plan_recent_im_window
@@ -378,39 +440,47 @@ class DreamingReportTests(unittest.TestCase):
                 self.assertTrue((kb / receipt["run"]["artifact_path"]).is_file())
             self.assertEqual("idle", run_due(kb, owner="host", now=second)["status"])
 
-    def test_daily_packet_uses_scheduled_cutoff_after_delayed_catchup(self):
+    def test_daily_packet_keeps_scheduled_cutoff_across_midnight(self):
         with tempfile.TemporaryDirectory() as temporary:
             cutoff = datetime(2026, 11, 17, 12, 30, tzinfo=timezone.utc)
-            kb = self.make_kb(Path(temporary), cutoff - timedelta(days=1))
+            kb = self.make_kb(Path(temporary), cutoff - timedelta(hours=3))
             with state_lock(kb):
                 state = load_state_unlocked(kb, cutoff)
                 for name, job in state["jobs"].items():
-                    job["enabled"] = name in {"process", "daily"}
+                    job["enabled"] = name == "daily"
                 state["grants"]["im"]["mode"] = "monitored"
                 save_state_unlocked(kb, state)
-            wake = cutoff.replace(hour=15, minute=59)  # 23:59 local
-            catchup = run_due(kb, owner="host", now=wake)
-            self.assertEqual(cutoff, datetime.fromisoformat(catchup["dependency"]["end"]))
-            self.set_cursor(kb, "im:monitored", cutoff.isoformat(), wake)
-            wake += timedelta(minutes=2)
-            complete_run(kb, token=catchup["lease"]["token"], run_status="success", now=wake)
-            # A newly discovered gap before handoff still belongs to the same report.
-            self.set_cursor(kb, "im:monitored", (cutoff - timedelta(minutes=2)).isoformat(), wake)
-            resume = run_due(kb, owner="host", now=wake, followup_after_run_id=catchup["lease"]["run_id"])
-            self.assertEqual("process", resume["job"])
-            self.assertEqual(cutoff.isoformat(), resume["lease"]["im_window"]["end"])
-            self.set_cursor(kb, "im:monitored", cutoff.isoformat(), wake)
-            complete_run(kb, token=resume["lease"]["token"], run_status="success", now=wake)
-            report = run_due(kb, owner="host", now=wake, followup_after_run_id=resume["lease"]["run_id"])
+            self.assertEqual("idle", run_due(kb, owner="host", now=cutoff - timedelta(seconds=1))["status"])
+            wake = cutoff.replace(hour=15, minute=59)
+            report = run_due(kb, owner="host", now=wake)
             self.assertEqual("daily", report["job"])
+            wake += timedelta(minutes=2)
             prepared = prepare_report_packet(kb, kind="daily", period=report["period"], now=wake)
             packet = json.loads((kb / prepared["packet_path"]).read_text())
             self.assertEqual(cutoff, datetime.fromisoformat(packet["window"]["end"]))
-            self.assertEqual("covered", packet["coverage"]["status"])
-            document = {**self.report_document(), "kind": "daily", "period": report["period"],
-                        "window": packet["window"]}
+            self.assertEqual("partial", packet["coverage"]["status"])
+            document = {**self.report_document(), "kind": "daily", "period": report["period"]}
             receipt = complete_report_run(kb, token=report["lease"]["token"], document=document, now=wake)
-            self.assertTrue((kb / receipt["run"]["artifact_path"]).is_file())
+            manifest = json.loads((kb / receipt["rendered"]["manifest_path"]).read_text())
+            rendered = json.loads(Path(manifest["artifacts"]["document"]["absolute_path"]).read_text())
+            self.assertEqual(cutoff, datetime.fromisoformat(rendered["window"]["end"]))
+
+    def test_daily_stays_pending_on_transaction_rollback_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cutoff = datetime(2026, 11, 17, 12, 30, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), cutoff - timedelta(hours=3))
+            with state_lock(kb):
+                state = load_state_unlocked(kb, cutoff)
+                for name, job in state["jobs"].items():
+                    job["enabled"] = name == "daily"
+                state["jobs"]["process"]["waiting_for_user"] = "DIGEST_TXN_ROLLBACK_FAILED"
+                save_state_unlocked(kb, state)
+            observation = {}
+            self.assertEqual("idle", run_due(kb, owner="host", now=cutoff, observation=observation)["status"])
+            self.assertEqual("blocked_by_dependency", observation["jobs"]["daily"])
+            with self.assertRaises(DreamingError) as caught:
+                prepare_report_packet(kb, kind="daily", period="2026-11-17", now=cutoff)
+            self.assertEqual("DIGEST_TXN_ROLLBACK_FAILED", caught.exception.details["blockers"][0]["error_code"])
 
     def test_prepare_packet_is_private_and_outbox_is_separate(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
@@ -521,6 +591,22 @@ class DreamingReportTests(unittest.TestCase):
 
             updated = archive.read_text(encoding="utf-8")
             self.assertIn("- 保留这条人工备注", updated)
+
+    def test_weekly_bundle_uses_weekly_headings(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
+            now = datetime(2026, 8, 4, 2, tzinfo=timezone.utc)
+            kb = self.make_kb(Path(temporary), now)
+            document = self.report_document()
+            document.update(kind="weekly", period="2026-W32", title="周报 · 2026-W32")
+            rendered = render_report_bundle(kb, document=document, preview=True)
+            for artifact in ("html_path", "markdown_path"):
+                text = Path(rendered[artifact]).read_text(encoding="utf-8")
+                self.assertIn("关键进展与对齐", text)
+                self.assertIn("下周关注与待确认", text)
+                self.assertNotIn("夜间重要变化", text)
+            html_text = Path(rendered["html_path"]).read_text(encoding="utf-8")
+            self.assertIn("本周要点", html_text)
+            self.assertNotIn("今日要点", html_text)
 
     def test_render_bundle_does_not_follow_archive_symlink_for_manual_notes(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:

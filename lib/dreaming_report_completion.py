@@ -27,8 +27,27 @@ def complete_report_run(
 ) -> dict[str, Any]:
     normalized = validate_report_document(document)
     rendered = {}
+    manual = None
 
-    def publish() -> dict[str, Any]:
+    def publish(dependency: Mapping[str, Any], lease: Mapping[str, Any]) -> dict[str, Any]:
+        nonlocal manual
+        manual = lease.get("manual_report")
+        coverage = normalized["coverage"]
+        if dependency["status"] == "partial":
+            coverage["status"] = "partial"
+        reasons = dependency["partial_reasons"]
+        daily_gaps = [item for item in reasons if item["kind"] == "daily_coverage_gap"]
+        notes = []
+        if any(item["source"] == "im" for item in daily_gaps):
+            notes.append("本期消息覆盖不完整，仅纳入已核实的信息。")
+        routine_gaps = sum(item["source"] == "routine_digest" for item in daily_gaps)
+        if routine_gaps:
+            notes.append(f"本期有 {routine_gaps} 个定期来源未完成覆盖，缺失信息未纳入报告。")
+        if any(item["kind"] == "im_discovery_best_effort" for item in reasons):
+            notes.append("全可见会话仅尽力覆盖。")
+        notes.extend(dict.fromkeys(item["note"] for item in reasons if item["kind"] == "manual_source_gap"))
+        coverage["notes"] = [*notes, *(note for note in coverage["notes"] if note not in notes)][:50]
+        normalized["window"] = dependency["window"]
         rendered.update(render_report_bundle(kb, document=normalized))
         return rendered
 
@@ -46,7 +65,9 @@ def complete_report_run(
         publish_report=publish,
         now=now,
     )
-    delivery = _deliver_if_enabled(
+    delivery = {"status": "skipped", "reason": "manual_delivery_not_requested"} if (
+        manual and not manual.get("deliver")
+    ) else _deliver_if_enabled(
         kb,
         kind=str(rendered["kind"]),
         period=str(rendered["period"]),

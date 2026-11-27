@@ -12,10 +12,11 @@ from dreaming_analysis import (
     load_finding_bundle,
     validate_finding_evidence,
 )
-from dreaming_batch import commit_batch, write_stage_receipt
+from dreaming_batch import commit_batch, require_work_owner, write_stage_receipt
 from dreaming_consolidation import consolidate_findings
 from dreaming_state import (
     DreamingError,
+    atomic_write_json,
     load_state_unlocked,
     secure_path,
     state_lock,
@@ -84,6 +85,7 @@ def commit_finding_bundle(
     input_path: Path,
     skill_root: Path,
     semantic_revision: str = "finding-v1",
+    process_token: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or _now()
@@ -96,6 +98,9 @@ def commit_finding_bundle(
                 "DREAMING_BATCH_NOT_FOUND",
                 f"batch 不存在: {batch_id}",
             )
+        work_id = run.get("process_work_id")
+        if work_id:
+            require_work_owner(state, process_token, current, work_id)
         if run.get("stage") == "committed":
             marker = state["receipt_index"].get(batch_id)
             if isinstance(marker, Mapping):
@@ -130,6 +135,15 @@ def commit_finding_bundle(
             "DREAMING_FINDING_BUNDLE_CONFLICT",
             "同一 batch 已提交不同 FindingBundle。",
         )
+    if work_id:
+        with state_lock(kb):
+            checked_at = now or _now()
+            state = load_state_unlocked(kb, checked_at)
+            require_work_owner(state, process_token, checked_at, work_id)
+            candidate = secure_path(kb, "batches", batch_id, "finding-candidate.json")
+            if candidate.is_file() and _bundle_sha(load_finding_bundle(candidate, skill_root=skill_root)) != validation["bundle_sha256"]:
+                raise DreamingError("DREAMING_FINDING_BUNDLE_CONFLICT", "已保存不同的 FindingBundle。")
+            atomic_write_json(candidate, bundle)
     if previous is None:
         write_stage_receipt(
             kb,
@@ -177,7 +191,8 @@ def commit_finding_bundle(
         batch_id=batch_id,
         cursor_key=f"im:{lane}",
         through=evidence["window"]["requested_end"],
-        now=current,
+        process_token=process_token,
+        now=now,
     )
     from dreaming_reports import refresh_report_dependencies
 

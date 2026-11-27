@@ -28,6 +28,13 @@ Trae 原生定时任务支持对话创建和手动新建。创建时检查当前
 优先使用已配置的 `harness_preferences.wake_interval_minutes`，最短 5 分钟。未确认时可在草稿中给
 出 2 小时的建议，按已选任务的时间要求调整。实际创建前须确认间隔，确保所需的执行时段内有唤醒机会。
 
+## 日报截止触发
+
+已接管日报的知识库可使用宿主支持的独立本地定时入口，在工作日的计划出报时间调用
+`<BYTEWORKER_REPO>/bin/byteworker dreaming report publish-due --kb "<KB>"`。
+确认该入口能和长 Agent 会话并行启动。常规间隔任务也会检查到期日报，迟到时保留事故记录。
+宿主只有间隔唤醒或无法并行时，实际出报时间受下一次可用唤醒约束。
+
 ## 创建与复验
 
 接通自动运行前，按 `references/dreaming-setup-guide.md` 完成尚未确认的设置及首次启用导览。

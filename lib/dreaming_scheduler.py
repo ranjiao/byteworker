@@ -998,6 +998,7 @@ def disable(kb: Path, *, now: datetime | None = None) -> dict[str, Any]:
             )
         value["enabled"] = False
         value["disabled_at"] = _iso(current)
+        value.pop("interrupted_process", None)
         value["active_lease"] = None
         jobs = value.get("jobs")
         if isinstance(jobs, dict):
@@ -1236,27 +1237,21 @@ def _candidate(
     }
 
 
-def _report_candidate(kb, state, candidate, job, current, yesterday):
-    from dreaming_reports import report_dependency_from_state
+def _report_candidate(kb, state, candidate, current):
+    from dreaming_reports import allow_daily_coverage_gaps, report_dependency_from_state
 
-    def coverage(item):
-        return report_dependency_from_state(
-            kb, state=state, kind=item["job"], period=item["period"],
-            now=current, scheduled_at=_parse_time(item["deadline_at"]),
-        )
-
-    dependency = coverage(candidate)
-    # At the evening cutoff both dailies can be due. Publish a covered
-    # yesterday even if today still needs input.
-    pending = job.get("pending_periods", {})
-    if (candidate["job"] == "daily" and dependency["status"] == "blocked"
-            and candidate["period"] > yesterday.isoformat() and yesterday.isoformat() in pending):
-        at = pending[yesterday.isoformat()]
-        previous = {**candidate, "period": yesterday.isoformat(), "ready_since": at, "deadline_at": at}
-        previous_coverage = coverage(previous)
-        if previous_coverage["status"] != "blocked":
-            return previous, previous_coverage
-    return candidate, dependency
+    dependency = report_dependency_from_state(
+        kb, state=state, kind=candidate["job"], period=candidate["period"],
+        now=current, scheduled_at=_parse_time(candidate["deadline_at"]),
+    )
+    if candidate["job"] == "daily":
+        dependency = allow_daily_coverage_gaps(dependency)
+        candidate["report_target"] = {
+            "period": candidate["period"],
+            "scheduled_at": candidate["deadline_at"],
+            "through": dependency["window"]["end"],
+        }
+    return dependency
 
 
 def _next_due(
@@ -1371,6 +1366,17 @@ def _expire_lease(kb: Path, value: dict[str, Any], now: datetime) -> None:
     run_id = _lease_run_id(lease)
     jobs = value.get("jobs")
     job = jobs.get(job_name) if isinstance(jobs, Mapping) else None
+    if job_name == "process":
+        from dreaming_digest import _batch_path
+
+        resume_from = run_id if _batch_path(kb, run_id).is_file() else lease.get("resume_from")
+        value["interrupted_process"] = {
+            "period": lease["period"],
+            "target_acquired_at": lease.get("target_acquired_at", lease["acquired_at"]),
+            "resume_from": resume_from,
+            "work_id": lease.get("work_id") or run_id,
+            **{key: lease[key] for key in ("dependency", "report_target", "recent_start") if key in lease},
+        }
     morning_ended = job_name == "morning" and (
         _parse_time(lease.get("expires_at")) == morning_cutoff(lease["period"], value["timezone"])
     )
@@ -1566,7 +1572,7 @@ def run_due(
                 if name in REPORT_KINDS:
                     candidate["historical"] = not recent_report
                     coverage_at = _parse_time((report_target or {}).get("through")) or current
-                    candidate, dependency = _report_candidate(kb, value, candidate, candidate_job, coverage_at, yesterday)
+                    dependency = _report_candidate(kb, value, candidate, coverage_at)
                     dependency_key = f"{name}:{candidate['period']}"
                     dependencies = value["report_dependencies"]
                     for key in list(dependencies):
@@ -1577,12 +1583,10 @@ def run_due(
                         job["blocked_by"] = [item["key"] for item in blockers]
                         dependencies[dependency_key] = dependency
                         if name == "daily":
-                            target = {
-                                "period": candidate["period"],
-                                "scheduled_at": candidate["deadline_at"],
-                                "through": dependency["window"]["end"],
-                            }
-                            blockers = [{**item, "report_target": target} for item in blockers]
+                            # A remaining daily blocker is a damaged source inventory.
+                            if decisions is not None:
+                                decisions[name] = "blocked_by_dependency"
+                            continue
                         if recent_report:
                             recent_blockers.extend(blockers)
                         else:
@@ -1628,6 +1632,15 @@ def run_due(
                         "historical": not recent_due,
                     }
                 )
+        interrupted = value.get("interrupted_process")
+        process_job = jobs.get("process")
+        if interrupted and not followup_run_id and not _job_gate(process_job, current):
+            candidates = [item for item in candidates if item["job"] != "process"]
+            candidates.append({
+                "job": "process", "period": interrupted["period"], "recent_digest": True,
+                "ready_since": interrupted["target_acquired_at"], "deadline_at": "",
+                "resume": interrupted,
+            })
         if not candidates:
             value["updated_at"] = _iso(current)
             _atomic_write(state_path(kb), value)
@@ -1653,12 +1666,13 @@ def run_due(
             "epoch": epoch,
             "acquired_at": _iso(current),
             "expires_at": _iso(current + timedelta(seconds=lease_seconds)),
+            "lease_seconds": lease_seconds,
             "stage": "scheduled",
             "last_heartbeat_at": _iso(current),
         }
         _limit_morning_lease(lease, timezone_name)
-        if job_name == "daily" and report_target:
-            lease["report_target"] = report_target
+        if job_name == "daily":
+            lease["report_target"] = selected["report_target"]
         if selected.get("dependency"):
             lease["dependency"] = selected["dependency"]
         if job_name == "recovery":
@@ -1674,6 +1688,11 @@ def run_due(
         elif job_name == "process" and not selected.get("historical"):
             lease["recent_start"] = _iso(recent_start)
         if job_name == "process":
+            lease["work_id"] = run_id
+            if selected.get("resume"):
+                lease.pop("recent_start", None)
+                lease.update(selected["resume"])
+                value.pop("interrupted_process", None)
             lease["im_window"] = next_process_im_window(value, lease)
         job["lease_epoch"] = epoch
         job["last_attempt"] = {
@@ -1719,6 +1738,83 @@ def run_due(
     }
 
 
+def start_manual_report(
+    kb: Path, *, kind: str, period: str, owner: str,
+    accepted_source_gaps: list[str] | None = None, gap_note: str = "",
+    deliver: bool = False, lease_seconds: int = 7200,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Claim an explicit report period; automatic coverage rules stay unchanged."""
+    from dreaming_reports import apply_manual_source_gaps, report_dependency_from_state
+
+    current = now or _now()
+    accepted = list(dict.fromkeys(accepted_source_gaps or []))
+    if kind not in {"daily", "weekly"} or not owner.strip() or lease_seconds <= 0:
+        raise DreamingError("DREAMING_REPORT_INVALID", "手动补报须指定日报或周报、owner 和有效时限。")
+    if accepted and not gap_note.strip():
+        raise DreamingError("DREAMING_REPORT_INVALID", "接受来源缺口时必须提供限制说明。")
+    with report_owner_lock(kb), _state_lock(kb):
+        value = _load_unlocked(kb, current)
+        if not value["enabled"] or not value["jobs"][kind]["enabled"]:
+            raise DreamingError("DREAMING_REPORT_DISABLED", "此报告尚未由 Dreaming 管理。")
+        if _report_owner_conflict(kb):
+            raise DreamingError("DREAMING_REPORT_OWNER_CONFLICT", "旧报告任务仍持有报告管理权。")
+        if _lease_active(value.get("active_lease"), current):
+            raise DreamingError("DREAMING_LEASE_BUSY", "已有任务正在执行。")
+        dependency = report_dependency_from_state(
+            kb, state=value, kind=kind, period=period, now=current,
+        )
+        if _parse_time(dependency["window"]["start"]) > current:
+            raise DreamingError("DREAMING_REPORT_INVALID", "不能生成未来周期的报告。")
+        available = {
+            item.get("source_key") for item in dependency["blockers"]
+            if item.get("source") == "routine_digest" and not item.get("error_code")
+        }
+        if set(accepted) - available:
+            raise DreamingError("DREAMING_REPORT_INVALID", "接受的来源必须是当前周期的明确缺口。")
+        manual = {
+            "accepted_source_gaps": accepted, "gap_note": gap_note.strip(),
+            "deliver": deliver,
+        }
+        dependency = apply_manual_source_gaps(dependency, {"manual_report": manual})
+        if dependency["blockers"]:
+            raise DreamingError(
+                "DREAMING_REPORT_BLOCKED", "仍有未接受的来源缺口。",
+                details={"blockers": dependency["blockers"]},
+            )
+        _expire_lease(kb, value, current)
+        job = value["jobs"][kind]
+        epoch = int(job.get("lease_epoch", 0)) + 1
+        lease = {
+            "token": uuid.uuid4().hex, "run_id": f"DR-{uuid.uuid4().hex}",
+            "job": kind, "period": period, "owner": owner.strip(), "epoch": epoch,
+            "acquired_at": _iso(current),
+            "expires_at": _iso(current + timedelta(seconds=lease_seconds)),
+            "stage": "scheduled", "last_heartbeat_at": _iso(current),
+            "manual_report": manual,
+        }
+        job["lease_epoch"] = epoch
+        job["last_attempt"] = {
+            key: lease[key] for key in ("run_id", "period", "owner", "epoch")
+        }
+        job["last_attempt"].update(
+            status="running", started_at=lease["acquired_at"],
+            lease_expires_at=lease["expires_at"], stage="scheduled",
+        )
+        value["active_lease"] = lease
+        value["updated_at"] = _iso(current)
+        _atomic_write(state_path(kb), value)
+        settings = _log_settings(value)
+        append_run_event(
+            kb, run_id=lease["run_id"], event="leased", job=kind, period=period,
+            owner=owner.strip(), epoch=epoch, stage="scheduled", status="running",
+            retention_days=settings["retention_days"],
+            max_file_bytes=settings["max_file_bytes"], now=current,
+        )
+    return {"status": "leased", "job": kind, "period": period,
+            "lease": lease, "coverage": dependency}
+
+
 def renew_lease(
     kb: Path,
     *,
@@ -1745,6 +1841,7 @@ def renew_lease(
                 "Dreaming 租约不存在、已过期或 token 不匹配。",
             )
         lease["expires_at"] = _iso(current + timedelta(seconds=lease_seconds))
+        lease["lease_seconds"] = lease_seconds
         _limit_morning_lease(lease, value["timezone"])
         lease["last_heartbeat_at"] = _iso(current)
         jobs = value.get("jobs")
@@ -1807,11 +1904,16 @@ def heartbeat_run(
                 "DREAMING_LEASE_MISMATCH",
                 "Dreaming 租约不存在、已过期或 token 不匹配。",
             )
+        if lease["job"] == "process":
+            original = _parse_time(lease["expires_at"]) - _parse_time(lease["acquired_at"])
+            duration = timedelta(seconds=lease["lease_seconds"]) if lease.get("lease_seconds") else original
+            lease["expires_at"] = _iso(max(_parse_time(lease["expires_at"]), current + duration))
         lease["stage"] = stage
         lease["last_heartbeat_at"] = _iso(current)
         jobs = value.get("jobs")
         job = jobs.get(lease.get("job")) if isinstance(jobs, Mapping) else None
         if isinstance(job, dict) and isinstance(job.get("last_attempt"), dict):
+            job["last_attempt"]["lease_expires_at"] = lease["expires_at"]
             job["last_attempt"]["stage"] = stage
             job["last_attempt"]["last_heartbeat_at"] = _iso(current)
         value["updated_at"] = _iso(current)
@@ -1838,6 +1940,7 @@ def heartbeat_run(
         "run_id": event["run_id"],
         "stage": stage,
         "last_heartbeat_at": event["timestamp"],
+        "expires_at": lease["expires_at"],
         "metrics": event["metrics"],
     }
 
@@ -1905,7 +2008,7 @@ def complete_run(
     batch_id: str = "",
     result_document: Mapping[str, Any] | None = None,
     report_sources: list[dict[str, Any]] | None = None,
-    publish_report: Callable[[], dict[str, Any]] | None = None,
+    publish_report: Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if run_status not in RUN_STATUSES:
@@ -1931,7 +2034,7 @@ def complete_run(
     with _state_lock(kb):
         value = _load_unlocked(kb, current)
         lease = value.get("active_lease")
-        if not isinstance(lease, Mapping) or lease.get("token") != token:
+        if not _lease_active(lease, current) or lease.get("token") != token:
             raise DreamingError(
                 "DREAMING_LEASE_MISMATCH",
                 "Dreaming 租约不存在或 token 不匹配。",
@@ -2007,9 +2110,7 @@ def complete_run(
                     "USER_REQUESTED_STOP", "ENOSPC", "COORDINATOR_STATE_WRITE_VIOLATION",
                 }
             ):
-                require_routine_digest_completion(
-                    kb, lease, now=current, log_settings=_log_settings(value),
-                )
+                require_routine_digest_completion(kb, lease)
         if normalized_batch_id:
             manifest = secure_path(
                 kb,
@@ -2063,7 +2164,15 @@ def complete_run(
                 or result_document.get("period") != period
             ):
                 raise DreamingError("DREAMING_LEASE_MISMATCH", "报告类型或周期与当前租约不一致。")
-            rendered = publish_report()
+            from dreaming_reports import report_dependency_for_lease
+
+            dependency = report_dependency_for_lease(kb, value, lease, current)
+            if dependency["blockers"]:
+                raise DreamingError(
+                    "DREAMING_REPORT_BLOCKED", "报告来源覆盖在发布前仍有阻塞。",
+                    details={"blockers": dependency["blockers"]},
+                )
+            rendered = publish_report(dependency, lease)
             artifact = _validate_artifact(job_name, str(rendered["report_path"]))
             report_sources = rendered["source_distribution"]
         started_at = _parse_time(lease.get("acquired_at"))
@@ -2130,6 +2239,8 @@ def complete_run(
             run["maintenance"] = maintenance_delta
         if lease.get("report_target"):
             run["report_target"] = lease["report_target"]
+        if lease.get("manual_report"):
+            run["manual_report"] = lease["manual_report"]
         job["last_attempt"] = run
         job["last_run"] = run
         catchup = job_name == "process" and period.startswith("catchup:")
